@@ -1,0 +1,21 @@
+{
+  "name": "slackclaw",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @slackclaw/contracts && npm run build --workspace @slackclaw/daemon && npm run build --workspace @slackclaw/desktop-ui",
+    "test": "npm run test --workspace @slackclaw/contracts && npm run test --workspace @slackclaw/daemon && npm run test --workspace @slackclaw/desktop-ui",
+    "dev:daemon": "npm run build --workspace @slackclaw/contracts && npm run dev --workspace @slackclaw/daemon",
+    "dev:ui": "npm run build --workspace @slackclaw/contracts && npm run dev --workspace @slackclaw/desktop-ui",
+    "lint": "npm run lint --workspace @slackclaw/contracts && npm run lint --workspace @slackclaw/daemon && npm run lint --workspace @slackclaw/desktop-ui",
+    "bootstrap:openclaw": "node ./scripts/bootstrap-openclaw.mjs --json",
+    "build:mac-installer": "node ./scripts/build-macos-installer.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

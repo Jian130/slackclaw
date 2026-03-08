@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+.DS_Store
+*.log
+*.tsbuildinfo
+.turbo
+apps/desktop-ui/.vite
+apps/daemon/.data
+**/.data

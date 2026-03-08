@@ -1,0 +1,391 @@
+:root {
+  color-scheme: light;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  --bg: #f3efe4;
+  --bg-strong: #d8c59f;
+  --panel: rgba(255, 251, 241, 0.84);
+  --panel-border: rgba(82, 57, 29, 0.14);
+  --ink: #1b1710;
+  --muted: #5b5246;
+  --accent: #135d66;
+  --accent-strong: #0d3b4c;
+  --warm: #b76e3b;
+  --ok: #285943;
+  --warning: #8a5a00;
+  --shadow: 0 22px 54px rgba(59, 43, 24, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(183, 110, 59, 0.24), transparent 26%),
+    radial-gradient(circle at top right, rgba(19, 93, 102, 0.22), transparent 24%),
+    linear-gradient(145deg, #f6f2e7 0%, var(--bg) 55%, #ede3cb 100%);
+}
+
+button,
+textarea,
+select {
+  font: inherit;
+}
+
+.shell {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 32px 20px 56px;
+}
+
+.hero {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  align-items: end;
+  margin-bottom: 24px;
+}
+
+.hero h1,
+.section-header h2 {
+  margin: 0;
+  font-family: "Futura", "Avenir Next", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.hero h1 {
+  font-size: clamp(2.8rem, 6vw, 5rem);
+  line-height: 0.92;
+  max-width: 11ch;
+}
+
+.hero-status,
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.hero-status {
+  padding: 22px;
+}
+
+.hero-alert,
+.install-outcome,
+.priority-card {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(82, 57, 29, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.locale-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(82, 57, 29, 0.18);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.locale-picker select {
+  border: none;
+  background: transparent;
+  padding: 10px 0;
+}
+
+.banner {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+}
+
+.banner.ok {
+  background: rgba(40, 89, 67, 0.1);
+  border-color: rgba(40, 89, 67, 0.2);
+}
+
+.banner.error {
+  background: rgba(160, 58, 52, 0.1);
+  border-color: rgba(160, 58, 52, 0.2);
+}
+
+.grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.panel {
+  padding: 24px;
+  animation: rise 280ms ease-out both;
+}
+
+.install-panel {
+  grid-column: span 4;
+}
+
+.workspace-panel {
+  grid-column: span 8;
+}
+
+.grid > .panel:not(.install-panel):not(.workspace-panel) {
+  grid-column: span 6;
+}
+
+.section-header {
+  margin-bottom: 18px;
+}
+
+.eyebrow,
+.micro {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+}
+
+.eyebrow {
+  color: var(--accent-strong);
+  margin: 0 0 10px;
+}
+
+.detail,
+.micro,
+.template-card span,
+.profile-card span,
+.check-list span,
+.history-card p,
+.recovery-card p,
+.health-card p {
+  color: var(--muted);
+}
+
+.status-pill,
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.status-pill.ok,
+.chip {
+  background: rgba(40, 89, 67, 0.1);
+  color: var(--ok);
+}
+
+.status-pill.warning {
+  background: rgba(183, 110, 59, 0.14);
+  color: var(--warning);
+}
+
+.check-list,
+.history-list,
+.health-stack,
+.recovery-list,
+.priority-list {
+  display: grid;
+  gap: 14px;
+}
+
+.check-list {
+  padding: 0;
+  list-style: none;
+}
+
+.check-list li,
+.history-card,
+.health-card,
+.recovery-card,
+.template-card,
+.profile-card,
+.result-card {
+  border: 1px solid rgba(82, 57, 29, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+  border-radius: 20px;
+}
+
+.check-list li {
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.profile-grid,
+.task-grid,
+.install-summary {
+  display: grid;
+  gap: 16px;
+}
+
+.install-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 16px;
+}
+
+.install-kv {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(82, 57, 29, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.install-kv span {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.profile-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.profile-card,
+.template-card {
+  text-align: left;
+  padding: 16px;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.profile-card.selected,
+.template-card.selected {
+  transform: translateY(-2px);
+  border-color: rgba(19, 93, 102, 0.45);
+  background: rgba(19, 93, 102, 0.08);
+}
+
+.task-grid {
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+}
+
+.template-column {
+  display: grid;
+  gap: 12px;
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  margin-top: 8px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(82, 57, 29, 0.16);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.result-card {
+  margin-top: 18px;
+  padding: 18px;
+}
+
+.result-card pre {
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: "SFMono-Regular", "Menlo", monospace;
+  background: rgba(27, 23, 16, 0.05);
+  padding: 14px;
+  border-radius: 14px;
+}
+
+.health-card,
+.recovery-card,
+.history-card {
+  padding: 16px;
+}
+
+.priority-card.error,
+.health-card.error {
+  border-color: rgba(160, 58, 52, 0.3);
+  background: rgba(160, 58, 52, 0.08);
+}
+
+.health-card.ok {
+  border-color: rgba(40, 89, 67, 0.26);
+}
+
+.health-card.warning,
+.health-card.info,
+.priority-card.warning {
+  border-color: rgba(183, 110, 59, 0.26);
+}
+
+.action-row,
+.chip-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.recovery-card {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: start;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  color: white;
+}
+
+.secondary {
+  background: rgba(19, 93, 102, 0.1);
+  color: var(--accent-strong);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid rgba(82, 57, 29, 0.18);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 980px) {
+  .hero,
+  .task-grid,
+  .profile-grid,
+  .install-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .install-panel,
+  .workspace-panel,
+  .grid > .panel:not(.install-panel):not(.workspace-panel) {
+    grid-column: span 12;
+  }
+}
