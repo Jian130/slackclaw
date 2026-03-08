@@ -24,7 +24,7 @@ export interface EngineCapabilities {
 export interface EngineInstallSpec {
   engine: EngineKind;
   desiredVersion: string;
-  installSource: "brew" | "bundle" | "manual" | "mock" | "npm-global";
+  installSource: "brew" | "bundle" | "manual" | "mock" | "npm-global" | "npm-local";
   prerequisites: string[];
   installPath?: string;
 }
@@ -112,10 +112,24 @@ export interface InstallCheck {
   detail: string;
 }
 
+export interface FirstRunState {
+  introCompleted: boolean;
+  setupCompleted: boolean;
+  selectedProfileId?: string;
+}
+
+export interface SetupStepResult {
+  id: string;
+  title: string;
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  detail: string;
+}
+
 export interface ProductOverview {
   appName: string;
   appVersion: string;
   platformTarget: string;
+  firstRun: FirstRunState;
   appService: AppServiceStatus;
   engine: EngineStatus;
   installSpec: EngineInstallSpec;
@@ -130,6 +144,7 @@ export interface ProductOverview {
 
 export interface InstallRequest {
   autoConfigure: boolean;
+  forceLocal?: boolean;
 }
 
 export interface InstallResponse {
@@ -154,11 +169,25 @@ export interface RecoveryRunResponse {
   message: string;
 }
 
+export interface SetupRunResponse {
+  status: "completed" | "failed";
+  message: string;
+  steps: SetupStepResult[];
+  overview: ProductOverview;
+  install?: InstallResponse;
+}
+
 export interface AppServiceActionResponse {
   action: "install" | "restart" | "uninstall";
   status: "completed" | "failed";
   message: string;
   service: AppServiceStatus;
+}
+
+export interface AppControlResponse {
+  action: "stop-app" | "uninstall-app";
+  status: "completed" | "failed";
+  message: string;
 }
 
 export const defaultProfiles: UserProfile[] = [
@@ -232,8 +261,13 @@ export function createDefaultProductOverview(): ProductOverview {
 
   return {
     appName: "SlackClaw",
-    appVersion: "0.1.0",
+    appVersion: "0.1.1",
     platformTarget: "macOS first",
+    firstRun: {
+      introCompleted: false,
+      setupCompleted: false,
+      selectedProfileId: undefined
+    },
     appService: {
       mode: "unmanaged",
       installed: false,
@@ -254,7 +288,7 @@ export function createDefaultProductOverview(): ProductOverview {
     installSpec: {
       engine: "openclaw",
       desiredVersion: "2026.3.7",
-      installSource: "npm-global",
+      installSource: "npm-local",
       prerequisites: [
         "macOS 14 or newer",
         "Permission to access local documents you choose",

@@ -6,6 +6,7 @@ import type {
   InstallResponse,
   ProductOverview,
   RecoveryAction,
+  SetupStepResult,
   TaskTemplate
 } from "@slackclaw/contracts";
 
@@ -15,10 +16,14 @@ import {
   fetchOverview,
   installAppService,
   installSlackClaw,
+  markFirstRunIntroComplete,
   restartAppService,
+  runFirstRunSetup,
   runRecovery,
   runTask,
   runUpdate,
+  stopSlackClawApp,
+  uninstallSlackClawApp,
   uninstallAppService
 } from "./api.js";
 import { detectLocale, localeOptions, t, type Locale } from "./i18n.js";
@@ -48,6 +53,17 @@ function summarizeInstallDisposition(locale: Locale, install: InstallResponse): 
   }
 }
 
+function formatInstallSource(locale: Locale, source: ProductOverview["installSpec"]["installSource"]): string {
+  switch (source) {
+    case "npm-local":
+      return t(locale, "installSourceManagedLocal");
+    case "npm-global":
+      return t(locale, "installSourceGlobal");
+    default:
+      return source;
+  }
+}
+
 function severityRank(check: HealthCheckResult): number {
   switch (check.severity) {
     case "error":
@@ -61,6 +77,60 @@ function severityRank(check: HealthCheckResult): number {
   }
 }
 
+function setupStepTitle(locale: Locale, step: SetupStepResult): string {
+  switch (step.id) {
+    case "check-existing-openclaw":
+      return t(locale, "setupStepCheckOpenClaw");
+    case "prepare-openclaw":
+      return t(locale, "setupStepPrepareOpenClaw");
+    case "ensure-engine-running":
+      return t(locale, "setupStepEnsureRunning");
+    default:
+      return step.title;
+  }
+}
+
+function SetupStepStatus(props: { status: SetupStepResult["status"] }) {
+  return <span className={`status-pill ${props.status === "completed" ? "ok" : "warning"}`}>{props.status}</span>;
+}
+
+function AppControlButtons(props: {
+  locale: Locale;
+  busy: string | null;
+  onAction: (action: "stop" | "uninstall") => Promise<void>;
+}) {
+  return (
+    <div className="action-row">
+      <button className="ghost" onClick={() => void props.onAction("stop")} disabled={props.busy !== null}>
+        {props.busy === "app-stop" ? t(props.locale, "stoppingApp") : t(props.locale, "stopApp")}
+      </button>
+      <button className="ghost" onClick={() => void props.onAction("uninstall")} disabled={props.busy !== null}>
+        {props.busy === "app-uninstall" ? t(props.locale, "uninstallingApp") : t(props.locale, "uninstallApp")}
+      </button>
+    </div>
+  );
+}
+
+function LoadingIndicator(props: { label: string }) {
+  return (
+    <div className="loading-indicator" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <strong>{props.label}</strong>
+    </div>
+  );
+}
+
+function attemptCloseUi() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.setTimeout(() => {
+    window.close();
+    window.location.replace("about:blank");
+  }, 500);
+}
+
 export default function App() {
   const [overview, setOverview] = useState<ProductOverview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -72,6 +142,8 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [lastInstall, setLastInstall] = useState<InstallResponse | null>(null);
   const [locale, setLocale] = useState<Locale>(detectLocale());
+  const [setupSteps, setSetupSteps] = useState<SetupStepResult[]>([]);
+  const [setupAutostarted, setSetupAutostarted] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -88,6 +160,21 @@ export default function App() {
     void loadOverview();
   }, []);
 
+  useEffect(() => {
+    if (overview?.firstRun.selectedProfileId) {
+      setSelectedProfileId(overview.firstRun.selectedProfileId);
+    }
+  }, [overview?.firstRun.selectedProfileId]);
+
+  useEffect(() => {
+    if (!overview?.firstRun.introCompleted || overview.firstRun.setupCompleted || setupAutostarted) {
+      return;
+    }
+
+    setSetupAutostarted(true);
+    void handleFirstRunSetup();
+  }, [overview?.firstRun.introCompleted, overview?.firstRun.setupCompleted, setupAutostarted]);
+
   function selectLocale(nextLocale: Locale) {
     setLocale(nextLocale);
     if (typeof window !== "undefined") {
@@ -98,6 +185,8 @@ export default function App() {
   const selectedTemplate: TaskTemplate | undefined = overview?.templates.find(
     (template) => template.id === selectedTemplateId
   );
+  const isDeploying =
+    busy === "first-run-local-deploy" || busy === "first-run-setup" || busy === "install-local" || busy === "install";
 
   const criticalChecks = (overview?.healthChecks ?? [])
     .filter((check) => check.severity === "error" || check.severity === "warning")
@@ -127,12 +216,91 @@ export default function App() {
     }
   }
 
+  async function handleGetStarted() {
+    setBusy("first-run-intro");
+    setError(null);
+    setNotice(null);
+    setSetupSteps([]);
+    setSetupAutostarted(false);
+
+    try {
+      const nextOverview = await markFirstRunIntroComplete();
+      setOverview(nextOverview);
+    } catch (introError) {
+      setError(introError instanceof Error ? introError.message : t(locale, "loadFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleFirstRunSetup() {
+    setBusy("first-run-setup");
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result = await runFirstRunSetup();
+      setOverview(result.overview);
+      setSetupSteps(result.steps);
+      setLastInstall(result.install ?? null);
+
+      if (result.status === "completed") {
+        setNotice(t(locale, "setupCompletedNotice"));
+      } else {
+        setError(t(locale, "setupFailedNotice"));
+      }
+    } catch (setupError) {
+      setError(setupError instanceof Error ? setupError.message : t(locale, "installFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleLocalDeploySetup() {
+    setBusy("first-run-local-deploy");
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result = await runFirstRunSetup(true);
+      setOverview(result.overview);
+      setSetupSteps(result.steps);
+      setLastInstall(result.install ?? null);
+
+      if (result.status === "completed") {
+        setNotice(t(locale, "setupCompletedNotice"));
+      } else {
+        setError(result.install?.message ?? t(locale, "setupFailedNotice"));
+      }
+    } catch (setupError) {
+      setError(setupError instanceof Error ? setupError.message : t(locale, "installFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleInstall() {
     setBusy("install");
     setNotice(null);
     setError(null);
     try {
       const result = await installSlackClaw(true);
+      setOverview(result.overview);
+      setLastInstall(result.install);
+      setNotice(summarizeInstallDisposition(locale, result.install));
+    } catch (installError) {
+      setError(installError instanceof Error ? installError.message : t(locale, "installFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleInstallLocal() {
+    setBusy("install-local");
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await installSlackClaw(true, true);
       setOverview(result.overview);
       setLastInstall(result.install);
       setNotice(summarizeInstallDisposition(locale, result.install));
@@ -248,13 +416,177 @@ export default function App() {
     }
   }
 
-  const heroStatusLabel = !overview
-    ? t(locale, "connecting")
-    : overview.engine.installed
-      ? overview.engine.running
-        ? t(locale, "engineReady")
-        : t(locale, "needsAttention")
-      : t(locale, "installRequired");
+  async function handleAppControl(action: "stop" | "uninstall") {
+    setBusy(`app-${action}`);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result = action === "stop" ? await stopSlackClawApp() : await uninstallSlackClawApp();
+      setNotice(result.message);
+      attemptCloseUi();
+    } catch (appError) {
+      setError(appError instanceof Error ? appError.message : t(locale, "recoveryFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!overview) {
+    return (
+      <div className="shell">
+        <div className="hero">
+          <div className="hero-copy">
+            <p className="eyebrow">{t(locale, "appEyebrow")}</p>
+            <h1>{t(locale, "heroTitle")}</h1>
+            <p className="detail">{t(locale, "heroDetail")}</p>
+          </div>
+          <div className="hero-status">
+            <span className="status-pill warning">{t(locale, "connecting")}</span>
+            <p>Connecting to local SlackClaw daemon...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!overview.firstRun.introCompleted) {
+    return (
+      <div className="shell">
+        <div className="hero first-run-hero">
+          <div className="hero-copy">
+            <p className="eyebrow">{t(locale, "introEyebrow")}</p>
+            <h1>{t(locale, "introTitle")}</h1>
+            <p className="detail">{t(locale, "introDetail")}</p>
+            <div className="action-row">
+              <button className="primary" onClick={handleGetStarted} disabled={busy !== null}>
+                {busy === "first-run-intro" ? t(locale, "connecting") : t(locale, "getStarted")}
+              </button>
+              <label className="locale-picker">
+                <span>{t(locale, "language")}</span>
+                <select value={locale} onChange={(event) => selectLocale(event.target.value as Locale)}>
+                  {localeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <article className="install-outcome">
+              <strong>{t(locale, "appControlTitle")}</strong>
+              <p>{t(locale, "appControlDetail")}</p>
+            </article>
+            <AppControlButtons locale={locale} busy={busy} onAction={handleAppControl} />
+          </div>
+          <div className="hero-status">
+            <div className="setup-points">
+              <article className="install-outcome">
+                <strong>1.</strong>
+                <p>{t(locale, "introPointOne")}</p>
+              </article>
+              <article className="install-outcome">
+                <strong>2.</strong>
+                <p>{t(locale, "introPointTwo")}</p>
+              </article>
+              <article className="install-outcome">
+                <strong>3.</strong>
+                <p>{t(locale, "introPointThree")}</p>
+              </article>
+            </div>
+          </div>
+        </div>
+        {error ? <div className="banner error">{error}</div> : null}
+      </div>
+    );
+  }
+
+  if (!overview.firstRun.setupCompleted) {
+    return (
+      <div className="shell">
+        <div className="hero first-run-hero">
+          <div className="hero-copy">
+            <p className="eyebrow">{t(locale, "setupEyebrow")}</p>
+            <h1>{t(locale, "setupTitle")}</h1>
+            <p className="detail">{t(locale, "setupDetail")}</p>
+            <div className="action-row">
+              <button
+                className="primary"
+                onClick={() => void handleLocalDeploySetup()}
+                disabled={busy !== null}
+              >
+                {busy === "first-run-local-deploy" ? t(locale, "setupRunning") : t(locale, "deployLocalOpenClaw")}
+              </button>
+              <button className="ghost" onClick={() => void handleFirstRunSetup()} disabled={busy !== null}>
+                {busy === "first-run-setup" ? t(locale, "setupRunning") : t(locale, "setupRetry")}
+              </button>
+              <label className="locale-picker">
+                <span>{t(locale, "language")}</span>
+                <select value={locale} onChange={(event) => selectLocale(event.target.value as Locale)}>
+                  {localeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <article className="install-outcome">
+              <strong>{t(locale, "appControlTitle")}</strong>
+              <p>{t(locale, "appControlDetail")}</p>
+            </article>
+            <AppControlButtons locale={locale} busy={busy} onAction={handleAppControl} />
+          </div>
+          <div className="hero-status">
+            <span className={`status-pill ${busy === "first-run-setup" ? "warning" : "ok"}`}>
+              {busy === "first-run-setup" ? t(locale, "setupRunning") : t(locale, "needsAttention")}
+            </span>
+            {isDeploying ? <LoadingIndicator label={t(locale, "setupRunning")} /> : null}
+            <p>{overview.engine.summary}</p>
+            <p className="micro">{t(locale, "platformTarget", { value: overview.platformTarget })}</p>
+          </div>
+        </div>
+
+        {error ? <div className="banner error">{error}</div> : null}
+        {notice ? <div className="banner ok">{notice}</div> : null}
+
+        <main className="grid">
+          <section className="panel workspace-panel">
+            <SectionHeader
+              eyebrow={t(locale, "setupEyebrow")}
+              title={t(locale, "setupTitle")}
+              detail={t(locale, "setupDetail")}
+            />
+            <div className="setup-steps">
+              {setupSteps.length > 0 ? (
+                setupSteps.map((step) => (
+                  <article key={step.id} className={`setup-step ${step.status}`}>
+                    <div className="setup-step-head">
+                      <strong>{setupStepTitle(locale, step)}</strong>
+                      <SetupStepStatus status={step.status} />
+                    </div>
+                    <p>{step.detail}</p>
+                  </article>
+                ))
+              ) : (
+                <p className="detail">{t(locale, "setupNoSteps")}</p>
+              )}
+            </div>
+
+            {lastInstall ? (
+              <article className="install-outcome">
+                <strong>{summarizeInstallDisposition(locale, lastInstall)}</strong>
+                <p>{lastInstall.message}</p>
+              </article>
+            ) : null}
+            {isDeploying ? <LoadingIndicator label={t(locale, "deployingDependencies")} /> : null}
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  const heroStatusLabel = overview.engine.running ? t(locale, "engineReady") : t(locale, "needsAttention");
 
   return (
     <div className="shell">
@@ -280,11 +612,9 @@ export default function App() {
           </div>
         </div>
         <div className="hero-status">
-          <span className={`status-pill ${overview?.engine.running ? "ok" : "warning"}`}>
-            {heroStatusLabel}
-          </span>
-          <p>{overview?.engine.summary ?? "Connecting to local SlackClaw daemon..."}</p>
-          <p className="micro">{t(locale, "platformTarget", { value: overview?.platformTarget ?? "macOS first" })}</p>
+          <span className={`status-pill ${overview.engine.running ? "ok" : "warning"}`}>{heroStatusLabel}</span>
+          <p>{overview.engine.summary}</p>
+          <p className="micro">{t(locale, "platformTarget", { value: overview.platformTarget })}</p>
           {criticalChecks[0] ? (
             <div className="hero-alert">
               <strong>{t(locale, "immediateBlocker")}</strong>
@@ -305,7 +635,7 @@ export default function App() {
             detail={t(locale, "installDetail")}
           />
           <ul className="check-list">
-            {overview?.installChecks.map((check) => (
+            {overview.installChecks.map((check) => (
               <li key={check.id}>
                 <strong>{check.label}</strong>
                 <span>{check.detail}</span>
@@ -316,16 +646,22 @@ export default function App() {
           <div className="install-summary">
             <div className="install-kv">
               <span>{t(locale, "pinnedOpenClaw")}</span>
-              <strong>{overview?.installSpec.desiredVersion ?? "2026.3.7"}</strong>
+              <strong>{overview.installSpec.desiredVersion}</strong>
             </div>
             <div className="install-kv">
               <span>{t(locale, "detectedVersion")}</span>
-              <strong>{overview?.engine.version ?? "Not detected"}</strong>
+              <strong>{overview.engine.version ?? "Not detected"}</strong>
             </div>
             <div className="install-kv">
               <span>{t(locale, "installSource")}</span>
-              <strong>{overview?.installSpec.installSource ?? "npm-global"}</strong>
+              <strong>{formatInstallSource(locale, overview.installSpec.installSource)}</strong>
             </div>
+            {overview.installSpec.installPath ? (
+              <div className="install-kv">
+                <span>{t(locale, "installPath")}</span>
+                <strong>{overview.installSpec.installPath}</strong>
+              </div>
+            ) : null}
           </div>
 
           {lastInstall ? (
@@ -343,9 +679,13 @@ export default function App() {
               </span>
             </article>
           ) : null}
+          {isDeploying ? <LoadingIndicator label={t(locale, "deployingDependencies")} /> : null}
 
           <button className="primary" onClick={handleInstall} disabled={busy !== null}>
             {busy === "install" ? t(locale, "installing") : t(locale, "installAndConfigure")}
+          </button>
+          <button className="ghost" onClick={handleInstallLocal} disabled={busy !== null}>
+            {busy === "install-local" ? t(locale, "installing") : t(locale, "deployLocalOpenClaw")}
           </button>
         </section>
 
@@ -358,20 +698,20 @@ export default function App() {
           <div className="install-summary">
             <div className="install-kv">
               <span>{t(locale, "serviceMode")}</span>
-              <strong>{overview?.appService.mode ?? "unmanaged"}</strong>
+              <strong>{overview.appService.mode}</strong>
             </div>
             <div className="install-kv">
               <span>{t(locale, "serviceInstalled")}</span>
-              <strong>{overview?.appService.installed ? t(locale, "yes") : t(locale, "no")}</strong>
+              <strong>{overview.appService.installed ? t(locale, "yes") : t(locale, "no")}</strong>
             </div>
             <div className="install-kv">
               <span>{t(locale, "serviceManagedAtLogin")}</span>
-              <strong>{overview?.appService.managedAtLogin ? t(locale, "yes") : t(locale, "no")}</strong>
+              <strong>{overview.appService.managedAtLogin ? t(locale, "yes") : t(locale, "no")}</strong>
             </div>
           </div>
           <article className="install-outcome">
-            <strong>{overview?.appService.summary ?? "SlackClaw service status unavailable."}</strong>
-            <p>{overview?.appService.detail ?? ""}</p>
+            <strong>{overview.appService.summary}</strong>
+            <p>{overview.appService.detail}</p>
           </article>
           <div className="action-row">
             <button className="secondary" onClick={() => void handleServiceAction("install")} disabled={busy !== null}>
@@ -384,6 +724,11 @@ export default function App() {
               {t(locale, "serviceUninstall")}
             </button>
           </div>
+          <article className="install-outcome">
+            <strong>{t(locale, "appControlTitle")}</strong>
+            <p>{t(locale, "appControlDetail")}</p>
+          </article>
+          <AppControlButtons locale={locale} busy={busy} onAction={handleAppControl} />
         </section>
 
         <section className="panel">
@@ -393,7 +738,7 @@ export default function App() {
             detail={t(locale, "onboardingDetail")}
           />
           <div className="profile-grid">
-            {overview?.profiles.map((profile) => (
+            {overview.profiles.map((profile) => (
               <button
                 key={profile.id}
                 className={`profile-card ${selectedProfileId === profile.id ? "selected" : ""}`}
@@ -417,7 +762,7 @@ export default function App() {
           />
           <div className="task-grid">
             <div className="template-column">
-              {overview?.templates.map((template) => (
+              {overview.templates.map((template) => (
                 <button
                   key={template.id}
                   className={`template-card ${selectedTemplateId === template.id ? "selected" : ""}`}
@@ -487,7 +832,7 @@ export default function App() {
           )}
 
           <div className="health-stack">
-            {overview?.healthChecks.map((check) => (
+            {overview.healthChecks.map((check) => (
               <article key={check.id} className={`health-card ${check.severity}`}>
                 <div>
                   <strong>{check.title}</strong>
@@ -526,7 +871,7 @@ export default function App() {
                   <p>{action.description}</p>
                   <span className="micro">{action.expectedImpact}</span>
                 </div>
-                <button className="ghost" onClick={() => handleRecovery(action.id)} disabled={busy !== null}>
+                <button className="ghost" onClick={() => void handleRecovery(action.id)} disabled={busy !== null}>
                   {busy === action.id ? "Running..." : "Run"}
                 </button>
               </article>
@@ -541,7 +886,7 @@ export default function App() {
             detail={t(locale, "historyDetail")}
           />
           <div className="history-list">
-            {overview?.recentTasks.length ? (
+            {overview.recentTasks.length ? (
               overview.recentTasks.map((task) => (
                 <article key={task.taskId} className="history-card">
                   <strong>{task.title}</strong>

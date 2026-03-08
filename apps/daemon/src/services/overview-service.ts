@@ -25,6 +25,11 @@ export class OverviewService {
 
     return {
       ...base,
+      firstRun: {
+        introCompleted: Boolean(state.introCompletedAt),
+        setupCompleted: Boolean(state.setupCompletedAt),
+        selectedProfileId: state.selectedProfileId
+      },
       appService,
       engine,
       capabilities: this.adapter.capabilities,

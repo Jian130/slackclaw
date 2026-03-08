@@ -5,6 +5,14 @@ export function getDataDir(): string {
   return process.env.SLACKCLAW_DATA_DIR ?? resolve(process.cwd(), "apps/daemon/.data");
 }
 
+export function getManagedOpenClawDir(): string {
+  return resolve(getDataDir(), "openclaw-runtime");
+}
+
+export function getManagedOpenClawBinPath(): string {
+  return resolve(getManagedOpenClawDir(), "node_modules", ".bin", "openclaw");
+}
+
 export function getAppRootDir(): string | undefined {
   return process.env.SLACKCLAW_APP_ROOT;
 }
@@ -19,6 +27,10 @@ export function getBootstrapScriptPath(): string {
 
 export function getDefaultAppSupportDir(): string {
   return resolve(homedir(), "Library/Application Support/SlackClaw");
+}
+
+export function getLogDir(): string {
+  return process.env.SLACKCLAW_LOG_DIR ?? (getAppRootDir() ? resolve(getDefaultAppSupportDir(), "logs") : resolve(getDataDir(), "logs"));
 }
 
 export function getScriptsDir(): string | undefined {

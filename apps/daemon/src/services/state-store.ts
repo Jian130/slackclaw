@@ -7,6 +7,8 @@ import { getDataDir } from "../runtime-paths.js";
 interface AppState {
   selectedProfileId?: string;
   tasks: EngineTaskResult[];
+  introCompletedAt?: string;
+  setupCompletedAt?: string;
 }
 
 const DEFAULT_STATE: AppState = {

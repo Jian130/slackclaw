@@ -75,6 +75,10 @@ select {
   padding: 22px;
 }
 
+.first-run-hero {
+  align-items: stretch;
+}
+
 .hero-alert,
 .install-outcome,
 .priority-card {
@@ -193,7 +197,9 @@ select {
 .history-list,
 .health-stack,
 .recovery-list,
-.priority-list {
+.priority-list,
+.setup-steps,
+.setup-points {
   display: grid;
   gap: 14px;
 }
@@ -316,6 +322,45 @@ select {
   border-color: rgba(40, 89, 67, 0.26);
 }
 
+.setup-step {
+  border: 1px solid rgba(82, 57, 29, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.setup-step.failed {
+  border-color: rgba(160, 58, 52, 0.3);
+  background: rgba(160, 58, 52, 0.08);
+}
+
+.setup-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.loading-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(19, 93, 102, 0.16);
+  background: rgba(19, 93, 102, 0.08);
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(19, 93, 102, 0.2);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
 .health-card.warning,
 .health-card.info,
 .priority-card.warning {
@@ -372,6 +417,15 @@ button:disabled {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 

@@ -1,12 +1,14 @@
 {
   "name": "slackclaw",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
+    "start": "node ./scripts/start-dev.mjs",
+    "stop": "node ./scripts/stop-dev.mjs",
     "build": "npm run build --workspace @slackclaw/contracts && npm run build --workspace @slackclaw/daemon && npm run build --workspace @slackclaw/desktop-ui",
     "test": "npm run test --workspace @slackclaw/contracts && npm run test --workspace @slackclaw/daemon && npm run test --workspace @slackclaw/desktop-ui",
     "dev:daemon": "npm run build --workspace @slackclaw/contracts && npm run dev --workspace @slackclaw/daemon",
@@ -17,5 +19,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3",
+    "pkg": "^5.8.1"
   }
 }

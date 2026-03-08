@@ -14,7 +14,7 @@ export interface EngineAdapter {
   readonly installSpec: EngineInstallSpec;
   readonly capabilities: EngineCapabilities;
 
-  install(autoConfigure: boolean): Promise<InstallResponse>;
+  install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse>;
   configure(profileId: string): Promise<void>;
   status(): Promise<EngineStatus>;
   healthCheck(selectedProfileId?: string): Promise<HealthCheckResult[]>;

@@ -6,17 +6,19 @@ import { dirname, resolve } from "node:path";
 
 const ROOT = process.cwd();
 const DIST_DIR = resolve(ROOT, "dist/macos");
+const BUILD_DIR = resolve(DIST_DIR, ".build");
 const APP_NAME = "SlackClaw";
+const APP_VERSION = "0.1.1";
 const APP_BUNDLE = resolve(DIST_DIR, `${APP_NAME}.app`);
 const APP_CONTENTS = resolve(APP_BUNDLE, "Contents");
 const APP_MACOS = resolve(APP_CONTENTS, "MacOS");
 const APP_RESOURCES = resolve(APP_CONTENTS, "Resources");
 const APP_RUNTIME = resolve(APP_RESOURCES, "runtime");
 const APP_RUNTIME_ROOT = resolve(APP_RESOURCES, "app");
-const APP_DAEMON = resolve(APP_RUNTIME_ROOT, "daemon");
 const APP_UI = resolve(APP_RUNTIME_ROOT, "ui");
 const APP_SCRIPTS = resolve(APP_RUNTIME_ROOT, "scripts");
-const APP_NODE_MODULES = resolve(APP_RUNTIME_ROOT, "node_modules/@slackclaw/contracts");
+const PACKAGED_DAEMON_BUNDLE = resolve(BUILD_DIR, "slackclaw-daemon.cjs");
+const PACKAGED_DAEMON_BINARY = resolve(APP_RUNTIME, "slackclaw-daemon");
 const PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
 const LAUNCH_AGENT_LABEL = "ai.slackclaw.daemon";
 
@@ -55,6 +57,47 @@ async function ensureBuild(skipBuild) {
   }
 }
 
+function pkgTarget() {
+  if (process.platform !== "darwin") {
+    throw new Error("The macOS installer build must run on macOS.");
+  }
+
+  if (process.arch === "arm64") {
+    return "node18-macos-arm64";
+  }
+
+  if (process.arch === "x64") {
+    return "node18-macos-x64";
+  }
+
+  throw new Error(`Unsupported macOS packaging architecture: ${process.arch}`);
+}
+
+async function buildStandaloneDaemon() {
+  await mkdir(BUILD_DIR, { recursive: true });
+
+  await run("npx", [
+    "esbuild",
+    "apps/daemon/src/index.ts",
+    "--bundle",
+    "--platform=node",
+    "--format=cjs",
+    "--target=node18",
+    `--outfile=${PACKAGED_DAEMON_BUNDLE}`
+  ]);
+
+  await run("npx", [
+    "pkg",
+    "-t",
+    pkgTarget(),
+    "--output",
+    PACKAGED_DAEMON_BINARY,
+    PACKAGED_DAEMON_BUNDLE
+  ]);
+
+  await chmod(PACKAGED_DAEMON_BINARY, 0o755);
+}
+
 function launcherScript() {
   return `#!/bin/sh
 set -eu
@@ -63,10 +106,11 @@ APP_ROOT="$(cd "$(dirname "$0")/../Resources" && pwd)"
 APP_SUPPORT="$HOME/Library/Application Support/SlackClaw"
 DATA_DIR="$APP_SUPPORT/data"
 LOG_DIR="$APP_SUPPORT/logs"
-NODE_BIN="$APP_ROOT/runtime/node"
-DAEMON_ENTRY="$APP_ROOT/app/daemon/index.js"
+DAEMON_BIN="$APP_ROOT/runtime/slackclaw-daemon"
 UI_URL="http://127.0.0.1:4545/"
-HEALTH_URL="http://127.0.0.1:4545/api/overview"
+PING_URL="http://127.0.0.1:4545/api/ping"
+LAUNCHER_LOG="$LOG_DIR/launcher.log"
+FAILURE_PAGE="$APP_SUPPORT/startup-failed.html"
 
 mkdir -p "$DATA_DIR" "$LOG_DIR"
 
@@ -77,16 +121,66 @@ export SLACKCLAW_STATIC_DIR="$APP_ROOT/app/ui"
 export SLACKCLAW_OPENCLAW_BOOTSTRAP_SCRIPT="$APP_ROOT/app/scripts/bootstrap-openclaw.mjs"
 export SLACKCLAW_LAUNCHAGENT_LABEL="${LAUNCH_AGENT_LABEL}"
 
-if ! /usr/bin/curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1; then
-  "$APP_ROOT/app/scripts/install-launchagent.sh" >/dev/null 2>&1 || true
+log_launcher() {
+  /bin/echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >>"$LAUNCHER_LOG"
+}
+
+wait_for_ping() {
   ATTEMPT=0
-  until /usr/bin/curl --silent --fail "$HEALTH_URL" >/dev/null 2>&1 || [ "$ATTEMPT" -ge 20 ]; do
+  LIMIT="$1"
+  until /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1 || [ "$ATTEMPT" -ge "$LIMIT" ]; do
     ATTEMPT=$((ATTEMPT + 1))
     /bin/sleep 1
   done
+}
+
+if ! /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1; then
+  log_launcher "app launch requested, installing or refreshing LaunchAgent"
+  "$APP_ROOT/app/scripts/install-launchagent.sh" >>"$LAUNCHER_LOG" 2>&1 || true
+  wait_for_ping 10
 fi
 
-/usr/bin/open "$UI_URL"
+if ! /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1; then
+  log_launcher "launchagent start did not become ready, starting daemon directly"
+  /usr/bin/nohup "$APP_ROOT/app/scripts/run-daemon.sh" direct-launch >>"$LOG_DIR/daemon.log" 2>&1 &
+  wait_for_ping 15
+fi
+
+if /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1; then
+  log_launcher "daemon reachable, opening local UI"
+  /usr/bin/open "$UI_URL"
+else
+  log_launcher "daemon still not reachable, opening troubleshooting page"
+  cat >"$FAILURE_PAGE" <<EOF
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SlackClaw Startup Failed</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f6f2e7; color: #1b1710; }
+      main { max-width: 760px; margin: 48px auto; padding: 32px; background: rgba(255,255,255,0.82); border: 1px solid rgba(82,57,29,0.14); border-radius: 24px; }
+      h1 { margin-top: 0; font-size: 2rem; }
+      code { background: rgba(27,23,16,0.06); padding: 0.15rem 0.35rem; border-radius: 6px; }
+      li { margin: 0.5rem 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>SlackClaw could not start its local daemon.</h1>
+      <p>SlackClaw was not able to confirm that <code>127.0.0.1:4545</code> is running.</p>
+      <p>Check these log files on this Mac:</p>
+      <ul>
+        <li><code>$LOG_DIR/launcher.log</code></li>
+        <li><code>$LOG_DIR/daemon.log</code></li>
+      </ul>
+      <p>This build uses a self-contained daemon binary. If it still fails, send the newest log lines for diagnosis.</p>
+    </main>
+  </body>
+</html>
+EOF
+  /usr/bin/open "$FAILURE_PAGE"
+fi
 `;
 }
 
@@ -101,12 +195,13 @@ LOG_DIR="$APP_SUPPORT/logs"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 LABEL="${LAUNCH_AGENT_LABEL}"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$LABEL.plist"
-NODE_BIN="$APP_ROOT/runtime/node"
-DAEMON_ENTRY="$APP_ROOT/app/daemon/index.js"
+DAEMON_BIN="$APP_ROOT/runtime/slackclaw-daemon"
 STATIC_DIR="$APP_ROOT/app/ui"
 BOOTSTRAP_SCRIPT="$APP_ROOT/app/scripts/bootstrap-openclaw.mjs"
 
 mkdir -p "$DATA_DIR" "$LOG_DIR" "$LAUNCH_AGENTS_DIR"
+
+RUNNER_SCRIPT="$APP_ROOT/app/scripts/run-daemon.sh"
 
 cat >"$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -117,12 +212,8 @@ cat >"$PLIST_PATH" <<EOF
     <string>$LABEL</string>
     <key>ProgramArguments</key>
     <array>
-      <string>/bin/bash</string>
-      <string>-lc</string>
-      <string>exec -a slackclaw "$1" "$2"</string>
-      <string>_</string>
-      <string>$NODE_BIN</string>
-      <string>$DAEMON_ENTRY</string>
+      <string>$RUNNER_SCRIPT</string>
+      <string>launchagent</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -156,6 +247,22 @@ EOF
 /bin/launchctl bootout "gui/$UID/$LABEL" >/dev/null 2>&1 || true
 /bin/launchctl bootstrap "gui/$UID" "$PLIST_PATH"
 /bin/launchctl kickstart -k "gui/$UID/$LABEL"
+`;
+}
+
+function runDaemonScript() {
+  return `#!/bin/sh
+set -eu
+
+APP_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+APP_SUPPORT="$HOME/Library/Application Support/SlackClaw"
+LOG_DIR="$APP_SUPPORT/logs"
+DAEMON_BIN="$APP_ROOT/runtime/slackclaw-daemon"
+START_MODE="\${1:-unknown}"
+
+mkdir -p "$LOG_DIR"
+/bin/echo "$(date '+%Y-%m-%d %H:%M:%S') starting packaged daemon via $START_MODE using $DAEMON_BIN" >>"$LOG_DIR/daemon.log"
+exec "$DAEMON_BIN"
 `;
 }
 
@@ -198,9 +305,9 @@ function infoPlist() {
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>${APP_VERSION}</string>
   <key>CFBundleVersion</key>
-  <string>0.1.0</string>
+  <string>${APP_VERSION}</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSHighResolutionCapable</key>
@@ -214,38 +321,20 @@ async function stageBundle() {
   await rm(DIST_DIR, { recursive: true, force: true });
   await mkdir(APP_MACOS, { recursive: true });
   await mkdir(APP_RUNTIME, { recursive: true });
-  await mkdir(APP_DAEMON, { recursive: true });
   await mkdir(APP_UI, { recursive: true });
   await mkdir(APP_SCRIPTS, { recursive: true });
-  await mkdir(resolve(APP_NODE_MODULES, "dist"), { recursive: true });
 
-  await copyFile(process.execPath, resolve(APP_RUNTIME, "node"));
-  await chmod(resolve(APP_RUNTIME, "node"), 0o755);
-
-  await cp(resolve(ROOT, "apps/daemon/dist"), APP_DAEMON, { recursive: true });
+  await buildStandaloneDaemon();
   await cp(resolve(ROOT, "apps/desktop-ui/dist"), APP_UI, { recursive: true });
   await copyFile(resolve(ROOT, "scripts/bootstrap-openclaw.mjs"), resolve(APP_SCRIPTS, "bootstrap-openclaw.mjs"));
-  await copyFile(resolve(ROOT, "packages/contracts/package.json"), resolve(APP_NODE_MODULES, "package.json"));
-  await cp(resolve(ROOT, "packages/contracts/dist"), resolve(APP_NODE_MODULES, "dist"), { recursive: true });
-
-  await writeFile(
-    resolve(APP_RUNTIME_ROOT, "package.json"),
-    JSON.stringify(
-      {
-        name: "slackclaw-runtime",
-        private: true,
-        type: "module"
-      },
-      null,
-      2
-    )
-  );
 
   await writeFile(resolve(APP_SCRIPTS, "install-launchagent.sh"), installLaunchAgentScript());
   await writeFile(resolve(APP_SCRIPTS, "restart-launchagent.sh"), restartLaunchAgentScript());
+  await writeFile(resolve(APP_SCRIPTS, "run-daemon.sh"), runDaemonScript());
   await writeFile(resolve(APP_SCRIPTS, "uninstall-launchagent.sh"), uninstallLaunchAgentScript());
   await chmod(resolve(APP_SCRIPTS, "install-launchagent.sh"), 0o755);
   await chmod(resolve(APP_SCRIPTS, "restart-launchagent.sh"), 0o755);
+  await chmod(resolve(APP_SCRIPTS, "run-daemon.sh"), 0o755);
   await chmod(resolve(APP_SCRIPTS, "uninstall-launchagent.sh"), 0o755);
   await writeFile(resolve(APP_MACOS, "SlackClaw"), launcherScript());
   await chmod(resolve(APP_MACOS, "SlackClaw"), 0o755);

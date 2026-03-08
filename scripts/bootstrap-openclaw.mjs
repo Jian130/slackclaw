@@ -1,9 +1,44 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { access, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { resolve } from "node:path";
 
 const OPENCLAW_VERSION = process.env.SLACKCLAW_OPENCLAW_VERSION ?? "2026.3.7";
 const OPENCLAW_PACKAGE = `openclaw@${OPENCLAW_VERSION}`;
+const LOCAL_INSTALL_PREFIX = process.env.SLACKCLAW_OPENCLAW_INSTALL_PREFIX;
+
+function managedOpenClawBinPath() {
+  return LOCAL_INSTALL_PREFIX ? resolve(LOCAL_INSTALL_PREFIX, "node_modules", ".bin", "openclaw") : undefined;
+}
+
+async function fileExists(pathname) {
+  try {
+    await access(pathname, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveNpmPath() {
+  const candidates = [
+    process.env.npm_execpath,
+    "/opt/homebrew/bin/npm",
+    "/usr/local/bin/npm",
+    "/usr/bin/npm",
+    process.env.HOME ? resolve(process.env.HOME, ".nvm/current/bin/npm") : undefined
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "npm";
+}
 
 function parseArgs(argv) {
   return {
@@ -46,17 +81,29 @@ function run(command, args, options = {}) {
 }
 
 async function readExistingVersion() {
-  const result = await run("openclaw", ["--version"]).catch(() => ({
-    code: 1,
-    stdout: "",
-    stderr: ""
-  }));
+  const candidates = [managedOpenClawBinPath(), "openclaw"].filter(Boolean);
 
-  if (result.code !== 0 || !result.stdout) {
-    return undefined;
+  for (const candidate of candidates) {
+    if (candidate !== "openclaw") {
+      try {
+        await access(candidate, constants.F_OK);
+      } catch {
+        continue;
+      }
+    }
+
+    const result = await run(candidate, ["--version"]).catch(() => ({
+      code: 1,
+      stdout: "",
+      stderr: ""
+    }));
+
+    if (result.code === 0 && result.stdout) {
+      return result.stdout;
+    }
   }
 
-  return result.stdout;
+  return undefined;
 }
 
 async function ensureOpenClaw({ dryRun }) {
@@ -69,7 +116,9 @@ async function ensureOpenClaw({ dryRun }) {
       hadExisting: true,
       existingVersion,
       version: existingVersion,
-      message: `OpenClaw ${existingVersion} is already installed and matches the pinned version.`
+      message: LOCAL_INSTALL_PREFIX
+        ? `OpenClaw ${existingVersion} is already available for SlackClaw in ${LOCAL_INSTALL_PREFIX}.`
+        : `OpenClaw ${existingVersion} is already installed and matches the pinned version.`
     };
   }
 
@@ -80,13 +129,29 @@ async function ensureOpenClaw({ dryRun }) {
       hadExisting: Boolean(existingVersion),
       existingVersion,
       version: existingVersion ?? null,
-      message: existingVersion
-        ? `OpenClaw ${existingVersion} is installed, but SlackClaw would replace it with ${OPENCLAW_VERSION}.`
-        : `OpenClaw is not installed, and SlackClaw would install ${OPENCLAW_PACKAGE}.`
+      message: LOCAL_INSTALL_PREFIX
+        ? existingVersion
+          ? `SlackClaw would deploy OpenClaw ${OPENCLAW_VERSION} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
+          : `SlackClaw would deploy ${OPENCLAW_PACKAGE} into ${LOCAL_INSTALL_PREFIX}.`
+        : existingVersion
+          ? `OpenClaw ${existingVersion} is installed, but SlackClaw would replace it with ${OPENCLAW_VERSION}.`
+          : `OpenClaw is not installed, and SlackClaw would install ${OPENCLAW_PACKAGE}.`
     };
   }
 
-  const installResult = await run("npm", ["install", "--global", OPENCLAW_PACKAGE]);
+  if (LOCAL_INSTALL_PREFIX) {
+    await mkdir(LOCAL_INSTALL_PREFIX, { recursive: true });
+  }
+
+  const npmPath = await resolveNpmPath();
+  const installResult = await run(
+    npmPath,
+    LOCAL_INSTALL_PREFIX ? ["install", "--prefix", LOCAL_INSTALL_PREFIX, OPENCLAW_PACKAGE] : ["install", "--global", OPENCLAW_PACKAGE]
+  ).catch((error) => ({
+    code: 1,
+    stdout: "",
+    stderr: error instanceof Error ? error.message : String(error)
+  }));
 
   if (installResult.code !== 0) {
     return {
@@ -107,9 +172,13 @@ async function ensureOpenClaw({ dryRun }) {
     hadExisting: Boolean(existingVersion),
     existingVersion,
     version: nextVersion ?? OPENCLAW_VERSION,
-    message: existingVersion
-      ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion ?? OPENCLAW_VERSION}.`
-      : `Installed OpenClaw ${nextVersion ?? OPENCLAW_VERSION}.`
+    message: LOCAL_INSTALL_PREFIX
+      ? existingVersion
+        ? `SlackClaw deployed OpenClaw ${nextVersion ?? OPENCLAW_VERSION} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
+        : `SlackClaw deployed OpenClaw ${nextVersion ?? OPENCLAW_VERSION} into ${LOCAL_INSTALL_PREFIX}.`
+      : existingVersion
+        ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion ?? OPENCLAW_VERSION}.`
+        : `Installed OpenClaw ${nextVersion ?? OPENCLAW_VERSION}.`
   };
 }
 

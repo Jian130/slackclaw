@@ -1,6 +1,6 @@
 {
   "name": "@slackclaw/desktop-ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "lint": "tsc -p tsconfig.app.json --noEmit"
   },
   "dependencies": {
-    "@slackclaw/contracts": "0.1.0",
+    "@slackclaw/contracts": "0.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

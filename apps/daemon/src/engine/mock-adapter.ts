@@ -37,7 +37,7 @@ export class MockAdapter implements EngineAdapter {
   private installed = true;
   private profileId = "email-admin";
 
-  async install(): Promise<InstallResponse> {
+  async install(_autoConfigure = true, _options?: { forceLocal?: boolean }): Promise<InstallResponse> {
     this.installed = true;
     return {
       status: "already-installed",

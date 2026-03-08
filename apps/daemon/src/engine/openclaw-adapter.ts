@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { access } from "node:fs/promises";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 
 import type {
   EngineCapabilities,
@@ -16,7 +18,8 @@ import type {
 } from "@slackclaw/contracts";
 
 import type { EngineAdapter } from "./adapter.js";
-import { getBootstrapScriptPath, getDataDir } from "../runtime-paths.js";
+import { getAppRootDir, getDataDir, getManagedOpenClawBinPath, getManagedOpenClawDir } from "../runtime-paths.js";
+import { errorToLogDetails, writeErrorLog, writeInfoLog } from "../services/logger.js";
 
 interface CommandResult {
   code: number;
@@ -138,6 +141,25 @@ interface BootstrapResult {
   message: string;
 }
 
+function buildCommandEnv(command?: string): NodeJS.ProcessEnv {
+  const pathEntries = [
+    command && command.startsWith("/") ? dirname(command) : undefined,
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+    ...(process.env.PATH ? process.env.PATH.split(delimiter) : [])
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    ...process.env,
+    PATH: [...new Set(pathEntries)].join(delimiter),
+    NO_COLOR: "1"
+  };
+}
+
 function toInstallDisposition(
   bootstrapStatus: BootstrapResult["status"],
   mode: "detected" | "onboarded"
@@ -154,12 +176,23 @@ function toInstallDisposition(
 }
 
 async function runOpenClaw(args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
+  const command = await resolveOpenClawCommand();
+
+  if (!command) {
+    if (options?.allowFailure) {
+      return {
+        code: 1,
+        stdout: "",
+        stderr: "OpenClaw CLI is not installed."
+      };
+    }
+
+    throw new Error("OpenClaw CLI is not installed.");
+  }
+
   return new Promise((resolve, reject) => {
-    const child = spawn("openclaw", args, {
-      env: {
-        ...process.env,
-        NO_COLOR: "1"
-      }
+    const child = spawn(command, args, {
+      env: buildCommandEnv(command)
     });
 
     let stdout = "";
@@ -174,6 +207,11 @@ async function runOpenClaw(args: string[], options?: { allowFailure?: boolean })
     });
 
     child.on("error", (error) => {
+      void writeErrorLog("Failed to spawn OpenClaw command.", {
+        command,
+        args,
+        error: errorToLogDetails(error)
+      });
       reject(error);
     });
 
@@ -194,13 +232,10 @@ async function runOpenClaw(args: string[], options?: { allowFailure?: boolean })
   });
 }
 
-async function runNodeScript(scriptPath: string, args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
+async function runCommand(command: string, args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [scriptPath, ...args], {
-      env: {
-        ...process.env,
-        NO_COLOR: "1"
-      }
+    const child = spawn(command, args, {
+      env: buildCommandEnv(command)
     });
 
     let stdout = "";
@@ -215,6 +250,11 @@ async function runNodeScript(scriptPath: string, args: string[], options?: { all
     });
 
     child.on("error", (error) => {
+      void writeErrorLog("Failed to spawn system command for SlackClaw.", {
+        command,
+        args,
+        error: errorToLogDetails(error)
+      });
       reject(error);
     });
 
@@ -226,7 +266,7 @@ async function runNodeScript(scriptPath: string, args: string[], options?: { all
       };
 
       if (!options?.allowFailure && result.code !== 0) {
-        reject(new Error(result.stderr || result.stdout || `${scriptPath} failed`));
+        reject(new Error(result.stderr || result.stdout || `${command} ${args.join(" ")} failed`));
         return;
       }
 
@@ -235,15 +275,178 @@ async function runNodeScript(scriptPath: string, args: string[], options?: { all
   });
 }
 
-async function commandExists(command: string): Promise<boolean> {
+async function fileExists(pathname: string): Promise<boolean> {
+  try {
+    await access(pathname, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveCommandFromPath(command: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     const child = spawn("sh", ["-lc", `command -v ${command}`], {
-      stdio: "ignore"
+      stdio: ["ignore", "pipe", "ignore"],
+      env: buildCommandEnv()
     });
 
-    child.on("exit", (code) => resolve(code === 0));
-    child.on("error", () => resolve(false));
+    let stdout = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.on("exit", (code) => {
+      const resolved = stdout.trim();
+      resolve(code === 0 && resolved.startsWith("/") ? resolved : undefined);
+    });
+
+    child.on("error", () => resolve(undefined));
   });
+}
+
+async function resolveCommand(command: string, extraCandidates: string[] = []): Promise<string | undefined> {
+  const fromPath = await resolveCommandFromPath(command);
+
+  if (fromPath) {
+    return fromPath;
+  }
+
+  for (const candidate of extraCandidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+async function probeCommand(command: string, args: string[] = ["--version"]): Promise<boolean> {
+  try {
+    const result = await runCommand(command, args, { allowFailure: true });
+    return result.code === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveOpenClawCommand(): Promise<string | undefined> {
+  const managedBinary = getManagedOpenClawBinPath();
+
+  if ((await fileExists(managedBinary)) && (await probeCommand(managedBinary))) {
+    return managedBinary;
+  }
+
+  const systemBinary = await resolveCommand("openclaw", ["/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]);
+
+  if (systemBinary && (await probeCommand(systemBinary))) {
+    return systemBinary;
+  }
+
+  return undefined;
+}
+
+async function resolveNpmCommand(): Promise<string | undefined> {
+  const npmCommand = await resolveCommand("npm", [
+    "/opt/homebrew/bin/npm",
+    "/usr/local/bin/npm",
+    "/usr/bin/npm",
+    resolve(process.env.HOME ?? "", ".nvm/current/bin/npm")
+  ]);
+
+  if (npmCommand && (await probeCommand(npmCommand))) {
+    return npmCommand;
+  }
+
+  return undefined;
+}
+
+async function resolveNodeCommand(): Promise<string | undefined> {
+  const nodeCommand = await resolveCommand("node", [
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/node",
+    "/usr/bin/node",
+    resolve(process.env.HOME ?? "", ".nvm/current/bin/node")
+  ]);
+
+  if (nodeCommand && (await probeCommand(nodeCommand))) {
+    return nodeCommand;
+  }
+
+  return undefined;
+}
+
+async function resolveGitCommand(): Promise<string | undefined> {
+  const gitCommand = await resolveCommand("git", ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"]);
+
+  if (gitCommand && (await probeCommand(gitCommand))) {
+    return gitCommand;
+  }
+
+  return undefined;
+}
+
+async function resolveBrewCommand(): Promise<string | undefined> {
+  const brewCommand = await resolveCommand("brew", ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]);
+
+  if (brewCommand && (await probeCommand(brewCommand, ["--version"]))) {
+    return brewCommand;
+  }
+
+  return undefined;
+}
+
+async function readInstalledOpenClawVersion(): Promise<string | undefined> {
+  const result = await runOpenClaw(["--version"], { allowFailure: true }).catch(() => ({
+    code: 1,
+    stdout: "",
+    stderr: ""
+  }));
+
+  if (result.code !== 0 || !result.stdout) {
+    return undefined;
+  }
+
+  return result.stdout;
+}
+
+async function readVersionFromCommand(command: string | undefined): Promise<string | undefined> {
+  if (!command) {
+    return undefined;
+  }
+
+  const result = await runCommand(command, ["--version"], { allowFailure: true }).catch(() => ({
+    code: 1,
+    stdout: "",
+    stderr: ""
+  }));
+
+  if (result.code !== 0 || !result.stdout) {
+    return undefined;
+  }
+
+  return result.stdout;
+}
+
+async function readManagedOpenClawVersion(): Promise<string | undefined> {
+  const managedBinary = getManagedOpenClawBinPath();
+
+  if (!(await fileExists(managedBinary)) || !(await probeCommand(managedBinary))) {
+    return undefined;
+  }
+
+  return readVersionFromCommand(managedBinary);
+}
+
+async function readSystemOpenClawVersion(): Promise<string | undefined> {
+  const systemCommand = await resolveCommand("openclaw", ["/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]);
+
+  if (!systemCommand || !(await probeCommand(systemCommand))) {
+    return undefined;
+  }
+
+  return readVersionFromCommand(systemCommand);
 }
 
 function safeJsonParse<T>(value: string | undefined): T | undefined {
@@ -304,8 +507,13 @@ export class OpenClawAdapter implements EngineAdapter {
   readonly installSpec: EngineInstallSpec = {
     engine: "openclaw",
     desiredVersion: OPENCLAW_VERSION_PIN,
-    installSource: "npm-global",
-    prerequisites: ["macOS 14 or newer", "npm available on PATH", "Permission to install or reuse the pinned OpenClaw CLI"]
+    installSource: "npm-local",
+    prerequisites: [
+      "macOS 14 or newer",
+      "Either npm already available on the Mac, or Homebrew available so SlackClaw can install Node/npm and Git",
+      "Permission to install or reuse the pinned OpenClaw CLI"
+    ],
+    installPath: getManagedOpenClawDir()
   };
 
   readonly capabilities: EngineCapabilities = {
@@ -320,8 +528,8 @@ export class OpenClawAdapter implements EngineAdapter {
     futureLocalModelFamilies: ["qwen", "minimax", "llama", "mistral", "custom-openai-compatible"]
   };
 
-  async install(autoConfigure: boolean): Promise<InstallResponse> {
-    const bootstrap = await this.ensurePinnedOpenClaw();
+  async install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse> {
+    const bootstrap = await this.ensurePinnedOpenClaw(options?.forceLocal ?? false);
     const statusBefore = await this.collectStatusData();
     const state = await readAdapterState();
     let mode: "detected" | "onboarded" = "detected";
@@ -360,10 +568,23 @@ export class OpenClawAdapter implements EngineAdapter {
       lastInstallMode: mode
     });
 
+    let engineStatus = await this.status();
+
+    if (!engineStatus.running) {
+      const restart = await runOpenClaw(["gateway", "restart"], { allowFailure: true });
+      engineStatus = await this.status();
+
+      if (restart.code === 0 && engineStatus.running) {
+        message = `${message} SlackClaw detected that the OpenClaw gateway was down and restarted it with \`openclaw gateway restart\`.`;
+      } else if (restart.code !== 0) {
+        message = `${message} SlackClaw tried to restart the OpenClaw gateway with \`openclaw gateway restart\`, but it is still not reachable.`;
+      }
+    }
+
     return {
       status: "installed",
       message,
-      engineStatus: await this.status(),
+      engineStatus,
       disposition: toInstallDisposition(bootstrap.status, mode),
       changed: bootstrap.changed || mode === "onboarded",
       hadExisting: bootstrap.hadExisting,
@@ -376,7 +597,7 @@ export class OpenClawAdapter implements EngineAdapter {
   async configure(profileId: string): Promise<void> {
     const state = await readAdapterState();
 
-    if (await commandExists("openclaw")) {
+    if (await resolveOpenClawCommand()) {
       await runOpenClaw(["config", "set", "slackclaw.defaultProfile", profileId], { allowFailure: true });
     }
 
@@ -485,7 +706,7 @@ export class OpenClawAdapter implements EngineAdapter {
   async runTask(request: EngineTaskRequest): Promise<EngineTaskResult> {
     const startedAt = new Date().toISOString();
     const state = await readAdapterState();
-    const installed = await commandExists("openclaw");
+    const installed = Boolean(await resolveOpenClawCommand());
     const title = createTaskTitle(request);
 
     if (!installed) {
@@ -582,7 +803,7 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async repair(action: RecoveryAction): Promise<RecoveryRunResponse> {
-    if (!(await commandExists("openclaw"))) {
+    if (!(await resolveOpenClawCommand())) {
       return {
         actionId: action.id,
         status: "failed",
@@ -624,7 +845,7 @@ export class OpenClawAdapter implements EngineAdapter {
         };
       }
       case "reinstall-engine": {
-        const bootstrap = await this.ensurePinnedOpenClaw();
+        const bootstrap = await this.ensurePinnedOpenClaw(false);
         const reinstall = await runOpenClaw(["gateway", "install", "--force"], { allowFailure: true });
         const installStatus = bootstrap.status !== "failed" && reinstall.code === 0 ? "completed" : "failed";
         return {
@@ -691,7 +912,7 @@ export class OpenClawAdapter implements EngineAdapter {
     summary: string;
     securityFindings: SecurityFinding[];
   }> {
-    const installed = await commandExists("openclaw");
+    const installed = Boolean(await resolveOpenClawCommand());
 
     if (!installed) {
       return {
@@ -763,21 +984,84 @@ export class OpenClawAdapter implements EngineAdapter {
     };
   }
 
-  private async ensurePinnedOpenClaw(): Promise<BootstrapResult> {
-    const bootstrapResult = await runNodeScript(getBootstrapScriptPath(), ["--json"], {
-      allowFailure: true
-    });
-    const parsed = safeJsonParse<BootstrapResult>(bootstrapResult.stdout);
+  private async ensurePinnedOpenClaw(forceLocal: boolean): Promise<BootstrapResult> {
+    const existingVersion = forceLocal ? await readManagedOpenClawVersion() : await readInstalledOpenClawVersion();
+    const systemVersion = forceLocal ? await readSystemOpenClawVersion() : existingVersion;
+    const installPath = getManagedOpenClawDir();
+    const usesManagedLocalRuntime = forceLocal || Boolean(getAppRootDir());
+    const brewCommand = await resolveBrewCommand();
 
-    if (!parsed) {
-      throw new Error(bootstrapResult.stderr || bootstrapResult.stdout || "OpenClaw bootstrap returned invalid output.");
+    if (existingVersion === OPENCLAW_VERSION_PIN) {
+      return {
+        status: "reused-existing",
+        changed: false,
+        hadExisting: true,
+        existingVersion,
+        version: existingVersion,
+        message: usesManagedLocalRuntime
+          ? `OpenClaw ${existingVersion} is already available in SlackClaw's managed local runtime.`
+          : `OpenClaw ${existingVersion} is already installed and matches the pinned version.`
+      };
     }
 
-    if (parsed.status === "failed") {
-      throw new Error(parsed.message);
+    const npmCommand = await resolveNpmCommand();
+    const ensuredNpmCommand = npmCommand ?? (await this.ensureSystemDependencies());
+
+    if (!ensuredNpmCommand) {
+      throw new Error(
+        brewCommand
+          ? "SlackClaw asked Homebrew to prepare the required toolchain, but still could not find a working npm executable afterward."
+          : existingVersion || systemVersion
+            ? `SlackClaw found OpenClaw ${existingVersion ?? systemVersion}, but cannot deploy a managed local copy because neither npm nor Homebrew is available on this Mac.`
+            : "SlackClaw cannot deploy OpenClaw locally because neither npm nor Homebrew is available on this Mac."
+      );
     }
 
-    return parsed;
+    if (usesManagedLocalRuntime) {
+      await mkdir(installPath, { recursive: true });
+    }
+
+    const installArgs = usesManagedLocalRuntime
+      ? ["install", "--prefix", installPath, `openclaw@${OPENCLAW_VERSION_PIN}`]
+      : ["install", "--global", `openclaw@${OPENCLAW_VERSION_PIN}`];
+
+    const installResult = await runCommand(ensuredNpmCommand, installArgs, { allowFailure: true });
+
+    if (installResult.code !== 0) {
+      await writeErrorLog("OpenClaw install command failed.", {
+        command: ensuredNpmCommand,
+        args: installArgs,
+        result: installResult
+      });
+      throw new Error(installResult.stderr || installResult.stdout || "OpenClaw installation failed.");
+    }
+
+    const nextVersion = await readInstalledOpenClawVersion();
+
+    if (nextVersion !== OPENCLAW_VERSION_PIN) {
+      throw new Error(
+        usesManagedLocalRuntime
+          ? `SlackClaw downloaded OpenClaw into ${installPath}, but could not verify that the managed runtime can execute on this Mac.`
+          : "SlackClaw installed OpenClaw, but could not verify the installed CLI."
+      );
+    }
+
+    return {
+      status: existingVersion || systemVersion ? "reinstalled" : "installed",
+      changed: true,
+      hadExisting: Boolean(existingVersion || systemVersion),
+      existingVersion: existingVersion ?? systemVersion,
+      version: nextVersion,
+      message: usesManagedLocalRuntime
+        ? existingVersion
+          ? `SlackClaw refreshed its managed local OpenClaw ${nextVersion} runtime in ${installPath}.`
+          : systemVersion
+            ? `SlackClaw deployed a managed local OpenClaw ${nextVersion} runtime into ${installPath} instead of depending on the system OpenClaw ${systemVersion}.`
+            : `SlackClaw deployed OpenClaw ${nextVersion} locally into ${installPath}.`
+        : existingVersion
+          ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion}.`
+          : `Installed OpenClaw ${nextVersion}.`
+    };
   }
 
   private async resolveAgentArgs(): Promise<string[]> {
@@ -786,5 +1070,57 @@ export class OpenClawAdapter implements EngineAdapter {
     const defaultAgentId = statusJson?.agents?.defaultId;
 
     return defaultAgentId ? ["--agent", defaultAgentId] : [];
+  }
+
+  private async ensureSystemDependencies(): Promise<string | undefined> {
+    const [nodeCommand, npmCommand, gitCommand, brewCommand] = await Promise.all([
+      resolveNodeCommand(),
+      resolveNpmCommand(),
+      resolveGitCommand(),
+      resolveBrewCommand()
+    ]);
+
+    const packages: string[] = [];
+
+    if (!nodeCommand || !npmCommand) {
+      packages.push("node");
+    }
+
+    if (!gitCommand) {
+      packages.push("git");
+    }
+
+    if (packages.length === 0) {
+      return npmCommand;
+    }
+
+    if (!brewCommand) {
+      await writeErrorLog("SlackClaw could not install missing dependencies because Homebrew is unavailable.", {
+        missingPackages: packages
+      });
+      return undefined;
+    }
+
+    const installResult = await runCommand(brewCommand, ["install", ...packages], { allowFailure: true });
+
+    if (installResult.code !== 0) {
+      await writeErrorLog("SlackClaw failed to install missing dependencies with Homebrew.", {
+        command: brewCommand,
+        args: ["install", ...packages],
+        result: installResult
+      });
+      throw new Error(
+        installResult.stderr ||
+          installResult.stdout ||
+          `SlackClaw could not install missing dependencies (${packages.join(", ")}) with Homebrew.`
+      );
+    }
+
+    await writeInfoLog("SlackClaw installed missing system dependencies with Homebrew.", {
+      command: brewCommand,
+      packages
+    });
+
+    return resolveNpmCommand();
   }
 }

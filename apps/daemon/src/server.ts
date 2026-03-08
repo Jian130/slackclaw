@@ -9,8 +9,11 @@ import type {
 } from "@slackclaw/contracts";
 
 import { createEngineAdapter } from "./engine/registry.js";
+import { AppControlService } from "./services/app-control-service.js";
 import { AppServiceManager } from "./services/app-service-manager.js";
+import { errorToLogDetails, writeErrorLog } from "./services/logger.js";
 import { OverviewService } from "./services/overview-service.js";
+import { SetupService } from "./services/setup-service.js";
 import { StateStore } from "./services/state-store.js";
 import { TaskService } from "./services/task-service.js";
 import { getDataDir, getStaticDir } from "./runtime-paths.js";
@@ -87,9 +90,14 @@ export function startServer(port = 4545) {
   const store = new StateStore();
   const appServiceManager = new AppServiceManager();
   const overviewService = new OverviewService(adapter, store, appServiceManager);
+  const setupService = new SetupService(adapter, store, overviewService);
   const taskService = new TaskService(adapter, store);
+  let server: ReturnType<typeof createServer>;
+  const appControlService = new AppControlService(() => {
+    server.close();
+  });
 
-  const server = createServer(async (request, response) => {
+  server = createServer(async (request, response) => {
     if (!request.url || !request.method) {
       sendJson(response, 400, { error: "Malformed request." });
       return;
@@ -101,6 +109,11 @@ export function startServer(port = 4545) {
     }
 
     try {
+      if (request.method === "GET" && request.url === "/api/ping") {
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+
       if (request.method === "GET" && request.url === "/api/overview") {
         sendJson(response, 200, await overviewService.getOverview());
         return;
@@ -108,11 +121,22 @@ export function startServer(port = 4545) {
 
       if (request.method === "POST" && request.url === "/api/install") {
         const body = await readJson<InstallRequest>(request);
-        const result = await adapter.install(body.autoConfigure ?? true);
+        const result = await adapter.install(body.autoConfigure ?? true, { forceLocal: body.forceLocal ?? false });
         sendJson(response, 200, {
           install: result,
           overview: await overviewService.getOverview()
         });
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/first-run/intro") {
+        sendJson(response, 200, await setupService.markIntroCompleted());
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/first-run/setup") {
+        const body = await readJson<InstallRequest>(request);
+        sendJson(response, 200, await setupService.runFirstRunSetup({ forceLocal: body.forceLocal ?? false }));
         return;
       }
 
@@ -162,6 +186,16 @@ export function startServer(port = 4545) {
         return;
       }
 
+      if (request.method === "POST" && request.url === "/api/app/stop") {
+        sendJson(response, 200, await appControlService.stopApp());
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/app/uninstall") {
+        sendJson(response, 200, await appControlService.uninstallApp());
+        return;
+      }
+
       if (request.method === "GET" && request.url === "/api/diagnostics") {
         const bundle = await adapter.exportDiagnostics();
         const diagnosticsPath = resolve(getDataDir(), bundle.filename);
@@ -198,6 +232,11 @@ export function startServer(port = 4545) {
       sendJson(response, 404, { error: "Route not found." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
+      void writeErrorLog("Daemon request failed.", {
+        method: request.method,
+        url: request.url,
+        error: errorToLogDetails(error)
+      });
       sendJson(response, 500, { error: message });
     }
   });

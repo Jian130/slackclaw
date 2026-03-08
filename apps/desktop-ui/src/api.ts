@@ -1,4 +1,5 @@
 import type {
+  AppControlResponse,
   AppServiceActionResponse,
   EngineTaskRequest,
   EngineTaskResult,
@@ -7,6 +8,7 @@ import type {
   ProductOverview,
   RecoveryRunResponse
 } from "@slackclaw/contracts";
+import type { SetupRunResponse } from "@slackclaw/contracts";
 
 const API_BASE =
   typeof window !== "undefined" && window.location.origin.includes("127.0.0.1:4545")
@@ -22,7 +24,18 @@ async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    let message = `Request failed with status ${response.status}`;
+
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload?.error) {
+        message = payload.error;
+      }
+    } catch {
+      // Keep the status-based fallback when no JSON error payload is available.
+    }
+
+    throw new Error(message);
   }
 
   return (await response.json()) as T;
@@ -32,10 +45,26 @@ export function fetchOverview(): Promise<ProductOverview> {
   return readJson<ProductOverview>("/overview");
 }
 
-export function installSlackClaw(autoConfigure = true): Promise<{ install: InstallResponse; overview: ProductOverview }> {
+export function markFirstRunIntroComplete(): Promise<ProductOverview> {
+  return readJson<ProductOverview>("/first-run/intro", {
+    method: "POST"
+  });
+}
+
+export function runFirstRunSetup(forceLocal = false): Promise<SetupRunResponse> {
+  return readJson<SetupRunResponse>("/first-run/setup", {
+    method: "POST",
+    body: JSON.stringify({ autoConfigure: true, forceLocal })
+  });
+}
+
+export function installSlackClaw(
+  autoConfigure = true,
+  forceLocal = false
+): Promise<{ install: InstallResponse; overview: ProductOverview }> {
   return readJson<{ install: InstallResponse; overview: ProductOverview }>("/install", {
     method: "POST",
-    body: JSON.stringify({ autoConfigure })
+    body: JSON.stringify({ autoConfigure, forceLocal })
   });
 }
 
@@ -83,6 +112,18 @@ export function restartAppService(): Promise<{ result: AppServiceActionResponse;
 
 export function uninstallAppService(): Promise<{ result: AppServiceActionResponse; overview: ProductOverview }> {
   return readJson<{ result: AppServiceActionResponse; overview: ProductOverview }>("/service/uninstall", {
+    method: "POST"
+  });
+}
+
+export function stopSlackClawApp(): Promise<AppControlResponse> {
+  return readJson<AppControlResponse>("/app/stop", {
+    method: "POST"
+  });
+}
+
+export function uninstallSlackClawApp(): Promise<AppControlResponse> {
+  return readJson<AppControlResponse>("/app/uninstall", {
     method: "POST"
   });
 }

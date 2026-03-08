@@ -53,6 +53,7 @@ This file captures the important operating rules for agents working in this repo
 - The packaged app is currently a browser-served UI plus a bundled local daemon, not a native Tauri shell yet.
 - The packaged macOS app should prefer a per-user `LaunchAgent` for daemon lifecycle instead of ad hoc background shell processes.
 - Packaged runtime data should live under `~/Library/Application Support/SlackClaw`.
+- Operational errors must be written to log files, not only returned to the UI. When adding new install, startup, shutdown, recovery, or external-command paths, make sure failures are persisted under the SlackClaw logs directory.
 - The installed app must not assume it is running from the repo checkout.
 - When changing paths, use runtime path helpers instead of `process.cwd()` assumptions.
 - Keep the macOS installer build reproducible through `npm run build:mac-installer`.
@@ -64,6 +65,8 @@ This file captures the important operating rules for agents working in this repo
 - `packages/contracts`: shared product/domain contracts; keep these stable and explicit
 - `scripts/bootstrap-openclaw.mjs`: the single source of truth for OpenClaw install/reuse behavior
 - `scripts/build-macos-installer.mjs`: the single source of truth for packaged macOS app assembly
+- `scripts/start-dev.mjs`: the single source of truth for local end-to-end startup ordering during development
+- `scripts/stop-dev.mjs`: the single source of truth for managed local dev-process teardown
 
 ## Scope control
 
@@ -78,6 +81,8 @@ This file captures the important operating rules for agents working in this repo
 - Run `npm run build` after substantial changes.
 - Run `npm test` after changing shared contracts, daemon behavior, or UI logic.
 - If changing installer or runtime packaging behavior, also run `npm run build:mac-installer`.
+- If changing local startup behavior, verify `npm start` still waits for the daemon and UI before reporting readiness.
+- If changing local startup or teardown behavior, verify `npm stop` removes the managed dev processes and clears `.data/dev-processes.json`.
 - Prefer validating real OpenClaw status/health behavior through the adapter when possible.
 
 ## When making changes
