@@ -19,6 +19,7 @@ import type {
   PairingApprovalRequest,
   RecoveryAction,
   RecoveryRunResponse,
+  FeishuSetupRequest,
   TelegramSetupRequest,
   WechatSetupRequest
 } from "@slackclaw/contracts";
@@ -76,6 +77,14 @@ export class MockAdapter implements EngineAdapter {
       status: "ready",
       summary: "Mock WhatsApp setup is ready.",
       detail: "Mock mode simulates WhatsApp login and pairing approval."
+    },
+    feishu: {
+      id: "feishu",
+      title: "Feishu (飞书)",
+      officialSupport: true,
+      status: "ready",
+      summary: "Mock Feishu setup is ready.",
+      detail: "Mock mode simulates the official OpenClaw Feishu plugin setup flow."
     },
     wechat: {
       id: "wechat",
@@ -257,7 +266,7 @@ export class MockAdapter implements EngineAdapter {
     };
   }
 
-  async getChannelState(channelId: "telegram" | "whatsapp" | "wechat"): Promise<ChannelSetupState> {
+  async getChannelState(channelId: "telegram" | "whatsapp" | "feishu" | "wechat"): Promise<ChannelSetupState> {
     return this.channels[channelId];
   }
 
@@ -282,7 +291,7 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async approvePairing(
-    channelId: "telegram" | "whatsapp",
+    channelId: "telegram" | "whatsapp" | "feishu",
     _request: PairingApprovalRequest
   ): Promise<{ message: string; channel: ChannelSetupState }> {
     this.channels[channelId] = {
@@ -292,6 +301,28 @@ export class MockAdapter implements EngineAdapter {
       detail: "Mock mode marked this channel as completed."
     };
     return { message: "Mock pairing approved.", channel: this.channels[channelId] };
+  }
+
+  async prepareFeishu(): Promise<{ message: string; channel: ChannelSetupState }> {
+    this.channels.feishu = {
+      ...this.channels.feishu,
+      status: "ready",
+      summary: "Mock Feishu plugin installed.",
+      detail: "Mock mode simulated `openclaw plugins install @openclaw/feishu`."
+    };
+    return { message: "Mock Feishu plugin installed.", channel: this.channels.feishu };
+  }
+
+  async configureFeishu(
+    request: FeishuSetupRequest
+  ): Promise<{ message: string; channel: ChannelSetupState }> {
+    this.channels.feishu = {
+      ...this.channels.feishu,
+      status: "awaiting-pairing",
+      summary: "Mock Feishu channel configured.",
+      detail: `Mock mode saved App ID ${request.appId} for the ${request.domain ?? "feishu"} tenant. Send a DM to the bot, then approve the pairing code.`
+    };
+    return { message: "Mock Feishu channel configured.", channel: this.channels.feishu };
   }
 
   async configureWechatWorkaround(

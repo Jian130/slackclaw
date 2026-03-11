@@ -16,6 +16,7 @@ import type {
   PairingApprovalRequest,
   RecoveryAction,
   RecoveryRunResponse,
+  FeishuSetupRequest,
   TelegramSetupRequest,
   WechatSetupRequest
 } from "@slackclaw/contracts";
@@ -39,10 +40,12 @@ export interface EngineAdapter {
   update(): Promise<{ message: string; engineStatus: EngineStatus }>;
   repair(action: RecoveryAction): Promise<RecoveryRunResponse>;
   exportDiagnostics(): Promise<{ filename: string; content: string }>;
-  getChannelState(channelId: "telegram" | "whatsapp" | "wechat"): Promise<ChannelSetupState>;
+  getChannelState(channelId: "telegram" | "whatsapp" | "feishu" | "wechat"): Promise<ChannelSetupState>;
   configureTelegram(request: TelegramSetupRequest): Promise<{ message: string; channel: ChannelSetupState }>;
   startWhatsappLogin(): Promise<{ message: string; channel: ChannelSetupState }>;
-  approvePairing(channelId: "telegram" | "whatsapp", request: PairingApprovalRequest): Promise<{ message: string; channel: ChannelSetupState }>;
+  approvePairing(channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest): Promise<{ message: string; channel: ChannelSetupState }>;
+  prepareFeishu(): Promise<{ message: string; channel: ChannelSetupState }>;
+  configureFeishu(request: FeishuSetupRequest): Promise<{ message: string; channel: ChannelSetupState }>;
   configureWechatWorkaround(request: WechatSetupRequest): Promise<{ message: string; channel: ChannelSetupState }>;
   startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }>;
 }

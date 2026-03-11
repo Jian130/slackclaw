@@ -27,6 +27,7 @@ import type {
   PairingApprovalRequest,
   RecoveryAction,
   RecoveryRunResponse,
+  FeishuSetupRequest,
   TelegramSetupRequest,
   WechatSetupRequest
 } from "@slackclaw/contracts";
@@ -162,6 +163,24 @@ interface OpenClawModelStatusJson {
   };
 }
 
+interface OpenClawPluginListJson {
+  plugins?: Array<{
+    id?: string;
+    name?: string;
+    source?: string;
+    origin?: string;
+    enabled?: boolean;
+    status?: string;
+    error?: string;
+  }>;
+  diagnostics?: Array<{
+    level?: string;
+    pluginId?: string;
+    source?: string;
+    message?: string;
+  }>;
+}
+
 interface OpenClawAdapterState {
   configuredProfileId?: string;
   installedAt?: string;
@@ -170,6 +189,7 @@ interface OpenClawAdapterState {
 
 const OPENCLAW_STATE_PATH = resolve(getDataDir(), "openclaw-state.json");
 const OPENCLAW_VERSION_PIN = "2026.3.7";
+const FEISHU_BUNDLED_SINCE = "2026.3.7";
 
 interface BootstrapResult {
   status: "reused-existing" | "would-install" | "would-reinstall" | "installed" | "reinstalled" | "failed";
@@ -993,7 +1013,7 @@ function toInstallDisposition(
 }
 
 function createChannelState(
-  id: "telegram" | "whatsapp" | "wechat",
+  id: "telegram" | "whatsapp" | "feishu" | "wechat",
   overrides: Partial<ChannelSetupState>
 ): ChannelSetupState {
   const defaults: Record<string, ChannelSetupState> = {
@@ -1012,6 +1032,14 @@ function createChannelState(
       status: "not-started",
       summary: "WhatsApp setup has not started yet.",
       detail: "Start the login flow, scan the QR, then approve the pairing request."
+    },
+    feishu: {
+      id: "feishu",
+      title: "Feishu (飞书)",
+      officialSupport: true,
+      status: "not-started",
+      summary: "Feishu bot setup has not started yet.",
+      detail: "Install the official Feishu plugin, save the app credentials, restart the gateway, enable long connection, then publish the app and approve pairing."
     },
     wechat: {
       id: "wechat",
@@ -1361,6 +1389,54 @@ function safeJsonParse<T>(value: string | undefined): T | undefined {
   }
 }
 
+function safeJsonPayloadParse<T>(value: string | undefined): T | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  const direct = safeJsonParse<T>(trimmed);
+  if (direct) {
+    return direct;
+  }
+
+  const objectStart = trimmed.indexOf("{");
+  const arrayStart = trimmed.indexOf("[");
+  const jsonStart =
+    objectStart === -1
+      ? arrayStart
+      : arrayStart === -1
+        ? objectStart
+        : Math.min(objectStart, arrayStart);
+
+  if (jsonStart === -1) {
+    return undefined;
+  }
+
+  return safeJsonParse<T>(trimmed.slice(jsonStart));
+}
+
+function compareVersionStrings(left: string, right: string): number {
+  const leftParts = left.split(/[^0-9]+/).filter(Boolean).map(Number);
+  const rightParts = right.split(/[^0-9]+/).filter(Boolean).map(Number);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const a = leftParts[index] ?? 0;
+    const b = rightParts[index] ?? 0;
+
+    if (a > b) {
+      return 1;
+    }
+
+    if (a < b) {
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
 function toPublicAuthMethod(method: InternalModelAuthMethod): ModelAuthMethod {
   return {
     id: method.id,
@@ -1585,6 +1661,34 @@ async function readConfiguredAuthProviders(): Promise<Set<string>> {
   }
 
   return configured;
+}
+
+async function readPluginInventory(): Promise<OpenClawPluginListJson | undefined> {
+  const result = await runOpenClaw(["plugins", "list", "--json"], { allowFailure: true });
+  return safeJsonPayloadParse<OpenClawPluginListJson>(result.stdout) ?? safeJsonPayloadParse<OpenClawPluginListJson>(result.stderr);
+}
+
+async function inspectPlugin(pluginId: string): Promise<{
+  entries: NonNullable<OpenClawPluginListJson["plugins"]>;
+  diagnostics: NonNullable<OpenClawPluginListJson["diagnostics"]>;
+  duplicate: boolean;
+  loadError?: string;
+}> {
+  const inventory = await readPluginInventory();
+  const entries = (inventory?.plugins ?? []).filter((plugin) => plugin.id === pluginId);
+  const diagnostics = (inventory?.diagnostics ?? []).filter((diagnostic) => diagnostic.pluginId === pluginId);
+  const duplicate =
+    entries.length > 1 || diagnostics.some((diagnostic) => /duplicate plugin id detected/i.test(diagnostic.message ?? ""));
+  const errorEntry = entries.find((entry) => entry.status === "error");
+  const errorDiagnostic = diagnostics.find((diagnostic) => diagnostic.level === "error");
+  const loadError = errorEntry?.error ?? errorDiagnostic?.message;
+
+  return {
+    entries,
+    diagnostics,
+    duplicate,
+    loadError
+  };
 }
 
 function providerMatchesAuthProvider(provider: InternalModelProviderConfig, authProvider: string): boolean {
@@ -2372,7 +2476,7 @@ export class OpenClawAdapter implements EngineAdapter {
     };
   }
 
-  async getChannelState(channelId: "telegram" | "whatsapp" | "wechat"): Promise<ChannelSetupState> {
+  async getChannelState(channelId: "telegram" | "whatsapp" | "feishu" | "wechat"): Promise<ChannelSetupState> {
     if (channelId === "whatsapp" && whatsappLoginSession) {
       return createChannelState("whatsapp", {
         status: whatsappLoginSession.status,
@@ -2392,6 +2496,118 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     return createChannelState(channelId, {});
+  }
+
+  async prepareFeishu(): Promise<{ message: string; channel: ChannelSetupState }> {
+    const pluginSpec = "@openclaw/feishu";
+    const cliVersion = await readInstalledOpenClawVersion();
+    const feishuPlugin = await inspectPlugin("feishu");
+
+    if (feishuPlugin.loadError) {
+      await writeErrorLog("OpenClaw Feishu plugin is present but failed to load.", {
+        pluginId: "feishu",
+        duplicate: feishuPlugin.duplicate,
+        entries: feishuPlugin.entries,
+        diagnostics: feishuPlugin.diagnostics
+      });
+      throw new Error(
+        `OpenClaw already has a Feishu plugin, but it failed to load: ${feishuPlugin.loadError}. SlackClaw did not install another copy because that would create duplicate plugin warnings. Repair the installed Feishu plugin first, then retry setup.`
+      );
+    }
+
+    if (feishuPlugin.entries.length > 0) {
+      await runOpenClaw(["plugins", "enable", "feishu"], { allowFailure: true });
+
+      if (feishuPlugin.duplicate) {
+        await writeInfoLog("SlackClaw detected an existing duplicate Feishu plugin and skipped reinstall.", {
+          pluginId: "feishu",
+          entries: feishuPlugin.entries,
+          diagnostics: feishuPlugin.diagnostics
+        });
+      }
+
+      return {
+        message: feishuPlugin.duplicate
+          ? "SlackClaw found an existing Feishu plugin and skipped reinstalling it to avoid another duplicate plugin warning. Continue with the Feishu credential wizard."
+          : cliVersion && compareVersionStrings(cliVersion, FEISHU_BUNDLED_SINCE) >= 0
+            ? `OpenClaw ${cliVersion} already bundles the official Feishu plugin, so SlackClaw reused it.`
+            : "SlackClaw found the official Feishu plugin already installed and ready to use.",
+        channel: createChannelState("feishu", {
+          status: "ready",
+          summary: "Feishu plugin already present.",
+          detail: feishuPlugin.duplicate
+            ? "OpenClaw already has a Feishu plugin and also reports a duplicate Feishu plugin entry. SlackClaw reused the existing plugin instead of installing another copy. Continue with setup, then clean up the older duplicate plugin copy later."
+            : cliVersion && compareVersionStrings(cliVersion, FEISHU_BUNDLED_SINCE) >= 0
+              ? `OpenClaw ${cliVersion} already includes the official Feishu plugin. Continue to the Feishu credential wizard to save App ID, App Secret, domain, and bot settings into OpenClaw.`
+              : "The official Feishu plugin is already present. Continue to the Feishu credential wizard to save App ID, App Secret, domain, and bot settings into OpenClaw."
+        })
+      };
+    }
+
+    if (cliVersion && compareVersionStrings(cliVersion, FEISHU_BUNDLED_SINCE) >= 0) {
+      throw new Error(
+        `OpenClaw ${cliVersion} should already include the official Feishu plugin, but SlackClaw could not detect a usable Feishu plugin entry. SlackClaw did not run a separate plugin install because newer OpenClaw versions bundle Feishu already. Repair the installed OpenClaw plugin state first, then retry setup.`
+      );
+    }
+
+    const install = await runOpenClaw(["plugins", "install", pluginSpec], { allowFailure: true });
+
+    if (install.code !== 0) {
+      throw new Error(install.stderr || install.stdout || `SlackClaw could not install the official Feishu plugin ${pluginSpec}.`);
+    }
+
+    await runOpenClaw(["plugins", "enable", "feishu"], { allowFailure: true });
+
+    return {
+      message: "SlackClaw ran `openclaw plugins install @openclaw/feishu` and prepared the official Feishu plugin.",
+      channel: createChannelState("feishu", {
+        status: "ready",
+        summary: "Official Feishu plugin installed.",
+        detail: "The plugin is installed. Continue to the Feishu credential wizard to save App ID, App Secret, domain, and bot settings into OpenClaw."
+      })
+    };
+  }
+
+  async configureFeishu(
+    request: FeishuSetupRequest
+  ): Promise<{ message: string; channel: ChannelSetupState }> {
+    const configSave = await runOpenClaw(
+      [
+        "config",
+        "set",
+        "--strict-json",
+        "channels.feishu",
+        JSON.stringify({
+          enabled: true,
+          domain: request.domain ?? "feishu",
+          dmPolicy: "pairing",
+          groupPolicy: "open",
+          useLongConnection: true,
+          accounts: {
+            default: {
+              appId: request.appId,
+              appSecret: request.appSecret,
+              ...(request.botName?.trim() ? { botName: request.botName.trim() } : {})
+            }
+          }
+        })
+      ],
+      { allowFailure: true }
+    );
+
+    if (configSave.code !== 0) {
+      throw new Error(configSave.stderr || configSave.stdout || "SlackClaw could not save the Feishu configuration into OpenClaw.");
+    }
+
+    return {
+      message:
+        "SlackClaw saved your Feishu app credentials into OpenClaw. Restart the gateway next, then enable long connection, publish the Feishu app, send a test DM, and approve the pairing code in SlackClaw.",
+      channel: createChannelState("feishu", {
+        status: "awaiting-pairing",
+        summary: "Official Feishu plugin configured.",
+        detail: `OpenClaw saved the ${request.domain ?? "feishu"} tenant credentials. Restart the gateway, switch Feishu event delivery to long connection, publish the app, send a DM to the bot, then approve the Feishu pairing code in SlackClaw.`
+      })
+    };
   }
 
   async configureTelegram(request: TelegramSetupRequest): Promise<{ message: string; channel: ChannelSetupState }> {
@@ -2498,7 +2714,7 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async approvePairing(
-    channelId: "telegram" | "whatsapp",
+    channelId: "telegram" | "whatsapp" | "feishu",
     request: PairingApprovalRequest
   ): Promise<{ message: string; channel: ChannelSetupState }> {
     const result = await runOpenClaw(["pairing", "approve", channelId, request.code, "--notify"], { allowFailure: true });
@@ -2512,11 +2728,13 @@ export class OpenClawAdapter implements EngineAdapter {
       whatsappLoginSession.logs.push("WhatsApp pairing approved.");
     }
 
+    const label = channelId === "telegram" ? "Telegram" : channelId === "whatsapp" ? "WhatsApp" : "Feishu";
+
     return {
-      message: `${channelId === "telegram" ? "Telegram" : "WhatsApp"} pairing approved.`,
+      message: `${label} pairing approved.`,
       channel: createChannelState(channelId, {
         status: "completed",
-        summary: `${channelId === "telegram" ? "Telegram" : "WhatsApp"} pairing approved.`,
+        summary: `${label} pairing approved.`,
         detail: "This channel is ready for use."
       })
     };

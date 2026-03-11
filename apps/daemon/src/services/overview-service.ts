@@ -31,7 +31,7 @@ export class OverviewService {
     const liveWhatsapp = await this.adapter.getChannelState("whatsapp");
     const storedChannels = state.channelOnboarding?.channels ?? {};
     const baseChannels = Object.fromEntries(base.channelSetup.channels.map((channel) => [channel.id, channel])) as Record<
-      "telegram" | "whatsapp" | "wechat",
+      "telegram" | "whatsapp" | "feishu" | "wechat",
       (typeof base.channelSetup.channels)[number]
     >;
     const mergedChannels = {
@@ -40,11 +40,12 @@ export class OverviewService {
         liveWhatsapp.status !== "not-started" || liveWhatsapp.logs?.length
           ? liveWhatsapp
           : storedChannels.whatsapp ?? baseChannels.whatsapp,
+      feishu: storedChannels.feishu ?? baseChannels.feishu,
       wechat: storedChannels.wechat ?? baseChannels.wechat
     };
     const onboardingCompleted = Boolean(state.channelOnboarding?.baseOnboardingCompletedAt);
     const nextChannelId = onboardingCompleted
-      ? (["telegram", "whatsapp", "wechat"] as const).find((channelId) => mergedChannels[channelId].status !== "completed")
+      ? (["telegram", "whatsapp", "feishu", "wechat"] as const).find((channelId) => mergedChannels[channelId].status !== "completed")
       : undefined;
 
     return {
@@ -61,7 +62,7 @@ export class OverviewService {
       installChecks,
       channelSetup: {
         baseOnboardingCompleted: onboardingCompleted,
-        channels: [mergedChannels.telegram, mergedChannels.whatsapp, mergedChannels.wechat],
+        channels: [mergedChannels.telegram, mergedChannels.whatsapp, mergedChannels.feishu, mergedChannels.wechat],
         nextChannelId,
         gatewayStarted: Boolean(state.channelOnboarding?.gatewayStartedAt),
         gatewaySummary: state.channelOnboarding?.gatewayStartedAt

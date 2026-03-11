@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.3 - 2026-03-11
+
+### Fixed
+
+- Feishu prepare now checks the installed OpenClaw plugin inventory before running `openclaw plugins install @openclaw/feishu`, so newer OpenClaw builds that already bundle Feishu are reused instead of creating duplicate plugin installs.
+- Feishu prepare now reports broken bundled-plugin states as OpenClaw/plugin problems instead of attempting another install that would worsen duplicate-plugin warnings.
+- `npm start` now binds the desktop UI dev server to `127.0.0.1`, so the local startup flow no longer hangs waiting for a UI that Vite started only on IPv6 loopback.
+
+### Changed
+
+- The `Configuration` route now follows the Figma Make design more closely, including the redesigned AI model setup flow, add-model dialog, and channel layout.
+- OpenClaw model configuration now supports richer backend provider detection, interactive auth session handling, browser-assisted OAuth flows, and provider refresh after auth completion.
+- Feishu is now a first-class official channel in the shared contracts, overview state, and configuration UI instead of being treated like a generic workaround.
+- The Feishu setup flow now follows the official OpenClaw Feishu guide more closely:
+  - separate prepare step
+  - plugin-aware setup
+  - permission import guidance
+  - bot capability step
+  - OpenClaw config save step
+  - gateway/test step
+- Feishu channel setup now ends in `awaiting-pairing` and SlackClaw exposes an explicit Feishu pairing-code approval action in the UI and daemon.
+
 ## 0.1.2 - 2026-03-10
 
 ### Fixed

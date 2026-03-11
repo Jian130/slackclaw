@@ -2,6 +2,7 @@ import type {
   ChannelActionResponse,
   ChannelSetupOverview,
   ChannelSetupState,
+  FeishuSetupRequest,
   PairingApprovalRequest,
   SupportedChannelId,
   TelegramSetupRequest,
@@ -15,7 +16,7 @@ import type { AppState } from "./state-store.js";
 import { StateStore } from "./state-store.js";
 
 function channelOrder(): SupportedChannelId[] {
-  return ["telegram", "whatsapp", "wechat"];
+  return ["telegram", "whatsapp", "feishu", "wechat"];
 }
 
 function defaultChannelMap(): Record<SupportedChannelId, ChannelSetupState> {
@@ -24,6 +25,7 @@ function defaultChannelMap(): Record<SupportedChannelId, ChannelSetupState> {
   return {
     telegram: defaults.find((channel) => channel.id === "telegram")!,
     whatsapp: defaults.find((channel) => channel.id === "whatsapp")!,
+    feishu: defaults.find((channel) => channel.id === "feishu")!,
     wechat: defaults.find((channel) => channel.id === "wechat")!
   };
 }
@@ -37,6 +39,7 @@ function mergeChannelStates(
   return {
     telegram: live.telegram ?? stored?.telegram ?? defaults.telegram,
     whatsapp: live.whatsapp ?? stored?.whatsapp ?? defaults.whatsapp,
+    feishu: live.feishu ?? stored?.feishu ?? defaults.feishu,
     wechat: live.wechat ?? stored?.wechat ?? defaults.wechat
   };
 }
@@ -98,7 +101,7 @@ export class ChannelSetupService {
   }
 
   async approvePairing(
-    channelId: "telegram" | "whatsapp",
+    channelId: "telegram" | "whatsapp" | "feishu",
     request: PairingApprovalRequest
   ): Promise<ChannelActionResponse> {
     await this.ensureBaseOnboardingCompleted();
@@ -110,6 +113,18 @@ export class ChannelSetupService {
     await this.ensureBaseOnboardingCompleted();
     const result = await this.adapter.startWhatsappLogin();
     return this.persistChannelResult("whatsapp", result.channel, result.message);
+  }
+
+  async prepareFeishu(): Promise<ChannelActionResponse> {
+    await this.ensureBaseOnboardingCompleted();
+    const result = await this.adapter.prepareFeishu();
+    return this.persistChannelResult("feishu", result.channel, result.message);
+  }
+
+  async configureFeishu(request: FeishuSetupRequest): Promise<ChannelActionResponse> {
+    await this.ensureBaseOnboardingCompleted();
+    const result = await this.adapter.configureFeishu(request);
+    return this.persistChannelResult("feishu", result.channel, result.message);
   }
 
   async configureWechatWorkaround(request: WechatSetupRequest): Promise<ChannelActionResponse> {

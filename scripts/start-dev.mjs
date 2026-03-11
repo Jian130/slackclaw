@@ -256,6 +256,8 @@ async function main() {
     "--workspace",
     "@slackclaw/desktop-ui",
     "--",
+    "--host",
+    "127.0.0.1",
     "--strictPort"
   ]);
   await writeDevProcessState({

@@ -12,6 +12,7 @@ import type {
 } from "@slackclaw/contracts";
 
 import {
+  approveFeishuPairing,
   approveTelegramPairing,
   approveWhatsappPairing,
   authenticateModelProvider,
@@ -22,11 +23,13 @@ import {
   fetchModelConfig,
   installAppService,
   markFirstRunIntroComplete,
+  prepareFeishuChannel,
   restartAppService,
   runFirstRunSetup,
   runTask,
   runUpdate,
   setDefaultModel,
+  setupFeishuChannel,
   setupTelegramChannel,
   setupWechatWorkaround,
   startGatewayAfterChannels,
@@ -527,12 +530,13 @@ function configCopy(locale: Locale) {
       completeOnboardingFirst: "Complete onboarding first",
       completeOnboardingFirstDetail: "Finish the AI Models step first. SlackClaw only unlocks channels after OpenClaw onboarding succeeds.",
       channelsInfoTitle: "Communication Channels",
-      channelsInfoDetail: "Configure Telegram, WhatsApp, and the experimental WeChat workaround, then restart the gateway.",
+      channelsInfoDetail: "Configure Telegram, WhatsApp, Feishu, and the experimental WeChat workaround, then restart the gateway.",
       channelsPointOne: "Guided setup order",
       channelsPointTwo: "Pairing approval support",
       channelsPointThree: "Gateway restart after channels",
       telegram: "Telegram",
       whatsapp: "WhatsApp",
+      feishu: "Feishu (飞书)",
       wechat: "WeChat Workaround",
       experimental: "Experimental",
       telegramToken: "Telegram bot token",
@@ -542,6 +546,7 @@ function configCopy(locale: Locale) {
       approveTelegram: "Approve Telegram Pairing",
       startWhatsapp: "Start WhatsApp Login",
       approveWhatsapp: "Approve WhatsApp Pairing",
+      approveFeishu: "Approve Feishu Pairing",
       pluginPackage: "Plugin package",
       corpId: "Corp ID",
       agentId: "Agent ID",
@@ -611,12 +616,13 @@ function configCopy(locale: Locale) {
       completeOnboardingFirst: "请先完成引导",
       completeOnboardingFirstDetail: "请先完成 AI 模型步骤。只有 OpenClaw 引导成功后 SlackClaw 才会解锁频道。",
       channelsInfoTitle: "通信频道",
-      channelsInfoDetail: "配置 Telegram、WhatsApp 和实验性的微信变通方案，然后重启网关。",
+      channelsInfoDetail: "配置 Telegram、WhatsApp、飞书和实验性的微信变通方案，然后重启网关。",
       channelsPointOne: "按顺序引导设置",
       channelsPointTwo: "支持配对审批",
       channelsPointThree: "频道完成后重启网关",
       telegram: "Telegram",
       whatsapp: "WhatsApp",
+      feishu: "飞书",
       wechat: "微信变通方案",
       experimental: "实验性",
       telegramToken: "Telegram 机器人令牌",
@@ -626,6 +632,7 @@ function configCopy(locale: Locale) {
       approveTelegram: "批准 Telegram 配对",
       startWhatsapp: "开始 WhatsApp 登录",
       approveWhatsapp: "批准 WhatsApp 配对",
+      approveFeishu: "批准飞书配对",
       pluginPackage: "插件包",
       corpId: "企业 ID",
       agentId: "Agent ID",
@@ -695,12 +702,13 @@ function configCopy(locale: Locale) {
       completeOnboardingFirst: "先にオンボーディングを完了してください",
       completeOnboardingFirstDetail: "まず AI モデル手順を完了してください。OpenClaw のオンボーディング成功後にのみ SlackClaw はチャネルを解放します。",
       channelsInfoTitle: "通信チャネル",
-      channelsInfoDetail: "Telegram、WhatsApp、実験的な WeChat 回避策を設定し、その後ゲートウェイを再起動します。",
+      channelsInfoDetail: "Telegram、WhatsApp、Feishu、実験的な WeChat 回避策を設定し、その後ゲートウェイを再起動します。",
       channelsPointOne: "ガイド付きの設定順序",
       channelsPointTwo: "ペアリング承認をサポート",
       channelsPointThree: "チャネル後にゲートウェイ再起動",
       telegram: "Telegram",
       whatsapp: "WhatsApp",
+      feishu: "Feishu (飞书)",
       wechat: "WeChat ワークアラウンド",
       experimental: "実験的",
       telegramToken: "Telegram ボットトークン",
@@ -710,6 +718,7 @@ function configCopy(locale: Locale) {
       approveTelegram: "Telegram ペアリングを承認",
       startWhatsapp: "WhatsApp ログインを開始",
       approveWhatsapp: "WhatsApp ペアリングを承認",
+      approveFeishu: "Feishu ペアリングを承認",
       pluginPackage: "プラグインパッケージ",
       corpId: "Corp ID",
       agentId: "Agent ID",
@@ -779,12 +788,13 @@ function configCopy(locale: Locale) {
       completeOnboardingFirst: "먼저 온보딩을 완료하세요",
       completeOnboardingFirstDetail: "먼저 AI 모델 단계를 완료하세요. OpenClaw 온보딩이 성공해야 SlackClaw가 채널을 잠금 해제합니다.",
       channelsInfoTitle: "통신 채널",
-      channelsInfoDetail: "Telegram, WhatsApp, 실험적 WeChat 우회 구성을 마친 뒤 게이트웨이를 재시작합니다.",
+      channelsInfoDetail: "Telegram, WhatsApp, Feishu, 실험적 WeChat 우회 구성을 마친 뒤 게이트웨이를 재시작합니다.",
       channelsPointOne: "가이드 순서 설정",
       channelsPointTwo: "페어링 승인 지원",
       channelsPointThree: "채널 후 게이트웨이 재시작",
       telegram: "Telegram",
       whatsapp: "WhatsApp",
+      feishu: "Feishu (飞书)",
       wechat: "WeChat 우회 구성",
       experimental: "실험적",
       telegramToken: "Telegram 봇 토큰",
@@ -794,6 +804,7 @@ function configCopy(locale: Locale) {
       approveTelegram: "Telegram 페어링 승인",
       startWhatsapp: "WhatsApp 로그인 시작",
       approveWhatsapp: "WhatsApp 페어링 승인",
+      approveFeishu: "Feishu 페어링 승인",
       pluginPackage: "플러그인 패키지",
       corpId: "Corp ID",
       agentId: "Agent ID",
@@ -863,12 +874,13 @@ function configCopy(locale: Locale) {
       completeOnboardingFirst: "Completa primero el onboarding",
       completeOnboardingFirstDetail: "Termina primero el paso de AI Models. SlackClaw solo desbloquea los canales cuando el onboarding de OpenClaw termina correctamente.",
       channelsInfoTitle: "Canales de comunicación",
-      channelsInfoDetail: "Configura Telegram, WhatsApp y el workaround experimental de WeChat y luego reinicia el gateway.",
+      channelsInfoDetail: "Configura Telegram, WhatsApp, Feishu y el workaround experimental de WeChat y luego reinicia el gateway.",
       channelsPointOne: "Orden guiado de configuración",
       channelsPointTwo: "Soporte para aprobación de emparejamiento",
       channelsPointThree: "Reinicio del gateway tras los canales",
       telegram: "Telegram",
       whatsapp: "WhatsApp",
+      feishu: "Feishu (飞书)",
       wechat: "Workaround de WeChat",
       experimental: "Experimental",
       telegramToken: "Token del bot de Telegram",
@@ -878,6 +890,7 @@ function configCopy(locale: Locale) {
       approveTelegram: "Aprobar emparejamiento de Telegram",
       startWhatsapp: "Iniciar sesión de WhatsApp",
       approveWhatsapp: "Aprobar emparejamiento de WhatsApp",
+      approveFeishu: "Aprobar emparejamiento de Feishu",
       pluginPackage: "Paquete del plugin",
       corpId: "Corp ID",
       agentId: "Agent ID",
@@ -888,6 +901,203 @@ function configCopy(locale: Locale) {
       restartGateway: "Reiniciar gateway",
       channelSaveDetail: "Aplica los cambios de configuración de canales y reinicia el gateway de OpenClaw.",
       restarting: "Reiniciando..."
+    }
+  } as const;
+
+  return copy[locale];
+}
+
+function feishuCopy(locale: Locale) {
+  const copy = {
+    en: {
+      dialogTitle: "Set Up Feishu Channel",
+      dialogSubtitle: "Follow the step-by-step guide to connect OpenClaw with your Feishu workspace",
+      prepareTitle: "Prepare Feishu Channel",
+      prepareSubtitle: "SlackClaw will install the official OpenClaw Feishu plugin before the credential wizard starts.",
+      prepareCommandLabel: "Command SlackClaw will run",
+      prepareButton: "Install Feishu Plugin",
+      setupCardTitle: "Set up your Feishu bot to enable communication through Feishu workspace",
+      setupButton: "Configure Feishu Bot",
+      changeProvider: "Change setup",
+      cancel: "Cancel",
+      previous: "Previous",
+      nextStep: "Next Step",
+      completeSetup: "Complete Setup",
+      copy: "Copy",
+      paste: "Paste",
+      preparing: "Preparing...",
+      copied: "Copied to clipboard.",
+      testing: "Testing Connection...",
+      testConnection: "Test Connection",
+      connectionVerified: "Connection Verified",
+      connectionSuccess: "Connection Successful!",
+      connectionSuccessDetail: "Your Feishu channel is ready to use",
+      connectionFailed: "Connection Failed",
+      connectionFailedDetail: "Please check your credentials and try again",
+      nextSteps: "Next Steps",
+      nextOne: "Add the bot to a Feishu group or direct message it",
+      nextTwo: "Send a message to test the bot's response",
+      nextThree: "Configure your AI models in the Models tab if you haven't already",
+      steps: [
+        { title: "Create Feishu App", description: "Create an enterprise app in Feishu Open Platform" },
+        { title: "Get Credentials", description: "Paste App ID and Secret" },
+        { title: "Configure Permissions", description: "Batch import the required scopes" },
+        { title: "Enable Bot Capability", description: "Turn on bot capability and set the bot name" },
+        { title: "Configure OpenClaw", description: "Save credentials into the official Feishu plugin" },
+        { title: "Gateway & Test", description: "Restart gateway, use long connection, publish, and pair" }
+      ]
+    },
+    zh: {
+      dialogTitle: "设置飞书频道",
+      dialogSubtitle: "按照分步向导将 OpenClaw 连接到你的飞书工作区",
+      prepareTitle: "准备飞书频道",
+      prepareSubtitle: "SlackClaw 会先安装官方 OpenClaw 飞书插件，然后再进入凭据向导。",
+      prepareCommandLabel: "SlackClaw 将运行的命令",
+      prepareButton: "安装飞书插件",
+      setupCardTitle: "设置飞书机器人以通过飞书工作区进行通信",
+      setupButton: "配置飞书机器人",
+      changeProvider: "重新设置",
+      cancel: "取消",
+      previous: "上一步",
+      nextStep: "下一步",
+      completeSetup: "完成设置",
+      copy: "复制",
+      paste: "粘贴",
+      preparing: "准备中...",
+      copied: "已复制到剪贴板。",
+      testing: "正在测试连接...",
+      testConnection: "测试连接",
+      connectionVerified: "连接已验证",
+      connectionSuccess: "连接成功！",
+      connectionSuccessDetail: "你的飞书频道已可使用",
+      connectionFailed: "连接失败",
+      connectionFailedDetail: "请检查凭据后重试",
+      nextSteps: "后续步骤",
+      nextOne: "将机器人添加到飞书群聊或直接消息中",
+      nextTwo: "发送一条消息测试机器人的回复",
+      nextThree: "如果还没有，请先在模型标签页配置 AI 模型",
+      steps: [
+        { title: "创建飞书应用", description: "在飞书开放平台创建企业应用" },
+        { title: "获取凭据", description: "粘贴 App ID 和 Secret" },
+        { title: "配置权限", description: "批量导入所需权限" },
+        { title: "启用机器人能力", description: "打开机器人能力并设置机器人名称" },
+        { title: "配置 OpenClaw", description: "将凭据保存到官方飞书插件" },
+        { title: "网关与测试", description: "重启网关、启用长连接、发布并配对" }
+      ]
+    },
+    ja: {
+      dialogTitle: "Feishu チャネルを設定",
+      dialogSubtitle: "手順に沿って OpenClaw を Feishu ワークスペースに接続します",
+      prepareTitle: "Feishu チャネルを準備",
+      prepareSubtitle: "資格情報ウィザードの前に SlackClaw が公式 OpenClaw Feishu プラグインをインストールします。",
+      prepareCommandLabel: "SlackClaw が実行するコマンド",
+      prepareButton: "Feishu プラグインをインストール",
+      setupCardTitle: "Feishu ワークスペース経由で通信できるように Feishu ボットを設定します",
+      setupButton: "Feishu ボットを設定",
+      changeProvider: "設定を変更",
+      cancel: "キャンセル",
+      previous: "前へ",
+      nextStep: "次へ",
+      completeSetup: "設定を完了",
+      copy: "コピー",
+      paste: "貼り付け",
+      preparing: "準備中...",
+      copied: "クリップボードにコピーしました。",
+      testing: "接続をテスト中...",
+      testConnection: "接続をテスト",
+      connectionVerified: "接続確認済み",
+      connectionSuccess: "接続に成功しました",
+      connectionSuccessDetail: "Feishu チャネルを利用できます",
+      connectionFailed: "接続に失敗しました",
+      connectionFailedDetail: "認証情報を確認して再試行してください",
+      nextSteps: "次のステップ",
+      nextOne: "ボットを Feishu グループまたはダイレクトメッセージに追加する",
+      nextTwo: "メッセージを送って応答を確認する",
+      nextThree: "まだなら Models タブで AI モデルを設定する",
+      steps: [
+        { title: "Feishu アプリを作成", description: "Feishu Open Platform でエンタープライズアプリを作成" },
+        { title: "認証情報を取得", description: "App ID と Secret を貼り付け" },
+        { title: "権限を設定", description: "必要なスコープを一括導入" },
+        { title: "Bot 機能を有効化", description: "Bot 機能をオンにして名前を設定" },
+        { title: "OpenClaw を設定", description: "公式 Feishu プラグインへ認証情報を保存" },
+        { title: "ゲートウェイとテスト", description: "ゲートウェイ再起動、長接続、有効化、ペアリング" }
+      ]
+    },
+    ko: {
+      dialogTitle: "Feishu 채널 설정",
+      dialogSubtitle: "단계별 가이드를 따라 OpenClaw를 Feishu 워크스페이스에 연결하세요",
+      prepareTitle: "Feishu 채널 준비",
+      prepareSubtitle: "자격 증명 마법사를 열기 전에 SlackClaw가 공식 OpenClaw Feishu 플러그인을 설치합니다.",
+      prepareCommandLabel: "SlackClaw가 실행할 명령",
+      prepareButton: "Feishu 플러그인 설치",
+      setupCardTitle: "Feishu 워크스페이스와 통신하려면 Feishu 봇을 설정하세요",
+      setupButton: "Feishu 봇 구성",
+      changeProvider: "설정 변경",
+      cancel: "취소",
+      previous: "이전",
+      nextStep: "다음 단계",
+      completeSetup: "설정 완료",
+      copy: "복사",
+      paste: "붙여넣기",
+      preparing: "준비 중...",
+      copied: "클립보드에 복사되었습니다.",
+      testing: "연결 테스트 중...",
+      testConnection: "연결 테스트",
+      connectionVerified: "연결 확인됨",
+      connectionSuccess: "연결 성공",
+      connectionSuccessDetail: "Feishu 채널을 사용할 수 있습니다",
+      connectionFailed: "연결 실패",
+      connectionFailedDetail: "자격 증명을 확인하고 다시 시도하세요",
+      nextSteps: "다음 단계",
+      nextOne: "봇을 Feishu 그룹 또는 DM에 추가하세요",
+      nextTwo: "메시지를 보내 봇 응답을 테스트하세요",
+      nextThree: "아직 하지 않았다면 Models 탭에서 AI 모델을 구성하세요",
+      steps: [
+        { title: "Feishu 앱 만들기", description: "Feishu Open Platform에서 엔터프라이즈 앱 생성" },
+        { title: "자격 증명 가져오기", description: "App ID와 Secret 붙여넣기" },
+        { title: "권한 구성", description: "필수 스코프를 일괄 가져오기" },
+        { title: "봇 기능 활성화", description: "봇 기능을 켜고 봇 이름 설정" },
+        { title: "OpenClaw 구성", description: "공식 Feishu 플러그인에 자격 증명 저장" },
+        { title: "게이트웨이 및 테스트", description: "게이트웨이 재시작, 장기 연결, 게시 및 페어링" }
+      ]
+    },
+    es: {
+      dialogTitle: "Configurar canal de Feishu",
+      dialogSubtitle: "Sigue la guía paso a paso para conectar OpenClaw con tu espacio de trabajo de Feishu",
+      prepareTitle: "Preparar canal de Feishu",
+      prepareSubtitle: "SlackClaw instalará el plugin oficial de Feishu para OpenClaw antes de abrir el asistente de credenciales.",
+      prepareCommandLabel: "Comando que ejecutará SlackClaw",
+      prepareButton: "Instalar plugin de Feishu",
+      setupCardTitle: "Configura tu bot de Feishu para habilitar la comunicación mediante tu espacio de trabajo de Feishu",
+      setupButton: "Configurar bot de Feishu",
+      changeProvider: "Cambiar configuración",
+      cancel: "Cancelar",
+      previous: "Anterior",
+      nextStep: "Siguiente paso",
+      completeSetup: "Completar configuración",
+      copy: "Copiar",
+      paste: "Pegar",
+      preparing: "Preparando...",
+      copied: "Copiado al portapapeles.",
+      testing: "Probando conexión...",
+      testConnection: "Probar conexión",
+      connectionVerified: "Conexión verificada",
+      connectionSuccess: "¡Conexión correcta!",
+      connectionSuccessDetail: "Tu canal de Feishu está listo para usarse",
+      connectionFailed: "Conexión fallida",
+      connectionFailedDetail: "Revisa tus credenciales e inténtalo de nuevo",
+      nextSteps: "Siguientes pasos",
+      nextOne: "Añade el bot a un grupo de Feishu o envíale un mensaje directo",
+      nextTwo: "Envía un mensaje para probar la respuesta del bot",
+      nextThree: "Configura tus modelos de IA en la pestaña Models si aún no lo has hecho",
+      steps: [
+        { title: "Crear app de Feishu", description: "Crea una app empresarial en Feishu Open Platform" },
+        { title: "Obtener credenciales", description: "Pega el App ID y Secret" },
+        { title: "Configurar permisos", description: "Importa en lote los permisos necesarios" },
+        { title: "Activar capacidad de bot", description: "Activa la capacidad de bot y define su nombre" },
+        { title: "Configurar OpenClaw", description: "Guarda las credenciales en el plugin oficial de Feishu" },
+        { title: "Gateway y prueba", description: "Reinicia el gateway, usa conexión larga, publica y empareja" }
+      ]
     }
   } as const;
 
@@ -924,6 +1134,511 @@ function LanguagePicker(props: {
         ))}
       </select>
     </label>
+  );
+}
+
+function FeishuPrepareDialog(props: {
+  locale: Locale;
+  open: boolean;
+  busy: string | null;
+  onCancel: () => void;
+  onPrepare: () => Promise<void>;
+}) {
+  const copy = feishuCopy(props.locale);
+
+  if (!props.open) {
+    return null;
+  }
+
+  return (
+    <section className="figma-dialog-backdrop" onClick={props.onCancel}>
+      <article className="surface figma-dialog feishu-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="config-card-head">
+          <div>
+            <h3>{copy.prepareTitle}</h3>
+            <p>{copy.prepareSubtitle}</p>
+          </div>
+        </div>
+
+        <section className="feishu-hero purple">
+          <div className="feishu-hero-icon" aria-hidden="true">📦</div>
+          <div>
+            <h3>Install the official Feishu plugin first</h3>
+            <p>SlackClaw prepares the official OpenClaw Feishu channel by downloading the plugin before it asks for your app credentials.</p>
+          </div>
+        </section>
+
+        <article className="surface feishu-guide-card">
+          <div className="feishu-summary-item">
+            <span>{copy.prepareCommandLabel}</span>
+            <code>openclaw plugins install @openclaw/feishu</code>
+          </div>
+          <p className="subtle">SlackClaw runs this command for you, then opens the Feishu credential wizard after the plugin is ready.</p>
+        </article>
+
+        <div className="button-row spread feishu-nav">
+          <button className="button ghost" onClick={props.onCancel}>
+            {copy.cancel}
+          </button>
+          <button className="button primary" onClick={() => void props.onPrepare()} disabled={props.busy === "channel-feishu-prepare"}>
+            {props.busy === "channel-feishu-prepare" ? copy.preparing : copy.prepareButton}
+          </button>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function FeishuSetupDialog(props: {
+  locale: Locale;
+  open: boolean;
+  busy: string | null;
+  onCancel: () => void;
+  onComplete: (request: {
+    appId: string;
+    appSecret: string;
+    domain?: string;
+    botName?: string;
+  }) => Promise<void>;
+}) {
+  const copy = feishuCopy(props.locale);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [domain, setDomain] = useState("feishu");
+  const [botName, setBotName] = useState("");
+  const [gatewayRestarted, setGatewayRestarted] = useState(false);
+  const [longConnectionEnabled, setLongConnectionEnabled] = useState(false);
+  const [appPublished, setAppPublished] = useState(false);
+  const permissionsJson = JSON.stringify(
+    {
+      scopes: {
+        tenant: [
+          "aily:file:read",
+          "aily:file:write",
+          "application:application.app_message_stats.overview:readonly",
+          "application:application:self_manage",
+          "application:bot.menu:write",
+          "cardkit:card:read",
+          "cardkit:card:write",
+          "contact:user.employee_id:readonly",
+          "corehr:file:download",
+          "event:ip_list",
+          "im:chat.access_event.bot_p2p_chat:read",
+          "im:chat.members:bot_access",
+          "im:message",
+          "im:message.group_at_msg:readonly",
+          "im:message.p2p_msg:readonly",
+          "im:message:readonly",
+          "im:message:send_as_bot",
+          "im:resource"
+        ],
+        user: ["aily:file:read", "aily:file:write", "im:chat.access_event.bot_p2p_chat:read"]
+      }
+    },
+    null,
+    2
+  );
+
+  useEffect(() => {
+    if (!props.open) {
+      setCurrentStep(1);
+      setAppId("");
+      setAppSecret("");
+      setDomain("feishu");
+      setBotName("");
+      setGatewayRestarted(false);
+      setLongConnectionEnabled(false);
+      setAppPublished(false);
+    }
+  }, [props.open]);
+
+  if (!props.open) {
+    return null;
+  }
+
+  function canProceed(step: number): boolean {
+    if (step === 2) {
+      return true;
+    }
+    if (step === 6) {
+      return Boolean(appId.trim() && appSecret.trim());
+    }
+    return true;
+  }
+
+  async function copyToClipboard(value: string) {
+    if (!value || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+    await navigator.clipboard.writeText(value);
+  }
+
+  async function pasteFromClipboard(setter: (value: string) => void) {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+      return;
+    }
+
+    const value = await navigator.clipboard.readText();
+    if (value) {
+      setter(value);
+    }
+  }
+
+  return (
+    <section className="figma-dialog-backdrop" onClick={props.onCancel}>
+      <article className="surface figma-dialog feishu-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="config-card-head">
+          <div>
+            <h3>{copy.dialogTitle}</h3>
+            <p>{copy.dialogSubtitle}</p>
+          </div>
+        </div>
+
+        <div className="feishu-stepper">
+          {copy.steps.map((step, index) => {
+            const status = currentStep > index + 1 ? "done" : currentStep === index + 1 ? "active" : "idle";
+            return (
+              <div key={step.title} className="feishu-stepper-item">
+                <div className={`feishu-step-badge ${status}`}>
+                  {status === "done" ? "✓" : index + 1}
+                </div>
+                <div className="feishu-step-copy">
+                  <strong>{step.title}</strong>
+                  <span>{step.description}</span>
+                </div>
+                {index < copy.steps.length - 1 ? <div className={`feishu-step-line ${currentStep > index + 1 ? "done" : ""}`} /> : null}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="feishu-content">
+          {currentStep === 1 ? (
+            <div className="stack">
+              <section className="feishu-hero blue">
+                <div className="feishu-hero-icon" aria-hidden="true">🚀</div>
+                <div>
+                  <h3>Create the official Feishu app</h3>
+                  <p>OpenClaw’s Feishu channel starts with an enterprise app in the Feishu Open Platform. Create the app first, then SlackClaw will save the credentials into OpenClaw for you.</p>
+                </div>
+              </section>
+
+              <article className="surface feishu-guide-card">
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index">1</div>
+                  <div>
+                    <strong>Open Feishu Developer Console</strong>
+                    <p>Go to the Feishu Open Platform and create an enterprise custom app.</p>
+                    <button className="button ghost small" onClick={() => window.open("https://open.feishu.cn/app", "_blank", "noopener,noreferrer")}>
+                      Open Feishu Developer Console
+                    </button>
+                  </div>
+                </div>
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index">2</div>
+                  <div>
+                    <strong>Create an enterprise app</strong>
+                    <p>Create a new enterprise app and fill in the basic information:</p>
+                    <ul className="simple-list">
+                      <li>App name, description, and icon</li>
+                      <li>Choose the tenant where the bot should run</li>
+                      <li>Use the official OpenClaw Feishu plugin flow, not a custom webhook-only bot</li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index">3</div>
+                  <div>
+                    <strong>Leave the platform open</strong>
+                    <p>You will return to this app console in the next steps to copy credentials, enable bot capability, configure permissions, choose long connection, and publish the app.</p>
+                  </div>
+                </div>
+              </article>
+
+              <section className="feishu-alert amber">
+                <strong>Important Note</strong>
+                <p>Make sure you have admin permissions in your Feishu workspace to create custom apps. If you do not see the option, contact your workspace administrator.</p>
+              </section>
+            </div>
+          ) : null}
+
+          {currentStep === 2 ? (
+            <div className="stack">
+              <section className="feishu-hero purple">
+                <div className="feishu-hero-icon" aria-hidden="true">🔑</div>
+                <div>
+                  <h3>Get Your App Credentials</h3>
+                  <p>Paste the App ID and App Secret from Feishu into SlackClaw. SlackClaw uses them to configure the official OpenClaw Feishu plugin.</p>
+                </div>
+              </section>
+
+              <article className="surface feishu-guide-card">
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index purple">1</div>
+                  <div>
+                    <strong>Find Your Credentials</strong>
+                    <p>In the Feishu console, open Your App → Credentials &amp; Basic Info and paste the values here.</p>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <label>
+                    <span>App ID</span>
+                    <div className="feishu-inline-field">
+                      <input value={appId} onChange={(event) => setAppId(event.target.value)} placeholder="cli_a1b2c3d4e5f6g7h8" />
+                      <button className="button ghost small" type="button" onClick={() => void pasteFromClipboard(setAppId)}>
+                        {copy.paste}
+                      </button>
+                    </div>
+                  </label>
+                  <label>
+                    <span>App Secret</span>
+                    <div className="feishu-inline-field">
+                      <input type="password" value={appSecret} onChange={(event) => setAppSecret(event.target.value)} placeholder="Enter your App Secret" />
+                      <button className="button ghost small" type="button" onClick={() => void pasteFromClipboard(setAppSecret)}>
+                        {copy.paste}
+                      </button>
+                    </div>
+                  </label>
+                </div>
+              </article>
+
+              <section className="feishu-alert blue">
+                <strong>Security Tip</strong>
+                <p>Your App Secret is sensitive. SlackClaw writes it into the installed OpenClaw configuration, so do not share it or store it in plain text elsewhere.</p>
+              </section>
+            </div>
+          ) : null}
+
+          {currentStep === 3 ? (
+            <div className="stack">
+              <section className="feishu-hero green">
+                <div className="feishu-hero-icon" aria-hidden="true">🔗</div>
+                <div>
+                  <h3>Configure permissions</h3>
+                  <p>Import the exact permission batch required by the OpenClaw Feishu channel guide.</p>
+                </div>
+              </section>
+
+              <article className="surface feishu-guide-card">
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index green">1</div>
+                  <div>
+                    <strong>Open Permissions &amp; Scopes</strong>
+                    <p>In the Feishu app console, open the permissions section and choose the batch import option.</p>
+                  </div>
+                </div>
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index green">2</div>
+                  <div className="stack">
+                    <strong>Import the official scope batch</strong>
+                    <p>Feishu’s OpenClaw guide uses batch import for the required scopes. Copy the JSON below and import it in the Permissions &amp; Scopes section.</p>
+                    <div className="feishu-inline-field">
+                      <textarea readOnly value={permissionsJson} />
+                      <button className="button ghost small" type="button" onClick={() => void copyToClipboard(permissionsJson)}>
+                        {copy.copy}
+                      </button>
+                    </div>
+                    <p>Review the imported scopes and submit them if your workspace requires approval.</p>
+                  </div>
+                </div>
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index green">3</div>
+                  <div>
+                    <strong>Review and submit permission approval</strong>
+                    <ul className="simple-list">
+                      <li>Confirm both tenant and user scopes were imported</li>
+                      <li>Submit approval if your tenant requires admin review</li>
+                      <li>Wait until the required scopes are active before continuing</li>
+                    </ul>
+                  </div>
+                </div>
+              </article>
+
+              <section className="feishu-alert amber">
+                <strong>Use the exact batch import</strong>
+                <p>Do not trim this scope list. The official Feishu channel guide expects this imported set before you enable bot capability and continue to OpenClaw setup.</p>
+              </section>
+            </div>
+          ) : null}
+
+          {currentStep === 4 ? (
+            <div className="stack">
+              <section className="feishu-hero orange">
+                <div className="feishu-hero-icon" aria-hidden="true">🤖</div>
+                <div>
+                  <h3>Enable bot capability</h3>
+                  <p>Turn on the Feishu bot capability explicitly. This is a required step in the official OpenClaw Feishu setup.</p>
+                </div>
+              </section>
+
+              <article className="surface feishu-guide-card">
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index orange">1</div>
+                  <div>
+                    <strong>Enable Bot</strong>
+                    <p>In the Feishu app console, open Add Capabilities and enable the Bot capability for this app.</p>
+                  </div>
+                </div>
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index orange">2</div>
+                  <div>
+                    <strong>Set the bot name and profile</strong>
+                    <p>Choose the bot name, avatar, and description that users will see in Feishu chats.</p>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <label>
+                    <span>Bot name (optional)</span>
+                    <input value={botName} onChange={(event) => setBotName(event.target.value)} placeholder="OpenClaw Bot" />
+                  </label>
+                  <label>
+                    <span>Tenant domain</span>
+                    <select value={domain} onChange={(event) => setDomain(event.target.value)}>
+                      <option value="feishu">feishu.cn</option>
+                      <option value="lark">larksuite.com</option>
+                    </select>
+                  </label>
+                </div>
+              </article>
+
+              <section className="feishu-alert blue">
+                <strong>Bot capability must be enabled before testing</strong>
+                <p>If the bot capability is not enabled, direct messages and pairing will fail even if the credentials are correct.</p>
+              </section>
+            </div>
+          ) : null}
+
+          {currentStep === 5 ? (
+            <div className="stack">
+              <section className="feishu-hero orange">
+                <div className="feishu-hero-icon" aria-hidden="true">🔒</div>
+                <div>
+                  <h3>Configure OpenClaw</h3>
+                  <p>SlackClaw will write the official Feishu plugin settings into the installed OpenClaw configuration. Long connection is the recommended event delivery mode from the docs.</p>
+                </div>
+              </section>
+
+              <article className="surface feishu-guide-card">
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index orange">1</div>
+                  <div>
+                    <strong>Save credentials into OpenClaw</strong>
+                    <p>SlackClaw writes the App ID, App Secret, tenant domain, and bot name into the official OpenClaw Feishu plugin configuration.</p>
+                  </div>
+                </div>
+                <div className="feishu-summary-grid">
+                  <div className="feishu-summary-item"><span>App ID</span><code>{appId || "Not set"}</code></div>
+                  <div className="feishu-summary-item"><span>App Secret</span><code>{appSecret ? "••••••••••••" : "Not set"}</code></div>
+                  <div className="feishu-summary-item"><span>Tenant domain</span><code>{domain}</code></div>
+                  <div className="feishu-summary-item"><span>Bot name</span><code>{botName || "Default"}</code></div>
+                </div>
+                <div className="feishu-guide-row">
+                  <div className="feishu-guide-index orange">2</div>
+                  <div>
+                    <strong>What SlackClaw saves</strong>
+                    <p>SlackClaw configures the official OpenClaw Feishu plugin with your App ID, App Secret, domain, pairing DM policy, and long-connection mode. You will restart the gateway after this dialog closes.</p>
+                  </div>
+                </div>
+              </article>
+
+              <section className="feishu-alert blue">
+                <strong>No public callback URL needed</strong>
+                <p>The official Feishu guide uses long connection, so you do not need to expose a public webhook callback URL in this SlackClaw flow.</p>
+              </section>
+            </div>
+          ) : null}
+
+          {currentStep === 6 ? (
+            <div className="stack">
+              <section className="feishu-hero blue">
+                <div className="feishu-hero-icon" aria-hidden="true">✅</div>
+                <div>
+                  <h3>Start the gateway and finish Feishu setup</h3>
+                  <p>After SlackClaw saves the config, restart the OpenClaw gateway, switch Feishu event delivery to long connection, publish the app, and test direct messages.</p>
+                </div>
+              </section>
+
+              <article className="surface feishu-summary-card">
+                <h3>Configuration Summary</h3>
+                <div className="feishu-summary-grid">
+                  <div className="feishu-summary-item"><span>App ID</span><code>{appId || "Not set"}</code></div>
+                  <div className="feishu-summary-item"><span>App Secret</span><code>{appSecret ? "••••••••••••" : "Not set"}</code></div>
+                  <div className="feishu-summary-item"><span>Tenant domain</span><code>{domain}</code></div>
+                  <div className="feishu-summary-item"><span>Bot name</span><code>{botName || "Default"}</code></div>
+                </div>
+              </article>
+
+              <article className="surface feishu-test-card">
+                <div className="feishu-test-copy">
+                  <strong>Required follow-up after saving</strong>
+                  <p>Use the guide below after SlackClaw writes the Feishu config into OpenClaw.</p>
+                </div>
+                <div className="feishu-checklist">
+                  <label className="feishu-check">
+                    <input type="checkbox" checked={gatewayRestarted} onChange={(event) => setGatewayRestarted(event.target.checked)} />
+                    <span>I will restart the OpenClaw gateway from the Channels page right after saving.</span>
+                  </label>
+                  <label className="feishu-check">
+                    <input type="checkbox" checked={longConnectionEnabled} onChange={(event) => setLongConnectionEnabled(event.target.checked)} />
+                    <span>I will enable <strong>Use long connection to receive events</strong> and add <code>im.message.receive_v1</code> in Feishu.</span>
+                  </label>
+                  <label className="feishu-check">
+                    <input type="checkbox" checked={appPublished} onChange={(event) => setAppPublished(event.target.checked)} />
+                    <span>I will publish the app, send a direct message to the bot, and approve the pairing code in SlackClaw if prompted.</span>
+                  </label>
+                </div>
+              </article>
+
+              <article className="surface feishu-next-card">
+                <h3>Official OpenClaw order</h3>
+                <ul className="simple-list">
+                  <li>Save the Feishu credentials into OpenClaw with this dialog.</li>
+                  <li>Restart the gateway from the Channels page.</li>
+                  <li>In Feishu Event Subscriptions, choose long connection and add <code>im.message.receive_v1</code>.</li>
+                  <li>Publish the app, add the bot, send a direct message, and approve pairing.</li>
+                </ul>
+              </article>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="button-row spread feishu-nav">
+          <button
+            className="button ghost"
+            onClick={() => {
+              if (currentStep === 1) {
+                props.onCancel();
+                return;
+              }
+              setCurrentStep((step) => step - 1);
+            }}
+          >
+            {currentStep === 1 ? copy.cancel : copy.previous}
+          </button>
+          {currentStep < copy.steps.length ? (
+            <button className="button primary" onClick={() => setCurrentStep((step) => step + 1)} disabled={!canProceed(currentStep)}>
+              {copy.nextStep}
+            </button>
+          ) : (
+            <button
+              className="button primary"
+              onClick={() =>
+                void props.onComplete({
+                  appId: appId.trim(),
+                  appSecret: appSecret.trim(),
+                  domain,
+                  botName: botName.trim() || undefined
+                })
+              }
+              disabled={!gatewayRestarted || !longConnectionEnabled || !appPublished || props.busy === "channel-feishu"}
+            >
+              {props.busy === "channel-feishu" ? copy.testing : copy.completeSetup}
+            </button>
+          )}
+        </div>
+      </article>
+    </section>
   );
 }
 
@@ -1508,6 +2223,12 @@ function ConfigView(props: {
   setTelegramPairingCode: (value: string) => void;
   whatsappPairingCode: string;
   setWhatsappPairingCode: (value: string) => void;
+  feishuPairingCode: string;
+  setFeishuPairingCode: (value: string) => void;
+  showFeishuPrepareDialog: boolean;
+  setShowFeishuPrepareDialog: (value: boolean) => void;
+  showFeishuDialog: boolean;
+  setShowFeishuDialog: (value: boolean) => void;
   wechatPluginSpec: string;
   setWechatPluginSpec: (value: string) => void;
   wechatCorpId: string;
@@ -1525,6 +2246,14 @@ function ConfigView(props: {
   onTelegramApprove: () => Promise<void>;
   onWhatsappLogin: () => Promise<void>;
   onWhatsappApprove: () => Promise<void>;
+  onPrepareFeishu: () => Promise<void>;
+  onFeishuApprove: () => Promise<void>;
+  onFeishuSetup: (request: {
+    appId: string;
+    appSecret: string;
+    domain?: string;
+    botName?: string;
+  }) => Promise<void>;
   onWechatSetup: () => Promise<void>;
   onGatewayStart: () => Promise<void>;
   onAuthenticateProvider: () => Promise<void>;
@@ -1534,9 +2263,11 @@ function ConfigView(props: {
 }) {
   const telegram = props.overview.channelSetup.channels.find((channel) => channel.id === "telegram");
   const whatsapp = props.overview.channelSetup.channels.find((channel) => channel.id === "whatsapp");
+  const feishu = props.overview.channelSetup.channels.find((channel) => channel.id === "feishu");
   const wechat = props.overview.channelSetup.channels.find((channel) => channel.id === "wechat");
   const onboardingComplete = props.overview.channelSetup.baseOnboardingCompleted;
   const copy = configCopy(props.locale);
+  const feishuUi = feishuCopy(props.locale);
   const selectedProvider = props.selectedProviderId
     ? props.modelConfig?.providers.find((provider) => provider.id === props.selectedProviderId)
     : undefined;
@@ -1973,6 +2704,76 @@ function ConfigView(props: {
             </article>
           ) : null}
 
+          {feishu ? (
+            <article className={`surface figma-channel-card ${channelTone(feishu.status)}`}>
+              <div className="config-card-head">
+                <div className="feishu-channel-head">
+                  <div className="figma-provider-mark small feishu-mark" aria-hidden="true">飞</div>
+                  <div>
+                    <h3>{copy.feishu}</h3>
+                    <p>{feishu.summary}</p>
+                  </div>
+                </div>
+                <span className={`tiny-badge ${feishu.status === "completed" ? "pass" : "pending"}`}>{feishu.status}</span>
+              </div>
+              <div className="figma-model-grid">
+                <div className="figma-field">
+                  <span>{copy.source}</span>
+                  <strong>{feishu.officialSupport ? "Official OpenClaw plugin" : "SlackClaw-managed"}</strong>
+                </div>
+                <div className="figma-field">
+                  <span>{copy.authentication}</span>
+                  <strong>App ID + App Secret</strong>
+                </div>
+                <div className="figma-field">
+                  <span>{copy.documentation}</span>
+                  <a href="https://docs.openclaw.ai/channels/feishu" target="_blank" rel="noreferrer">
+                    Open OpenClaw Feishu docs
+                  </a>
+                </div>
+              </div>
+              <div className="feishu-setup-box">
+                <p>{feishuUi.setupCardTitle}</p>
+                <div className="button-row">
+                  <button
+                    className="button primary"
+                    onClick={() =>
+                      feishu.status === "ready" || feishu.status === "awaiting-pairing" || feishu.status === "completed"
+                        ? props.setShowFeishuDialog(true)
+                        : props.setShowFeishuPrepareDialog(true)
+                    }
+                    disabled={props.busy !== null}
+                  >
+                    {feishu.status === "ready" || feishu.status === "awaiting-pairing" || feishu.status === "completed"
+                      ? feishuUi.setupButton
+                      : feishuUi.prepareButton}
+                  </button>
+                </div>
+              </div>
+              {(feishu.status === "awaiting-pairing" || feishu.status === "completed") && (
+                <div className="form-grid">
+                  <label>
+                    <span>{copy.pairingCode}</span>
+                    <input value={props.feishuPairingCode} onChange={(event) => props.setFeishuPairingCode(event.target.value)} />
+                  </label>
+                  <div className="button-row align-end">
+                    <button className="button ghost" onClick={() => void props.onFeishuApprove()} disabled={props.busy !== null}>
+                      {copy.approveFeishu}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </article>
+          ) : null}
+
+          <FeishuPrepareDialog
+            locale={props.locale}
+            open={props.showFeishuPrepareDialog}
+            busy={props.busy}
+            onCancel={() => props.setShowFeishuPrepareDialog(false)}
+            onPrepare={props.onPrepareFeishu}
+          />
+
           {wechat ? (
             <article className={`surface figma-channel-card ${channelTone(wechat.status)}`}>
               <div className="config-card-head">
@@ -2028,6 +2829,14 @@ function ConfigView(props: {
               {props.busy === "channel-gateway" ? copy.restarting : copy.restartGateway}
             </button>
           </section>
+
+          <FeishuSetupDialog
+            locale={props.locale}
+            open={props.showFeishuDialog}
+            busy={props.busy}
+            onCancel={() => props.setShowFeishuDialog(false)}
+            onComplete={props.onFeishuSetup}
+          />
         </div>
       )}
     </div>
@@ -2479,6 +3288,9 @@ export default function App() {
   const [telegramAccountName, setTelegramAccountName] = useState("");
   const [telegramPairingCode, setTelegramPairingCode] = useState("");
   const [whatsappPairingCode, setWhatsappPairingCode] = useState("");
+  const [feishuPairingCode, setFeishuPairingCode] = useState("");
+  const [showFeishuPrepareDialog, setShowFeishuPrepareDialog] = useState(false);
+  const [showFeishuDialog, setShowFeishuDialog] = useState(false);
   const [wechatPluginSpec, setWechatPluginSpec] = useState("@openclaw-china/wecom-app");
   const [wechatCorpId, setWechatCorpId] = useState("");
   const [wechatAgentId, setWechatAgentId] = useState("");
@@ -2806,6 +3618,60 @@ export default function App() {
       setWhatsappPairingCode("");
     } catch (channelError) {
       setError(channelError instanceof Error ? channelError.message : "WhatsApp pairing failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleFeishuApprove() {
+    setBusy("channel-feishu-approve");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await approveFeishuPairing({ code: feishuPairingCode.trim() });
+      setOverview(result.overview);
+      setNotice(result.message);
+      setFeishuPairingCode("");
+    } catch (channelError) {
+      setError(channelError instanceof Error ? channelError.message : "Feishu pairing failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleFeishuSetup(request: {
+    appId: string;
+    appSecret: string;
+    domain?: string;
+    botName?: string;
+  }) {
+    setBusy("channel-feishu");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await setupFeishuChannel(request);
+      setOverview(result.overview);
+      setShowFeishuDialog(false);
+      setNotice(result.message);
+    } catch (channelError) {
+      setError(channelError instanceof Error ? channelError.message : "Feishu setup failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handlePrepareFeishu() {
+    setBusy("channel-feishu-prepare");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await prepareFeishuChannel();
+      setOverview(result.overview);
+      setShowFeishuPrepareDialog(false);
+      setShowFeishuDialog(true);
+      setNotice(result.message);
+    } catch (channelError) {
+      setError(channelError instanceof Error ? channelError.message : "Feishu plugin install failed.");
     } finally {
       setBusy(null);
     }
@@ -3153,6 +4019,12 @@ export default function App() {
           setTelegramPairingCode={setTelegramPairingCode}
           whatsappPairingCode={whatsappPairingCode}
           setWhatsappPairingCode={setWhatsappPairingCode}
+          feishuPairingCode={feishuPairingCode}
+          setFeishuPairingCode={setFeishuPairingCode}
+          showFeishuPrepareDialog={showFeishuPrepareDialog}
+          setShowFeishuPrepareDialog={setShowFeishuPrepareDialog}
+          showFeishuDialog={showFeishuDialog}
+          setShowFeishuDialog={setShowFeishuDialog}
           wechatPluginSpec={wechatPluginSpec}
           setWechatPluginSpec={setWechatPluginSpec}
           wechatCorpId={wechatCorpId}
@@ -3170,6 +4042,9 @@ export default function App() {
           onTelegramApprove={handleTelegramApprove}
           onWhatsappLogin={handleWhatsappLogin}
           onWhatsappApprove={handleWhatsappApprove}
+          onPrepareFeishu={handlePrepareFeishu}
+          onFeishuApprove={handleFeishuApprove}
+          onFeishuSetup={handleFeishuSetup}
           onWechatSetup={handleWechatSetup}
           onGatewayStart={handleGatewayStart}
           onAuthenticateProvider={handleProviderAuth}

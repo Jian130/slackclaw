@@ -16,7 +16,7 @@ import type {
   ProductOverview,
   RecoveryRunResponse
 } from "@slackclaw/contracts";
-import type { SetDefaultModelRequest, SetupRunResponse, TelegramSetupRequest, WechatSetupRequest } from "@slackclaw/contracts";
+import type { FeishuSetupRequest, SetDefaultModelRequest, SetupRunResponse, TelegramSetupRequest, WechatSetupRequest } from "@slackclaw/contracts";
 
 const API_BASE =
   typeof window !== "undefined" && window.location.origin.includes("127.0.0.1:4545")
@@ -200,6 +200,26 @@ export function approveWhatsappPairing(request: PairingApprovalRequest): Promise
 
 export function setupWechatWorkaround(request: WechatSetupRequest): Promise<ChannelActionResponse> {
   return readJson<ChannelActionResponse>("/channels/wechat", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function setupFeishuChannel(request: FeishuSetupRequest): Promise<ChannelActionResponse> {
+  return readJson<ChannelActionResponse>("/channels/feishu", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function prepareFeishuChannel(): Promise<ChannelActionResponse> {
+  return readJson<ChannelActionResponse>("/channels/feishu/prepare", {
+    method: "POST"
+  });
+}
+
+export function approveFeishuPairing(request: PairingApprovalRequest): Promise<ChannelActionResponse> {
+  return readJson<ChannelActionResponse>("/channels/feishu/approve", {
     method: "POST",
     body: JSON.stringify(request)
   });

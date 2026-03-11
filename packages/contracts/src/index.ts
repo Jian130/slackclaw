@@ -174,7 +174,7 @@ export interface SetupStepResult {
   detail: string;
 }
 
-export type SupportedChannelId = "telegram" | "whatsapp" | "wechat";
+export type SupportedChannelId = "telegram" | "whatsapp" | "feishu" | "wechat";
 
 export interface ChannelSetupState {
   id: SupportedChannelId;
@@ -322,6 +322,13 @@ export interface WechatSetupRequest {
   secret: string;
   token: string;
   encodingAesKey: string;
+}
+
+export interface FeishuSetupRequest {
+  appId: string;
+  appSecret: string;
+  domain?: string;
+  botName?: string;
 }
 
 export interface ChannelActionResponse {
@@ -486,6 +493,14 @@ export function createDefaultProductOverview(): ProductOverview {
           status: "not-started",
           summary: "WhatsApp setup has not started yet.",
           detail: "SlackClaw will start the login flow, then wait for pairing approval."
+        },
+        {
+          id: "feishu",
+          title: "Feishu (飞书)",
+          officialSupport: true,
+          status: "not-started",
+          summary: "Feishu bot setup has not started yet.",
+          detail: "SlackClaw can guide you through the official OpenClaw Feishu plugin setup: app creation, credentials, gateway restart, long-connection event subscription, and pairing."
         },
         {
           id: "wechat",

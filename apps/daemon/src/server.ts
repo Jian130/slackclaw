@@ -10,6 +10,7 @@ import type {
   ModelAuthRequest,
   OnboardingSelection,
   SetDefaultModelRequest,
+  FeishuSetupRequest,
   TelegramSetupRequest,
   WechatSetupRequest
 } from "@slackclaw/contracts";
@@ -225,6 +226,38 @@ export function startServer(port = 4545) {
       if (request.method === "POST" && request.url === "/api/channels/wechat") {
         const body = await readJson<WechatSetupRequest>(request);
         sendJson(response, 200, await channelSetupService.configureWechatWorkaround(body));
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/channels/feishu") {
+        const body = await readJson<FeishuSetupRequest>(request);
+        sendJson(response, 200, await channelSetupService.configureFeishu(body));
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/channels/feishu/prepare") {
+        sendJson(response, 200, await channelSetupService.prepareFeishu());
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/channels/feishu/approve") {
+        const body = await readJson<PairingApprovalRequest>(request);
+        sendJson(response, 200, await channelSetupService.approvePairing("feishu", body));
+        return;
+      }
+
+      if (
+        (request.method === "GET" || request.method === "POST") &&
+        request.url.startsWith("/api/channels/feishu/callback")
+      ) {
+        const body = request.method === "POST" ? await readJson<Record<string, unknown>>(request) : {};
+        const challenge =
+          typeof body.challenge === "string"
+            ? body.challenge
+            : typeof body.encrypt === "string"
+              ? body.encrypt
+              : undefined;
+        sendJson(response, 200, challenge ? { challenge } : { ok: true, message: "SlackClaw Feishu callback is reachable." });
         return;
       }
 
