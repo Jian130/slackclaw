@@ -1,0 +1,88 @@
+{
+  "configPath": "/Users/home/.openclaw/openclaw.json",
+  "agentDir": "/Users/home/.openclaw/agents/main/agent",
+  "defaultModel": "openai-codex/gpt-5.4",
+  "resolvedDefault": "openai-codex/gpt-5.4",
+  "fallbacks": [
+    "openai/codex-mini-latest"
+  ],
+  "imageModel": null,
+  "imageFallbacks": [],
+  "aliases": {},
+  "allowed": [
+    "openai-codex/gpt-5.4",
+    "openai/codex-mini-latest"
+  ],
+  "auth": {
+    "storePath": "/Users/home/.openclaw/agents/main/agent/auth-profiles.json",
+    "shellEnvFallback": {
+      "enabled": false,
+      "appliedKeys": []
+    },
+    "providersWithOAuth": [
+      "openai-codex (1)"
+    ],
+    "missingProvidersInUse": [
+      "openai"
+    ],
+    "providers": [
+      {
+        "provider": "openai-codex",
+        "effective": {
+          "kind": "profiles",
+          "detail": "~/.openclaw/agents/main/agent/auth-profiles.json"
+        },
+        "profiles": {
+          "count": 1,
+          "oauth": 1,
+          "token": 0,
+          "apiKey": 0,
+          "labels": [
+            "openai-codex:default=OAuth"
+          ]
+        }
+      }
+    ],
+    "unusableProfiles": [],
+    "oauth": {
+      "warnAfterMs": 86400000,
+      "profiles": [
+        {
+          "profileId": "openai-codex:default",
+          "provider": "openai-codex",
+          "type": "oauth",
+          "status": "ok",
+          "expiresAt": 1774024818695,
+          "remainingMs": 686569583,
+          "source": "store",
+          "label": "openai-codex:default"
+        }
+      ],
+      "providers": [
+        {
+          "provider": "openai",
+          "status": "missing",
+          "profiles": []
+        },
+        {
+          "provider": "openai-codex",
+          "status": "ok",
+          "profiles": [
+            {
+              "profileId": "openai-codex:default",
+              "provider": "openai-codex",
+              "type": "oauth",
+              "status": "ok",
+              "expiresAt": 1774024818695,
+              "remainingMs": 686569583,
+              "source": "store",
+              "label": "openai-codex:default"
+            }
+          ],
+          "expiresAt": 1774024818695,
+          "remainingMs": 686569583
+        }
+      ]
+    }
+  }
+}

@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, dirname, resolve } from "node:path";
+import { basename, delimiter, dirname, resolve } from "node:path";
 
 import type {
+  DeploymentTargetActionResponse,
+  DeploymentTargetStatus,
+  DeploymentTargetsResponse,
   EngineActionResponse,
   ChannelSetupState,
   EngineCapabilities,
@@ -19,6 +22,10 @@ import type {
   ModelConfigActionResponse,
   ModelConfigOverview,
   ModelProviderConfig,
+  ReplaceFallbackModelEntriesRequest,
+  SaveModelEntryRequest,
+  SavedModelEntry,
+  SetDefaultModelEntryRequest,
   EngineStatus,
   EngineTaskRequest,
   EngineTaskResult,
@@ -130,6 +137,12 @@ interface OpenClawUpdateStatusJson {
   };
 }
 
+interface OpenClawTargetUpdateStatus {
+  updateAvailable: boolean;
+  latestVersion?: string;
+  summary: string;
+}
+
 interface OpenClawAgentJson {
   ok?: boolean;
   output?: string;
@@ -144,6 +157,15 @@ interface OpenClawModelListJson {
 }
 
 interface OpenClawModelStatusJson {
+  configPath?: string;
+  agentDir?: string;
+  defaultModel?: string | null;
+  resolvedDefault?: string | null;
+  fallbacks?: string[];
+  imageModel?: string | null;
+  imageFallbacks?: string[];
+  aliases?: Record<string, string>;
+  allowed?: string[];
   auth?: {
     providers?: Array<{
       provider?: string;
@@ -185,11 +207,45 @@ interface OpenClawAdapterState {
   configuredProfileId?: string;
   installedAt?: string;
   lastInstallMode?: "detected" | "onboarded";
+  modelEntries?: SavedModelEntryState[];
+  defaultModelEntryId?: string;
+  fallbackModelEntryIds?: string[];
+}
+
+interface OpenClawConfigFileJson {
+  auth?: {
+    profiles?: Record<string, { provider?: string; mode?: string; email?: string }>;
+    order?: Record<string, string[]>;
+  };
+  agents?: {
+    defaults?: {
+      model?: string | { primary?: string; fallbacks?: string[] };
+      models?: Record<string, unknown>;
+      workspace?: string;
+    };
+    list?: Array<{
+      id: string;
+      name?: string;
+      workspace?: string;
+      agentDir?: string;
+      default?: boolean;
+      model?: string | { primary?: string; fallbacks?: string[] };
+    }>;
+  };
+}
+
+interface OpenClawAuthProfileStoreJson {
+  version?: number;
+  profiles?: Record<string, Record<string, unknown> & { provider?: string; type?: string; email?: string; accountId?: string }>;
+  usageStats?: Record<string, unknown>;
+  order?: Record<string, string[]>;
+  lastGood?: Record<string, string>;
 }
 
 const OPENCLAW_STATE_PATH = resolve(getDataDir(), "openclaw-state.json");
 const OPENCLAW_VERSION_PIN = "2026.3.7";
 const FEISHU_BUNDLED_SINCE = "2026.3.7";
+const OPENCLAW_MAIN_AGENT_ID = "main";
 
 interface BootstrapResult {
   status: "reused-existing" | "would-install" | "would-reinstall" | "installed" | "reinstalled" | "failed";
@@ -218,6 +274,8 @@ interface RuntimeModelAuthSession extends ModelAuthSession {
   outputBuffer: string;
   setDefaultModel?: string;
   browserOpened: boolean;
+  agentDir?: string;
+  pendingEntry?: PendingSavedModelEntryOperation;
 }
 
 interface InternalModelAuthMethod extends ModelAuthMethod {
@@ -236,10 +294,26 @@ interface InternalModelProviderConfig extends Omit<ModelProviderConfig, "authMet
   authMethods: InternalModelAuthMethod[];
 }
 
+interface SavedModelEntryState extends SavedModelEntry {
+  agentDir: string;
+  workspaceDir: string;
+  profileIds: string[];
+}
+
+interface PendingSavedModelEntryOperation {
+  mode: "create" | "update";
+  entryId: string;
+  agentId: string;
+  agentDir: string;
+  workspaceDir: string;
+  draft: SaveModelEntryRequest;
+}
+
 let whatsappLoginSession: LoginSessionState | undefined;
 const modelAuthSessions = new Map<string, RuntimeModelAuthSession>();
 
 const PROVIDER_DOCS_BASE = "https://docs.openclaw.ai/providers/docs";
+const MODEL_PROVIDER_CONCEPTS_URL = "https://docs.openclaw.ai/concepts/model-providers";
 
 const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   {
@@ -300,10 +374,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "byteplus",
-    label: "BytePlus / Volcengine",
-    description: "BytePlus-hosted or Volcano Engine-hosted models.",
+    label: "BytePlus",
+    description: "BytePlus-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/byteplus`,
-    providerRefs: ["byteplus/"],
+    providerRefs: ["byteplus/", "byteplus-plan/"],
     authMethods: [
       {
         id: "byteplus-api-key",
@@ -314,10 +388,19 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
         onboardAuthChoice: "byteplus-api-key",
         onboardFieldFlags: { apiKey: "--byteplus-api-key" }
-      },
+      }
+    ]
+  },
+  {
+    id: "volcengine",
+    label: "Volcano Engine",
+    description: "Volcano Engine and Doubao-hosted models.",
+    docsUrl: `${PROVIDER_DOCS_BASE}/volcengine`,
+    providerRefs: ["volcengine/", "volcengine-plan/"],
+    authMethods: [
       {
         id: "volcengine-api-key",
-        label: "Volcengine API Key",
+        label: "Volcano Engine API Key",
         kind: "api-key",
         description: "Paste a Volcano Engine API key.",
         interactive: false,
@@ -397,9 +480,9 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "gemini",
-    label: "Gemini",
-    description: "Google Gemini models.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/gemini`,
+    label: "Google (Gemini / Vertex / CLI)",
+    description: "Google Gemini, Google Vertex, Antigravity, and Gemini CLI model access.",
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
     providerRefs: ["google/", "google-gemini-cli/", "google-antigravity/", "google-vertex/"],
     authMethods: [
       {
@@ -428,7 +511,7 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     label: "GitHub Copilot",
     description: "Copilot-based model access.",
     docsUrl: `${PROVIDER_DOCS_BASE}/github-copilot`,
-    providerRefs: ["github-copilot/", "openai-codex/"],
+    providerRefs: ["github-copilot/"],
     authMethods: [
       {
         id: "github-copilot-device",
@@ -443,8 +526,8 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "huggingface",
-    label: "Hugging Face",
-    description: "Hugging Face token-based model access.",
+    label: "Hugging Face Inference",
+    description: "Hugging Face Inference token-based model access.",
     docsUrl: `${PROVIDER_DOCS_BASE}/hugging-face`,
     providerRefs: ["huggingface/"],
     authMethods: [
@@ -462,8 +545,8 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "kilocode",
-    label: "Kilo Code Gateway",
-    description: "Kilo Code Gateway hosted provider.",
+    label: "Kilo Gateway",
+    description: "Kilo Gateway hosted provider.",
     docsUrl: `${PROVIDER_DOCS_BASE}/kilo-gateway`,
     providerRefs: ["kilocode/"],
     authMethods: [
@@ -481,10 +564,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "kimi-code",
-    label: "Kimi / Moonshot",
-    description: "Moonshot and Kimi Coding models.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/moonshot-kimi`,
-    providerRefs: ["kimi-coding/", "moonshot/", "moonshotai/"],
+    label: "Kimi Coding",
+    description: "Kimi Coding model access through Moonshot AI.",
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    providerRefs: ["kimi-coding/"],
     authMethods: [
       {
         id: "kimi-code-api-key",
@@ -495,7 +578,16 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
         onboardAuthChoice: "kimi-code-api-key",
         onboardFieldFlags: { apiKey: "--kimi-code-api-key" }
-      },
+      }
+    ]
+  },
+  {
+    id: "moonshot",
+    label: "Moonshot AI",
+    description: "Moonshot AI hosted models, including Kimi family access.",
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    providerRefs: ["moonshot/", "moonshotai/"],
+    authMethods: [
       {
         id: "moonshot-api-key",
         label: "Moonshot API Key",
@@ -651,10 +743,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "opencode-zen",
-    label: "OpenCode Zen",
-    description: "OpenCode Zen provider.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/opencode-zen`,
-    providerRefs: ["opencode/", "opencode-zen/"],
+    label: "OpenCode (Zen + Go)",
+    description: "OpenCode Zen and OpenCode Go providers.",
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    providerRefs: ["opencode/", "opencode-zen/", "opencode-go/"],
     authMethods: [
       {
         id: "opencode-zen",
@@ -670,10 +762,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "openai",
-    label: "OpenAI",
-    description: "OpenAI GPT and reasoning models.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/openai`,
-    providerRefs: ["openai/"],
+    label: "OpenAI (API + Codex)",
+    description: "OpenAI GPT models and the OpenAI Codex login flow.",
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    providerRefs: ["openai/", "openai-codex/"],
     authMethods: [
       {
         id: "openai-api-key",
@@ -736,8 +828,8 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "qwen",
-    label: "Qwen",
-    description: "Qwen portal-based access.",
+    label: "Qwen (OAuth)",
+    description: "Qwen OAuth and portal-based access.",
     docsUrl: `${PROVIDER_DOCS_BASE}/qwen`,
     providerRefs: ["qwen/", "qwen-portal/"],
     authMethods: [
@@ -811,8 +903,8 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "venice",
-    label: "Venice",
-    description: "Venice-hosted models.",
+    label: "Venice AI",
+    description: "Venice AI-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/venice`,
     providerRefs: ["venice/"],
     authMethods: [
@@ -867,8 +959,8 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   },
   {
     id: "xiaomi",
-    label: "Xiaomi",
-    description: "Xiaomi-hosted models.",
+    label: "Xiaomi MiMo",
+    description: "Xiaomi MiMo-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/xiaomi`,
     providerRefs: ["xiaomi/"],
     authMethods: [
@@ -885,47 +977,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     ]
   },
   {
-    id: "glm-models",
-    label: "GLM Models",
-    description: "GLM models through the Z.AI provider family.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/glm-models`,
-    providerRefs: ["zai/"],
-    authMethods: [
-      {
-        id: "zai-api-key",
-        label: "API Key",
-        kind: "api-key",
-        description: "Paste a GLM / Z.AI API key.",
-        interactive: false,
-        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
-        onboardAuthChoice: "zai-api-key",
-        onboardFieldFlags: { apiKey: "--zai-api-key" }
-      },
-      {
-        id: "zai-global",
-        label: "Z.AI Global",
-        kind: "oauth",
-        description: "Run the Z.AI global login flow for GLM models.",
-        interactive: true,
-        fields: [],
-        loginProviderId: "zai-global"
-      },
-      {
-        id: "zai-cn",
-        label: "Z.AI CN",
-        kind: "oauth",
-        description: "Run the Z.AI China login flow for GLM models.",
-        interactive: true,
-        fields: [],
-        loginProviderId: "zai-cn"
-      }
-    ]
-  },
-  {
     id: "zai",
-    label: "Z.AI",
-    description: "Z.AI / GLM model catalog.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/z-ai`,
+    label: "Z.AI (GLM)",
+    description: "Z.AI and GLM model catalog.",
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
     providerRefs: ["zai/"],
     authMethods: [
       {
@@ -978,7 +1033,7 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
   }
 ];
 
-function buildCommandEnv(command?: string): NodeJS.ProcessEnv {
+function buildCommandEnv(command?: string, envOverrides?: Record<string, string | undefined>): NodeJS.ProcessEnv {
   const pathEntries = [
     command && command.startsWith("/") ? dirname(command) : undefined,
     "/opt/homebrew/bin",
@@ -990,11 +1045,41 @@ function buildCommandEnv(command?: string): NodeJS.ProcessEnv {
     ...(process.env.PATH ? process.env.PATH.split(delimiter) : [])
   ].filter((value): value is string => Boolean(value));
 
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: [...new Set(pathEntries)].join(delimiter),
     NO_COLOR: "1"
   };
+
+  for (const [key, value] of Object.entries(envOverrides ?? {})) {
+    if (value === undefined) {
+      delete env[key];
+    } else {
+      env[key] = value;
+    }
+  }
+
+  return env;
+}
+
+function shouldLogOpenClawCommands(): boolean {
+  if (process.env.SLACKCLAW_LOG_OPENCLAW_COMMANDS === "0") {
+    return false;
+  }
+
+  return process.env.SLACKCLAW_LOG_OPENCLAW_COMMANDS === "1" || !getAppRootDir();
+}
+
+function isOpenClawCommand(command: string): boolean {
+  return basename(command) === "openclaw";
+}
+
+function logOpenClawCommand(command: string, args: string[]): void {
+  if (!shouldLogOpenClawCommands() || !isOpenClawCommand(command)) {
+    return;
+  }
+
+  console.log(`[SlackClaw daemon][openclaw] ${command} ${args.join(" ")}`);
 }
 
 function toInstallDisposition(
@@ -1058,7 +1143,10 @@ function createChannelState(
   };
 }
 
-async function runOpenClaw(args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
+async function runOpenClaw(
+  args: string[],
+  options?: { allowFailure?: boolean; envOverrides?: Record<string, string | undefined>; input?: string }
+): Promise<CommandResult> {
   const command = await resolveOpenClawCommand();
 
   if (!command) {
@@ -1073,52 +1161,18 @@ async function runOpenClaw(args: string[], options?: { allowFailure?: boolean })
     throw new Error("OpenClaw CLI is not installed.");
   }
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      env: buildCommandEnv(command)
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (error) => {
-      void writeErrorLog("Failed to spawn OpenClaw command.", {
-        command,
-        args,
-        error: errorToLogDetails(error)
-      });
-      reject(error);
-    });
-
-    child.on("exit", (code) => {
-      const result: CommandResult = {
-        code: code ?? 1,
-        stdout: stdout.trim(),
-        stderr: stderr.trim()
-      };
-
-      if (!options?.allowFailure && result.code !== 0) {
-        reject(new Error(result.stderr || result.stdout || `openclaw ${args.join(" ")} failed`));
-        return;
-      }
-
-      resolve(result);
-    });
-  });
+  return runCommand(command, args, options);
 }
 
-async function runCommand(command: string, args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
+async function runCommand(
+  command: string,
+  args: string[],
+  options?: { allowFailure?: boolean; envOverrides?: Record<string, string | undefined>; input?: string }
+): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
+    logOpenClawCommand(command, args);
     const child = spawn(command, args, {
-      env: buildCommandEnv(command)
+      env: buildCommandEnv(command, options?.envOverrides)
     });
 
     let stdout = "";
@@ -1131,6 +1185,8 @@ async function runCommand(command: string, args: string[], options?: { allowFail
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
+
+    child.stdin.end(options?.input);
 
     child.on("error", (error) => {
       void writeErrorLog("Failed to spawn system command for SlackClaw.", {
@@ -1215,12 +1271,20 @@ async function probeCommand(command: string, args: string[] = ["--version"]): Pr
 }
 
 async function resolveOpenClawCommand(): Promise<string | undefined> {
+  return (await resolveManagedOpenClawCommand()) ?? (await resolveSystemOpenClawCommand());
+}
+
+async function resolveManagedOpenClawCommand(): Promise<string | undefined> {
   const managedBinary = getManagedOpenClawBinPath();
 
   if ((await fileExists(managedBinary)) && (await probeCommand(managedBinary))) {
     return managedBinary;
   }
 
+  return undefined;
+}
+
+async function resolveSystemOpenClawCommand(): Promise<string | undefined> {
   const systemBinary = await resolveCommand("openclaw", ["/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]);
 
   if (systemBinary && (await probeCommand(systemBinary))) {
@@ -1368,13 +1432,55 @@ async function readManagedOpenClawVersion(): Promise<string | undefined> {
 }
 
 async function readSystemOpenClawVersion(): Promise<string | undefined> {
-  const systemCommand = await resolveCommand("openclaw", ["/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]);
+  const systemCommand = await resolveSystemOpenClawCommand();
 
-  if (!systemCommand || !(await probeCommand(systemCommand))) {
+  if (!systemCommand) {
     return undefined;
   }
 
   return readVersionFromCommand(systemCommand);
+}
+
+async function readUpdateStatusFromCommand(command: string | undefined): Promise<OpenClawTargetUpdateStatus | undefined> {
+  if (!command) {
+    return undefined;
+  }
+
+  const result = await runCommand(command, ["update", "status", "--json"], { allowFailure: true }).catch(() => ({
+    code: 1,
+    stdout: "",
+    stderr: ""
+  }));
+
+  const parsed = safeJsonPayloadParse<OpenClawUpdateStatusJson>(result.stdout) ?? safeJsonPayloadParse<OpenClawUpdateStatusJson>(result.stderr);
+
+  if (parsed?.availability?.available) {
+    return {
+      updateAvailable: true,
+      latestVersion: parsed.availability.latestVersion ?? undefined,
+      summary: `Version ${parsed.availability.latestVersion ?? "unknown"} is available on ${parsed.channel?.label ?? "the current channel"}.`
+    };
+  }
+
+  if (parsed?.update?.registry?.error) {
+    return {
+      updateAvailable: false,
+      summary: `SlackClaw could not check for updates: ${parsed.update.registry.error}.`
+    };
+  }
+
+  if (result.code !== 0) {
+    return {
+      updateAvailable: false,
+      summary: result.stderr || result.stdout || "SlackClaw could not check for updates."
+    };
+  }
+
+  return {
+    updateAvailable: false,
+    latestVersion: parsed?.availability?.latestVersion ?? undefined,
+    summary: "No newer version detected."
+  };
 }
 
 function safeJsonParse<T>(value: string | undefined): T | undefined {
@@ -1486,6 +1592,19 @@ function buildOnboardAuthArgs(method: InternalModelAuthMethod, values: Record<st
   return args;
 }
 
+function buildModelsCommandArgs(args: string[], agentId?: string): string[] {
+  return agentId ? ["models", "--agent", agentId, ...args] : ["models", ...args];
+}
+
+function resolveTokenAuthProvider(provider: InternalModelProviderConfig, method: InternalModelAuthMethod): string {
+  return method.tokenProviderId ?? method.loginProviderId ?? provider.authProviderId ?? provider.id;
+}
+
+function canUseTokenPasteAuth(method: InternalModelAuthMethod): boolean {
+  // Single-secret provider auth maps cleanly onto `openclaw models auth paste-token`.
+  return method.kind === "api-key" && method.fields.length === 1;
+}
+
 async function openExternalUrl(url: string): Promise<void> {
   if (process.platform !== "darwin") {
     return;
@@ -1498,7 +1617,7 @@ function trimLogLines(lines: string[]): string[] {
   return lines.slice(-80);
 }
 
-function spawnInteractiveCommand(command: string, args: string[]) {
+function spawnInteractiveCommand(command: string, args: string[], envOverrides?: Record<string, string | undefined>) {
   const relayScript = String.raw`
 import os
 import pty
@@ -1546,7 +1665,7 @@ sys.exit(child.wait())
 `;
 
   return spawn("python3", ["-c", relayScript, command, ...args], {
-    env: buildCommandEnv(command)
+    env: buildCommandEnv(command, envOverrides)
   });
 }
 
@@ -1631,13 +1750,17 @@ async function readModelCatalog(all = true): Promise<ModelCatalogEntry[]> {
   }
 
   const result = await runOpenClaw(args, { allowFailure: true });
-  const payload = safeJsonParse<OpenClawModelListJson>(result.stdout);
+  const payload = safeJsonPayloadParse<OpenClawModelListJson>(result.stdout) ?? safeJsonPayloadParse<OpenClawModelListJson>(result.stderr);
   return payload?.models ?? [];
 }
 
-async function readConfiguredAuthProviders(): Promise<Set<string>> {
+async function readModelStatus(): Promise<OpenClawModelStatusJson | undefined> {
   const result = await runOpenClaw(["models", "status", "--json"], { allowFailure: true });
-  const payload = safeJsonParse<OpenClawModelStatusJson>(result.stdout);
+  return safeJsonPayloadParse<OpenClawModelStatusJson>(result.stdout) ?? safeJsonPayloadParse<OpenClawModelStatusJson>(result.stderr);
+}
+
+async function readConfiguredAuthProviders(status?: OpenClawModelStatusJson): Promise<Set<string>> {
+  const payload = status ?? (await readModelStatus());
   const configured = new Set<string>();
 
   for (const provider of payload?.auth?.providers ?? []) {
@@ -1663,9 +1786,425 @@ async function readConfiguredAuthProviders(): Promise<Set<string>> {
   return configured;
 }
 
+async function readOpenClawConfigFile(configPath?: string): Promise<OpenClawConfigFileJson | undefined> {
+  if (!configPath) {
+    return undefined;
+  }
+
+  const normalizedPath =
+    configPath.startsWith("~/") && process.env.HOME ? resolve(process.env.HOME, configPath.slice(2)) : configPath;
+
+  try {
+    const raw = await readFile(normalizedPath, "utf8");
+    return JSON.parse(raw) as OpenClawConfigFileJson;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeOpenClawConfigFile(configPath: string, config: OpenClawConfigFileJson): Promise<void> {
+  const normalizedPath = configPath.startsWith("~/") && process.env.HOME ? resolve(process.env.HOME, configPath.slice(2)) : configPath;
+  await mkdir(dirname(normalizedPath), { recursive: true });
+  await writeFile(normalizedPath, JSON.stringify(config, null, 2));
+}
+
+function defaultOpenClawConfigPath(): string {
+  return resolve(process.env.HOME ?? "", ".openclaw", "openclaw.json");
+}
+
+function getMainOpenClawAgentDir(): string {
+  return resolve(process.env.HOME ?? "", ".openclaw", "agents", OPENCLAW_MAIN_AGENT_ID, "agent");
+}
+
+function getManagedModelAgentPaths(entryId: string): { rootDir: string; agentDir: string; workspaceDir: string } {
+  const rootDir = resolve(getDataDir(), "model-agents", entryId);
+
+  return {
+    rootDir,
+    agentDir: resolve(rootDir, "agent"),
+    workspaceDir: resolve(rootDir, "workspace")
+  };
+}
+
+function getAuthStorePath(agentDir: string): string {
+  return resolve(agentDir, "auth-profiles.json");
+}
+
+async function readAuthStore(agentDir: string): Promise<OpenClawAuthProfileStoreJson> {
+  try {
+    const raw = await readFile(getAuthStorePath(agentDir), "utf8");
+    return JSON.parse(raw) as OpenClawAuthProfileStoreJson;
+  } catch {
+    return {
+      version: 1,
+      profiles: {},
+      usageStats: {},
+      order: {},
+      lastGood: {}
+    };
+  }
+}
+
+async function writeAuthStore(agentDir: string, store: OpenClawAuthProfileStoreJson): Promise<void> {
+  await mkdir(agentDir, { recursive: true });
+  await writeFile(getAuthStorePath(agentDir), JSON.stringify(store, null, 2));
+}
+
+function providerDefinitionById(providerId: string): InternalModelProviderConfig | undefined {
+  return MODEL_PROVIDER_DEFINITIONS.find((provider) => provider.id === providerId);
+}
+
+function providerDefinitionByModelKey(modelKey: string): InternalModelProviderConfig | undefined {
+  return MODEL_PROVIDER_DEFINITIONS.find((provider) =>
+    provider.providerRefs.some((prefix) => modelKey.startsWith(prefix))
+  );
+}
+
+function authModeLabelForCredentialType(type: unknown): string | undefined {
+  if (type === "oauth") {
+    return "OAuth";
+  }
+
+  if (type === "token") {
+    return "Token";
+  }
+
+  if (type === "api_key") {
+    return "API key";
+  }
+
+  return undefined;
+}
+
+function authModeLabelForMethodKind(kind: ModelAuthMethod["kind"] | undefined): string | undefined {
+  if (kind === "api-key") {
+    return "API key";
+  }
+
+  if (kind === "oauth") {
+    return "OAuth";
+  }
+
+  if (kind === "setup-token") {
+    return "Token";
+  }
+
+  if (kind === "local") {
+    return "Local";
+  }
+
+  if (kind === "custom") {
+    return "Custom";
+  }
+
+  return undefined;
+}
+
+function runtimeEntryIdForModelKey(modelKey: string): string {
+  return `runtime:${modelKey.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}`;
+}
+
+function runtimeEntryLabel(model: ModelCatalogEntry): string {
+  const provider = providerDefinitionByModelKey(model.key);
+  return provider ? `${provider.label} ${model.name}` : model.name;
+}
+
+function runtimeEntryAuthLabel(model: ModelCatalogEntry, provider: InternalModelProviderConfig | undefined): string | undefined {
+  if (model.local) {
+    return "Local";
+  }
+
+  return authModeLabelForMethodKind(provider?.authMethods[0]?.kind);
+}
+
+function fallbackOrderForModel(model: ModelCatalogEntry): number {
+  const tag = model.tags.find((item) => item.startsWith("fallback#"));
+  if (!tag) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const parsed = Number(tag.slice("fallback#".length));
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function orderedRuntimeModels(configuredModels: ModelCatalogEntry[], defaultModel?: string): ModelCatalogEntry[] {
+  const byKey = new Map(configuredModels.map((model) => [model.key, model]));
+  const ordered: ModelCatalogEntry[] = [];
+
+  if (defaultModel && byKey.has(defaultModel)) {
+    ordered.push(byKey.get(defaultModel)!);
+    byKey.delete(defaultModel);
+  }
+
+  const remaining = [...byKey.values()].sort((left, right) => {
+    const fallbackDelta = fallbackOrderForModel(left) - fallbackOrderForModel(right);
+    if (fallbackDelta !== 0) {
+      return fallbackDelta;
+    }
+
+    const leftConfigured = left.tags.includes("configured") ? 0 : 1;
+    const rightConfigured = right.tags.includes("configured") ? 0 : 1;
+    if (leftConfigured !== rightConfigured) {
+      return leftConfigured - rightConfigured;
+    }
+
+    return left.key.localeCompare(right.key);
+  });
+
+  return [...ordered, ...remaining];
+}
+
+function buildRuntimeDerivedEntry(model: ModelCatalogEntry, now: string): SavedModelEntryState {
+  const provider = providerDefinitionByModelKey(model.key);
+  return {
+    id: runtimeEntryIdForModelKey(model.key),
+    label: runtimeEntryLabel(model),
+    providerId: provider?.id ?? modelRefProvider(model.key) ?? "custom",
+    modelKey: model.key,
+    agentId: "",
+    agentDir: "",
+    workspaceDir: "",
+    authMethodId: provider?.authMethods[0]?.id,
+    authModeLabel: runtimeEntryAuthLabel(model, provider),
+    profileLabel: undefined,
+    profileIds: [],
+    isDefault: false,
+    isFallback: false,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+export function reconcileSavedEntriesWithRuntime(
+  entries: SavedModelEntryState[],
+  configuredModels: ModelCatalogEntry[],
+  defaultModel?: string
+): {
+  entries: SavedModelEntryState[];
+  defaultEntryId?: string;
+  fallbackEntryIds: string[];
+} {
+  const now = new Date().toISOString();
+  const orderedConfiguredModels = orderedRuntimeModels(configuredModels, defaultModel);
+  const entriesByModelKey = new Map<string, SavedModelEntryState[]>();
+  const usedEntryIds = new Set<string>();
+
+  for (const entry of entries) {
+    const existing = entriesByModelKey.get(entry.modelKey) ?? [];
+    existing.push(entry);
+    entriesByModelKey.set(entry.modelKey, existing);
+  }
+
+  const activeEntries: SavedModelEntryState[] = orderedConfiguredModels.map((model, index) => {
+    const candidates = entriesByModelKey.get(model.key) ?? [];
+    const preferred = candidates.find((entry) => {
+      if (usedEntryIds.has(entry.id)) {
+        return false;
+      }
+
+      if (index === 0) {
+        return entry.isDefault;
+      }
+
+      return entry.isFallback;
+    });
+    const unusedCandidate = candidates.find((entry) => !usedEntryIds.has(entry.id));
+    const nextEntry = preferred ?? unusedCandidate ?? buildRuntimeDerivedEntry(model, now);
+    usedEntryIds.add(nextEntry.id);
+    return nextEntry;
+  });
+
+  const defaultEntryId = activeEntries[0]?.id;
+  const fallbackEntryIds = activeEntries.slice(1).map((entry) => entry.id);
+  const allEntries = [...entries];
+
+  for (const entry of activeEntries) {
+    if (!allEntries.some((item) => item.id === entry.id)) {
+      allEntries.push(entry);
+    }
+  }
+
+  return {
+    entries: allEntries.map((entry) => ({
+      ...entry,
+      isDefault: entry.id === defaultEntryId,
+      isFallback: fallbackEntryIds.includes(entry.id)
+    })),
+    defaultEntryId,
+    fallbackEntryIds
+  };
+}
+
+function isRuntimeModelRole(request: SaveModelEntryRequest): boolean {
+  return Boolean(request.makeDefault || request.useAsFallback);
+}
+
+function describeProfileLabel(profileId: string, profile: Record<string, unknown> & { email?: string; accountId?: string }): string {
+  if (profile.email?.trim()) {
+    return profile.email.trim();
+  }
+
+  if (profile.accountId?.trim()) {
+    return profile.accountId.trim();
+  }
+
+  const suffixIndex = profileId.indexOf(":");
+  return suffixIndex >= 0 ? profileId.slice(suffixIndex + 1) : profileId;
+}
+
+function toSavedModelEntry(entry: SavedModelEntryState): SavedModelEntry {
+  return {
+    id: entry.id,
+    label: entry.label,
+    providerId: entry.providerId,
+    modelKey: entry.modelKey,
+    agentId: entry.agentId,
+    authMethodId: entry.authMethodId,
+    authModeLabel: entry.authModeLabel,
+    profileLabel: entry.profileLabel,
+    isDefault: entry.isDefault,
+    isFallback: entry.isFallback,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt
+  };
+}
+
+function modelRefProvider(ref?: string): string | undefined {
+  if (!ref) {
+    return undefined;
+  }
+
+  const index = ref.indexOf("/");
+  return index > 0 ? ref.slice(0, index) : undefined;
+}
+
+function resolveModelRef(
+  raw: string | null | undefined,
+  defaultProvider: string | undefined,
+  aliases: Record<string, string>,
+  seen = new Set<string>()
+): string | undefined {
+  const trimmed = raw?.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const aliasKey = trimmed.toLowerCase();
+
+  if (seen.has(aliasKey)) {
+    return undefined;
+  }
+
+  const aliasTarget = aliases[trimmed] ?? aliases[aliasKey];
+  if (typeof aliasTarget === "string" && aliasTarget.trim()) {
+    seen.add(aliasKey);
+    return resolveModelRef(aliasTarget, defaultProvider, aliases, seen);
+  }
+
+  if (trimmed.includes("/")) {
+    return trimmed;
+  }
+
+  return defaultProvider ? `${defaultProvider}/${trimmed}` : undefined;
+}
+
+function synthesizeModelCatalogEntry(key: string, options?: { available?: boolean; tags?: string[] }): ModelCatalogEntry {
+  const slashIndex = key.indexOf("/");
+  const name = slashIndex >= 0 ? key.slice(slashIndex + 1) : key;
+
+  return {
+    key,
+    name,
+    input: "text",
+    contextWindow: 0,
+    local: false,
+    available: options?.available ?? false,
+    tags: options?.tags ?? [],
+    missing: false
+  };
+}
+
+function mergeModelCatalogEntries(
+  existing: ModelCatalogEntry[],
+  refs: Iterable<string>,
+  options?: { available?: boolean; defaultModel?: string }
+): ModelCatalogEntry[] {
+  const byKey = new Map(existing.map((entry) => [entry.key, { ...entry }]));
+
+  for (const ref of refs) {
+    const current = byKey.get(ref);
+    const tags = new Set(current?.tags ?? []);
+
+    if (options?.defaultModel === ref) {
+      tags.add("default");
+    }
+
+    if (current) {
+      byKey.set(ref, {
+        ...current,
+        available: current.available || Boolean(options?.available),
+        tags: [...tags]
+      });
+      continue;
+    }
+
+    byKey.set(
+      ref,
+      synthesizeModelCatalogEntry(ref, {
+        available: options?.available,
+        tags: [...tags]
+      })
+    );
+  }
+
+  return [...byKey.values()];
+}
+
+function collectSupplementalModelRefs(status?: OpenClawModelStatusJson, config?: OpenClawConfigFileJson): {
+  refs: Set<string>;
+  defaultModel?: string;
+} {
+  const aliases = status?.aliases ?? {};
+  const defaultModel =
+    resolveModelRef(status?.resolvedDefault, undefined, aliases) ?? resolveModelRef(status?.defaultModel, undefined, aliases);
+  const defaultProvider = modelRefProvider(defaultModel);
+  const refs = new Set<string>();
+
+  const add = (raw: string | null | undefined) => {
+    const resolved = resolveModelRef(raw, defaultProvider, aliases);
+    if (resolved) {
+      refs.add(resolved);
+    }
+  };
+
+  const addAll = (values: Array<string | null | undefined> | undefined) => {
+    for (const value of values ?? []) {
+      add(value);
+    }
+  };
+
+  add(status?.defaultModel);
+  add(status?.resolvedDefault);
+  addAll(status?.fallbacks);
+  add(status?.imageModel);
+  addAll(status?.imageFallbacks);
+  addAll(status?.allowed);
+
+  for (const key of Object.keys(config?.agents?.defaults?.models ?? {})) {
+    add(key);
+  }
+
+  return { refs, defaultModel };
+}
+
 async function readPluginInventory(): Promise<OpenClawPluginListJson | undefined> {
   const result = await runOpenClaw(["plugins", "list", "--json"], { allowFailure: true });
   return safeJsonPayloadParse<OpenClawPluginListJson>(result.stdout) ?? safeJsonPayloadParse<OpenClawPluginListJson>(result.stderr);
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function inspectPlugin(pluginId: string): Promise<{
@@ -1725,10 +2264,14 @@ function providerMatchesAuthProvider(provider: InternalModelProviderConfig, auth
 function buildModelConfigOverview(
   allModels: ModelCatalogEntry[],
   configuredModels: ModelCatalogEntry[],
-  configuredAuthProviders: Set<string>
+  configuredAuthProviders: Set<string>,
+  savedEntries: SavedModelEntryState[],
+  defaultEntryId: string | undefined,
+  fallbackEntryIds: string[],
+  defaultModelOverride?: string
 ): ModelConfigOverview {
   const configuredKeys = new Set(configuredModels.map((model) => model.key));
-  const defaultModel = configuredModels.find((model) => model.tags.includes("default"))?.key;
+  const defaultModel = defaultModelOverride ?? configuredModels.find((model) => model.tags.includes("default"))?.key;
 
   return {
     providers: MODEL_PROVIDER_DEFINITIONS.map((provider) => {
@@ -1750,7 +2293,10 @@ function buildModelConfigOverview(
     }),
     models: allModels,
     defaultModel,
-    configuredModelKeys: configuredModels.map((model) => model.key)
+    configuredModelKeys: configuredModels.map((model) => model.key),
+    savedEntries: savedEntries.map(toSavedModelEntry),
+    defaultEntryId,
+    fallbackEntryIds
   };
 }
 
@@ -1786,6 +2332,733 @@ export class OpenClawAdapter implements EngineAdapter {
     starterSkillCategories: ["communication", "research", "docs", "operations"],
     futureLocalModelFamilies: ["qwen", "minimax", "llama", "mistral", "custom-openai-compatible"]
   };
+
+  private async readOpenClawConfigSnapshot(): Promise<{
+    status?: OpenClawModelStatusJson;
+    configPath: string;
+    config: OpenClawConfigFileJson;
+  }> {
+    const status = await readModelStatus();
+    const configPath = status?.configPath ?? defaultOpenClawConfigPath();
+    const config = (await readOpenClawConfigFile(configPath)) ?? {};
+
+    return {
+      status,
+      configPath,
+      config
+    };
+  }
+
+  private async writeOpenClawConfigSnapshot(configPath: string, config: OpenClawConfigFileJson): Promise<void> {
+    await writeOpenClawConfigFile(configPath, config);
+  }
+
+  private normalizeStateFlags(state: OpenClawAdapterState): OpenClawAdapterState {
+    const entries = [...(state.modelEntries ?? [])];
+    const defaultEntryId =
+      state.defaultModelEntryId && entries.some((entry) => entry.id === state.defaultModelEntryId)
+        ? state.defaultModelEntryId
+        : entries.find((entry) => entry.isDefault)?.id;
+    const seenModelKeys = new Set<string>();
+    const fallbackEntryIds: string[] = [];
+
+    for (const entryId of state.fallbackModelEntryIds ?? []) {
+      if (entryId === defaultEntryId) {
+        continue;
+      }
+
+      const entry = entries.find((item) => item.id === entryId);
+      if (!entry || seenModelKeys.has(entry.modelKey)) {
+        continue;
+      }
+
+      seenModelKeys.add(entry.modelKey);
+      fallbackEntryIds.push(entry.id);
+    }
+
+    return {
+      ...state,
+      modelEntries: entries.map((entry) => ({
+        ...entry,
+        isDefault: entry.id === defaultEntryId,
+        isFallback: fallbackEntryIds.includes(entry.id)
+      })),
+      defaultModelEntryId: defaultEntryId,
+      fallbackModelEntryIds: fallbackEntryIds
+    };
+  }
+
+  private buildEntryLabel(label: string | undefined, providerId: string, modelKey: string): string {
+    const trimmed = label?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+
+    const provider = providerDefinitionById(providerId);
+    const modelName = modelKey.includes("/") ? modelKey.slice(modelKey.indexOf("/") + 1) : modelKey;
+    return provider ? `${provider.label} ${modelName}` : modelName;
+  }
+
+  private async ensureSavedModelState(): Promise<OpenClawAdapterState> {
+    const state = this.normalizeStateFlags(await readAdapterState());
+    if ((state.modelEntries?.length ?? 0) > 0) {
+      return state;
+    }
+
+    const migration = await this.seedSavedModelEntriesFromCurrentConfig(state);
+    const normalized = this.normalizeStateFlags(migration);
+    await writeAdapterState(normalized);
+    return normalized;
+  }
+
+  private async reconcileSavedModelState(
+    state: OpenClawAdapterState,
+    configuredModels: ModelCatalogEntry[],
+    defaultModel?: string
+  ): Promise<OpenClawAdapterState> {
+    const reconciled = reconcileSavedEntriesWithRuntime(state.modelEntries ?? [], configuredModels, defaultModel);
+    const nextState = this.normalizeStateFlags({
+      ...state,
+      modelEntries: reconciled.entries,
+      defaultModelEntryId: reconciled.defaultEntryId,
+      fallbackModelEntryIds: reconciled.fallbackEntryIds
+    });
+
+    if (JSON.stringify(nextState) !== JSON.stringify(state)) {
+      await writeAdapterState(nextState);
+    }
+
+    return nextState;
+  }
+
+  private async seedSavedModelEntriesFromCurrentConfig(state: OpenClawAdapterState): Promise<OpenClawAdapterState> {
+    const snapshot = await this.readOpenClawConfigSnapshot();
+    const modelKey =
+      resolveModelRef(snapshot.status?.resolvedDefault, undefined, snapshot.status?.aliases ?? {}) ??
+      resolveModelRef(snapshot.status?.defaultModel, undefined, snapshot.status?.aliases ?? {}) ??
+      snapshot.status?.allowed?.[0];
+
+    if (!modelKey) {
+      return {
+        ...state,
+        modelEntries: [],
+        defaultModelEntryId: undefined,
+        fallbackModelEntryIds: []
+      };
+    }
+
+    const provider = providerDefinitionByModelKey(modelKey);
+    const createdAt = new Date().toISOString();
+    const agentId = OPENCLAW_MAIN_AGENT_ID;
+    const agentDir = snapshot.status?.agentDir ?? getMainOpenClawAgentDir();
+    const workspaceDir =
+      snapshot.config.agents?.defaults?.workspace && typeof snapshot.config.agents.defaults.workspace === "string"
+        ? snapshot.config.agents.defaults.workspace
+        : resolve(process.env.HOME ?? "", ".openclaw", "workspace");
+    const summary = await this.readEntryAuthSummary(agentDir, provider?.id);
+
+    return {
+      ...state,
+      modelEntries: [
+        {
+          id: "slackclaw-main",
+          label: this.buildEntryLabel(undefined, provider?.id ?? modelRefProvider(modelKey) ?? "custom", modelKey),
+          providerId: provider?.id ?? modelRefProvider(modelKey) ?? "custom",
+          modelKey,
+          agentId,
+          agentDir,
+          workspaceDir,
+          authMethodId: undefined,
+          authModeLabel: summary.authModeLabel,
+          profileLabel: summary.profileLabel,
+          profileIds: summary.profileIds,
+          isDefault: true,
+          isFallback: false,
+          createdAt,
+          updatedAt: createdAt
+        }
+      ],
+      defaultModelEntryId: "slackclaw-main",
+      fallbackModelEntryIds: []
+    };
+  }
+
+  private async listOpenClawAgents(): Promise<Array<{ id: string; agentDir?: string; workspace?: string }>> {
+    const result = await runOpenClaw(["agents", "list", "--json"], { allowFailure: true });
+    return safeJsonPayloadParse<Array<{ id: string; agentDir?: string; workspace?: string }>>(result.stdout) ?? [];
+  }
+
+  private async ensureManagedAgent(entryId: string, agentId: string, modelKey: string, label: string): Promise<{
+    agentDir: string;
+    workspaceDir: string;
+  }> {
+    const paths = getManagedModelAgentPaths(entryId);
+    const agents = await this.listOpenClawAgents();
+
+    if (!agents.some((agent) => agent.id === agentId)) {
+      const add = await runOpenClaw(
+        [
+          "agents",
+          "add",
+          agentId,
+          "--agent-dir",
+          paths.agentDir,
+          "--workspace",
+          paths.workspaceDir,
+          "--model",
+          modelKey,
+          "--non-interactive",
+          "--json"
+        ],
+        { allowFailure: true }
+      );
+
+      if (add.code !== 0) {
+        throw new Error(add.stderr || add.stdout || `SlackClaw could not create the hidden OpenClaw agent ${agentId}.`);
+      }
+    }
+
+    await runOpenClaw(["agents", "set-identity", "--agent", agentId, "--name", label, "--json"], {
+      allowFailure: true
+    });
+
+    return paths;
+  }
+
+  private async upsertAgentConfigEntry(
+    configPath: string,
+    config: OpenClawConfigFileJson,
+    entry: SavedModelEntryState,
+    model: string | { primary?: string; fallbacks?: string[] }
+  ): Promise<void> {
+    const list = [...(config.agents?.list ?? [])];
+    const existingIndex = list.findIndex((item) => item.id === entry.agentId);
+
+    if (existingIndex >= 0) {
+      list[existingIndex] = {
+        ...list[existingIndex],
+        id: entry.agentId,
+        name: entry.label,
+        agentDir: entry.agentDir,
+        workspace: entry.workspaceDir,
+        model
+      };
+    } else {
+      list.push({
+        id: entry.agentId,
+        name: entry.label,
+        agentDir: entry.agentDir,
+        workspace: entry.workspaceDir,
+        model
+      });
+    }
+
+    config.agents = {
+      ...config.agents,
+      list
+    };
+
+    await this.writeOpenClawConfigSnapshot(configPath, config);
+  }
+
+  private async readEntryAuthSummary(agentDir: string, providerId?: string): Promise<{
+    profileIds: string[];
+    authModeLabel?: string;
+    profileLabel?: string;
+  }> {
+    const store = await readAuthStore(agentDir);
+    const provider = providerDefinitionById(providerId ?? "");
+    const profiles = Object.entries(store.profiles ?? {}).filter(([, profile]) =>
+      provider ? providerMatchesAuthProvider(provider, String(profile.provider ?? "")) : true
+    );
+    const first = profiles[0];
+
+    return {
+      profileIds: profiles.map(([profileId]) => profileId),
+      authModeLabel: first ? authModeLabelForCredentialType(first[1].type) : undefined,
+      profileLabel: first ? describeProfileLabel(first[0], first[1]) : undefined
+    };
+  }
+
+  private async replaceEntryProfileIds(
+    configPath: string,
+    config: OpenClawConfigFileJson,
+    entry: SavedModelEntryState
+  ): Promise<SavedModelEntryState> {
+    const provider = providerDefinitionById(entry.providerId);
+    const store = await readAuthStore(entry.agentDir);
+    const sourceProfiles = Object.entries(store.profiles ?? {}).filter(([, profile]) =>
+      provider ? providerMatchesAuthProvider(provider, String(profile.provider ?? "")) : true
+    );
+    const nextProfiles: NonNullable<OpenClawAuthProfileStoreJson["profiles"]> = {};
+    const nextUsageStats: NonNullable<OpenClawAuthProfileStoreJson["usageStats"]> = {};
+    const nextProfileIds: string[] = [];
+
+    for (const existingProfileId of entry.profileIds ?? []) {
+      delete config.auth?.profiles?.[existingProfileId];
+    }
+
+    const providerPrefix = provider?.authProviderId ?? provider?.providerRefs[0]?.replace(/\/$/, "") ?? entry.providerId;
+
+    sourceProfiles.forEach(([profileId, profile], index) => {
+      const nextProfileId = `${providerPrefix}:slackclaw-${entry.id}-${index + 1}`;
+      nextProfiles[nextProfileId] = profile;
+      if (store.usageStats?.[profileId]) {
+        nextUsageStats[nextProfileId] = store.usageStats[profileId];
+      }
+      nextProfileIds.push(nextProfileId);
+    });
+
+    for (const [profileId, profile] of Object.entries(store.profiles ?? {})) {
+      if (sourceProfiles.some(([id]) => id === profileId)) {
+        continue;
+      }
+
+      nextProfiles[profileId] = profile;
+      if (store.usageStats?.[profileId]) {
+        nextUsageStats[profileId] = store.usageStats[profileId];
+      }
+    }
+
+    store.profiles = nextProfiles;
+    store.usageStats = nextUsageStats;
+
+    if (store.lastGood) {
+      for (const [providerKey, profileId] of Object.entries(store.lastGood)) {
+        const sourceIndex = sourceProfiles.findIndex(([id]) => id === profileId);
+        if (sourceIndex >= 0) {
+          store.lastGood[providerKey] = nextProfileIds[sourceIndex];
+        }
+      }
+    }
+
+    await writeAuthStore(entry.agentDir, store);
+
+    config.auth = config.auth ?? {};
+    config.auth.profiles = config.auth.profiles ?? {};
+
+    for (const profileId of nextProfileIds) {
+      const profile = nextProfiles[profileId];
+      config.auth.profiles[profileId] = {
+        provider: String(profile.provider ?? providerPrefix),
+        mode: profile.type === "api_key" ? "api_key" : profile.type === "token" ? "token" : "oauth",
+        ...(typeof profile.email === "string" && profile.email.trim() ? { email: profile.email.trim() } : {})
+      };
+    }
+
+    await this.writeOpenClawConfigSnapshot(configPath, config);
+
+    return {
+      ...entry,
+      profileIds: nextProfileIds,
+      authModeLabel: nextProfileIds[0] ? authModeLabelForCredentialType(nextProfiles[nextProfileIds[0]]?.type) : undefined,
+      profileLabel: nextProfileIds[0] ? describeProfileLabel(nextProfileIds[0], nextProfiles[nextProfileIds[0]]) : undefined
+    };
+  }
+
+  private async syncRuntimeAuthProfiles(
+    configPath: string,
+    config: OpenClawConfigFileJson,
+    defaultEntry: SavedModelEntryState,
+    activeEntries: SavedModelEntryState[]
+  ): Promise<void> {
+    const targetStore = await readAuthStore(defaultEntry.agentDir);
+    targetStore.profiles = targetStore.profiles ?? {};
+    targetStore.usageStats = targetStore.usageStats ?? {};
+    targetStore.order = targetStore.order ?? {};
+    config.auth = config.auth ?? {};
+    config.auth.profiles = config.auth.profiles ?? {};
+
+    for (const entry of activeEntries) {
+      const sourceStore = await readAuthStore(entry.agentDir);
+      const providerOrder: string[] = [];
+
+      for (const profileId of entry.profileIds) {
+        const profile = sourceStore.profiles?.[profileId];
+        if (!profile) {
+          continue;
+        }
+
+        targetStore.profiles[profileId] = profile;
+        if (sourceStore.usageStats?.[profileId]) {
+          targetStore.usageStats[profileId] = sourceStore.usageStats[profileId];
+        }
+
+        providerOrder.push(profileId);
+        config.auth.profiles[profileId] = {
+          provider: String(profile.provider ?? entry.providerId),
+          mode: profile.type === "api_key" ? "api_key" : profile.type === "token" ? "token" : "oauth",
+          ...(typeof profile.email === "string" && profile.email.trim() ? { email: profile.email.trim() } : {})
+        };
+      }
+
+      if (providerOrder.length > 0) {
+        const providerConfigKey =
+          providerDefinitionById(entry.providerId)?.authProviderId ??
+          providerDefinitionById(entry.providerId)?.providerRefs[0]?.replace(/\/$/, "") ??
+          entry.providerId;
+        targetStore.order[providerConfigKey] = providerOrder;
+      }
+    }
+
+    await writeAuthStore(defaultEntry.agentDir, targetStore);
+    await this.writeOpenClawConfigSnapshot(configPath, config);
+  }
+
+  private async syncRuntimeModelChain(nextState: OpenClawAdapterState): Promise<OpenClawAdapterState> {
+    const state = this.normalizeStateFlags(nextState);
+    const defaultEntry = state.modelEntries?.find((entry) => entry.id === state.defaultModelEntryId);
+    const fallbackEntries = (state.fallbackModelEntryIds ?? [])
+      .map((entryId) => state.modelEntries?.find((entry) => entry.id === entryId))
+      .filter((entry): entry is SavedModelEntryState => Boolean(entry));
+
+    if (!defaultEntry) {
+      await writeAdapterState(state);
+      return state;
+    }
+
+    const snapshot = await this.readOpenClawConfigSnapshot();
+    const allModelKeys = [...new Set((state.modelEntries ?? []).map((entry) => entry.modelKey))];
+
+    snapshot.config.agents = snapshot.config.agents ?? {};
+    snapshot.config.agents.defaults = {
+      ...snapshot.config.agents.defaults,
+      model: {
+        primary: defaultEntry.modelKey,
+        fallbacks: fallbackEntries.map((entry) => entry.modelKey)
+      },
+      models: Object.fromEntries(allModelKeys.map((modelKey) => [modelKey, snapshot.config.agents?.defaults?.models?.[modelKey] ?? {}]))
+    };
+
+    if (!defaultEntry.agentId || !defaultEntry.agentDir || !defaultEntry.workspaceDir) {
+      await this.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
+      await writeAdapterState(state);
+      return state;
+    }
+
+    const runtimeFallbackEntries = fallbackEntries.filter((entry): entry is SavedModelEntryState => Boolean(entry.agentId && entry.agentDir && entry.workspaceDir));
+    const activeEntries = [defaultEntry, ...runtimeFallbackEntries];
+
+    await this.upsertAgentConfigEntry(snapshot.configPath, snapshot.config, defaultEntry, {
+      primary: defaultEntry.modelKey,
+      fallbacks: runtimeFallbackEntries.map((entry) => entry.modelKey)
+    });
+
+    for (const entry of state.modelEntries ?? []) {
+      if (entry.id === defaultEntry.id || !entry.agentId || !entry.agentDir || !entry.workspaceDir) {
+        continue;
+      }
+
+      await this.upsertAgentConfigEntry(snapshot.configPath, snapshot.config, entry, entry.modelKey);
+    }
+
+    await this.syncRuntimeAuthProfiles(snapshot.configPath, snapshot.config, defaultEntry, activeEntries);
+    await writeAdapterState(state);
+    return state;
+  }
+
+  private buildSavedModelEntryState(
+    entryId: string,
+    request: SaveModelEntryRequest,
+    now: string,
+    existingEntry?: SavedModelEntryState,
+    method?: InternalModelAuthMethod,
+    paths?: { agentId: string; agentDir: string; workspaceDir: string }
+  ): SavedModelEntryState {
+    return {
+      id: entryId,
+      label: this.buildEntryLabel(request.label, request.providerId, request.modelKey),
+      providerId: request.providerId,
+      modelKey: request.modelKey,
+      agentId: paths?.agentId ?? existingEntry?.agentId ?? "",
+      agentDir: paths?.agentDir ?? existingEntry?.agentDir ?? "",
+      workspaceDir: paths?.workspaceDir ?? existingEntry?.workspaceDir ?? "",
+      authMethodId: request.methodId,
+      authModeLabel: existingEntry?.authModeLabel ?? authModeLabelForMethodKind(method?.kind),
+      profileLabel: existingEntry?.profileLabel,
+      profileIds: existingEntry?.profileIds ?? [],
+      isDefault: false,
+      isFallback: false,
+      createdAt: existingEntry?.createdAt ?? now,
+      updatedAt: now
+    };
+  }
+
+  private applySavedModelEntryState(
+    state: OpenClawAdapterState,
+    entry: SavedModelEntryState,
+    request: SaveModelEntryRequest
+  ): OpenClawAdapterState {
+    const otherEntries = (state.modelEntries ?? []).filter((item) => item.id !== entry.id);
+    const nextEntries = [...otherEntries, entry];
+    const previousWasDefault = state.defaultModelEntryId === entry.id;
+    const previousWasFallback = (state.fallbackModelEntryIds ?? []).includes(entry.id);
+    const nextState: OpenClawAdapterState = {
+      ...state,
+      modelEntries: nextEntries
+    };
+
+    if (request.makeDefault) {
+      nextState.defaultModelEntryId = entry.id;
+    } else if (previousWasDefault) {
+      nextState.defaultModelEntryId = otherEntries.find((item) => item.agentId)?.id;
+    }
+
+    const fallbackIds = new Set((state.fallbackModelEntryIds ?? []).filter((entryId) => entryId !== entry.id));
+    if (request.useAsFallback) {
+      fallbackIds.add(entry.id);
+    }
+
+    nextState.fallbackModelEntryIds = [...fallbackIds];
+
+    if (!request.makeDefault && !request.useAsFallback && !previousWasDefault && !previousWasFallback) {
+      return {
+        ...nextState,
+        modelEntries: nextEntries.map((item) =>
+          item.id === entry.id
+            ? {
+                ...item,
+                isDefault: false,
+                isFallback: false
+              }
+            : item
+        )
+      };
+    }
+
+    return this.normalizeStateFlags(nextState);
+  }
+
+  private async finalizeSavedModelEntryMetadataOnly(
+    entryId: string,
+    request: SaveModelEntryRequest
+  ): Promise<ModelConfigActionResponse> {
+    const state = await this.ensureSavedModelState();
+    const existingEntry = state.modelEntries?.find((entry) => entry.id === entryId);
+    const now = new Date().toISOString();
+    const provider = providerDefinitionById(request.providerId);
+    const method = provider?.authMethods.find((item) => item.id === request.methodId);
+    const nextEntry = this.buildSavedModelEntryState(entryId, request, now, existingEntry, method);
+    const previousWasRuntime = state.defaultModelEntryId === entryId || (state.fallbackModelEntryIds ?? []).includes(entryId);
+    let nextState = this.applySavedModelEntryState(state, nextEntry, request);
+
+    if (previousWasRuntime) {
+      nextState = await this.syncRuntimeModelChain(nextState);
+      await this.restartGatewayAndRequireHealthy("model configuration");
+      return {
+        status: "completed",
+        message: `${nextEntry.label} was updated. OpenClaw gateway restarted and is reachable.`,
+        modelConfig: await this.getModelConfig()
+      };
+    }
+
+    await writeAdapterState(nextState);
+    return {
+      status: "completed",
+      message: `${nextEntry.label} was added to SlackClaw. OpenClaw will only configure it when you set it as default or fallback.`,
+      modelConfig: await this.getModelConfig()
+    };
+  }
+
+  private async finalizeSavedModelEntryOperation(operation: PendingSavedModelEntryOperation): Promise<ModelConfigActionResponse> {
+    const state = await this.ensureSavedModelState();
+    const now = new Date().toISOString();
+    const existingEntry = state.modelEntries?.find((entry) => entry.id === operation.entryId);
+    const nextEntryBase: SavedModelEntryState = existingEntry ?? {
+      id: operation.entryId,
+      label: this.buildEntryLabel(operation.draft.label, operation.draft.providerId, operation.draft.modelKey),
+      providerId: operation.draft.providerId,
+      modelKey: operation.draft.modelKey,
+      agentId: operation.agentId,
+      agentDir: operation.agentDir,
+      workspaceDir: operation.workspaceDir,
+      authMethodId: operation.draft.methodId,
+      profileIds: [],
+      isDefault: false,
+      isFallback: false,
+      createdAt: now,
+      updatedAt: now
+    };
+    const snapshot = await this.readOpenClawConfigSnapshot();
+    const nextEntry = await this.replaceEntryProfileIds(snapshot.configPath, snapshot.config, {
+      ...nextEntryBase,
+      label: this.buildEntryLabel(operation.draft.label, operation.draft.providerId, operation.draft.modelKey),
+      providerId: operation.draft.providerId,
+      modelKey: operation.draft.modelKey,
+      authMethodId: operation.draft.methodId,
+      updatedAt: now
+    });
+
+    const otherEntries = (state.modelEntries ?? []).filter((entry) => entry.id !== nextEntry.id);
+    let nextState: OpenClawAdapterState = this.applySavedModelEntryState(
+      {
+        ...state,
+        modelEntries: otherEntries
+      },
+      nextEntry,
+      operation.draft
+    );
+    nextState = await this.syncRuntimeModelChain(nextState);
+    await this.restartGatewayAndRequireHealthy("model configuration");
+
+    return {
+      status: "completed",
+      message: `${nextEntry.label} is ready. OpenClaw gateway restarted and is reachable.`,
+      modelConfig: await this.getModelConfig()
+    };
+  }
+
+  private async startEntryAuthentication(
+    provider: InternalModelProviderConfig,
+    method: InternalModelAuthMethod,
+    request: SaveModelEntryRequest,
+    operation: PendingSavedModelEntryOperation
+  ): Promise<ModelConfigActionResponse> {
+    if (provider.id === "custom") {
+      throw new Error("SlackClaw hidden-agent model entries do not support custom providers yet.");
+    }
+
+    if (method.tokenProviderId || canUseTokenPasteAuth(method)) {
+      const tokenField = method.fields[0];
+      const token = request.values[tokenField?.id ?? "token"]?.trim();
+      const authProvider = resolveTokenAuthProvider(provider, method);
+
+      if (!token) {
+        throw new Error(`Enter the ${tokenField?.label ?? "token"} first.`);
+      }
+
+      await runOpenClaw(
+        buildModelsCommandArgs(
+          [
+            "auth",
+            "paste-token",
+            "--provider",
+            authProvider,
+            "--profile-id",
+            `${authProvider}:slackclaw-${operation.entryId}`
+          ],
+          operation.agentId
+        ),
+        {
+          allowFailure: false,
+          input: `${token}\n`
+        }
+      );
+
+      return this.finalizeSavedModelEntryOperation(operation);
+    }
+
+    if (method.setupTokenProvider) {
+      return this.startInteractiveModelAuthSession(
+        provider,
+        method,
+        buildModelsCommandArgs(["auth", "setup-token", "--provider", method.setupTokenProvider, "--yes"], operation.agentId),
+        undefined,
+        undefined,
+        operation
+      );
+    }
+
+    if (method.specialCommand === "login-github-copilot") {
+      return this.startInteractiveModelAuthSession(
+        provider,
+        method,
+        buildModelsCommandArgs(["auth", "login-github-copilot", "--yes"], operation.agentId),
+        undefined,
+        undefined,
+        operation
+      );
+    }
+
+    if (method.loginProviderId) {
+      const args = buildModelsCommandArgs(["auth", "login", "--provider", method.loginProviderId], operation.agentId);
+
+      if (method.loginMethodId) {
+        args.push("--method", method.loginMethodId);
+      }
+
+      return this.startInteractiveModelAuthSession(
+        provider,
+        method,
+        args,
+        undefined,
+        undefined,
+        operation
+      );
+    }
+
+    if (method.onboardAuthChoice) {
+      const missingField = method.fields.find((field) => field.required && !request.values[field.id]?.trim());
+      if (missingField) {
+        throw new Error(`Enter ${missingField.label} first.`);
+      }
+
+      await runOpenClaw(buildOnboardAuthArgs(method, request.values), {
+        allowFailure: false,
+        envOverrides: {
+          OPENCLAW_AGENT_DIR: operation.agentDir
+        }
+      });
+
+      return this.finalizeSavedModelEntryOperation(operation);
+    }
+
+    throw new Error(`SlackClaw does not yet know how to authenticate ${provider.label} with ${method.label}.`);
+  }
+
+  private async createOrUpdateSavedModelEntry(
+    mode: "create" | "update",
+    entryId: string,
+    request: SaveModelEntryRequest
+  ): Promise<ModelConfigActionResponse> {
+    const currentState = await this.ensureSavedModelState();
+    const provider = providerDefinitionById(request.providerId);
+
+    if (!provider) {
+      throw new Error(`Unknown provider: ${request.providerId}`);
+    }
+
+    const method = provider.authMethods.find((item) => item.id === request.methodId);
+
+    if (!method) {
+      throw new Error(`Unknown auth method for provider ${request.providerId}: ${request.methodId}`);
+    }
+
+    const existingEntry = currentState.modelEntries?.find((entry) => entry.id === entryId);
+    if (!isRuntimeModelRole(request)) {
+      return this.finalizeSavedModelEntryMetadataOnly(entryId, request);
+    }
+
+    const agentId = mode === "update" ? existingEntry?.agentId || `slackclaw-model-${entryId}` : `slackclaw-model-${entryId}`;
+    const paths =
+      mode === "update"
+        ? {
+            agentDir: existingEntry?.agentDir || getManagedModelAgentPaths(entryId).agentDir,
+            workspaceDir: existingEntry?.workspaceDir || getManagedModelAgentPaths(entryId).workspaceDir
+          }
+        : await this.ensureManagedAgent(entryId, agentId, request.modelKey, this.buildEntryLabel(request.label, request.providerId, request.modelKey));
+
+    if (mode === "update" && agentId !== OPENCLAW_MAIN_AGENT_ID) {
+      await this.ensureManagedAgent(entryId, agentId, request.modelKey, this.buildEntryLabel(request.label, request.providerId, request.modelKey));
+    }
+
+    const operation: PendingSavedModelEntryOperation = {
+      mode,
+      entryId,
+      agentId,
+      agentDir: paths.agentDir,
+      workspaceDir: paths.workspaceDir,
+      draft: request
+    };
+
+    const hasSuppliedValues = Object.values(request.values ?? {}).some((value) => value.trim().length > 0);
+
+    if (mode === "update" && !hasSuppliedValues) {
+      return this.finalizeSavedModelEntryOperation(operation);
+    }
+
+    return this.startEntryAuthentication(provider, method, request, operation);
+  }
 
   async install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse> {
     const bootstrap = await this.ensurePinnedOpenClaw(options?.forceLocal ?? false);
@@ -1856,19 +3129,45 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async getModelConfig(): Promise<ModelConfigOverview> {
-    const [allModels, configuredModels, configuredAuthProviders] = await Promise.all([
+    const adapterState = await this.ensureSavedModelState();
+    const [allModels, configuredModels, status] = await Promise.all([
       readModelCatalog(true),
       readModelCatalog(false),
-      readConfiguredAuthProviders()
+      readModelStatus()
     ]);
-    return buildModelConfigOverview(allModels, configuredModels, configuredAuthProviders);
+    const [configuredAuthProviders, activeConfig] = await Promise.all([
+      readConfiguredAuthProviders(status),
+      readOpenClawConfigFile(status?.configPath)
+    ]);
+    const supplemental = collectSupplementalModelRefs(status, activeConfig);
+    const completeAllModels = mergeModelCatalogEntries(allModels, supplemental.refs, {
+      available: true,
+      defaultModel: supplemental.defaultModel
+    });
+    const completeConfiguredModels = mergeModelCatalogEntries(configuredModels, supplemental.refs, {
+      available: true,
+      defaultModel: supplemental.defaultModel
+    });
+    const reconciledState = await this.reconcileSavedModelState(adapterState, completeConfiguredModels, supplemental.defaultModel);
+
+    return buildModelConfigOverview(
+      completeAllModels,
+      completeConfiguredModels,
+      configuredAuthProviders,
+      reconciledState.modelEntries ?? [],
+      reconciledState.defaultModelEntryId,
+      reconciledState.fallbackModelEntryIds ?? [],
+      supplemental.defaultModel
+    );
   }
 
   private async startInteractiveModelAuthSession(
     provider: InternalModelProviderConfig,
     method: InternalModelAuthMethod,
     args: string[],
-    setDefaultModel?: string
+    setDefaultModel?: string,
+    envOverrides?: Record<string, string | undefined>,
+    pendingEntry?: PendingSavedModelEntryOperation
   ): Promise<ModelConfigActionResponse> {
     const command = await resolveOpenClawCommand();
 
@@ -1881,6 +3180,7 @@ export class OpenClawAdapter implements EngineAdapter {
       id: sessionId,
       providerId: provider.id,
       methodId: method.id,
+      entryId: pendingEntry?.entryId,
       status: "running",
       message: "SlackClaw is starting the OpenClaw authentication flow.",
       logs: [`[SlackClaw] Starting ${provider.label} ${method.label}...`],
@@ -1889,10 +3189,12 @@ export class OpenClawAdapter implements EngineAdapter {
       child: undefined,
       outputBuffer: "",
       setDefaultModel,
-      browserOpened: false
+      browserOpened: false,
+      agentDir: pendingEntry?.agentDir,
+      pendingEntry
     };
 
-    const child = spawnInteractiveCommand(command, args);
+    const child = spawnInteractiveCommand(command, args, envOverrides);
 
     session.child = child;
     modelAuthSessions.set(sessionId, session);
@@ -1922,23 +3224,48 @@ export class OpenClawAdapter implements EngineAdapter {
         session.child = undefined;
 
         if (code === 0) {
-          if (session.setDefaultModel) {
-            await runOpenClaw(["models", "set", session.setDefaultModel], { allowFailure: false }).catch(async (error) => {
-              session.logs = trimLogLines([
-                ...session.logs,
-                error instanceof Error ? error.message : "Failed to set the default model after auth."
-              ]);
-              await writeErrorLog("Failed to set default model after interactive auth.", {
-                providerId: provider.id,
-                methodId: method.id,
-                modelKey: session.setDefaultModel,
-                error: errorToLogDetails(error)
-              });
+          try {
+            if (session.pendingEntry) {
+              const result = await this.finalizeSavedModelEntryOperation(session.pendingEntry);
+              session.status = "completed";
+              session.message = result.message;
+            } else {
+              if (session.setDefaultModel) {
+                await runOpenClaw(["models", "set", session.setDefaultModel], { allowFailure: false }).catch(async (error) => {
+                  session.logs = trimLogLines([
+                    ...session.logs,
+                    error instanceof Error ? error.message : "Failed to set the default model after auth."
+                  ]);
+                  await writeErrorLog("Failed to set default model after interactive auth.", {
+                    providerId: provider.id,
+                    methodId: method.id,
+                    modelKey: session.setDefaultModel,
+                    error: errorToLogDetails(error)
+                  });
+                });
+              }
+
+              await this.restartGatewayAndRequireHealthy("model authentication");
+              session.status = "completed";
+              session.message = `${provider.label} authentication completed. The OpenClaw gateway restarted and is reachable.`;
+            }
+          } catch (error) {
+            session.status = "failed";
+            session.message =
+              session.pendingEntry
+                ? `${provider.label} authentication completed, but SlackClaw could not finish the saved model entry setup.`
+                : `${provider.label} authentication completed, but the OpenClaw gateway did not come back healthy.`;
+            session.logs = trimLogLines([
+              ...session.logs,
+              error instanceof Error ? error.message : "SlackClaw could not finish the interactive model setup."
+            ]);
+            await writeErrorLog("Failed to restart OpenClaw gateway after interactive model auth.", {
+              providerId: provider.id,
+              methodId: method.id,
+              entryId: session.pendingEntry?.entryId,
+              error: errorToLogDetails(error)
             });
           }
-
-          session.status = "completed";
-          session.message = `${provider.label} authentication completed. Refreshing provider status now works.`;
         } else {
           if (session.status !== "awaiting-input") {
             session.status = "failed";
@@ -1956,6 +3283,7 @@ export class OpenClawAdapter implements EngineAdapter {
         id: session.id,
         providerId: session.providerId,
         methodId: session.methodId,
+        entryId: session.entryId,
         status: session.status,
         message: session.message,
         logs: session.logs,
@@ -1977,6 +3305,7 @@ export class OpenClawAdapter implements EngineAdapter {
         id: session.id,
         providerId: session.providerId,
         methodId: session.methodId,
+        entryId: session.entryId,
         status: session.status,
         message: session.message,
         logs: session.logs,
@@ -2007,6 +3336,53 @@ export class OpenClawAdapter implements EngineAdapter {
     session.inputPrompt = undefined;
 
     return this.getModelAuthSession(sessionId);
+  }
+
+  async createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+    return this.createOrUpdateSavedModelEntry("create", randomUUID(), request);
+  }
+
+  async updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+    return this.createOrUpdateSavedModelEntry("update", entryId, request);
+  }
+
+  async setDefaultModelEntry(request: SetDefaultModelEntryRequest): Promise<ModelConfigActionResponse> {
+    await this.getModelConfig();
+    const state = this.normalizeStateFlags(await readAdapterState());
+    if (!state.modelEntries?.some((entry) => entry.id === request.entryId)) {
+      throw new Error("Saved model entry not found.");
+    }
+
+    await this.syncRuntimeModelChain({
+      ...state,
+      defaultModelEntryId: request.entryId,
+      fallbackModelEntryIds: (state.fallbackModelEntryIds ?? []).filter((entryId) => entryId !== request.entryId)
+    });
+
+    await this.restartGatewayAndRequireHealthy("model configuration");
+
+    return {
+      status: "completed",
+      message: "Default AI model updated. OpenClaw gateway restarted and is reachable.",
+      modelConfig: await this.getModelConfig()
+    };
+  }
+
+  async replaceFallbackModelEntries(request: ReplaceFallbackModelEntriesRequest): Promise<ModelConfigActionResponse> {
+    await this.getModelConfig();
+    const state = this.normalizeStateFlags(await readAdapterState());
+    await this.syncRuntimeModelChain({
+      ...state,
+      fallbackModelEntryIds: request.entryIds
+    });
+
+    await this.restartGatewayAndRequireHealthy("fallback model configuration");
+
+    return {
+      status: "completed",
+      message: "Fallback AI models updated. OpenClaw gateway restarted and is reachable.",
+      modelConfig: await this.getModelConfig()
+    };
   }
 
   async authenticateModelProvider(request: ModelAuthRequest): Promise<ModelConfigActionResponse> {
@@ -2061,9 +3437,10 @@ export class OpenClawAdapter implements EngineAdapter {
 
       await runOpenClaw(args, { allowFailure: false });
       message = `${provider.label} endpoint settings were saved for OpenClaw.`;
-    } else if (method.tokenProviderId) {
+    } else if (method.tokenProviderId || canUseTokenPasteAuth(method)) {
       const tokenField = method.fields[0];
       const token = request.values[tokenField?.id ?? "token"]?.trim();
+      const authProvider = resolveTokenAuthProvider(provider, method);
 
       if (!token) {
         throw new Error(`Enter the ${tokenField?.label ?? "token"} first.`);
@@ -2071,31 +3448,36 @@ export class OpenClawAdapter implements EngineAdapter {
 
       await runOpenClaw(
         [
-          ...buildBaseOnboardArgs(),
-          "--auth-choice",
-          "token",
-          "--token-provider",
-          method.tokenProviderId,
-          "--token-profile-id",
-          method.tokenProfileId ?? `${method.tokenProviderId}:manual`,
-          "--token",
-          token
+          ...buildModelsCommandArgs(["auth", "paste-token"]),
+          "--provider",
+          authProvider,
+          "--profile-id",
+          method.tokenProfileId ?? `${authProvider}:manual`
         ],
-        { allowFailure: false }
+        {
+          allowFailure: false,
+          input: `${token}\n`
+        }
       );
 
-      message = `${provider.label} token was saved for OpenClaw.`;
+      message =
+        method.kind === "api-key" ? `${provider.label} ${method.label} was saved for OpenClaw.` : `${provider.label} token was saved for OpenClaw.`;
     } else if (method.setupTokenProvider) {
       return this.startInteractiveModelAuthSession(
         provider,
         method,
-        ["models", "auth", "setup-token", "--provider", method.setupTokenProvider, "--yes"],
+        buildModelsCommandArgs(["auth", "setup-token", "--provider", method.setupTokenProvider, "--yes"]),
         request.setDefaultModel
       );
     } else if (method.specialCommand === "login-github-copilot") {
-      return this.startInteractiveModelAuthSession(provider, method, ["models", "auth", "login-github-copilot", "--yes"], request.setDefaultModel);
+      return this.startInteractiveModelAuthSession(
+        provider,
+        method,
+        buildModelsCommandArgs(["auth", "login-github-copilot", "--yes"]),
+        request.setDefaultModel
+      );
     } else if (method.loginProviderId) {
-      const args = ["models", "auth", "login", "--provider", method.loginProviderId];
+      const args = buildModelsCommandArgs(["auth", "login", "--provider", method.loginProviderId]);
 
       if (method.loginMethodId) {
         args.push("--method", method.loginMethodId);
@@ -2123,6 +3505,9 @@ export class OpenClawAdapter implements EngineAdapter {
       message = `${message} Default model set to ${request.setDefaultModel}.`;
     }
 
+    await this.restartGatewayAndRequireHealthy("model configuration");
+    message = `${message} OpenClaw gateway restarted and is reachable.`;
+
     return {
       status: "completed",
       message,
@@ -2131,10 +3516,18 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async setDefaultModel(modelKey: string): Promise<ModelConfigActionResponse> {
+    const state = await this.ensureSavedModelState();
+    const matchingEntry = state.modelEntries?.find((entry) => entry.modelKey === modelKey);
+
+    if (matchingEntry) {
+      return this.setDefaultModelEntry({ entryId: matchingEntry.id });
+    }
+
     await runOpenClaw(["models", "set", modelKey], { allowFailure: false });
+    await this.restartGatewayAndRequireHealthy("model configuration");
     return {
       status: "completed",
-      message: `Default model set to ${modelKey}.`,
+      message: `Default model set to ${modelKey}. OpenClaw gateway restarted and is reachable.`,
       modelConfig: await this.getModelConfig()
     };
   }
@@ -2175,6 +3568,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
     if (await resolveOpenClawCommand()) {
       await runOpenClaw(["config", "set", "slackclaw.defaultProfile", profileId], { allowFailure: true });
+      await this.restartGatewayAndRequireHealthy("profile configuration");
     }
 
     await writeAdapterState({
@@ -2193,6 +3587,156 @@ export class OpenClawAdapter implements EngineAdapter {
       version: data.cliVersion,
       summary: data.summary,
       lastCheckedAt: new Date().toISOString()
+    };
+  }
+
+  async getDeploymentTargets(): Promise<DeploymentTargetsResponse> {
+    const [managedCommand, systemCommand] = await Promise.all([
+      resolveManagedOpenClawCommand(),
+      resolveSystemOpenClawCommand()
+    ]);
+    const activeCommand = await resolveOpenClawCommand();
+    const [managedVersion, systemVersion, managedUpdate, systemUpdate] = await Promise.all([
+      readVersionFromCommand(managedCommand),
+      readVersionFromCommand(systemCommand),
+      readUpdateStatusFromCommand(managedCommand),
+      readUpdateStatusFromCommand(systemCommand)
+    ]);
+
+    const targets: DeploymentTargetStatus[] = [
+      {
+        id: "standard",
+        title: "OpenClaw Standard",
+        description: "Reuse an existing compatible OpenClaw install when available.",
+        installMode: "system",
+        installed: Boolean(systemVersion),
+        installable: true,
+        planned: false,
+        recommended: true,
+        active: Boolean(systemCommand && activeCommand === systemCommand),
+        version: systemVersion,
+        desiredVersion: OPENCLAW_VERSION_PIN,
+        latestVersion: systemUpdate?.latestVersion ?? systemVersion,
+        updateAvailable: systemUpdate?.updateAvailable ?? false,
+        summary: systemVersion
+          ? systemVersion === OPENCLAW_VERSION_PIN
+            ? `System OpenClaw ${systemVersion} matches SlackClaw's pinned version.`
+            : `System OpenClaw ${systemVersion} is installed. SlackClaw targets ${OPENCLAW_VERSION_PIN}.`
+          : "No compatible system OpenClaw install was detected.",
+        updateSummary: systemVersion ? systemUpdate?.summary : undefined
+      },
+      {
+        id: "managed-local",
+        title: "OpenClaw Managed Local",
+        description: "Deploy a SlackClaw-managed local runtime under the app data directory.",
+        installMode: "managed-local",
+        installed: Boolean(managedVersion),
+        installable: true,
+        planned: false,
+        recommended: false,
+        active: Boolean(managedCommand && activeCommand === managedCommand),
+        version: managedVersion,
+        desiredVersion: OPENCLAW_VERSION_PIN,
+        latestVersion: managedUpdate?.latestVersion ?? managedVersion,
+        updateAvailable: managedUpdate?.updateAvailable ?? false,
+        summary: managedVersion
+          ? managedVersion === OPENCLAW_VERSION_PIN
+            ? `Managed local OpenClaw ${managedVersion} is installed in SlackClaw's runtime folder.`
+            : `Managed local OpenClaw ${managedVersion} is installed. SlackClaw targets ${OPENCLAW_VERSION_PIN}.`
+          : "SlackClaw's managed local OpenClaw runtime is not installed yet.",
+        updateSummary: managedVersion ? managedUpdate?.summary : undefined
+      },
+      {
+        id: "zeroclaw",
+        title: "ZeroClaw",
+        description: "Reserved future engine adapter target.",
+        installMode: "future",
+        installed: false,
+        installable: false,
+        planned: true,
+        recommended: false,
+        active: false,
+        updateAvailable: false,
+        summary: "Planned future adapter."
+      },
+      {
+        id: "ironclaw",
+        title: "IronClaw",
+        description: "Reserved future engine adapter target.",
+        installMode: "future",
+        installed: false,
+        installable: false,
+        planned: true,
+        recommended: false,
+        active: false,
+        updateAvailable: false,
+        summary: "Planned future adapter."
+      }
+    ];
+
+    return {
+      checkedAt: new Date().toISOString(),
+      targets
+    };
+  }
+
+  async updateDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
+    const targetLabel = targetId === "standard" ? "System OpenClaw" : "Managed local OpenClaw";
+    const command =
+      targetId === "standard"
+        ? await resolveSystemOpenClawCommand()
+        : await resolveManagedOpenClawCommand();
+
+    if (!command) {
+      return {
+        targetId,
+        status: "failed",
+        message: `${targetLabel} is not installed on this Mac.`,
+        engineStatus: await this.status()
+      };
+    }
+
+    const beforeVersion = await readVersionFromCommand(command);
+    const beforeStatus = await readUpdateStatusFromCommand(command);
+    const updateResult = await runCommand(command, ["update", "--json", "--yes", "--tag", "latest"], { allowFailure: true });
+    const afterVersion = await readVersionFromCommand(command);
+    const afterStatus = await readUpdateStatusFromCommand(command);
+
+    if (updateResult.code !== 0) {
+      return {
+        targetId,
+        status: "failed",
+        message: updateResult.stderr || updateResult.stdout || `${targetLabel} update failed.`,
+        engineStatus: await this.status()
+      };
+    }
+
+    if (
+      beforeStatus?.updateAvailable &&
+      beforeVersion &&
+      afterVersion === beforeVersion &&
+      afterStatus?.updateAvailable
+    ) {
+      return {
+        targetId,
+        status: "failed",
+        message: `${targetLabel} update did not change the installed version. It is still ${afterVersion}.`,
+        engineStatus: await this.status()
+      };
+    }
+
+    const message =
+      afterVersion && beforeVersion && afterVersion !== beforeVersion
+        ? `${targetLabel} updated from ${beforeVersion} to ${afterVersion}.`
+        : afterVersion
+          ? `${targetLabel} update completed. Current version: ${afterVersion}.`
+          : `${targetLabel} update completed.`;
+
+    return {
+      targetId,
+      status: "completed",
+      message,
+      engineStatus: await this.status()
     };
   }
 
@@ -2355,7 +3899,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
   async update(): Promise<{ message: string; engineStatus: EngineStatus }> {
     const updateResult = await runOpenClaw(["update", "status", "--json"], { allowFailure: true });
-    const parsed = safeJsonParse<OpenClawUpdateStatusJson>(updateResult.stdout);
+    const parsed = safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateResult.stdout) ?? safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateResult.stderr);
     const engineStatus = await this.status();
 
     if (parsed?.availability?.available) {
@@ -2411,7 +3955,7 @@ export class OpenClawAdapter implements EngineAdapter {
       }
       case "rollback-update": {
         const updateStatus = await runOpenClaw(["update", "status", "--json"], { allowFailure: true });
-        const parsed = safeJsonParse<OpenClawUpdateStatusJson>(updateStatus.stdout);
+        const parsed = safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateStatus.stdout) ?? safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateStatus.stderr);
         return {
           actionId: action.id,
           status: "completed",
@@ -2467,7 +4011,10 @@ export class OpenClawAdapter implements EngineAdapter {
           health,
           raw: {
             gatewayStatus: safeJsonParse<OpenClawGatewayStatusJson>(gateway.stdout) ?? gateway.stderr,
-            updateStatus: safeJsonParse<OpenClawUpdateStatusJson>(update.stdout) ?? update.stderr
+            updateStatus:
+              safeJsonPayloadParse<OpenClawUpdateStatusJson>(update.stdout) ??
+              safeJsonPayloadParse<OpenClawUpdateStatusJson>(update.stderr) ??
+              update.stderr
           }
         },
         null,
@@ -2557,13 +4104,14 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     await runOpenClaw(["plugins", "enable", "feishu"], { allowFailure: true });
+    await this.restartGatewayAndRequireHealthy("Feishu plugin preparation");
 
     return {
-      message: "SlackClaw ran `openclaw plugins install @openclaw/feishu` and prepared the official Feishu plugin.",
+      message: "SlackClaw ran `openclaw plugins install @openclaw/feishu`, restarted the OpenClaw gateway, and verified it is reachable.",
       channel: createChannelState("feishu", {
         status: "ready",
         summary: "Official Feishu plugin installed.",
-        detail: "The plugin is installed. Continue to the Feishu credential wizard to save App ID, App Secret, domain, and bot settings into OpenClaw."
+        detail: "The plugin is installed and the gateway is reachable. Continue to the Feishu credential wizard to save App ID, App Secret, domain, and bot settings into OpenClaw."
       })
     };
   }
@@ -2599,13 +4147,15 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(configSave.stderr || configSave.stdout || "SlackClaw could not save the Feishu configuration into OpenClaw.");
     }
 
+    await this.restartGatewayAndRequireHealthy("Feishu configuration");
+
     return {
       message:
-        "SlackClaw saved your Feishu app credentials into OpenClaw. Restart the gateway next, then enable long connection, publish the Feishu app, send a test DM, and approve the pairing code in SlackClaw.",
+        "SlackClaw saved your Feishu app credentials into OpenClaw, restarted the gateway, and verified it is reachable. Next enable long connection, publish the Feishu app, send a test DM, and approve the pairing code in SlackClaw.",
       channel: createChannelState("feishu", {
         status: "awaiting-pairing",
         summary: "Official Feishu plugin configured.",
-        detail: `OpenClaw saved the ${request.domain ?? "feishu"} tenant credentials. Restart the gateway, switch Feishu event delivery to long connection, publish the app, send a DM to the bot, then approve the Feishu pairing code in SlackClaw.`
+        detail: `OpenClaw saved the ${request.domain ?? "feishu"} tenant credentials and the gateway is reachable. Switch Feishu event delivery to long connection, publish the app, send a DM to the bot, then approve the Feishu pairing code in SlackClaw.`
       })
     };
   }
@@ -2623,12 +4173,14 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(result.stderr || result.stdout || "SlackClaw could not save the Telegram channel configuration.");
     }
 
+    await this.restartGatewayAndRequireHealthy("Telegram configuration");
+
     return {
-      message: "Telegram bot token saved. Send a message to the bot, then approve the pairing code in SlackClaw.",
+      message: "Telegram bot token saved. OpenClaw gateway restarted and is reachable. Send a message to the bot, then approve the pairing code in SlackClaw.",
       channel: createChannelState("telegram", {
         status: "awaiting-pairing",
         summary: "Telegram token saved.",
-        detail: "The Telegram bot is configured. Send the first message to your bot, then approve the pairing code."
+        detail: "The Telegram bot is configured and the gateway is reachable. Send the first message to your bot, then approve the pairing code."
       })
     };
   }
@@ -2644,6 +4196,7 @@ export class OpenClawAdapter implements EngineAdapter {
     await runOpenClaw(["channels", "add", "--channel", "whatsapp", "--name", "SlackClaw WhatsApp"], {
       allowFailure: true
     });
+    await this.restartGatewayAndRequireHealthy("WhatsApp configuration");
 
     whatsappLoginSession = {
       startedAt: new Date().toISOString(),
@@ -2657,7 +4210,9 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error("OpenClaw CLI is not installed.");
     }
 
-    const child = spawn(command, ["channels", "login", "--channel", "whatsapp", "--verbose"], {
+    const loginArgs = ["channels", "login", "--channel", "whatsapp", "--verbose"];
+    logOpenClawCommand(command, loginArgs);
+    const child = spawn(command, loginArgs, {
       env: buildCommandEnv(command)
     });
 
@@ -2708,7 +4263,7 @@ export class OpenClawAdapter implements EngineAdapter {
     });
 
     return {
-      message: "SlackClaw started the WhatsApp login flow. Follow the QR or pairing instructions shown in the session log.",
+      message: "SlackClaw restarted the OpenClaw gateway, verified it is reachable, and started the WhatsApp login flow. Follow the QR or pairing instructions shown in the session log.",
       channel: await this.getChannelState("whatsapp")
     };
   }
@@ -2767,29 +4322,44 @@ export class OpenClawAdapter implements EngineAdapter {
       dmPolicy: "pairing",
       groupPolicy: "open"
     })], { allowFailure: true });
+    await this.restartGatewayAndRequireHealthy("WeChat workaround configuration");
 
     return {
-      message: `SlackClaw installed the experimental ${pluginSpec} workaround and saved the WeChat enterprise app configuration.`,
+      message: `SlackClaw installed the experimental ${pluginSpec} workaround, restarted the OpenClaw gateway, and verified it is reachable.`,
       channel: createChannelState("wechat", {
         status: "completed",
         summary: "WeChat workaround configured.",
-        detail: "Restart the gateway to load the WeChat workaround plugin."
+        detail: "The WeChat workaround plugin is configured and the gateway is reachable."
       })
     };
   }
 
   async startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }> {
-    const restart = await runOpenClaw(["gateway", "restart"], { allowFailure: true });
-    const engineStatus = await this.status();
-
-    if (restart.code !== 0 || !engineStatus.running) {
-      throw new Error(restart.stderr || restart.stdout || "SlackClaw could not restart the OpenClaw gateway after channel setup.");
-    }
+    const engineStatus = await this.restartGatewayAndRequireHealthy("channel setup");
 
     return {
       message: "OpenClaw gateway restarted and is reachable.",
       engineStatus
     };
+  }
+
+  private async restartGatewayAndRequireHealthy(reason: string): Promise<EngineStatus> {
+    const restart = await runOpenClaw(["gateway", "restart"], { allowFailure: true });
+
+    if (restart.code !== 0) {
+      throw new Error(restart.stderr || restart.stdout || `SlackClaw could not restart the OpenClaw gateway after ${reason}.`);
+    }
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const engineStatus = await this.status();
+      if (engineStatus.running) {
+        return engineStatus;
+      }
+      await wait(500);
+    }
+
+    const engineStatus = await this.status();
+    throw new Error(engineStatus.summary || `SlackClaw restarted the OpenClaw gateway after ${reason}, but it is still not reachable.`);
   }
 
   private async collectStatusData(): Promise<{
@@ -2961,6 +4531,13 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   private async resolveAgentArgs(): Promise<string[]> {
+    const state = await this.ensureSavedModelState();
+    const defaultEntry = state.modelEntries?.find((entry) => entry.id === state.defaultModelEntryId);
+
+    if (defaultEntry?.agentId) {
+      return ["--agent", defaultEntry.agentId];
+    }
+
     const statusResult = await runOpenClaw(["status", "--json"], { allowFailure: true });
     const statusJson = safeJsonParse<OpenClawStatusJson>(statusResult.stdout);
     const defaultAgentId = statusJson?.agents?.defaultId;

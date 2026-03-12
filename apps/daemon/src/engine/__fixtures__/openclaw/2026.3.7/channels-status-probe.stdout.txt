@@ -1,0 +1,145 @@
+[plugins] feishu failed to load from /opt/homebrew/lib/node_modules/openclaw/extensions/feishu/index.ts: Error: Cannot find module '@larksuiteoapi/node-sdk'
+Require stack:
+- /opt/homebrew/lib/node_modules/openclaw/extensions/feishu/src/client.ts
+{
+  "ts": 1773338250943,
+  "channelOrder": [
+    "telegram",
+    "whatsapp"
+  ],
+  "channelLabels": {
+    "telegram": "Telegram",
+    "whatsapp": "WhatsApp"
+  },
+  "channelDetailLabels": {
+    "telegram": "Telegram Bot",
+    "whatsapp": "WhatsApp Web"
+  },
+  "channelSystemImages": {
+    "telegram": "paperplane",
+    "whatsapp": "message"
+  },
+  "channelMeta": [
+    {
+      "id": "telegram",
+      "label": "Telegram",
+      "detailLabel": "Telegram Bot",
+      "systemImage": "paperplane"
+    },
+    {
+      "id": "whatsapp",
+      "label": "WhatsApp",
+      "detailLabel": "WhatsApp Web",
+      "systemImage": "message"
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "configured": true,
+      "running": true,
+      "lastStartAt": 1773327598088,
+      "lastStopAt": null,
+      "lastError": null,
+      "tokenSource": "config",
+      "probe": {
+        "ok": true,
+        "status": null,
+        "error": null,
+        "elapsedMs": 836,
+        "bot": {
+          "id": 8787118441,
+          "username": "Ryo_OpenClaw_Bot",
+          "canJoinGroups": true,
+          "canReadAllGroupMessages": false,
+          "supportsInlineQueries": false
+        },
+        "webhook": {
+          "url": "",
+          "hasCustomCert": false
+        }
+      },
+      "lastProbeAt": 1773338251779,
+      "mode": "polling"
+    },
+    "whatsapp": {
+      "configured": true,
+      "linked": true,
+      "authAgeMs": 149669.43139648438,
+      "self": {
+        "e164": "+19255800389",
+        "jid": "19255800389:7@s.whatsapp.net"
+      },
+      "running": true,
+      "connected": true,
+      "lastConnectedAt": 1773336901816,
+      "lastDisconnect": null,
+      "reconnectAttempts": 0,
+      "lastMessageAt": null,
+      "lastEventAt": 1773336901816,
+      "lastError": null
+    }
+  },
+  "channelAccounts": {
+    "telegram": [
+      {
+        "accountId": "default",
+        "enabled": true,
+        "configured": true,
+        "tokenSource": "config",
+        "tokenStatus": "available",
+        "running": true,
+        "lastStartAt": 1773327598088,
+        "lastStopAt": null,
+        "lastError": null,
+        "mode": "polling",
+        "probe": {
+          "ok": true,
+          "status": null,
+          "error": null,
+          "elapsedMs": 836,
+          "bot": {
+            "id": 8787118441,
+            "username": "Ryo_OpenClaw_Bot",
+            "canJoinGroups": true,
+            "canReadAllGroupMessages": false,
+            "supportsInlineQueries": false
+          },
+          "webhook": {
+            "url": "",
+            "hasCustomCert": false
+          }
+        },
+        "allowUnmentionedGroups": false,
+        "lastInboundAt": 1773338146353,
+        "lastOutboundAt": null,
+        "lastProbeAt": 1773338251779
+      }
+    ],
+    "whatsapp": [
+      {
+        "accountId": "default",
+        "enabled": true,
+        "configured": true,
+        "linked": true,
+        "running": true,
+        "connected": true,
+        "reconnectAttempts": 0,
+        "lastConnectedAt": 1773336901816,
+        "lastDisconnect": null,
+        "lastMessageAt": null,
+        "lastEventAt": 1773336901816,
+        "lastError": null,
+        "dmPolicy": "pairing",
+        "allowFrom": [
+          "+17789996621"
+        ],
+        "lastInboundAt": null,
+        "lastOutboundAt": null
+      }
+    ]
+  },
+  "channelDefaultAccountId": {
+    "telegram": "default",
+    "whatsapp": "default"
+  }
+}

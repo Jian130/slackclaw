@@ -97,7 +97,7 @@ export class ChannelSetupService {
   async configureTelegram(request: TelegramSetupRequest): Promise<ChannelActionResponse> {
     await this.ensureBaseOnboardingCompleted();
     const result = await this.adapter.configureTelegram(request);
-    return this.persistChannelResult("telegram", result.channel, result.message);
+    return this.persistChannelResult("telegram", result.channel, result.message, true);
   }
 
   async approvePairing(
@@ -112,25 +112,25 @@ export class ChannelSetupService {
   async startWhatsappLogin(): Promise<ChannelActionResponse> {
     await this.ensureBaseOnboardingCompleted();
     const result = await this.adapter.startWhatsappLogin();
-    return this.persistChannelResult("whatsapp", result.channel, result.message);
+    return this.persistChannelResult("whatsapp", result.channel, result.message, true);
   }
 
   async prepareFeishu(): Promise<ChannelActionResponse> {
     await this.ensureBaseOnboardingCompleted();
     const result = await this.adapter.prepareFeishu();
-    return this.persistChannelResult("feishu", result.channel, result.message);
+    return this.persistChannelResult("feishu", result.channel, result.message, true);
   }
 
   async configureFeishu(request: FeishuSetupRequest): Promise<ChannelActionResponse> {
     await this.ensureBaseOnboardingCompleted();
     const result = await this.adapter.configureFeishu(request);
-    return this.persistChannelResult("feishu", result.channel, result.message);
+    return this.persistChannelResult("feishu", result.channel, result.message, true);
   }
 
   async configureWechatWorkaround(request: WechatSetupRequest): Promise<ChannelActionResponse> {
     await this.ensureBaseOnboardingCompleted();
     const result = await this.adapter.configureWechatWorkaround(request);
-    return this.persistChannelResult("wechat", result.channel, result.message);
+    return this.persistChannelResult("wechat", result.channel, result.message, true);
   }
 
   async startGateway(): Promise<ChannelActionResponse> {
@@ -157,13 +157,14 @@ export class ChannelSetupService {
   private async persistChannelResult(
     channelId: SupportedChannelId,
     channelState: ChannelSetupState,
-    message: string
+    message: string,
+    gatewayRestarted = false
   ): Promise<ChannelActionResponse> {
     await this.store.update((current) => ({
       ...current,
       channelOnboarding: {
         baseOnboardingCompletedAt: current.channelOnboarding?.baseOnboardingCompletedAt,
-        gatewayStartedAt: current.channelOnboarding?.gatewayStartedAt,
+        gatewayStartedAt: gatewayRestarted ? new Date().toISOString() : current.channelOnboarding?.gatewayStartedAt,
         channels: {
           ...mergeChannelStates(current.channelOnboarding?.channels, {}),
           [channelId]: channelState

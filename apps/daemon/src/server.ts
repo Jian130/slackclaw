@@ -9,7 +9,10 @@ import type {
   ModelAuthSessionInputRequest,
   ModelAuthRequest,
   OnboardingSelection,
+  ReplaceFallbackModelEntriesRequest,
+  SaveModelEntryRequest,
   SetDefaultModelRequest,
+  SetDefaultModelEntryRequest,
   FeishuSetupRequest,
   TelegramSetupRequest,
   WechatSetupRequest
@@ -31,7 +34,7 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS"
   });
   response.end(JSON.stringify(body));
 }
@@ -128,8 +131,48 @@ export function startServer(port = 4545) {
         return;
       }
 
+      if (request.method === "GET" && request.url === "/api/deploy/targets") {
+        sendJson(response, 200, await adapter.getDeploymentTargets());
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        (request.url === "/api/deploy/targets/standard/update" ||
+          request.url === "/api/deploy/targets/managed-local/update")
+      ) {
+        const targetId = request.url.includes("/managed-local/") ? "managed-local" : "standard";
+        sendJson(response, 200, await adapter.updateDeploymentTarget(targetId));
+        return;
+      }
+
       if (request.method === "GET" && request.url === "/api/models/config") {
         sendJson(response, 200, await adapter.getModelConfig());
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/models/entries") {
+        const body = await readJson<SaveModelEntryRequest>(request);
+        sendJson(response, 200, await adapter.createSavedModelEntry(body));
+        return;
+      }
+
+      if (request.method === "PATCH" && request.url.startsWith("/api/models/entries/")) {
+        const entryId = request.url.slice("/api/models/entries/".length);
+        const body = await readJson<SaveModelEntryRequest>(request);
+        sendJson(response, 200, await adapter.updateSavedModelEntry(entryId, body));
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/models/default-entry") {
+        const body = await readJson<SetDefaultModelEntryRequest>(request);
+        sendJson(response, 200, await adapter.setDefaultModelEntry(body));
+        return;
+      }
+
+      if (request.method === "POST" && request.url === "/api/models/fallbacks") {
+        const body = await readJson<ReplaceFallbackModelEntriesRequest>(request);
+        sendJson(response, 200, await adapter.replaceFallbackModelEntries(body));
         return;
       }
 

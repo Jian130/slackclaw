@@ -2,10 +2,10 @@
 
 SlackClaw is a macOS-first, local-first desktop product that makes OpenClaw usable for non-technical users. This repository currently contains:
 
-- a React + TypeScript desktop UI scaffold
+- a React + TypeScript desktop UI for deploy, configuration, task routing, health, and recovery
 - a local TypeScript daemon with an engine adapter seam
-- a first `OpenClawAdapter` implementation with a safe mock fallback
-- shared contracts for health, onboarding, task execution, recovery, and updates
+- an `OpenClawAdapter` implementation that manages deploy targets, model entries, channels, updates, and gateway health
+- shared contracts for deployment, model/channel management, onboarding, task execution, recovery, and updates
 
 ## Workspace layout
 
@@ -16,9 +16,28 @@ SlackClaw is a macOS-first, local-first desktop product that makes OpenClaw usab
 
 ## Current state
 
-This is an MVP scaffold designed to validate the SlackClaw product shape. It intentionally keeps the engine abstraction narrow and the first-party UX opinionated.
+This is an active MVP implementation, not a blank scaffold. It intentionally keeps the engine abstraction narrow and the first-party UX opinionated.
 
 The desktop shell is implemented as a web UI + local daemon boundary so a Tauri wrapper can be added once the Rust toolchain is available in the target environment.
+
+## What Works Today
+
+- Deploy page:
+  - detects installed OpenClaw runtimes on the current Mac
+  - separates installed targets from installable targets
+  - supports install, update, and uninstall flows for the current OpenClaw targets
+  - shows current and latest version information
+- Configuration page:
+  - shows the live OpenClaw runtime model chain and a separate SlackClaw saved-entry list
+  - supports saved model entry add/edit flows
+  - supports default and fallback model selection
+  - restarts the OpenClaw gateway and verifies health after runtime-affecting config changes
+- Channel setup:
+  - supports Telegram, WhatsApp, Feishu, and a WeChat workaround path
+  - keeps onboarding gating in place before channels are unlocked
+- Developer workflow:
+  - includes an engine compatibility test runner for evaluating future OpenClaw versions
+  - includes co-located tests for compatibility-sensitive adapter, service, contract, and UI logic
 
 ## System structure
 
@@ -112,6 +131,35 @@ If you still want to run pieces separately for debugging:
 2. `npm run dev:daemon`
 3. `npm run dev:ui`
 
+## Engine compatibility workflow
+
+SlackClaw now includes a developer-only engine compatibility runner for evaluating new OpenClaw versions before SlackClaw adopts them.
+
+- Run the normal static checks first:
+  - `npm run build`
+  - `npm run test`
+- Run the compatibility matrix:
+  - `npm run test:engine-compat`
+  - `npm run test:engine-compat -- --candidate-version 2026.3.11`
+  - `npm run test:engine-compat -- --runtime managed --candidate-version 2026.3.11`
+
+What the compatibility runner does:
+
+- creates isolated temporary `HOME` and SlackClaw data directories so it does not reuse your normal config by default
+- checks both runtime modes SlackClaw supports today:
+  - an existing system OpenClaw install
+  - a SlackClaw-managed self-contained runtime
+- uses the same bootstrap script SlackClaw uses for managed installs
+- writes a machine-readable JSON report and a Markdown summary under `.data/engine-compatibility/...`
+- records capability-by-capability pass/fail/not-supported status plus the likely SlackClaw source files to update when something breaks
+
+Notes:
+
+- The system-runtime lane only runs against whatever `openclaw` version is already installed on your machine. If you pass `--candidate-version` and the system install is on a different version, that lane is skipped and reported clearly.
+- The managed-runtime lane can bootstrap a candidate version into an isolated SlackClaw data directory by using `--candidate-version`.
+- Task execution is skipped unless you set `SLACKCLAW_COMPAT_RUN_TASK=1` and provide real credentials the candidate runtime can use.
+- Compatibility fixtures for parser drift live under `apps/daemon/src/engine/__fixtures__/openclaw/`.
+
 ## First-run app flow
 
 When a user installs and opens SlackClaw for the first time:
@@ -133,11 +181,26 @@ After OpenClaw is deployed and onboarding is complete, SlackClaw exposes a guide
 
 - `Telegram`: saves a bot token with `openclaw channels add --channel telegram --token ...`, then approves the first pairing code.
 - `WhatsApp`: starts `openclaw channels login --channel whatsapp --verbose`, streams the session output into SlackClaw, then approves the pairing code.
+- `Feishu`: prepares the official plugin when needed, saves Feishu credentials into OpenClaw, restarts the gateway, and guides pairing.
 - `WeChat workaround`: installs and enables a community WeCom-style plugin path, saves the workaround config, and clearly marks this path as experimental rather than official OpenClaw support.
 - `Gateway restart`: after channel setup is complete, SlackClaw restarts the OpenClaw gateway so all configured channels load together.
 
 SlackClaw now also exposes an explicit `Deploy OpenClaw locally` action in the first-run setup page and the install panel. That path forces deployment into SlackClaw's managed local runtime instead of merely reusing a compatible system OpenClaw.
 The service panel also now exposes app-level controls to stop the local SlackClaw daemon and uninstall the packaged app's managed service/data.
+
+## Model management
+
+SlackClaw manages AI models in two related ways:
+
+- `Current OpenClaw runtime`: the active default + fallback model chain reported by the installed OpenClaw runtime
+- `Saved model entries`: SlackClaw-managed model entries that preserve credentials and role choices for switching runtime behavior
+
+Current behavior:
+
+- normal saved entries stay as SlackClaw metadata until promoted to default or fallback
+- runtime-affecting entries use hidden OpenClaw agents behind the scenes when needed
+- if OpenClaw is changed outside SlackClaw, SlackClaw reconciles the active runtime chain back into the model overview so the UI stays truthful
+- duplicate saved entries for the same model can exist, but only one copy of a model can be active in the runtime chain at a time
 
 ### Local OpenClaw deployment
 

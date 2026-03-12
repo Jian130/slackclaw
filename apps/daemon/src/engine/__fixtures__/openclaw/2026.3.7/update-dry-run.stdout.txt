@@ -1,0 +1,24 @@
+{
+  "dryRun": true,
+  "root": "/opt/homebrew/lib/node_modules/openclaw",
+  "installKind": "package",
+  "mode": "npm",
+  "updateInstallKind": "package",
+  "switchToGit": false,
+  "switchToPackage": false,
+  "restart": true,
+  "requestedChannel": null,
+  "storedChannel": null,
+  "effectiveChannel": "stable",
+  "tag": "latest",
+  "currentVersion": "2026.3.7",
+  "targetVersion": "2026.3.11",
+  "downgradeRisk": false,
+  "actions": [
+    "Run global package manager update with spec openclaw@latest",
+    "Run plugin update sync after core update",
+    "Refresh shell completion cache (if needed)",
+    "Restart gateway service and run doctor checks"
+  ],
+  "notes": []
+}

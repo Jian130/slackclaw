@@ -5,24 +5,27 @@ import type {
   ModelAuthSessionResponse,
   ModelConfigOverview,
   ModelProviderConfig,
-  ProductOverview
+  ProductOverview,
+  SavedModelEntry
 } from "@slackclaw/contracts";
 
 import {
   approveFeishuPairing,
   approveTelegramPairing,
   approveWhatsappPairing,
-  authenticateModelProvider,
   completeOnboarding,
+  createSavedModelEntry,
   fetchModelAuthSession,
   fetchModelConfig,
   prepareFeishuChannel,
-  setDefaultModel,
+  replaceFallbackModelEntries,
+  setDefaultModelEntry,
   setupFeishuChannel,
   setupTelegramChannel,
   setupWechatWorkaround,
   startGatewayAfterChannels,
   startWhatsappLogin,
+  updateSavedModelEntry,
   submitModelAuthSessionInput
 } from "../../shared/api/client.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
@@ -42,9 +45,11 @@ const providerGlyphs: Record<string, string> = {
   openai: "OA",
   "openai-codex": "OC",
   anthropic: "AN",
+  gemini: "GE",
   google: "GE",
   github: "GH",
   githubcopilot: "GH",
+  "github-copilot": "GH",
   feishu: "飞"
 };
 
@@ -74,13 +79,131 @@ const feishuScopes = `{
   }
 }`;
 
-function modelOptions(modelConfig: ModelConfigOverview | undefined, provider: ModelProviderConfig | undefined) {
+export function modelOptions(modelConfig: ModelConfigOverview | undefined, provider: ModelProviderConfig | undefined) {
   if (!modelConfig || !provider) return [];
-  return modelConfig.models.filter((model) => provider.providerRefs.some((ref) => model.key.startsWith(`${ref}/`)));
+  return modelConfig.models.filter((model) =>
+    provider.providerRefs.some((ref) => model.key.startsWith(`${ref.replace(/\/$/, "")}/`))
+  );
 }
 
-function providerIcon(providerId: string) {
+export function providerConfiguredModels(modelConfig: ModelConfigOverview | undefined, provider: ModelProviderConfig | undefined) {
+  if (!modelConfig || !provider) return [];
+  return modelConfig.configuredModelKeys.filter((key) => provider.providerRefs.some((ref) => key.startsWith(ref)));
+}
+
+export function providerActiveModel(modelConfig: ModelConfigOverview | undefined, provider: ModelProviderConfig | undefined) {
+  if (!modelConfig || !provider) return undefined;
+  if (modelConfig.defaultModel && provider.providerRefs.some((ref) => modelConfig.defaultModel?.startsWith(ref))) {
+    return modelConfig.defaultModel;
+  }
+
+  return providerConfiguredModels(modelConfig, provider)[0];
+}
+
+function fallbackOrder(model: ModelConfigOverview["models"][number]): number {
+  const tag = model.tags.find((item) => item.startsWith("fallback#"));
+  if (!tag) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const parsed = Number(tag.slice("fallback#".length));
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+export function runtimeConfiguredModels(modelConfig: ModelConfigOverview | undefined) {
+  if (!modelConfig) {
+    return [];
+  }
+
+  return modelConfig.models
+    .filter((model) => modelConfig.configuredModelKeys.includes(model.key))
+    .sort((left, right) => {
+      if (left.key === modelConfig.defaultModel) return -1;
+      if (right.key === modelConfig.defaultModel) return 1;
+
+      const fallbackDelta = fallbackOrder(left) - fallbackOrder(right);
+      if (fallbackDelta !== 0) {
+        return fallbackDelta;
+      }
+
+      return left.key.localeCompare(right.key);
+    });
+}
+
+export function providerIcon(providerId: string) {
   return providerGlyphs[providerId] ?? providerId.slice(0, 2).toUpperCase();
+}
+
+export function entryAuthLabel(entry: Pick<SavedModelEntry, "authModeLabel" | "authMethodId">): string | undefined {
+  if (entry.authModeLabel) {
+    return entry.authModeLabel;
+  }
+
+  if (entry.authMethodId?.includes("api-key")) {
+    return "API key";
+  }
+
+  if (entry.authMethodId?.includes("oauth")) {
+    return "OAuth";
+  }
+
+  return undefined;
+}
+
+export type ModelEntryRole = "normal" | "default" | "fallback";
+
+export function resolveModelEntryRole(makeDefault: boolean, useAsFallback: boolean): ModelEntryRole {
+  if (makeDefault) {
+    return "default";
+  }
+
+  if (useAsFallback) {
+    return "fallback";
+  }
+
+  return "normal";
+}
+
+export function applyModelEntryRole(role: ModelEntryRole): { makeDefault: boolean; useAsFallback: boolean } {
+  return {
+    makeDefault: role === "default",
+    useAsFallback: role === "fallback"
+  };
+}
+
+export function validateModelEntryDraft(
+  method: ModelProviderConfig["authMethods"][number] | undefined,
+  values: Record<string, string>,
+  role: ModelEntryRole
+): string | undefined {
+  if (role === "normal") {
+    return undefined;
+  }
+
+  if (!method) {
+    return "Choose an authentication method first.";
+  }
+
+  for (const field of method.fields) {
+    const value = values[field.id]?.trim() ?? "";
+
+    if (field.required && !value) {
+      return `${field.label} is required.`;
+    }
+
+    const looksLikeApiKeyField = field.id.toLowerCase().includes("apikey") || field.label.toLowerCase().includes("api key");
+    if (looksLikeApiKeyField && value) {
+      if (/\s/.test(value)) {
+        return `${field.label} cannot contain spaces.`;
+      }
+
+      if (value.length < 10) {
+        return `${field.label} looks too short.`;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 async function pasteInto(setter: (value: string) => void) {
@@ -98,37 +221,61 @@ function ModelDialog(props: {
   open: boolean;
   onClose: () => void;
   modelConfig?: ModelConfigOverview;
-  reloadModelConfig: () => Promise<void>;
+  reloadModelConfig: () => Promise<ModelConfigOverview>;
+  onModelConfigChange: (next: ModelConfigOverview) => void;
+  initialEntry?: SavedModelEntry;
 }) {
   const [providerId, setProviderId] = useState("");
   const [methodId, setMethodId] = useState("");
   const [modelKey, setModelKey] = useState("");
+  const [label, setLabel] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [session, setSession] = useState<ModelAuthSessionResponse["session"]>();
   const [sessionInput, setSessionInput] = useState("");
-  const [busy, setBusy] = useState<"" | "configure" | "add" | "input">("");
-  const [providerReady, setProviderReady] = useState(false);
+  const [busy, setBusy] = useState<"" | "save" | "input">("");
+  const [makeDefault, setMakeDefault] = useState(false);
+  const [useAsFallback, setUseAsFallback] = useState(false);
 
   const provider = props.modelConfig?.providers.find((item) => item.id === providerId);
   const method = provider?.authMethods.find((item) => item.id === methodId);
   const models = modelOptions(props.modelConfig, provider);
+  const isEdit = Boolean(props.initialEntry);
+  const selectedRole = resolveModelEntryRole(makeDefault, useAsFallback);
+  const validationError = validateModelEntryDraft(method, values, selectedRole);
 
   useEffect(() => {
-    if (!provider) {
+    if (!props.open) {
       return;
     }
 
-    setMethodId(provider.authMethods[0]?.id ?? "");
-    const firstModel = models[0]?.key ?? "";
-    setModelKey(firstModel);
-    setProviderReady(provider.configured);
+    setProviderId(props.initialEntry?.providerId ?? "");
+    setMethodId(props.initialEntry?.authMethodId ?? "");
+    setModelKey(props.initialEntry?.modelKey ?? "");
+    setLabel(props.initialEntry?.label ?? "");
     setValues({});
     setSession(undefined);
     setSessionInput("");
-  }, [models, provider]);
+    setMakeDefault(Boolean(props.initialEntry?.isDefault));
+    setUseAsFallback(Boolean(props.initialEntry?.isFallback));
+  }, [props.initialEntry, props.open]);
 
   useEffect(() => {
-    if (!session?.id || providerReady) {
+    if (!props.open || !provider) {
+      return;
+    }
+
+    setMethodId((current) => (current && provider.authMethods.some((item) => item.id === current) ? current : provider.authMethods[0]?.id ?? ""));
+    setModelKey((current) => {
+      if (current && models.some((item) => item.key === current)) {
+        return current;
+      }
+
+      return props.initialEntry?.modelKey ?? providerActiveModel(props.modelConfig, provider) ?? models[0]?.key ?? "";
+    });
+  }, [models, props.initialEntry?.modelKey, props.modelConfig, props.open, provider]);
+
+  useEffect(() => {
+    if (!session?.id) {
       return;
     }
 
@@ -138,46 +285,47 @@ function ModelDialog(props: {
       if (nextSession.session.launchUrl) {
         window.open(nextSession.session.launchUrl, "_blank", "noopener,noreferrer");
       }
-      await props.reloadModelConfig();
-      const providerState = props.modelConfig?.providers.find((item) => item.id === providerId);
-      if (providerState?.configured || nextSession.session.status === "completed") {
-        setProviderReady(Boolean(providerState?.configured || nextSession.session.status === "completed"));
+
+      if (nextSession.session.status === "completed") {
+        await props.reloadModelConfig();
+        props.onClose();
+        return;
+      }
+
+      if (nextSession.session.status === "failed") {
+        await props.reloadModelConfig();
       }
     }, 1600);
 
     return () => window.clearInterval(timer);
-  }, [props, providerId, providerReady, session?.id]);
+  }, [props, session?.id]);
 
-  async function handleConfigure() {
+  async function handleSave() {
     if (!provider || !method) return;
-    setBusy("configure");
+    setBusy("save");
     try {
-      const result = await authenticateModelProvider({
+      const request = {
+        label: label.trim() || `${provider.label} ${modelKey.split("/").pop() ?? modelKey}`,
         providerId,
         methodId,
-        values
-      });
+        values,
+        modelKey,
+        makeDefault,
+        useAsFallback
+      };
+      const result = props.initialEntry
+        ? await updateSavedModelEntry(props.initialEntry.id, request)
+        : await createSavedModelEntry(request);
 
+      props.onModelConfigChange(result.modelConfig);
       setSession(result.authSession);
       if (result.authSession?.launchUrl) {
         window.open(result.authSession.launchUrl, "_blank", "noopener,noreferrer");
-        }
+      }
 
-      await props.reloadModelConfig();
-      const providerState = result.modelConfig.providers.find((item) => item.id === providerId);
-      setProviderReady(Boolean(providerState?.configured || result.authSession?.status === "completed"));
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function handleAddModel() {
-    if (!modelKey) return;
-    setBusy("add");
-    try {
-      await setDefaultModel({ modelKey });
-      await props.reloadModelConfig();
-      props.onClose();
+      if (!result.authSession && result.status === "completed") {
+        props.onClose();
+      }
     } finally {
       setBusy("");
     }
@@ -190,18 +338,23 @@ function ModelDialog(props: {
       const next = await submitModelAuthSessionInput(session.id, { value: sessionInput.trim() });
       setSession(next.session);
       setSessionInput("");
-      await props.reloadModelConfig();
+      props.onModelConfigChange(await props.reloadModelConfig());
     } finally {
       setBusy("");
     }
   }
 
+  async function handleRefreshProviders() {
+    const next = await props.reloadModelConfig();
+    props.onModelConfigChange(next);
+  }
+
   return (
     <Dialog
-      description="Pick a provider, configure authentication, wait for OpenClaw to finish, then add the model."
+      description="Choose a provider, model, and authentication for this saved AI model entry."
       onClose={props.onClose}
       open={props.open}
-      title="Add AI Model"
+      title={isEdit ? "Edit AI Model" : "Add AI Model"}
       wide
     >
       {!provider ? (
@@ -239,6 +392,10 @@ function ModelDialog(props: {
 
           <div className="field-grid field-grid--two">
             <div>
+              <FieldLabel htmlFor="entry-label">Display name</FieldLabel>
+              <Input id="entry-label" onChange={(event) => setLabel(event.target.value)} placeholder={`${provider.label} ${modelKey.split("/").pop() ?? "model"}`} value={label} />
+            </div>
+            <div>
               <FieldLabel htmlFor="model-key">Model</FieldLabel>
               <Select id="model-key" onChange={(event) => setModelKey(event.target.value)} value={modelKey}>
                 {models.map((item) => (
@@ -248,7 +405,7 @@ function ModelDialog(props: {
                 ))}
               </Select>
             </div>
-            <div>
+            <div style={{ gridColumn: "1 / -1" }}>
               <FieldLabel htmlFor="method-id">Authentication Method</FieldLabel>
               <Select id="method-id" onChange={(event) => setMethodId(event.target.value)} value={methodId}>
                 {provider.authMethods.map((item) => (
@@ -263,7 +420,7 @@ function ModelDialog(props: {
           {method ? (
             <Card>
               <CardContent className="panel-stack">
-                <strong>{method.interactive ? "Interactive flow" : "Direct setup"}</strong>
+                <strong>{method.interactive ? "Interactive flow" : method.kind === "api-key" ? "API key setup" : "Direct setup"}</strong>
                 <p className="card__description">{method.description}</p>
                 <div className="field-grid">
                   {method.fields.map((field) => (
@@ -279,6 +436,7 @@ function ModelDialog(props: {
                     </div>
                   ))}
                 </div>
+                {validationError ? <p className="card__description">{validationError}</p> : null}
                 {session ? (
                   <div className="panel-stack">
                     <strong>Authentication progress</strong>
@@ -307,21 +465,64 @@ function ModelDialog(props: {
             </Card>
           ) : null}
 
+          <Card>
+            <CardContent className="panel-stack">
+              <strong>Roles</strong>
+              <div className="model-role-grid">
+                <button
+                  className={`model-role-toggle${selectedRole === "normal" ? " model-role-toggle--active" : ""}`}
+                  onClick={() => {
+                    const next = applyModelEntryRole("normal");
+                    setMakeDefault(next.makeDefault);
+                    setUseAsFallback(next.useAsFallback);
+                  }}
+                  type="button"
+                >
+                  <span>Normal</span>
+                  <small>Saved for later, but not active in runtime routing.</small>
+                </button>
+                <button
+                  className={`model-role-toggle${selectedRole === "default" ? " model-role-toggle--active" : ""}`}
+                  onClick={() => {
+                    const next = applyModelEntryRole("default");
+                    setMakeDefault(next.makeDefault);
+                    setUseAsFallback(next.useAsFallback);
+                  }}
+                  type="button"
+                >
+                  <span>Default model</span>
+                  <small>SlackClaw runs tasks with this entry.</small>
+                </button>
+                <button
+                  className={`model-role-toggle${selectedRole === "fallback" ? " model-role-toggle--active" : ""}`}
+                  onClick={() => {
+                    const next = applyModelEntryRole("fallback");
+                    setMakeDefault(next.makeDefault);
+                    setUseAsFallback(next.useAsFallback);
+                  }}
+                  type="button"
+                >
+                  <span>Fallback model</span>
+                  <small>Used when the active default needs a backup.</small>
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="actions-row" style={{ justifyContent: "space-between" }}>
             <div className="actions-row">
-              {providerReady ? <Badge tone="success">Configured</Badge> : <Badge tone="warning">Needs auth</Badge>}
-              <Badge tone="neutral">{provider.configured ? "Detected by OpenClaw" : "Waiting for OpenClaw"}</Badge>
+              <Badge tone="neutral">{provider.configured ? "Provider seen in OpenClaw" : "New provider setup"}</Badge>
+              {makeDefault ? <Badge tone="success">Default</Badge> : null}
+              {useAsFallback ? <Badge tone="info">Fallback</Badge> : null}
+              {!makeDefault && !useAsFallback ? <Badge tone="neutral">Normal</Badge> : null}
             </div>
             <div className="actions-row">
-              <Button onClick={props.reloadModelConfig} variant="outline">
+              <Button onClick={() => void handleRefreshProviders()} type="button" variant="outline">
                 <RefreshCw size={14} />
                 Refresh providers
               </Button>
-              <Button disabled={busy === "configure" || providerReady} onClick={handleConfigure}>
-                {busy === "configure" ? "Configuring..." : "Configure"}
-              </Button>
-              <Button disabled={!providerReady || !modelKey || busy === "add"} onClick={handleAddModel}>
-                {busy === "add" ? "Adding..." : "Add Model"}
+              <Button disabled={!modelKey || busy === "save" || Boolean(validationError)} onClick={handleSave}>
+                {busy === "save" ? "Saving..." : isEdit ? "Save Changes" : "Save Entry"}
               </Button>
             </div>
           </div>
@@ -472,6 +673,7 @@ export default function ConfigPage() {
   const { overview, refresh, setOverview } = useOverview();
   const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  const [selectedModelEntry, setSelectedModelEntry] = useState<SavedModelEntry>();
   const [feishuPrepareOpen, setFeishuPrepareOpen] = useState(false);
   const [feishuSetupOpen, setFeishuSetupOpen] = useState(false);
   const [telegramToken, setTelegramToken] = useState("");
@@ -496,6 +698,7 @@ export default function ConfigPage() {
   async function reloadModelConfig() {
     const next = await fetchModelConfig();
     setModelConfig(next);
+    return next;
   }
 
   async function handleCompleteOnboarding() {
@@ -609,7 +812,54 @@ export default function ConfigPage() {
     }
   }
 
-  const configuredProviders = modelConfig?.providers.filter((provider) => provider.configured) ?? [];
+  async function handleSetDefaultEntry(entry: SavedModelEntry) {
+    setBusy("gateway");
+    try {
+      await setDefaultModelEntry({ entryId: entry.id });
+      await reloadModelConfig();
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleToggleFallback(entry: SavedModelEntry) {
+    if (!modelConfig) return;
+
+    setBusy("gateway");
+    try {
+      const nextFallbackIds = modelConfig.savedEntries
+        .filter((item) => {
+          if (item.isDefault) {
+            return false;
+          }
+
+          if (item.id === entry.id) {
+            return !item.isFallback;
+          }
+
+          if (!item.isFallback) {
+            return false;
+          }
+
+          if (!entry.isFallback && item.modelKey === entry.modelKey) {
+            return false;
+          }
+
+          return true;
+        })
+        .map((item) => item.id);
+
+      await replaceFallbackModelEntries({ entryIds: nextFallbackIds });
+      await reloadModelConfig();
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const savedEntries = (modelConfig?.savedEntries ?? []).filter((entry) => !entry.id.startsWith("runtime:"));
+  const runtimeModels = runtimeConfiguredModels(modelConfig);
 
   return (
     <div className="panel-stack">
@@ -626,72 +876,150 @@ export default function ConfigPage() {
 
       <Tabs defaultValue="models">
         <TabsList>
-          <TabsTrigger value="models">{copy.modelsTab} ({configuredProviders.length})</TabsTrigger>
+          <TabsTrigger value="models">{copy.modelsTab} ({runtimeModels.length})</TabsTrigger>
           <TabsTrigger value="channels">{copy.channelsTab} ({overview?.channelSetup.channels.length ?? 0})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="models" className="panel-stack">
           <InfoBanner icon={<Sparkles size={22} />} title={copy.modelsInfoTitle} description={copy.modelsInfoBody} />
 
-          {configuredProviders.length ? (
-            <div className="panel-stack">
-              {configuredProviders.map((provider) => (
-                <div className="configured-model-card" key={provider.id}>
-                  <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
-                    <div className="actions-row">
-                      <div className="provider-logo">{providerIcon(provider.id)}</div>
-                      <div className="provider-details">
-                        <strong>{provider.label}</strong>
-                        <span className="card__description">{provider.sampleModels[0] ?? provider.description}</span>
-                        <div className="actions-row">
-                          <Badge tone="info">{provider.sampleModels[0] ?? "Configured"}</Badge>
-                          {modelConfig?.defaultModel?.startsWith(provider.providerRefs[0] ?? "") ? <Badge tone="success">Default</Badge> : null}
-                          <Badge tone="success">Configured</Badge>
+          {runtimeModels.length ? (
+            <Card>
+              <CardContent className="panel-stack">
+                <div>
+                  <strong>{copy.runtimeModelsTitle}</strong>
+                  <p className="card__description">{copy.runtimeModelsBody}</p>
+                </div>
+                <div className="panel-stack">
+                  {runtimeModels.map((model) => {
+                    const provider = modelConfig?.providers.find((item) =>
+                      item.providerRefs.some((ref) => model.key.startsWith(ref))
+                    );
+                    const fallbackTag = model.tags.find((item) => item.startsWith("fallback#"));
+
+                    return (
+                      <div className="configured-model-card" key={model.key}>
+                        <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
+                          <div className="actions-row">
+                            <div className="provider-logo">{providerIcon(provider?.id ?? model.key.split("/")[0] ?? "ai")}</div>
+                            <div className="provider-details">
+                              <strong>{model.name}</strong>
+                              <span className="card__description">{provider?.label ?? model.key.split("/")[0]}</span>
+                              <div className="actions-row">
+                                <Badge tone="info">{model.key}</Badge>
+                                {model.key === modelConfig?.defaultModel ? <Badge tone="success">Default</Badge> : null}
+                                {fallbackTag ? <Badge tone="info">{fallbackTag.replace("#", " #")}</Badge> : null}
+                                {model.local ? <Badge tone="neutral">Local</Badge> : null}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="actions-row">
-                      {provider.docsUrl ? (
-                        <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="outline">
-                          <ExternalLink size={14} />
-                          {copy.docs}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="grid--three" style={{ marginTop: 18 }}>
-                    <Card>
-                      <CardContent className="panel-stack">
-                        <span className="card__description">Configured model</span>
-                        <strong>{provider.sampleModels[0] ?? "Configured in OpenClaw"}</strong>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="panel-stack">
-                        <span className="card__description">Authentication</span>
-                        <strong>{provider.authMethods.find((method) => method.interactive)?.label ?? provider.authMethods[0]?.label ?? "Configured"}</strong>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="panel-stack">
-                        <span className="card__description">Source</span>
-                        <strong>{copy.sourceInstalled}</strong>
-                      </CardContent>
-                    </Card>
-                  </div>
+                    );
+                  })}
                 </div>
-              ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {savedEntries.length ? (
+            <div className="panel-stack">
+              <div>
+                <strong>{copy.savedEntriesTitle}</strong>
+                <p className="card__description">{copy.savedEntriesBody}</p>
+              </div>
+              {savedEntries.map((entry) => {
+                const provider = modelConfig?.providers.find((item) => item.id === entry.providerId);
+                const authLabel = entryAuthLabel(entry);
+                const duplicateActiveEntry = savedEntries.find(
+                  (item) => item.id !== entry.id && item.modelKey === entry.modelKey && (item.isDefault || item.isFallback)
+                );
+
+                return (
+                  <div className="configured-model-card" key={entry.id}>
+                    <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
+                      <div className="actions-row">
+                        <div className="provider-logo">{providerIcon(entry.providerId)}</div>
+                        <div className="provider-details">
+                          <strong>{entry.label}</strong>
+                          <span className="card__description">{provider?.label ?? entry.providerId}</span>
+                          <div className="actions-row">
+                            <Badge tone="info">{entry.modelKey}</Badge>
+                            {entry.isDefault ? <Badge tone="success">Default</Badge> : null}
+                            {entry.isFallback ? <Badge tone="info">Fallback</Badge> : null}
+                            {authLabel ? <Badge tone="neutral">{authLabel}</Badge> : null}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="actions-row">
+                        {!entry.isDefault ? (
+                          <Button disabled={busy === "gateway"} onClick={() => void handleSetDefaultEntry(entry)} variant="outline">
+                            Set Default
+                          </Button>
+                        ) : null}
+                        <Button
+                          disabled={entry.isDefault || busy === "gateway"}
+                          onClick={() => void handleToggleFallback(entry)}
+                          variant={entry.isFallback ? "secondary" : "outline"}
+                        >
+                          {entry.isFallback ? "Remove Fallback" : "Use as Fallback"}
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setSelectedModelEntry(entry);
+                            setModelDialogOpen(true);
+                          }}
+                          variant="outline"
+                        >
+                          Edit
+                        </Button>
+                        {provider?.docsUrl ? (
+                          <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="outline">
+                            <ExternalLink size={14} />
+                            {copy.docs}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="field-grid field-grid--two" style={{ marginTop: 18 }}>
+                      <Card>
+                        <CardContent className="panel-stack">
+                          <span className="card__description">Provider</span>
+                          <strong>{provider?.label ?? entry.providerId}</strong>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="panel-stack">
+                          <span className="card__description">Authentication</span>
+                          <strong>{entry.profileLabel ? `${authLabel ?? "Configured"} • ${entry.profileLabel}` : authLabel ?? "Configured"}</strong>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    {duplicateActiveEntry && !entry.isDefault && !entry.isFallback ? (
+                      <p className="card__description" style={{ marginTop: 16 }}>
+                        Another saved entry with this same model is already active. Turning this one on will replace the active copy.
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <EmptyState
-              title="No providers are configured yet"
-              description="Choose a provider below and add your first model configuration."
+              title="No AI models are saved yet"
+              description="Add your first saved model entry to configure credentials, default model, and fallback behavior."
             />
           )}
 
           <Card>
             <CardContent className="actions-row" style={{ justifyContent: "center" }}>
-              <Button onClick={() => setModelDialogOpen(true)} variant="outline">
+              <Button
+                onClick={() => {
+                  setSelectedModelEntry(undefined);
+                  setModelDialogOpen(true);
+                }}
+                variant="outline"
+              >
                 <KeyRound size={14} />
                 {copy.addModel}
               </Button>
@@ -869,7 +1197,17 @@ export default function ConfigPage() {
         </TabsContent>
       </Tabs>
 
-      <ModelDialog modelConfig={modelConfig} onClose={() => setModelDialogOpen(false)} open={modelDialogOpen} reloadModelConfig={reloadModelConfig} />
+      <ModelDialog
+        initialEntry={selectedModelEntry}
+        modelConfig={modelConfig}
+        onClose={() => {
+          setModelDialogOpen(false);
+          setSelectedModelEntry(undefined);
+        }}
+        onModelConfigChange={setModelConfig}
+        open={modelDialogOpen}
+        reloadModelConfig={reloadModelConfig}
+      />
 
       <Dialog
         description={copy.feishuPrepareBody}

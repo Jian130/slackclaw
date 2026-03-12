@@ -11,6 +11,7 @@
     "stop": "node ./scripts/stop-dev.mjs",
     "build": "npm run build --workspace @slackclaw/contracts && npm run build --workspace @slackclaw/daemon && npm run build --workspace @slackclaw/desktop-ui",
     "test": "npm run test --workspace @slackclaw/contracts && npm run test --workspace @slackclaw/daemon && npm run test --workspace @slackclaw/desktop-ui",
+    "test:engine-compat": "node --import tsx ./scripts/test-engine-compatibility.ts",
     "dev:daemon": "npm run build --workspace @slackclaw/contracts && npm run dev --workspace @slackclaw/daemon",
     "dev:ui": "npm run build --workspace @slackclaw/contracts && npm run dev --workspace @slackclaw/desktop-ui",
     "lint": "npm run lint --workspace @slackclaw/contracts && npm run lint --workspace @slackclaw/daemon && npm run lint --workspace @slackclaw/desktop-ui",

@@ -2,6 +2,8 @@ import type {
   AppControlResponse,
   AppServiceActionResponse,
   ChannelActionResponse,
+  DeploymentTargetActionResponse,
+  DeploymentTargetsResponse,
   EngineActionResponse,
   EngineTaskRequest,
   EngineTaskResult,
@@ -14,11 +16,14 @@ import type {
   OnboardingSelection,
   PairingApprovalRequest,
   ProductOverview,
+  ReplaceFallbackModelEntriesRequest,
   RecoveryRunResponse
 } from "@slackclaw/contracts";
 import type {
   FeishuSetupRequest,
+  SaveModelEntryRequest,
   SetDefaultModelRequest,
+  SetDefaultModelEntryRequest,
   SetupRunResponse,
   TelegramSetupRequest,
   WechatSetupRequest
@@ -59,6 +64,18 @@ export function fetchOverview(): Promise<ProductOverview> {
   return readJson<ProductOverview>("/overview");
 }
 
+export function fetchDeploymentTargets(): Promise<DeploymentTargetsResponse> {
+  return readJson<DeploymentTargetsResponse>("/deploy/targets");
+}
+
+export function updateDeploymentTarget(
+  targetId: "standard" | "managed-local"
+): Promise<DeploymentTargetActionResponse> {
+  return readJson<DeploymentTargetActionResponse>(`/deploy/targets/${targetId}/update`, {
+    method: "POST"
+  });
+}
+
 export function markFirstRunIntroComplete(): Promise<ProductOverview> {
   return readJson<ProductOverview>("/first-run/intro", {
     method: "POST"
@@ -67,6 +84,34 @@ export function markFirstRunIntroComplete(): Promise<ProductOverview> {
 
 export function fetchModelConfig(): Promise<ModelConfigOverview> {
   return readJson<ModelConfigOverview>("/models/config");
+}
+
+export function createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+  return readJson<ModelConfigActionResponse>("/models/entries", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+  return readJson<ModelConfigActionResponse>(`/models/entries/${entryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(request)
+  });
+}
+
+export function setDefaultModelEntry(request: SetDefaultModelEntryRequest): Promise<ModelConfigActionResponse> {
+  return readJson<ModelConfigActionResponse>("/models/default-entry", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function replaceFallbackModelEntries(request: ReplaceFallbackModelEntriesRequest): Promise<ModelConfigActionResponse> {
+  return readJson<ModelConfigActionResponse>("/models/fallbacks", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
 }
 
 export function authenticateModelProvider(request: ModelAuthRequest): Promise<ModelConfigActionResponse> {

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "main",
+    "identityName": "Maggie",
+    "identityEmoji": "🚀",
+    "identitySource": "identity",
+    "workspace": "/Users/home/.openclaw/workspace",
+    "agentDir": "/Users/home/.openclaw/agents/main/agent",
+    "model": "openai-codex/gpt-5.4",
+    "bindings": 0,
+    "isDefault": true,
+    "routes": [
+      "default (no explicit rules)"
+    ]
+  }
+]

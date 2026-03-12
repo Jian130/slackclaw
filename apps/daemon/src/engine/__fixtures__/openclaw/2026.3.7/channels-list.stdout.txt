@@ -1,0 +1,43 @@
+[plugins] feishu failed to load from /opt/homebrew/lib/node_modules/openclaw/extensions/feishu/index.ts: Error: Cannot find module '@larksuiteoapi/node-sdk'
+Require stack:
+- /opt/homebrew/lib/node_modules/openclaw/extensions/feishu/src/client.ts
+{
+  "chat": {
+    "telegram": [
+      "default"
+    ],
+    "whatsapp": [
+      "default"
+    ]
+  },
+  "auth": [
+    {
+      "id": "openai-codex:default",
+      "provider": "openai-codex",
+      "type": "oauth",
+      "isExternal": false
+    }
+  ],
+  "usage": {
+    "updatedAt": 1773338250866,
+    "providers": [
+      {
+        "provider": "openai-codex",
+        "displayName": "Codex",
+        "windows": [
+          {
+            "label": "5h",
+            "usedPercent": 18,
+            "resetAt": 1773345503000
+          },
+          {
+            "label": "Week",
+            "usedPercent": 13,
+            "resetAt": 1773895330000
+          }
+        ],
+        "plan": "plus ($0.00)"
+      }
+    ]
+  }
+}

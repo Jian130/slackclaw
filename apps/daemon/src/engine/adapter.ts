@@ -1,4 +1,6 @@
 import type {
+  DeploymentTargetActionResponse,
+  DeploymentTargetsResponse,
   EngineActionResponse,
   ChannelSetupState,
   EngineCapabilities,
@@ -8,6 +10,9 @@ import type {
   ModelAuthSessionInputRequest,
   ModelConfigActionResponse,
   ModelConfigOverview,
+  ReplaceFallbackModelEntriesRequest,
+  SaveModelEntryRequest,
+  SetDefaultModelEntryRequest,
   EngineStatus,
   EngineTaskRequest,
   EngineTaskResult,
@@ -28,6 +33,10 @@ export interface EngineAdapter {
   install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse>;
   uninstall(): Promise<EngineActionResponse>;
   getModelConfig(): Promise<ModelConfigOverview>;
+  createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse>;
+  updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest): Promise<ModelConfigActionResponse>;
+  setDefaultModelEntry(request: SetDefaultModelEntryRequest): Promise<ModelConfigActionResponse>;
+  replaceFallbackModelEntries(request: ReplaceFallbackModelEntriesRequest): Promise<ModelConfigActionResponse>;
   authenticateModelProvider(request: ModelAuthRequest): Promise<ModelConfigActionResponse>;
   getModelAuthSession(sessionId: string): Promise<ModelAuthSessionResponse>;
   submitModelAuthSessionInput(sessionId: string, request: ModelAuthSessionInputRequest): Promise<ModelAuthSessionResponse>;
@@ -35,6 +44,8 @@ export interface EngineAdapter {
   onboard(profileId: string): Promise<void>;
   configure(profileId: string): Promise<void>;
   status(): Promise<EngineStatus>;
+  getDeploymentTargets(): Promise<DeploymentTargetsResponse>;
+  updateDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
   healthCheck(selectedProfileId?: string): Promise<HealthCheckResult[]>;
   runTask(request: EngineTaskRequest): Promise<EngineTaskResult>;
   update(): Promise<{ message: string; engineStatus: EngineStatus }>;

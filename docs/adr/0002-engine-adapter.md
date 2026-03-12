@@ -12,7 +12,9 @@ SlackClaw starts with OpenClaw but must remain able to switch to engines such as
 
 All engine operations flow through a narrow `EngineAdapter` contract covering:
 
+- deployment target detection plus install, update, and uninstall orchestration
 - install and configure
+- runtime model and channel management
 - lifecycle control
 - task execution and event streaming
 - health checks

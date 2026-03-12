@@ -120,11 +120,29 @@ export interface ModelProviderConfig {
   sampleModels: string[];
 }
 
+export interface SavedModelEntry {
+  id: string;
+  label: string;
+  providerId: string;
+  modelKey: string;
+  agentId: string;
+  authMethodId?: string;
+  authModeLabel?: string;
+  profileLabel?: string;
+  isDefault: boolean;
+  isFallback: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelConfigOverview {
   providers: ModelProviderConfig[];
   models: ModelCatalogEntry[];
   defaultModel?: string;
   configuredModelKeys: string[];
+  savedEntries: SavedModelEntry[];
+  defaultEntryId?: string;
+  fallbackEntryIds: string[];
 }
 
 export interface EngineTaskResult {
@@ -159,6 +177,38 @@ export interface InstallCheck {
   label: string;
   status: "pending" | "passed" | "action-required";
   detail: string;
+}
+
+export type DeploymentTargetId = "standard" | "managed-local" | "zeroclaw" | "ironclaw";
+
+export interface DeploymentTargetStatus {
+  id: DeploymentTargetId;
+  title: string;
+  description: string;
+  installMode: "system" | "managed-local" | "future";
+  installed: boolean;
+  installable: boolean;
+  planned: boolean;
+  recommended: boolean;
+  active: boolean;
+  version?: string;
+  desiredVersion?: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  summary: string;
+  updateSummary?: string;
+}
+
+export interface DeploymentTargetsResponse {
+  checkedAt: string;
+  targets: DeploymentTargetStatus[];
+}
+
+export interface DeploymentTargetActionResponse {
+  targetId: DeploymentTargetId;
+  status: "completed" | "failed";
+  message: string;
+  engineStatus: EngineStatus;
 }
 
 export interface FirstRunState {
@@ -245,6 +295,7 @@ export interface ModelAuthSession {
   id: string;
   providerId: string;
   methodId: string;
+  entryId?: string;
   status: "running" | "awaiting-input" | "completed" | "failed";
   message: string;
   logs: string[];
@@ -263,6 +314,24 @@ export interface ModelAuthSessionResponse {
 
 export interface SetDefaultModelRequest {
   modelKey: string;
+}
+
+export interface SaveModelEntryRequest {
+  label: string;
+  providerId: string;
+  methodId: string;
+  modelKey: string;
+  values: Record<string, string>;
+  makeDefault?: boolean;
+  useAsFallback?: boolean;
+}
+
+export interface SetDefaultModelEntryRequest {
+  entryId: string;
+}
+
+export interface ReplaceFallbackModelEntriesRequest {
+  entryIds: string[];
 }
 
 export interface ModelConfigActionResponse {
@@ -403,6 +472,8 @@ export const defaultTemplates: TaskTemplate[] = [
     promptHint: "List what shipped, what is blocked, and what is next."
   }
 ];
+
+export * from "./compatibility.js";
 
 export function createDefaultProductOverview(): ProductOverview {
   const now = new Date().toISOString();

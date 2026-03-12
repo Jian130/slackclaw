@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  DeploymentTargetActionResponse,
+  DeploymentTargetsResponse,
   EngineActionResponse,
   ChannelSetupState,
   EngineCapabilities,
@@ -11,6 +13,10 @@ import type {
   ModelConfigActionResponse,
   ModelConfigOverview,
   ModelProviderConfig,
+  ReplaceFallbackModelEntriesRequest,
+  SaveModelEntryRequest,
+  SavedModelEntry,
+  SetDefaultModelEntryRequest,
   EngineStatus,
   EngineTaskRequest,
   EngineTaskResult,
@@ -48,6 +54,36 @@ export class MockAdapter implements EngineAdapter {
 
   private installed = true;
   private profileId = "email-admin";
+  private savedEntries: SavedModelEntry[] = [
+    {
+      id: "mock-openai-gpt-4o-mini",
+      label: "OpenAI GPT-4o Mini",
+      providerId: "openai",
+      modelKey: "openai/gpt-4o-mini",
+      agentId: "main",
+      authMethodId: "api-key",
+      authModeLabel: "API key",
+      profileLabel: "default",
+      isDefault: true,
+      isFallback: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: "mock-openai-gpt-5",
+      label: "OpenAI GPT-5",
+      providerId: "openai",
+      modelKey: "openai/gpt-5",
+      agentId: "mock-agent-2",
+      authMethodId: "api-key",
+      authModeLabel: "API key",
+      profileLabel: "default",
+      isDefault: false,
+      isFallback: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  ];
   private readonly providerCatalog: ModelProviderConfig[] = [
     {
       id: "openai",
@@ -116,6 +152,7 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async getModelConfig(): Promise<ModelConfigOverview> {
+    const defaultEntry = this.savedEntries.find((entry) => entry.isDefault) ?? this.savedEntries[0];
     return {
       providers: this.providerCatalog,
       models: [
@@ -140,8 +177,98 @@ export class MockAdapter implements EngineAdapter {
           missing: false
         }
       ],
-      defaultModel: "openai/gpt-4o-mini",
-      configuredModelKeys: ["openai/gpt-4o-mini", "openai/gpt-5"]
+      defaultModel: defaultEntry?.modelKey,
+      configuredModelKeys: this.savedEntries.map((entry) => entry.modelKey),
+      savedEntries: this.savedEntries,
+      defaultEntryId: defaultEntry?.id,
+      fallbackEntryIds: this.savedEntries.filter((entry) => entry.isFallback).map((entry) => entry.id)
+    };
+  }
+
+  async createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+    const now = new Date().toISOString();
+    this.savedEntries = [
+      ...this.savedEntries,
+      {
+        id: randomUUID(),
+        label: request.label,
+        providerId: request.providerId,
+        modelKey: request.modelKey,
+        agentId: request.makeDefault || request.useAsFallback ? `mock-${request.providerId}-${this.savedEntries.length + 1}` : "",
+        authMethodId: request.methodId,
+        authModeLabel: request.makeDefault || request.useAsFallback ? (request.methodId.includes("oauth") ? "OAuth" : "API key") : undefined,
+        profileLabel: request.makeDefault || request.useAsFallback ? "default" : undefined,
+        isDefault: Boolean(request.makeDefault),
+        isFallback: Boolean(request.useAsFallback),
+        createdAt: now,
+        updatedAt: now
+      }
+    ].map((entry, index, list) => ({
+      ...entry,
+      isDefault: request.makeDefault ? index === list.length - 1 : entry.isDefault
+    }));
+
+    return {
+      status: "completed",
+      message: "Mock saved model entry created.",
+      modelConfig: await this.getModelConfig()
+    };
+  }
+
+  async updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+    this.savedEntries = this.savedEntries.map((entry) =>
+      entry.id === entryId
+        ? {
+            ...entry,
+            label: request.label,
+            providerId: request.providerId,
+            modelKey: request.modelKey,
+            authMethodId: request.methodId,
+            agentId: request.makeDefault || request.useAsFallback ? entry.agentId || `mock-${request.providerId}-${this.savedEntries.length + 1}` : entry.agentId,
+            authModeLabel: request.makeDefault || request.useAsFallback ? (request.methodId.includes("oauth") ? "OAuth" : "API key") : entry.authModeLabel,
+            profileLabel: request.makeDefault || request.useAsFallback ? entry.profileLabel ?? "default" : entry.profileLabel,
+            isDefault: Boolean(request.makeDefault),
+            isFallback: Boolean(request.useAsFallback),
+            updatedAt: new Date().toISOString()
+          }
+        : request.makeDefault
+          ? { ...entry, isDefault: false }
+          : entry
+    );
+
+    return {
+      status: "completed",
+      message: "Mock saved model entry updated.",
+      modelConfig: await this.getModelConfig()
+    };
+  }
+
+  async setDefaultModelEntry(request: SetDefaultModelEntryRequest): Promise<ModelConfigActionResponse> {
+    this.savedEntries = this.savedEntries.map((entry) => ({
+      ...entry,
+      isDefault: entry.id === request.entryId,
+      isFallback: entry.id === request.entryId ? false : entry.isFallback,
+      updatedAt: entry.id === request.entryId ? new Date().toISOString() : entry.updatedAt
+    }));
+
+    return {
+      status: "completed",
+      message: "Mock default entry updated.",
+      modelConfig: await this.getModelConfig()
+    };
+  }
+
+  async replaceFallbackModelEntries(request: ReplaceFallbackModelEntriesRequest): Promise<ModelConfigActionResponse> {
+    this.savedEntries = this.savedEntries.map((entry) => ({
+      ...entry,
+      isFallback: request.entryIds.includes(entry.id) && !entry.isDefault,
+      updatedAt: request.entryIds.includes(entry.id) ? new Date().toISOString() : entry.updatedAt
+    }));
+
+    return {
+      status: "completed",
+      message: "Mock fallback entries updated.",
+      modelConfig: await this.getModelConfig()
     };
   }
 
@@ -172,6 +299,11 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async setDefaultModel(modelKey: string): Promise<ModelConfigActionResponse> {
+    const preferredEntry = this.savedEntries.find((entry) => entry.modelKey === modelKey);
+    if (preferredEntry) {
+      await this.setDefaultModelEntry({ entryId: preferredEntry.id });
+    }
+
     return {
       status: "completed",
       message: `Mock default model set to ${modelKey}.`,
@@ -195,6 +327,84 @@ export class MockAdapter implements EngineAdapter {
       version: "mock",
       summary: "SlackClaw is running with a mock engine adapter.",
       lastCheckedAt: new Date().toISOString()
+    };
+  }
+
+  async getDeploymentTargets(): Promise<DeploymentTargetsResponse> {
+    const status = await this.status();
+
+    return {
+      checkedAt: new Date().toISOString(),
+      targets: [
+        {
+          id: "standard",
+          title: "OpenClaw Standard",
+          description: "Reuse an existing compatible OpenClaw install when available.",
+          installMode: "system",
+          installed: this.installed,
+          installable: true,
+          planned: false,
+          recommended: true,
+          active: this.installed,
+          version: status.version,
+          desiredVersion: this.installSpec.desiredVersion,
+          updateAvailable: false,
+          summary: this.installed ? "Mock system OpenClaw is available." : "Mock system OpenClaw is not installed.",
+          updateSummary: "Mock adapter is already on the recommended version."
+        },
+        {
+          id: "managed-local",
+          title: "OpenClaw Managed Local",
+          description: "Deploy a SlackClaw-managed local runtime under the app data directory.",
+          installMode: "managed-local",
+          installed: false,
+          installable: true,
+          planned: false,
+          recommended: false,
+          active: false,
+          desiredVersion: this.installSpec.desiredVersion,
+          updateAvailable: false,
+          summary: "Mock managed local runtime is not installed."
+        },
+        {
+          id: "zeroclaw",
+          title: "ZeroClaw",
+          description: "Reserved future engine adapter target.",
+          installMode: "future",
+          installed: false,
+          installable: false,
+          planned: true,
+          recommended: false,
+          active: false,
+          updateAvailable: false,
+          summary: "Planned future adapter."
+        },
+        {
+          id: "ironclaw",
+          title: "IronClaw",
+          description: "Reserved future engine adapter target.",
+          installMode: "future",
+          installed: false,
+          installable: false,
+          planned: true,
+          recommended: false,
+          active: false,
+          updateAvailable: false,
+          summary: "Planned future adapter."
+        }
+      ]
+    };
+  }
+
+  async updateDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
+    return {
+      targetId,
+      status: "completed",
+      message:
+        targetId === "standard"
+          ? "Mock system OpenClaw is already on the current version."
+          : "Mock managed local OpenClaw is already on the current version.",
+      engineStatus: await this.status()
     };
   }
 
