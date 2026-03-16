@@ -40,6 +40,18 @@
   white-space: nowrap;
 }
 
+.button__spinner {
+  animation: ui-spin 0.85s linear infinite;
+  flex-shrink: 0;
+}
+
+.button__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+}
+
 .button--sm { min-height: 32px; padding: 6px 12px; }
 .button--md { min-height: 36px; padding: 8px 16px; }
 .button--lg { min-height: 40px; padding: 8px 24px; }
@@ -51,6 +63,7 @@
 .button--ghost { background: transparent; color: #6b7280; }
 .button--danger { background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); color: white; }
 .button:disabled { opacity: 0.55; cursor: not-allowed; }
+.button--loading { cursor: progress; }
 
 .badge {
   display: inline-flex;

@@ -33,6 +33,8 @@ import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../../shared/ui/Card.js";
 import { Dialog } from "../../shared/ui/Dialog.js";
 import { FieldLabel, Input, Select, Textarea } from "../../shared/ui/Field.js";
+import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
+import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 
@@ -278,120 +280,124 @@ function MemberDialog(props: {
       description="Define identity, Brain, work style, and knowledge for this OpenClaw-backed member."
       wide
     >
-      <div className="panel-stack">
-        {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
-        <div className="field-grid">
-          <div>
-            <FieldLabel htmlFor="member-name">Name</FieldLabel>
-            <Input id="member-name" value={name} onChange={(event) => setName(event.target.value)} />
+      <LoadingBlocker active={busy} label="Saving AI member" description="SlackClaw is creating the member and syncing the OpenClaw agent workspace.">
+        <div className="panel-stack">
+          {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
+          <div className="field-grid">
+            <div>
+              <FieldLabel htmlFor="member-name">Name</FieldLabel>
+              <Input id="member-name" value={name} onChange={(event) => setName(event.target.value)} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="member-title">Job Title</FieldLabel>
+              <Input id="member-title" value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
+            </div>
           </div>
-          <div>
-            <FieldLabel htmlFor="member-title">Job Title</FieldLabel>
-            <Input id="member-title" value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
+          <div className="field-grid">
+            <div>
+              <FieldLabel htmlFor="member-avatar">Avatar</FieldLabel>
+              <Select id="member-avatar" value={avatarPresetId} onChange={(event) => setAvatarPresetId(event.target.value)}>
+                {avatarPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <FieldLabel htmlFor="member-brain">Brain</FieldLabel>
+              <Select id="member-brain" value={brainEntryId} onChange={(event) => setBrainEntryId(event.target.value)}>
+                {overview?.availableBrains.map((brain) => (
+                  <option key={brain.id} value={brain.id}>
+                    {brain.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
-          <div>
-            <FieldLabel htmlFor="member-avatar">Avatar</FieldLabel>
-            <Select id="member-avatar" value={avatarPresetId} onChange={(event) => setAvatarPresetId(event.target.value)}>
-              {avatarPresets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <FieldLabel htmlFor="member-brain">Brain</FieldLabel>
-            <Select id="member-brain" value={brainEntryId} onChange={(event) => setBrainEntryId(event.target.value)}>
-              {overview?.availableBrains.map((brain) => (
-                <option key={brain.id} value={brain.id}>
-                  {brain.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
 
-        <div className="field-grid">
-          <div>
-            <FieldLabel htmlFor="member-personality">Personality</FieldLabel>
-            <Textarea id="member-personality" rows={3} value={personality} onChange={(event) => setPersonality(event.target.value)} />
+          <div className="field-grid">
+            <div>
+              <FieldLabel htmlFor="member-personality">Personality</FieldLabel>
+              <Textarea id="member-personality" rows={3} value={personality} onChange={(event) => setPersonality(event.target.value)} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="member-soul">Soul</FieldLabel>
+              <Textarea id="member-soul" rows={3} value={soul} onChange={(event) => setSoul(event.target.value)} />
+            </div>
           </div>
-          <div>
-            <FieldLabel htmlFor="member-soul">Soul</FieldLabel>
-            <Textarea id="member-soul" rows={3} value={soul} onChange={(event) => setSoul(event.target.value)} />
-          </div>
-        </div>
 
-        <div>
-          <FieldLabel>Work Styles</FieldLabel>
-          <div className="personality-grid">
-            {workStyleOptions.map((item) => (
-              <button
-                key={item}
-                className={`badge ${workStyles.includes(item) ? "badge--info" : "badge--neutral"}`}
-                onClick={() => toggle(workStyles, setWorkStyles, item)}
-                type="button"
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="field-grid">
           <div>
-            <FieldLabel>Skills</FieldLabel>
-            <div className="skill-chip-grid">
-              {overview?.skillOptions.map((skill) => (
+            <FieldLabel>Work Styles</FieldLabel>
+            <div className="personality-grid">
+              {workStyleOptions.map((item) => (
                 <button
-                  key={skill.id}
-                  className={`badge ${skillIds.includes(skill.id) ? "badge--success" : "badge--neutral"}`}
-                  onClick={() => toggle(skillIds, setSkillIds, skill.id)}
+                  key={item}
+                  className={`badge ${workStyles.includes(item) ? "badge--info" : "badge--neutral"}`}
+                  onClick={() => toggle(workStyles, setWorkStyles, item)}
                   type="button"
                 >
-                  {skill.label}
+                  {item}
                 </button>
               ))}
             </div>
           </div>
-          <div>
-            <FieldLabel>Knowledge Packs</FieldLabel>
-            <div className="skill-chip-grid">
-              {overview?.knowledgePacks.map((pack) => (
-                <button
-                  key={pack.id}
-                  className={`badge ${knowledgePackIds.includes(pack.id) ? "badge--success" : "badge--neutral"}`}
-                  onClick={() => toggle(knowledgePackIds, setKnowledgePackIds, pack.id)}
-                  type="button"
-                >
-                  {pack.label}
-                </button>
-              ))}
+
+          <div className="field-grid">
+            <div>
+              <FieldLabel>Skills</FieldLabel>
+              <div className="skill-chip-grid">
+                {overview?.skillOptions.map((skill) => (
+                  <button
+                    key={skill.id}
+                    className={`badge ${skillIds.includes(skill.id) ? "badge--success" : "badge--neutral"}`}
+                    onClick={() => toggle(skillIds, setSkillIds, skill.id)}
+                    type="button"
+                  >
+                    {skill.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <FieldLabel>Knowledge Packs</FieldLabel>
+              <div className="skill-chip-grid">
+                {overview?.knowledgePacks.map((pack) => (
+                  <button
+                    key={pack.id}
+                    className={`badge ${knowledgePackIds.includes(pack.id) ? "badge--success" : "badge--neutral"}`}
+                    onClick={() => toggle(knowledgePackIds, setKnowledgePackIds, pack.id)}
+                    type="button"
+                  >
+                    {pack.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="field-grid">
-          <div>
-            <FieldLabel htmlFor="member-context">Context Window</FieldLabel>
-            <Input id="member-context" value={contextWindow} onChange={(event) => setContextWindow(event.target.value)} />
+          <div className="field-grid">
+            <div>
+              <FieldLabel htmlFor="member-context">Context Window</FieldLabel>
+              <Input id="member-context" value={contextWindow} onChange={(event) => setContextWindow(event.target.value)} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="member-memory">Memory</FieldLabel>
+              <Select id="member-memory" value={memoryEnabled ? "enabled" : "disabled"} onChange={(event) => setMemoryEnabled(event.target.value === "enabled")}>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </Select>
+            </div>
           </div>
-          <div>
-            <FieldLabel htmlFor="member-memory">Memory</FieldLabel>
-            <Select id="member-memory" value={memoryEnabled ? "enabled" : "disabled"} onChange={(event) => setMemoryEnabled(event.target.value === "enabled")}>
-              <option value="enabled">Enabled</option>
-              <option value="disabled">Disabled</option>
-            </Select>
-          </div>
-        </div>
 
-        <div className="actions-row" style={{ justifyContent: "flex-end" }}>
-          <Button variant="outline" onClick={props.onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={busy}>
-            {busy ? "Saving..." : "Save AI Member"}
-          </Button>
+          <div className="actions-row" style={{ justifyContent: "flex-end" }}>
+            <Button variant="outline" onClick={props.onClose} disabled={busy}>Cancel</Button>
+            <Button onClick={handleSave} loading={busy}>
+              {busy ? "Saving..." : "Save AI Member"}
+            </Button>
+          </div>
         </div>
-      </div>
+      </LoadingBlocker>
     </Dialog>
   );
 }
@@ -440,28 +446,32 @@ function RemoveMemberDialog(props: {
       title={`Remove ${props.member.name}?`}
       description="Choose whether to fully delete the member or keep the workspace and history in place."
     >
-      <div className="panel-stack">
-        {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
-        <p className="card__description">{memberDeleteSummary(props.member)}</p>
-        <div className="actions-row" style={{ justifyContent: "flex-end" }}>
-          <Button variant="outline" onClick={props.onClose} disabled={Boolean(busyMode)}>
-            Cancel
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => void handleConfirm("keep-workspace")}
-            disabled={Boolean(busyMode)}
-          >
-            {busyMode === "keep-workspace" ? "Removing..." : "Delete Agent, Keep Workspace"}
-          </Button>
-          <Button
-            onClick={() => void handleConfirm("full")}
-            disabled={Boolean(busyMode)}
-          >
-            {busyMode === "full" ? "Removing..." : "Delete Agent and Workspace"}
-          </Button>
+      <LoadingBlocker active={Boolean(busyMode)} label="Removing AI member" description="SlackClaw is updating OpenClaw and the team roster.">
+        <div className="panel-stack">
+          {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
+          <p className="card__description">{memberDeleteSummary(props.member)}</p>
+          <div className="actions-row" style={{ justifyContent: "flex-end" }}>
+            <Button variant="outline" onClick={props.onClose} disabled={Boolean(busyMode)}>
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void handleConfirm("keep-workspace")}
+              loading={busyMode === "keep-workspace"}
+              disabled={Boolean(busyMode) && busyMode !== "keep-workspace"}
+            >
+              {busyMode === "keep-workspace" ? "Removing..." : "Delete Agent, Keep Workspace"}
+            </Button>
+            <Button
+              onClick={() => void handleConfirm("full")}
+              loading={busyMode === "full"}
+              disabled={Boolean(busyMode) && busyMode !== "full"}
+            >
+              {busyMode === "full" ? "Removing..." : "Delete Agent and Workspace"}
+            </Button>
+          </div>
         </div>
-      </div>
+      </LoadingBlocker>
     </Dialog>
   );
 }
@@ -577,7 +587,12 @@ export default function MembersPage() {
   }
 
   if (loading && !overview) {
-    return <div className="panel-stack"><PageHeader title={copy.title} subtitle={copy.subtitle} /></div>;
+    return (
+      <div className="panel-stack">
+        <PageHeader title={copy.title} subtitle={copy.subtitle} />
+        <LoadingPanel title="Loading AI members" description="SlackClaw is reading the live OpenClaw agent roster and member metadata." />
+      </div>
+    );
   }
 
   if (error && !overview) {

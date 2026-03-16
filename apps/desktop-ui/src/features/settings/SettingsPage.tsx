@@ -98,9 +98,9 @@ export default function SettingsPage() {
             </Card>
             <Card>
               <CardContent className="actions-row">
-                <Button onClick={() => void runAction("install-service", async () => (await installAppService()).result)}>{busy === "install-service" ? "Installing..." : copy.installService}</Button>
-                <Button onClick={() => void runAction("restart-service", async () => (await restartAppService()).result)} variant="outline">{busy === "restart-service" ? "Restarting..." : copy.restartService}</Button>
-                <Button onClick={() => void runAction("remove-service", async () => (await uninstallAppService()).result)} variant="outline">{busy === "remove-service" ? "Removing..." : copy.removeService}</Button>
+                <Button loading={busy === "install-service"} onClick={() => void runAction("install-service", async () => (await installAppService()).result)}>{busy === "install-service" ? "Installing..." : copy.installService}</Button>
+                <Button loading={busy === "restart-service"} onClick={() => void runAction("restart-service", async () => (await restartAppService()).result)} variant="outline">{busy === "restart-service" ? "Restarting..." : copy.restartService}</Button>
+                <Button loading={busy === "remove-service"} onClick={() => void runAction("remove-service", async () => (await uninstallAppService()).result)} variant="outline">{busy === "remove-service" ? "Removing..." : copy.removeService}</Button>
               </CardContent>
             </Card>
           </div>
@@ -162,15 +162,15 @@ export default function SettingsPage() {
           <div className="panel-stack">
             <Card>
               <CardContent className="actions-row">
-                <Button onClick={() => void runAction("diagnostics", exportDiagnostics)} variant="outline">
+                <Button loading={busy === "diagnostics"} onClick={() => void runAction("diagnostics", exportDiagnostics)} variant="outline">
                   <Download size={14} />
                   {busy === "diagnostics" ? "Exporting..." : copy.exportDiagnostics}
                 </Button>
-                <Button onClick={() => void runAction("updates", runUpdate)} variant="outline">
+                <Button loading={busy === "updates"} onClick={() => void runAction("updates", runUpdate)} variant="outline">
                   <RefreshCw size={14} />
                   {busy === "updates" ? "Checking..." : copy.checkUpdates}
                 </Button>
-                <Button onClick={() => void runAction("stop-app", stopSlackClawApp)} variant="outline">
+                <Button loading={busy === "stop-app"} onClick={() => void runAction("stop-app", stopSlackClawApp)} variant="outline">
                   {busy === "stop-app" ? "Stopping..." : copy.stopApp}
                 </Button>
               </CardContent>
@@ -179,7 +179,7 @@ export default function SettingsPage() {
               <CardContent className="panel-stack">
                 <strong>Danger Zone</strong>
                 <p className="card__description">These actions are real daemon-backed controls, not mock buttons.</p>
-                <Button onClick={() => void runAction("uninstall-app", uninstallSlackClawApp)} variant="danger">
+                <Button loading={busy === "uninstall-app"} onClick={() => void runAction("uninstall-app", uninstallSlackClawApp)} variant="danger">
                   <Trash2 size={14} />
                   {busy === "uninstall-app" ? "Uninstalling..." : copy.uninstallApp}
                 </Button>

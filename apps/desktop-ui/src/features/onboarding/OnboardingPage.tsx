@@ -86,7 +86,7 @@ export default function OnboardingPage() {
               </Card>
             </div>
             <div className="actions-row">
-              <Button onClick={handleStart} size="lg">
+              <Button onClick={handleStart} size="lg" loading={busy}>
                 {busy ? copy.runChecks : copy.start}
               </Button>
             </div>

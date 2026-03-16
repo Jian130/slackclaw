@@ -65,10 +65,37 @@ const API_BASE =
     : "http://127.0.0.1:4545/api";
 
 const inflightGetRequests = new Map<string, Promise<unknown>>();
+const responseGetCache = new Map<string, { expiresAt: number; value: unknown }>();
+const DEFAULT_GET_CACHE_MS = 2000;
 
 type JsonRequestInit = RequestInit & {
   fresh?: boolean;
 };
+
+function getGetCacheMs(path: string): number | undefined {
+  if (
+    path.startsWith("/overview") ||
+    path.startsWith("/deploy/targets") ||
+    path.startsWith("/models/config") ||
+    path.startsWith("/channels/config") ||
+    path.startsWith("/skills/config") ||
+    path.startsWith("/ai-team/overview") ||
+    path.startsWith("/chat/overview")
+  ) {
+    return DEFAULT_GET_CACHE_MS;
+  }
+
+  return undefined;
+}
+
+function invalidateGetCache() {
+  responseGetCache.clear();
+}
+
+export function resetClientReadStateForTests() {
+  inflightGetRequests.clear();
+  invalidateGetCache();
+}
 
 function buildApiPath(path: string, fresh?: boolean): string {
   if (!fresh) {
@@ -111,24 +138,44 @@ async function readJson<T>(path: string, init?: JsonRequestInit): Promise<T> {
   delete nextInit.fresh;
 
   if (method !== "GET") {
-    return performJsonRequest<T>(requestPath, nextInit);
+    const result = await performJsonRequest<T>(requestPath, nextInit);
+    invalidateGetCache();
+    return result;
   }
 
   const cacheKey = `${method}:${requestPath}`;
+  const ttlMs = getGetCacheMs(path);
+  const cached = !init?.fresh && ttlMs ? responseGetCache.get(cacheKey) : undefined;
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value as T;
+  }
+
   const existing = inflightGetRequests.get(cacheKey);
 
   if (existing) {
     return existing as Promise<T>;
   }
 
-  const promise = performJsonRequest<T>(requestPath, nextInit).finally(() => {
-    if (inflightGetRequests.get(cacheKey) === promise) {
-      inflightGetRequests.delete(cacheKey);
+  const cachedPromise = performJsonRequest<T>(requestPath, nextInit)
+    .then((value) => {
+    if (ttlMs) {
+      responseGetCache.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + ttlMs
+      });
     }
-  });
 
-  inflightGetRequests.set(cacheKey, promise);
-  return promise;
+    return value;
+    })
+    .finally(() => {
+      if (inflightGetRequests.get(cacheKey) === cachedPromise) {
+        inflightGetRequests.delete(cacheKey);
+      }
+    });
+
+  inflightGetRequests.set(cacheKey, cachedPromise);
+  return cachedPromise;
 }
 
 export function fetchOverview(options?: { fresh?: boolean }): Promise<ProductOverview> {

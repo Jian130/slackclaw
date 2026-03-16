@@ -33,6 +33,8 @@ import { Card, CardContent } from "../../shared/ui/Card.js";
 import { Dialog } from "../../shared/ui/Dialog.js";
 import { FieldLabel, Input, Select, Textarea } from "../../shared/ui/Field.js";
 import { InfoBanner } from "../../shared/ui/InfoBanner.js";
+import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
+import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
@@ -408,7 +410,12 @@ function ModelDialog(props: {
           ))}
         </div>
       ) : (
-        <div className="panel-stack">
+        <LoadingBlocker
+          active={busy === "save" || busy === "input"}
+          label={busy === "input" ? "Finishing model authentication" : "Saving AI model"}
+          description="SlackClaw is syncing the model entry with OpenClaw."
+        >
+          <div className="panel-stack">
           <div className="info-banner">
             <ProviderLogo label={provider.label} providerId={provider.id} />
             <div>
@@ -501,7 +508,7 @@ function ModelDialog(props: {
                           placeholder={session.inputPrompt ?? "Paste redirect URL or code"}
                           value={sessionInput}
                         />
-                        <Button disabled={busy === "input"} onClick={handleSessionInput}>
+                        <Button loading={busy === "input"} onClick={handleSessionInput}>
                           {busy === "input" ? "Sending..." : "Finish Authentication"}
                         </Button>
                       </div>
@@ -568,12 +575,13 @@ function ModelDialog(props: {
                 <RefreshCw size={14} />
                 Refresh providers
               </Button>
-              <Button disabled={!modelKey || busy === "save" || Boolean(validationError)} onClick={handleSave}>
+              <Button disabled={!modelKey || Boolean(validationError)} loading={busy === "save"} onClick={handleSave}>
                 {busy === "save" ? "Saving..." : isEdit ? "Save Changes" : "Save Entry"}
               </Button>
             </div>
           </div>
-        </div>
+          </div>
+        </LoadingBlocker>
       )}
     </Dialog>
   );
@@ -660,7 +668,12 @@ function ChannelDialog(props: {
           ))}
         </div>
       ) : (
-        <div className="panel-stack">
+        <LoadingBlocker
+          active={Boolean(busy)}
+          label="Saving channel configuration"
+          description="SlackClaw is sending the channel action to OpenClaw."
+        >
+          <div className="panel-stack">
           <div className="info-banner">
             <div className="provider-logo">{channelIcon(capability.id)}</div>
             <div>
@@ -817,28 +830,34 @@ function ChannelDialog(props: {
             </div>
             <div className="actions-row">
               {capability.id === "feishu" ? (
-                <Button disabled={busy === "prepare"} onClick={() => void applyChannelAction("prepare")} variant="outline">
+                <Button loading={busy === "prepare"} onClick={() => void applyChannelAction("prepare")} variant="outline">
                   {busy === "prepare" ? "Preparing..." : "Prepare"}
                 </Button>
               ) : null}
               {capability.supportsLogin ? (
-                <Button disabled={busy === "login"} onClick={() => void applyChannelAction("login")} variant="outline">
+                <Button loading={busy === "login"} onClick={() => void applyChannelAction("login")} variant="outline">
                   {busy === "login" ? "Starting..." : "Start Login"}
                 </Button>
               ) : null}
               {capability.id !== "whatsapp" ? (
-                <Button disabled={busy === "save"} onClick={() => void applyChannelAction("save")}>
+                <Button loading={busy === "save"} onClick={() => void applyChannelAction("save")}>
                   {busy === "save" ? "Saving..." : isEdit ? "Save Changes" : "Save Channel"}
                 </Button>
               ) : null}
               {capability.supportsPairing ? (
-                <Button disabled={busy === "approve-pairing" || !values.code?.trim()} onClick={() => void applyChannelAction("approve-pairing")} variant="outline">
+                <Button
+                  disabled={!values.code?.trim()}
+                  loading={busy === "approve-pairing"}
+                  onClick={() => void applyChannelAction("approve-pairing")}
+                  variant="outline"
+                >
                   {busy === "approve-pairing" ? "Approving..." : "Approve Pairing"}
                 </Button>
               ) : null}
             </div>
           </div>
-        </div>
+          </div>
+        </LoadingBlocker>
       )}
     </Dialog>
   );
@@ -848,8 +867,11 @@ export default function ConfigPage() {
   const { locale } = useLocale();
   const copy = t(locale).config;
   const { overview, setOverview } = useOverview();
+  const [activeTab, setActiveTab] = useState<"models" | "channels">("models");
   const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
   const [channelConfig, setChannelConfig] = useState<ChannelConfigOverview>();
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [channelsLoading, setChannelsLoading] = useState(false);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [selectedModelEntry, setSelectedModelEntry] = useState<SavedModelEntry>();
   const [channelDialogOpen, setChannelDialogOpen] = useState(false);
@@ -861,8 +883,24 @@ export default function ConfigPage() {
   const channelsLocked = !(channelConfig?.baseOnboardingCompleted ?? overview?.channelSetup.baseOnboardingCompleted);
 
   useEffect(() => {
-    void Promise.all([reloadModelConfig(), reloadChannelConfig()]);
+    void reloadModelConfig();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "channels" || channelConfig || channelsLoading) {
+      return;
+    }
+
+    void reloadChannelConfig();
+  }, [activeTab, channelConfig, channelsLoading]);
+
+  useEffect(() => {
+    if (!channelDialogOpen || channelConfig || channelsLoading) {
+      return;
+    }
+
+    void reloadChannelConfig();
+  }, [channelConfig, channelDialogOpen, channelsLoading]);
 
   useEffect(() => {
     if (!channelConfig?.activeSession?.id) {
@@ -877,15 +915,31 @@ export default function ConfigPage() {
   }, [channelConfig?.activeSession?.id]);
 
   async function reloadModelConfig(options?: { fresh?: boolean }) {
+    setModelsLoading(true);
     const next = await fetchModelConfig(options);
     setModelConfig(next);
+    setModelsLoading(false);
     return next;
   }
 
   async function reloadChannelConfig(options?: { fresh?: boolean }) {
+    setChannelsLoading(true);
     const next = await fetchChannelConfig(options);
     setChannelConfig(next);
+    setChannelsLoading(false);
     return next;
+  }
+
+  function openAddChannelDialog() {
+    setSelectedChannelEntry(undefined);
+    setSelectedChannelId(undefined);
+    setChannelDialogOpen(true);
+  }
+
+  function openEditChannelDialog(entry: ConfiguredChannelEntry) {
+    setSelectedChannelEntry(entry);
+    setSelectedChannelId(entry.channelId);
+    setChannelDialogOpen(true);
   }
 
   async function handleCompleteOnboarding() {
@@ -968,7 +1022,7 @@ export default function ConfigPage() {
       const result = await removeSavedModelEntry(entry.id);
       setModelConfig(result.modelConfig);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "SlackClaw could not remove this saved model entry.");
+      window.alert(error instanceof Error ? error.message : "SlackClaw could not remove this configured model.");
     } finally {
       setBusy("");
     }
@@ -976,6 +1030,8 @@ export default function ConfigPage() {
 
   const savedEntries = (modelConfig?.savedEntries ?? []).filter((entry) => !entry.id.startsWith("runtime:"));
   const runtimeModels = runtimeConfiguredModels(modelConfig);
+  const runtimeModelsByKey = new Map(runtimeModels.map((model) => [model.key, model]));
+  const runtimeOnlyModels = runtimeModels.filter((model) => !savedEntries.some((entry) => entry.modelKey === model.key));
   const configuredChannels = channelConfig?.entries ?? [];
   const modelBusy = busy.startsWith("models:");
 
@@ -985,23 +1041,37 @@ export default function ConfigPage() {
         title={copy.title}
         subtitle={copy.subtitle}
         actions={
-          <Button onClick={() => void reloadModelConfig({ fresh: true })} variant="outline">
+          <Button
+            onClick={() =>
+              void (activeTab === "channels"
+                ? reloadChannelConfig({ fresh: true })
+                : reloadModelConfig({ fresh: true }))
+            }
+            variant="outline"
+            loading={activeTab === "channels" ? channelsLoading : modelsLoading}
+          >
             <RefreshCw size={14} />
             {copy.refreshProviders}
           </Button>
         }
       />
 
-      <Tabs defaultValue="models">
+      <Tabs defaultValue="models" value={activeTab} onValueChange={(value) => setActiveTab(value as "models" | "channels")}>
         <TabsList>
           <TabsTrigger value="models">{copy.modelsTab} ({runtimeModels.length})</TabsTrigger>
           <TabsTrigger value="channels">{copy.channelsTab} ({configuredChannels.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="models" className="panel-stack">
+          {modelsLoading && !modelConfig ? (
+            <LoadingPanel title="Loading AI models" description="SlackClaw is reading configured models from OpenClaw." />
+          ) : null}
+
+          {!modelsLoading && modelConfig ? (
+            <>
           <InfoBanner icon={<Sparkles size={22} />} title={copy.modelsInfoTitle} description={copy.modelsInfoBody} />
 
-          {runtimeModels.length ? (
+          {savedEntries.length ? (
             <Card>
               <CardContent className="panel-stack">
                 <div>
@@ -1009,7 +1079,104 @@ export default function ConfigPage() {
                   <p className="card__description">{copy.runtimeModelsBody}</p>
                 </div>
                 <div className="panel-stack">
-                  {runtimeModels.map((model) => {
+                  {savedEntries.map((entry) => {
+                    const provider = modelConfig?.providers.find((item) => item.id === entry.providerId);
+                    const authLabel = entryAuthLabel(entry);
+                    const duplicateActiveEntry = savedEntries.find(
+                      (item) => item.id !== entry.id && item.modelKey === entry.modelKey && (item.isDefault || item.isFallback)
+                    );
+                    const runtimeModel = runtimeModelsByKey.get(entry.modelKey);
+                    const fallbackTag = runtimeModel?.tags.find((item) => item.startsWith("fallback#"));
+
+                    return (
+                      <div className="configured-model-card" key={entry.id}>
+                        <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
+                          <div className="actions-row">
+                            <ProviderLogo label={provider?.label ?? entry.providerId} providerId={entry.providerId} />
+                            <div className="provider-details">
+                              <strong>{entry.label}</strong>
+                              <span className="card__description">{provider?.label ?? entry.providerId}</span>
+                              <div className="actions-row">
+                                <Badge tone="info">{entry.modelKey}</Badge>
+                                {entry.isDefault ? <Badge tone="success">Default</Badge> : null}
+                                {entry.isFallback ? <Badge tone="info">Fallback</Badge> : null}
+                                {fallbackTag ? <Badge tone="info">{fallbackTag.replace("#", " #")}</Badge> : null}
+                                {authLabel ? <Badge tone="neutral">{authLabel}</Badge> : null}
+                                {runtimeModel?.local ? <Badge tone="neutral">Local</Badge> : null}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="actions-row">
+                            {!entry.isDefault ? (
+                              <Button disabled={modelBusy && busy !== "models:gateway"} loading={busy === "models:gateway"} onClick={() => void handleSetDefaultEntry(entry)} variant="outline">
+                                Set Default
+                              </Button>
+                            ) : null}
+                            <Button
+                              disabled={entry.isDefault || (modelBusy && busy !== "models:gateway")}
+                              loading={busy === "models:gateway"}
+                              onClick={() => void handleToggleFallback(entry)}
+                              variant={entry.isFallback ? "secondary" : "outline"}
+                            >
+                              {entry.isFallback ? "Remove Fallback" : "Use as Fallback"}
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                setSelectedModelEntry(entry);
+                                setModelDialogOpen(true);
+                              }}
+                              variant="outline"
+                            >
+                              Edit
+                            </Button>
+                            <Button disabled={modelBusy && busy !== `models:remove:${entry.id}`} loading={busy === `models:remove:${entry.id}`} onClick={() => void handleRemoveModelEntry(entry)} variant="outline">
+                              <Trash2 size={14} />
+                              {busy === `models:remove:${entry.id}` ? "Removing..." : "Remove"}
+                            </Button>
+                            {provider?.docsUrl ? (
+                              <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="outline">
+                                <ExternalLink size={14} />
+                                {copy.docs}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="field-grid field-grid--two" style={{ marginTop: 18 }}>
+                          <Card>
+                            <CardContent className="panel-stack">
+                              <span className="card__description">Provider</span>
+                              <strong>{provider?.label ?? entry.providerId}</strong>
+                            </CardContent>
+                          </Card>
+                          <Card>
+                            <CardContent className="panel-stack">
+                              <span className="card__description">Authentication</span>
+                              <strong>{entry.profileLabel ? `${authLabel ?? "Configured"} • ${entry.profileLabel}` : authLabel ?? "Configured"}</strong>
+                            </CardContent>
+                          </Card>
+                        </div>
+                        {duplicateActiveEntry && !entry.isDefault && !entry.isFallback ? (
+                          <p className="card__description" style={{ marginTop: 16 }}>
+                            Another saved entry with this same model is already active. Turning this one on will replace the active copy.
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {runtimeOnlyModels.length ? (
+            <Card>
+              <CardContent className="panel-stack">
+                <div>
+                  <strong>{copy.runtimeOnlyTitle}</strong>
+                  <p className="card__description">{copy.runtimeOnlyBody}</p>
+                </div>
+                <div className="panel-stack">
+                  {runtimeOnlyModels.map((model) => {
                     const provider = modelConfig?.providers.find((item) =>
                       item.providerRefs.some((ref) => model.key.startsWith(ref))
                     );
@@ -1028,6 +1195,7 @@ export default function ConfigPage() {
                                 {model.key === modelConfig?.defaultModel ? <Badge tone="success">Default</Badge> : null}
                                 {fallbackTag ? <Badge tone="info">{fallbackTag.replace("#", " #")}</Badge> : null}
                                 {model.local ? <Badge tone="neutral">Local</Badge> : null}
+                                <Badge tone="warning">{copy.sourceInstalled}</Badge>
                               </div>
                             </div>
                           </div>
@@ -1040,98 +1208,12 @@ export default function ConfigPage() {
             </Card>
           ) : null}
 
-          {savedEntries.length ? (
-            <div className="panel-stack">
-              <div>
-                <strong>{copy.savedEntriesTitle}</strong>
-                <p className="card__description">{copy.savedEntriesBody}</p>
-              </div>
-              {savedEntries.map((entry) => {
-                const provider = modelConfig?.providers.find((item) => item.id === entry.providerId);
-                const authLabel = entryAuthLabel(entry);
-                const duplicateActiveEntry = savedEntries.find(
-                  (item) => item.id !== entry.id && item.modelKey === entry.modelKey && (item.isDefault || item.isFallback)
-                );
-
-                return (
-                  <div className="configured-model-card" key={entry.id}>
-                    <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
-                      <div className="actions-row">
-                        <ProviderLogo label={provider?.label ?? entry.providerId} providerId={entry.providerId} />
-                        <div className="provider-details">
-                          <strong>{entry.label}</strong>
-                          <span className="card__description">{provider?.label ?? entry.providerId}</span>
-                          <div className="actions-row">
-                            <Badge tone="info">{entry.modelKey}</Badge>
-                            {entry.isDefault ? <Badge tone="success">Default</Badge> : null}
-                            {entry.isFallback ? <Badge tone="info">Fallback</Badge> : null}
-                            {authLabel ? <Badge tone="neutral">{authLabel}</Badge> : null}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="actions-row">
-                        {!entry.isDefault ? (
-                          <Button disabled={modelBusy} onClick={() => void handleSetDefaultEntry(entry)} variant="outline">
-                            Set Default
-                          </Button>
-                        ) : null}
-                        <Button
-                          disabled={entry.isDefault || modelBusy}
-                          onClick={() => void handleToggleFallback(entry)}
-                          variant={entry.isFallback ? "secondary" : "outline"}
-                        >
-                          {entry.isFallback ? "Remove Fallback" : "Use as Fallback"}
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            setSelectedModelEntry(entry);
-                            setModelDialogOpen(true);
-                          }}
-                          variant="outline"
-                        >
-                          Edit
-                        </Button>
-                        <Button disabled={modelBusy} onClick={() => void handleRemoveModelEntry(entry)} variant="outline">
-                          <Trash2 size={14} />
-                          {busy === `models:remove:${entry.id}` ? "Removing..." : "Remove"}
-                        </Button>
-                        {provider?.docsUrl ? (
-                          <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="outline">
-                            <ExternalLink size={14} />
-                            {copy.docs}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="field-grid field-grid--two" style={{ marginTop: 18 }}>
-                      <Card>
-                        <CardContent className="panel-stack">
-                          <span className="card__description">Provider</span>
-                          <strong>{provider?.label ?? entry.providerId}</strong>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardContent className="panel-stack">
-                          <span className="card__description">Authentication</span>
-                          <strong>{entry.profileLabel ? `${authLabel ?? "Configured"} • ${entry.profileLabel}` : authLabel ?? "Configured"}</strong>
-                        </CardContent>
-                      </Card>
-                    </div>
-                    {duplicateActiveEntry && !entry.isDefault && !entry.isFallback ? (
-                      <p className="card__description" style={{ marginTop: 16 }}>
-                        Another saved entry with this same model is already active. Turning this one on will replace the active copy.
-                      </p>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
+          {!savedEntries.length && !runtimeOnlyModels.length ? (
             <EmptyState
-              title="No AI models are saved yet"
-              description="Add your first saved model entry to configure credentials, default model, and fallback behavior."
+              title={copy.modelsEmptyTitle}
+              description={copy.modelsEmptyBody}
             />
-          )}
+          ) : null}
 
           <Card>
             <CardContent className="actions-row" style={{ justifyContent: "center" }}>
@@ -1158,14 +1240,22 @@ export default function ConfigPage() {
                     : "Complete OpenClaw onboarding after models are configured to unlock channels."}
                 </p>
               </div>
-              <Button disabled={busy === "onboarding"} onClick={handleCompleteOnboarding}>
+              <Button loading={busy === "onboarding"} onClick={handleCompleteOnboarding}>
                 {busy === "onboarding" ? "Saving..." : copy.completeOnboarding}
               </Button>
             </CardContent>
           </Card>
+            </>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="channels" className="panel-stack">
+          {channelsLoading && !channelConfig ? (
+            <LoadingPanel title="Loading channels" description="SlackClaw is reading channel accounts and live channel status from OpenClaw." />
+          ) : null}
+
+          {!channelsLoading && channelConfig ? (
+            <>
           <InfoBanner icon={<MessageCircle size={22} />} title={copy.channelsInfoTitle} description={copy.channelsInfoBody} />
           {channelsLocked ? (
             <InfoBanner accent="orange" title={copy.completeOnboardingFirst} description="SlackClaw only unlocks channels after OpenClaw onboarding succeeds." />
@@ -1180,11 +1270,7 @@ export default function ConfigPage() {
               </div>
               <Button
                 disabled={channelsLocked}
-                onClick={() => {
-                  setSelectedChannelEntry(undefined);
-                  setSelectedChannelId(undefined);
-                  setChannelDialogOpen(true);
-                }}
+                onClick={openAddChannelDialog}
               >
                 <Plus size={14} />
                 Add Channel
@@ -1227,16 +1313,12 @@ export default function ConfigPage() {
                       </div>
                       <div className="actions-row">
                         <Button
-                          onClick={() => {
-                            setSelectedChannelEntry(entry);
-                            setSelectedChannelId(entry.channelId);
-                            setChannelDialogOpen(true);
-                          }}
+                          onClick={() => openEditChannelDialog(entry)}
                           variant="outline"
                         >
                           {entry.pairingRequired ? "Continue Setup" : "Edit"}
                         </Button>
-                        <Button disabled={busy === `remove:${entry.id}`} onClick={() => void handleRemoveChannel(entry)} variant="outline">
+                        <Button loading={busy === `remove:${entry.id}`} onClick={() => void handleRemoveChannel(entry)} variant="outline">
                           <Trash2 size={14} />
                           {busy === `remove:${entry.id}` ? "Removing..." : "Remove"}
                         </Button>
@@ -1265,6 +1347,8 @@ export default function ConfigPage() {
               description="Add Telegram, WhatsApp, Feishu, or WeChat through the dialog to start managing communication channels in SlackClaw."
             />
           )}
+            </>
+          ) : null}
         </TabsContent>
       </Tabs>
 

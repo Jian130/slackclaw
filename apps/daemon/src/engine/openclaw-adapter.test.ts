@@ -263,6 +263,7 @@ async function withFakeOpenClaw(
     updatePackageManager?: "npm" | "pnpm" | "bun";
     chatHistoryPayload?: string;
     agentsListJsonOnStderr?: boolean;
+    cleanModelRuntime?: boolean;
   }
 ): Promise<void> {
   const tempDir = await mkdtemp(resolve(process.cwd(), "apps/daemon/.data/openclaw-cache-test-"));
@@ -280,6 +281,7 @@ async function withFakeOpenClaw(
   const updateNoChange = options?.updateNoChange === true;
   const updatePackageManager = options?.updatePackageManager ?? "npm";
   const agentsListJsonOnStderr = options?.agentsListJsonOnStderr === true;
+  const cleanModelRuntime = options?.cleanModelRuntime === true;
   const chatHistoryPayload =
     options?.chatHistoryPayload ??
     '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
@@ -312,11 +314,19 @@ elif [ "$1" = "update" ] && [ "$2" = "--json" ] && [ "$3" = "--yes" ] && [ "$4" 
     echo '{"currentVersion":"2026.3.7","targetVersion":"2026.3.12","changed":true}'
   fi
 elif [ "$1" = "models" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
-  echo '{"models":[{"key":"openai/gpt-5","name":"GPT-5","input":"text","contextWindow":400000,"local":false,"available":true,"tags":["default","configured"],"missing":false},{"key":"anthropic/claude-sonnet-4-6","name":"Claude Sonnet 4.6","input":"text+image","contextWindow":200000,"local":false,"available":true,"tags":["fallback#1","configured"],"missing":false}]}'
+  if [ "${cleanModelRuntime ? "1" : "0"}" = "1" ]; then
+    echo '{"models":[]}'
+  else
+    echo '{"models":[{"key":"openai/gpt-5","name":"GPT-5","input":"text","contextWindow":400000,"local":false,"available":true,"tags":["default","configured"],"missing":false},{"key":"anthropic/claude-sonnet-4-6","name":"Claude Sonnet 4.6","input":"text+image","contextWindow":200000,"local":false,"available":true,"tags":["fallback#1","configured"],"missing":false}]}'
+  fi
 elif [ "$1" = "models" ] && [ "$2" = "list" ] && [ "$3" = "--all" ] && [ "$4" = "--json" ]; then
   echo '{"models":[{"key":"openai/gpt-5","name":"GPT-5","input":"text","contextWindow":400000,"local":false,"available":true,"tags":["default","configured"],"missing":false},{"key":"anthropic/claude-sonnet-4-6","name":"Claude Sonnet 4.6","input":"text+image","contextWindow":200000,"local":false,"available":true,"tags":["fallback#1","configured"],"missing":false},{"key":"google/gemini-2.5-pro","name":"Gemini 2.5 Pro","input":"text+image","contextWindow":1000000,"local":false,"available":true,"tags":[],"missing":false}]}'
 elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
-  echo '{"configPath":${JSON.stringify(configPath)},"defaultModel":"openai/gpt-5","resolvedDefault":"openai/gpt-5","fallbacks":["anthropic/claude-sonnet-4-6"],"auth":{"providers":[],"oauth":{"providers":[]}}}'
+  if [ "${cleanModelRuntime ? "1" : "0"}" = "1" ]; then
+    echo '{"configPath":${JSON.stringify(configPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
+  else
+    echo '{"configPath":${JSON.stringify(configPath)},"defaultModel":"openai/gpt-5","resolvedDefault":"openai/gpt-5","fallbacks":["anthropic/claude-sonnet-4-6"],"auth":{"providers":[],"oauth":{"providers":[]}}}'
+  fi
 elif [ "$1" = "channels" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   echo '{"chat":{"telegram":["default"]}}'
 elif [ "$1" = "channels" ] && [ "$2" = "status" ] && [ "$3" = "--json" ] && [ "$4" = "--probe" ]; then
@@ -415,6 +425,54 @@ test("OpenClaw model config uses the configured model list and one status read p
       "openai/gpt-5",
       "anthropic/claude-sonnet-4-6"
     ]);
+  });
+});
+
+test("OpenClaw model config clears stale configured models when the live runtime is clean", async () => {
+  await withFakeOpenClaw(async ({ adapter }) => {
+    const statePath = resolve(process.cwd(), "apps/daemon/.data", "openclaw-state.json");
+    const previousState = await readFile(statePath, "utf8").catch(() => undefined);
+
+    try {
+      await writeFile(
+        statePath,
+        JSON.stringify({
+          modelEntries: [
+            {
+              id: "stale-openai",
+              label: "OpenAI GPT-5",
+              providerId: "openai",
+              modelKey: "openai/gpt-5",
+              agentId: "main",
+              agentDir: "/tmp/main",
+              workspaceDir: "/tmp/workspace",
+              isDefault: true,
+              isFallback: false,
+              createdAt: "2026-03-15T00:00:00.000Z",
+              updatedAt: "2026-03-15T00:00:00.000Z"
+            }
+          ],
+          defaultModelEntryId: "stale-openai",
+          fallbackModelEntryIds: []
+        }, null, 2)
+      );
+
+      adapter.invalidateReadCaches();
+
+      const config = await adapter.getModelConfig();
+
+      assert.equal(config.models.length, 0);
+      assert.equal(config.savedEntries.length, 0);
+      assert.equal(config.defaultModel, undefined);
+    } finally {
+      if (previousState === undefined) {
+        await rm(statePath, { force: true });
+      } else {
+        await writeFile(statePath, previousState);
+      }
+    }
+  }, {
+    cleanModelRuntime: true
   });
 });
 

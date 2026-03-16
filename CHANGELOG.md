@@ -17,6 +17,8 @@
 - changed normal saved entries so they stay as SlackClaw metadata until promoted into the runtime chain
 - aligned model auth/setup commands with the current OpenClaw CLI `models auth` surface instead of relying on onboarding flows for single-secret provider auth
 - reconciled SlackClaw saved entries against the live OpenClaw runtime model chain so the UI reflects `openclaw models list --json`
+- cleaned the Models page so it primarily shows configured models and runtime-detected models instead of exposing a separate saved-entry concept in the main UI
+- clear stale configured-model state when the live OpenClaw runtime is clean or uninstalled, so a fresh install starts with an empty Models page
 
 ### Channel and gateway behavior
 
@@ -55,6 +57,8 @@
 - removed known channel, skill, model, overview, and AI member N+1 read patterns
 - added frontend GET dedupe and route-scoped providers to cut duplicate page-load requests
 - tightened daemon error logging and dev-process cleanup for `npm start` and `npm stop`
+- added shared loading blockers and button-level loading spinners across the main UI so blocked actions always show visible progress
+- sped up the Configuration page by caching read requests and lazily loading Channels instead of blocking Models on both tabs at once
 
 ### Compatibility and tests
 

@@ -4027,6 +4027,15 @@ function buildModelConfigOverview(
   };
 }
 
+function isCleanModelRuntime(snapshot: ModelReadSnapshot): boolean {
+  return (
+    snapshot.configuredModels.length === 0 &&
+    snapshot.configuredAuthProviders.size === 0 &&
+    snapshot.supplemental.refs.size === 0 &&
+    !snapshot.supplemental.defaultModel
+  );
+}
+
 function createTaskTitle(request: EngineTaskRequest): string {
   if (request.templateId) {
     return `Run ${request.templateId}`;
@@ -5486,8 +5495,23 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async getModelConfig(): Promise<ModelConfigOverview> {
-    const adapterState = await this.ensureSavedModelState();
     const snapshot = await readModelSnapshot();
+
+    if (isCleanModelRuntime(snapshot)) {
+      const adapterState = this.normalizeStateFlags(await readAdapterState());
+      if ((adapterState.modelEntries?.length ?? 0) > 0 || adapterState.defaultModelEntryId || (adapterState.fallbackModelEntryIds?.length ?? 0) > 0) {
+        await writeAdapterState({
+          ...adapterState,
+          modelEntries: [],
+          defaultModelEntryId: undefined,
+          fallbackModelEntryIds: []
+        });
+      }
+
+      return buildModelConfigOverview([], [], new Set<string>(), [], undefined, [], undefined);
+    }
+
+    const adapterState = await this.ensureSavedModelState();
     const completeAllModels = mergeModelCatalogEntries(snapshot.allModels, snapshot.supplemental.refs, {
       available: true,
       defaultModel: snapshot.supplemental.defaultModel

@@ -27,6 +27,8 @@ import { Card, CardContent } from "../../shared/ui/Card.js";
 import { Dialog } from "../../shared/ui/Dialog.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 import { FieldLabel, Select, Textarea } from "../../shared/ui/Field.js";
+import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
+import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 
 function detailFromSummary(summary: ChatThreadSummary): ChatThreadDetail {
@@ -359,30 +361,32 @@ function NewChatDialog(props: {
       title={props.title}
       description={props.description}
     >
-      <div className="panel-stack">
-        <div>
-          <FieldLabel htmlFor="chat-member-select">{props.chooseMemberLabel}</FieldLabel>
-          <Select
-            id="chat-member-select"
-            value={memberId}
-            onChange={(event) => setMemberId(event.target.value)}
-          >
-            {props.members.map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.name} · {member.jobTitle}
-              </option>
-            ))}
-          </Select>
+      <LoadingBlocker active={props.busy} label="Creating chat" description="SlackClaw is opening a new OpenClaw-backed conversation.">
+        <div className="panel-stack">
+          <div>
+            <FieldLabel htmlFor="chat-member-select">{props.chooseMemberLabel}</FieldLabel>
+            <Select
+              id="chat-member-select"
+              value={memberId}
+              onChange={(event) => setMemberId(event.target.value)}
+            >
+              {props.members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name} · {member.jobTitle}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="actions-row" style={{ justifyContent: "flex-end" }}>
+            <Button variant="outline" onClick={props.onClose} disabled={props.busy}>
+              {props.cancelLabel}
+            </Button>
+            <Button loading={props.busy} disabled={!memberId} onClick={() => void props.onCreate(memberId)}>
+              {props.busy ? `${props.createLabel}...` : props.createLabel}
+            </Button>
+          </div>
         </div>
-        <div className="actions-row" style={{ justifyContent: "flex-end" }}>
-          <Button variant="outline" onClick={props.onClose} disabled={props.busy}>
-            {props.cancelLabel}
-          </Button>
-          <Button disabled={props.busy || !memberId} onClick={() => void props.onCreate(memberId)}>
-            {props.busy ? `${props.createLabel}...` : props.createLabel}
-          </Button>
-        </div>
-      </div>
+      </LoadingBlocker>
     </Dialog>
   );
 }
@@ -862,6 +866,7 @@ export default function ChatPage() {
     return (
       <div className="panel-stack">
         <PageHeader title={copy.title} subtitle={copy.subtitle} />
+        <LoadingPanel title="Loading conversations" description="SlackClaw is connecting to OpenClaw and loading chat threads." />
       </div>
     );
   }
@@ -872,7 +877,7 @@ export default function ChatPage() {
         title={copy.title}
         subtitle={copy.subtitle}
         actions={
-          <Button onClick={handleNewChatAction} disabled={membersLoading || members.length === 0}>
+          <Button onClick={handleNewChatAction} disabled={members.length === 0} loading={membersLoading}>
             <Plus size={14} />
             {copy.newChat}
           </Button>
@@ -1007,7 +1012,7 @@ export default function ChatPage() {
                     <div className="chat-transcript-shell">
                       <div className="chat-transcript chat-transcript--telegram" ref={transcriptRef} onScroll={handleTranscriptScroll}>
                         {threadLoadingId === selectedThread.id ? (
-                          <p className="card__description">{copy.loadingThread}</p>
+                          <LoadingPanel compact title={copy.loadingThread} description="SlackClaw is syncing the latest messages from OpenClaw." />
                         ) : selectedThread.messages.length > 0 ? (
                           selectedThread.messages.map((message, index) => {
                             const previous = selectedThread.messages[index - 1];
@@ -1082,13 +1087,14 @@ export default function ChatPage() {
                         placeholder={copy.messagePlaceholder.replace("{name}", selectedMember?.name ?? memberNameForThread(selectedThread, members))}
                       />
                       {selectedThread.composerState.canAbort ? (
-                        <Button variant="outline" onClick={() => void handleAbort()}>
+                        <Button variant="outline" onClick={() => void handleAbort()} loading={selectedThread.composerState.status === "aborting"}>
                           <Square size={14} />
                           {copy.stop}
                         </Button>
                       ) : (
                         <Button
                           disabled={!selectedThread.composerState.canSend || !draft.trim()}
+                          loading={selectedThread.composerState.status === "sending"}
                           onClick={() => void handleSend()}
                         >
                           <SendHorizontal size={14} />

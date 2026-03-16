@@ -12,6 +12,8 @@ import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent } from "../../shared/ui/Card.js";
 import { Dialog } from "../../shared/ui/Dialog.js";
 import { FieldLabel, Input, Textarea } from "../../shared/ui/Field.js";
+import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
+import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 
@@ -69,42 +71,44 @@ function TeamDialog(props: {
       description="Group AI members into reusable teams for routing and oversight."
       wide
     >
-      <div className="panel-stack">
-        {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
-        <div className="field-grid">
-          <div>
-            <FieldLabel htmlFor="team-name">Team name</FieldLabel>
-            <Input id="team-name" value={name} onChange={(event) => setName(event.target.value)} />
+      <LoadingBlocker active={busy} label="Saving AI team" description="SlackClaw is saving the team configuration.">
+        <div className="panel-stack">
+          {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
+          <div className="field-grid">
+            <div>
+              <FieldLabel htmlFor="team-name">Team name</FieldLabel>
+              <Input id="team-name" value={name} onChange={(event) => setName(event.target.value)} />
+            </div>
+            <div>
+              <FieldLabel htmlFor="team-purpose">Purpose</FieldLabel>
+              <Textarea id="team-purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} />
+            </div>
           </div>
-          <div>
-            <FieldLabel htmlFor="team-purpose">Purpose</FieldLabel>
-            <Textarea id="team-purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} />
-          </div>
-        </div>
 
-        <div>
-          <FieldLabel>Members</FieldLabel>
-          <div className="skill-chip-grid">
-            {overview?.members.map((member) => (
-              <button
-                key={member.id}
-                className={`badge ${memberIds.includes(member.id) ? "badge--success" : "badge--neutral"}`}
-                onClick={() => toggle(member.id)}
-                type="button"
-              >
-                {member.name}
-              </button>
-            ))}
+          <div>
+            <FieldLabel>Members</FieldLabel>
+            <div className="skill-chip-grid">
+              {overview?.members.map((member) => (
+                <button
+                  key={member.id}
+                  className={`badge ${memberIds.includes(member.id) ? "badge--success" : "badge--neutral"}`}
+                  onClick={() => toggle(member.id)}
+                  type="button"
+                >
+                  {member.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="actions-row" style={{ justifyContent: "flex-end" }}>
+            <Button variant="outline" onClick={props.onClose} disabled={busy}>Cancel</Button>
+            <Button onClick={handleSave} loading={busy}>
+              {busy ? "Saving..." : "Save Team"}
+            </Button>
           </div>
         </div>
-
-        <div className="actions-row" style={{ justifyContent: "flex-end" }}>
-          <Button variant="outline" onClick={props.onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={busy}>
-            {busy ? "Saving..." : "Save Team"}
-          </Button>
-        </div>
-      </div>
+      </LoadingBlocker>
     </Dialog>
   );
 }
@@ -171,7 +175,12 @@ export default function TeamPage() {
   }
 
   if (loading && !overview) {
-    return <div className="panel-stack"><PageHeader title={copy.title} subtitle={copy.subtitle} /></div>;
+    return (
+      <div className="panel-stack">
+        <PageHeader title={copy.title} subtitle={copy.subtitle} />
+        <LoadingPanel title="Loading AI teams" description="SlackClaw is reading team rosters and AI member assignments." />
+      </div>
+    );
   }
 
   if (error && !overview) {
@@ -325,7 +334,7 @@ export default function TeamPage() {
                         onChange={(event) => setDraft(event.target.value)}
                         placeholder={selectedMember ? `Ask ${selectedMember.name} to handle something...` : "Select a team member first"}
                       />
-                      <Button onClick={() => void handleSend()} disabled={busy || !selectedMember}>
+                      <Button onClick={() => void handleSend()} disabled={!selectedMember} loading={busy}>
                         <MessageSquare size={14} />
                         {busy ? "Sending..." : copy.chat}
                       </Button>

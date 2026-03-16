@@ -6,6 +6,7 @@ import { useLocale } from "../providers/LocaleProvider.js";
 import { useOverview } from "../providers/OverviewProvider.js";
 import { SidebarNav } from "../../shared/ui/SidebarNav.js";
 import { LanguageSelector } from "../../shared/ui/LanguageSelector.js";
+import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { t } from "../../shared/i18n/messages.js";
 
 function FeedbackWidget() {
@@ -56,7 +57,7 @@ export function AppShell(props: PropsWithChildren<{ loading?: boolean }>) {
           <LanguageSelector />
         </header>
         <section className="app-content">
-          {props.loading ? <div className="loading-panel">{copy.common.loading}</div> : props.children}
+          {props.loading ? <LoadingPanel title={copy.common.loading} description={copy.common.connecting} /> : props.children}
         </section>
       </main>
       <FeedbackWidget />
