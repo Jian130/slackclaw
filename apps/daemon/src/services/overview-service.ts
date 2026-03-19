@@ -4,7 +4,6 @@ import { homedir } from "node:os";
 import {
   createDefaultProductOverview,
   type InstallCheck,
-  type OnboardingSelection,
   type ProductOverview,
   type RecoveryAction
 } from "@slackclaw/contracts";
@@ -43,10 +42,8 @@ export class OverviewService {
       feishu: storedChannels.feishu ?? baseChannels.feishu,
       wechat: storedChannels.wechat ?? baseChannels.wechat
     };
-    const onboardingCompleted = Boolean(state.channelOnboarding?.baseOnboardingCompletedAt);
-    const nextChannelId = onboardingCompleted
-      ? (["telegram", "whatsapp", "feishu", "wechat"] as const).find((channelId) => mergedChannels[channelId].status !== "completed")
-      : undefined;
+    const onboardingCompleted = true;
+    const nextChannelId = (["telegram", "whatsapp", "feishu", "wechat"] as const).find((channelId) => mergedChannels[channelId].status !== "completed");
 
     return {
       ...base,
@@ -67,8 +64,6 @@ export class OverviewService {
         gatewayStarted: Boolean(state.channelOnboarding?.gatewayStartedAt),
         gatewaySummary: state.channelOnboarding?.gatewayStartedAt
           ? "Gateway restarted after channel setup."
-          : !onboardingCompleted
-            ? "Complete OpenClaw onboarding before setting up channels and starting the gateway."
           : nextChannelId
             ? `Next recommended channel: ${mergedChannels[nextChannelId].title}.`
             : "All channel setup steps are complete. Restart the gateway to load every channel."
@@ -78,22 +73,6 @@ export class OverviewService {
       profiles: base.profiles,
       templates: base.templates
     };
-  }
-
-  async completeOnboarding(selection: OnboardingSelection): Promise<ProductOverview> {
-    await this.adapter.onboard(selection.profileId);
-    await this.store.update((current) => ({
-      ...current,
-      selectedProfileId: selection.profileId,
-      channelOnboarding: {
-        baseOnboardingCompletedAt: current.channelOnboarding?.baseOnboardingCompletedAt ?? new Date().toISOString(),
-        gatewayStartedAt: current.channelOnboarding?.gatewayStartedAt,
-        channels: current.channelOnboarding?.channels ?? {},
-        entries: current.channelOnboarding?.entries ?? {}
-      }
-    }));
-
-    return this.getOverview();
   }
 
   async findRecoveryAction(actionId: string): Promise<RecoveryAction | undefined> {

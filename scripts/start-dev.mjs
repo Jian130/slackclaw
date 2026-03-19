@@ -29,6 +29,14 @@ function logStep(message, options = {}) {
   console.log(`[SlackClaw start] ${prefix}${message}`);
 }
 
+function shellQuote(value) {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) {
+    return value;
+  }
+
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 function fail(message) {
   console.error(`[SlackClaw start] ${message}`);
   process.exit(1);
@@ -74,7 +82,7 @@ function ensureLocalDependencies() {
 function runBlockingStep(label, command, args, extraEnv = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     logStep(label, { step: true });
-    logStep(`Running: ${command} ${args.join(" ")}`);
+    logStep(`Running: ${command} ${args.map((arg) => shellQuote(arg)).join(" ")}`);
 
     const child = spawn(command, args, {
       cwd: rootDir,
@@ -107,7 +115,7 @@ function runBlockingStep(label, command, args, extraEnv = {}) {
 function runBackgroundStep(label, command, args, options = {}) {
   const { cwd = rootDir, extraEnv = {} } = options;
   logStep(label, { step: true });
-  logStep(`Launching: ${command} ${args.join(" ")}`);
+  logStep(`Launching: ${command} ${args.map((arg) => shellQuote(arg)).join(" ")}`);
 
   const child = spawn(command, args, {
     cwd,
@@ -285,7 +293,7 @@ async function main() {
   await assertNoManagedProcessesRunning();
   logStep("No managed SlackClaw dev processes are already running.");
 
-  await runBlockingStep("Checking OpenClaw installation", "node", ["./scripts/bootstrap-openclaw.mjs", "--json"]);
+  logStep("Skipping OpenClaw bootstrap during npm start. Use the SlackClaw install flow or run `npm run bootstrap:openclaw` manually if needed.");
   await runBlockingStep("Building shared contracts", "npm", ["run", "build", "--workspace", "@slackclaw/contracts"]);
   await runBlockingStep("Building daemon", "npm", ["run", "build", "--workspace", "@slackclaw/daemon"]);
   await ensurePortIsFree("Daemon", "127.0.0.1", daemonPort);

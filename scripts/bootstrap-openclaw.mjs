@@ -5,8 +5,9 @@ import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve } from "node:path";
 
-const OPENCLAW_VERSION = process.env.SLACKCLAW_OPENCLAW_VERSION ?? "2026.3.7";
-const OPENCLAW_PACKAGE = `openclaw@${OPENCLAW_VERSION}`;
+const OPENCLAW_VERSION_OVERRIDE = process.env.SLACKCLAW_OPENCLAW_VERSION?.trim() || undefined;
+const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
+const OPENCLAW_PACKAGE = `openclaw@${OPENCLAW_INSTALL_TARGET}`;
 const LOCAL_INSTALL_PREFIX = process.env.SLACKCLAW_OPENCLAW_INSTALL_PREFIX;
 
 function compareOpenClawVersions(left, right) {
@@ -47,8 +48,20 @@ function compareOpenClawVersions(left, right) {
 }
 
 function isCompatibleOpenClawVersion(version) {
-  const comparison = compareOpenClawVersions(version, OPENCLAW_VERSION);
+  if (!version) {
+    return false;
+  }
+
+  if (!OPENCLAW_VERSION_OVERRIDE) {
+    return true;
+  }
+
+  const comparison = compareOpenClawVersions(version, OPENCLAW_VERSION_OVERRIDE);
   return comparison !== undefined && comparison >= 0;
+}
+
+function installTargetSummary() {
+  return OPENCLAW_VERSION_OVERRIDE ?? "the latest available version";
 }
 
 function managedOpenClawBinPath() {
@@ -89,8 +102,34 @@ function parseArgs(argv) {
   };
 }
 
+function shouldLogBootstrapCommands() {
+  if (process.env.SLACKCLAW_LOG_BOOTSTRAP_COMMANDS === "0") {
+    return false;
+  }
+
+  return true;
+}
+
+function shellQuote(value) {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) {
+    return value;
+  }
+
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function logBootstrapCommand(command, args) {
+  if (!shouldLogBootstrapCommands()) {
+    return;
+  }
+
+  const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
+  console.log(`[SlackClaw bootstrap] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`);
+}
+
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
+    logBootstrapCommand(command, args);
     const child = spawn(command, args, {
       env: {
         ...process.env,
@@ -160,7 +199,9 @@ async function ensureOpenClaw({ dryRun }) {
       version: existingVersion,
       message: LOCAL_INSTALL_PREFIX
         ? `OpenClaw ${existingVersion} is already available for SlackClaw in ${LOCAL_INSTALL_PREFIX}.`
-        : `OpenClaw ${existingVersion} is already installed and meets SlackClaw's minimum supported version ${OPENCLAW_VERSION}.`
+        : OPENCLAW_VERSION_OVERRIDE
+          ? `OpenClaw ${existingVersion} is already installed and meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+          : `OpenClaw ${existingVersion} is already installed and ready for SlackClaw.`
     };
   }
 
@@ -173,10 +214,12 @@ async function ensureOpenClaw({ dryRun }) {
       version: existingVersion ?? null,
       message: LOCAL_INSTALL_PREFIX
         ? existingVersion
-          ? `SlackClaw would deploy OpenClaw ${OPENCLAW_VERSION} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
+          ? `SlackClaw would deploy OpenClaw ${installTargetSummary()} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
           : `SlackClaw would deploy ${OPENCLAW_PACKAGE} into ${LOCAL_INSTALL_PREFIX}.`
         : existingVersion
-          ? `OpenClaw ${existingVersion} is installed, but SlackClaw would replace it because it is older than the minimum supported version ${OPENCLAW_VERSION}.`
+          ? OPENCLAW_VERSION_OVERRIDE
+            ? `OpenClaw ${existingVersion} is installed, but SlackClaw would replace it because it is older than the requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+            : `OpenClaw ${existingVersion} is installed and SlackClaw would reuse it.`
           : `OpenClaw is not installed, and SlackClaw would install ${OPENCLAW_PACKAGE}.`
     };
   }
@@ -213,14 +256,14 @@ async function ensureOpenClaw({ dryRun }) {
     changed: true,
     hadExisting: Boolean(existingVersion),
     existingVersion,
-    version: nextVersion ?? OPENCLAW_VERSION,
+    version: nextVersion ?? null,
     message: LOCAL_INSTALL_PREFIX
       ? existingVersion
-        ? `SlackClaw deployed OpenClaw ${nextVersion ?? OPENCLAW_VERSION} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
-        : `SlackClaw deployed OpenClaw ${nextVersion ?? OPENCLAW_VERSION} into ${LOCAL_INSTALL_PREFIX}.`
+        ? `SlackClaw deployed OpenClaw ${nextVersion ?? installTargetSummary()} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
+        : `SlackClaw deployed OpenClaw ${nextVersion ?? installTargetSummary()} into ${LOCAL_INSTALL_PREFIX}.`
       : existingVersion
-        ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion ?? OPENCLAW_VERSION}.`
-        : `Installed OpenClaw ${nextVersion ?? OPENCLAW_VERSION}.`
+        ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion ?? installTargetSummary()}.`
+        : `Installed OpenClaw ${nextVersion ?? installTargetSummary()}.`
   };
 }
 

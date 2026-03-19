@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import type { DeploymentTargetId, DeploymentTargetStatus } from "@slackclaw/contracts";
+import { useEffect, useMemo, useState } from "react";
+import type { DeploymentTargetId, DeploymentTargetStatus, DeploymentTargetsResponse } from "@slackclaw/contracts";
 import {
   AlertCircle,
   CheckCircle2,
@@ -7,10 +7,11 @@ import {
   Loader2,
   RefreshCw,
   Rocket,
+  Trash2,
   Zap
 } from "lucide-react";
 
-import { fetchDeploymentTargets, restartGateway, runFirstRunSetup, updateDeploymentTarget } from "../../shared/api/client.js";
+import { fetchDeploymentTargets, installDeploymentTarget, restartGateway, uninstallDeploymentTarget, updateDeploymentTarget } from "../../shared/api/client.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
 import { t } from "../../shared/i18n/messages.js";
@@ -115,19 +116,20 @@ export function decorateTargets(targets: DeploymentTargetStatus[]): DeployTarget
   }));
 }
 
-function handleCardKeyDown(
-  event: KeyboardEvent<HTMLElement>,
-  onActivate: () => void,
-  disabled: boolean
-) {
-  if (disabled) {
-    return;
+export function getTargetActionKinds(target: DeploymentTargetStatus): Array<"install" | "update" | "uninstall"> {
+  if (target.planned || !target.installable) {
+    return [];
   }
 
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    onActivate();
+  if (!target.installed) {
+    return ["install"];
   }
+
+  if (target.id === "standard" || target.id === "managed-local") {
+    return ["update", "uninstall"];
+  }
+
+  return ["uninstall"];
 }
 
 export function createActivityState(
@@ -171,11 +173,51 @@ export function createActivityState(
   };
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+export async function waitForTargetInstalledState(
+  fetcher: (options?: { fresh?: boolean }) => Promise<DeploymentTargetsResponse>,
+  targetId: "standard" | "managed-local",
+  installed: boolean,
+  options?: { attempts?: number; delayMs?: number; onUpdate?: (result: DeploymentTargetsResponse) => void }
+): Promise<DeploymentTargetsResponse> {
+  const attempts = Math.max(options?.attempts ?? 12, 1);
+  const delayMs = Math.max(options?.delayMs ?? 750, 0);
+  let latest: DeploymentTargetsResponse | undefined;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    latest = await fetcher({ fresh: true });
+    options?.onUpdate?.(latest);
+
+    if (latest.targets.some((target) => target.id === targetId && target.installed === installed)) {
+      return latest;
+    }
+
+    if (attempt < attempts - 1 && delayMs > 0) {
+      await delay(delayMs);
+    }
+  }
+
+  return latest ?? fetcher({ fresh: true });
+}
+
+export function waitForInstalledTarget(
+  fetcher: (options?: { fresh?: boolean }) => Promise<DeploymentTargetsResponse>,
+  targetId: "standard" | "managed-local",
+  options?: { attempts?: number; delayMs?: number; onUpdate?: (result: DeploymentTargetsResponse) => void }
+) {
+  return waitForTargetInstalledState(fetcher, targetId, true, options);
+}
+
 export default function DeployPage() {
   const { locale } = useLocale();
   const copy = t(locale).deploy;
   const common = t(locale).common;
-  const { overview, refresh } = useOverview();
+  const { refresh } = useOverview();
   const installStepLabels = useMemo(
     () => [copy.installStepDetect, copy.installStepPrepare, copy.installStepConfigure, copy.installStepVerify],
     [copy]
@@ -195,16 +237,24 @@ export default function DeployPage() {
     () => [copy.restartStepCommand, copy.restartStepWait, copy.restartStepVerify],
     [copy]
   );
-  const [selectedVariant, setSelectedVariant] = useState<DeploymentTargetId | null>(null);
-  const [deploying, setDeploying] = useState(false);
+  const uninstallStepLabels = useMemo(
+    () => [copy.uninstallStepStop, copy.uninstallStepRemove, copy.uninstallStepVerify],
+    [copy]
+  );
+  const [installingTargetId, setInstallingTargetId] = useState<"standard" | "managed-local" | "">("");
   const [activity, setActivity] = useState<ActivityState | null>(null);
-  const [message, setMessage] = useState("");
   const [updatingTargetId, setUpdatingTargetId] = useState<"standard" | "managed-local" | "">("");
+  const [uninstallingTargetId, setUninstallingTargetId] = useState<"standard" | "managed-local" | "">("");
   const [restartingGateway, setRestartingGateway] = useState(false);
   const [targetsLoading, setTargetsLoading] = useState(true);
   const [targetsError, setTargetsError] = useState("");
   const [checkedAt, setCheckedAt] = useState<string>();
   const [targets, setTargets] = useState<DeploymentTargetStatus[]>([]);
+
+  function applyTargetsResult(result: DeploymentTargetsResponse) {
+    setTargets(result.targets);
+    setCheckedAt(result.checkedAt);
+  }
 
   async function loadTargets(options?: { fresh?: boolean }) {
     setTargetsLoading(true);
@@ -212,17 +262,7 @@ export default function DeployPage() {
 
     try {
       const result = await fetchDeploymentTargets(options);
-      const selectableTarget = result.targets.find((target) => !target.installed && target.installable && !target.planned);
-
-      setTargets(result.targets);
-      setCheckedAt(result.checkedAt);
-      setSelectedVariant((current) => {
-        if (current && result.targets.some((target) => target.id === current && !target.installed && target.installable && !target.planned)) {
-          return current;
-        }
-
-        return selectableTarget?.id ?? null;
-      });
+      applyTargetsResult(result);
     } catch (error) {
       setTargetsError(error instanceof Error ? error.message : "SlackClaw could not load deployment targets.");
     } finally {
@@ -241,11 +281,7 @@ export default function DeployPage() {
     [deployTargets]
   );
   const plannedTargets = useMemo(() => deployTargets.filter((target) => target.planned), [deployTargets]);
-  const selectedVariantName = useMemo(
-    () => deployTargets.find((target) => target.id === selectedVariant)?.title,
-    [deployTargets, selectedVariant]
-  );
-  const actionBusy = deploying || Boolean(updatingTargetId) || restartingGateway;
+  const actionBusy = Boolean(installingTargetId) || Boolean(updatingTargetId) || Boolean(uninstallingTargetId) || restartingGateway;
 
   function startActivity(title: string, stepLabels: string[]) {
     let stepIndex = 0;
@@ -268,56 +304,74 @@ export default function DeployPage() {
     };
   }
 
-  async function handleDeploy() {
-    if (!selectedVariant || selectedVariant === "zeroclaw" || selectedVariant === "ironclaw") {
-      return;
-    }
-
-    setDeploying(true);
-    setMessage("");
+  async function handleInstallTarget(targetId: "standard" | "managed-local") {
+    setInstallingTargetId(targetId);
     const activityRun = startActivity(copy.progressInstallTitle, installStepLabels);
 
     try {
-      const result = await runFirstRunSetup(selectedVariant === "managed-local");
-      setMessage(result.message);
+      const result = await installDeploymentTarget(targetId);
       activityRun.complete(result.message);
-      await Promise.all([refresh({ fresh: true }), loadTargets({ fresh: true })]);
+      const [, refreshedTargets] = await Promise.all([
+        refresh({ fresh: true }),
+        waitForTargetInstalledState(fetchDeploymentTargets, targetId, true, {
+          onUpdate: applyTargetsResult
+        })
+      ]);
+      applyTargetsResult(refreshedTargets);
     } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : copy.progressFailed;
-      setMessage(nextMessage);
-      activityRun.fail(nextMessage);
+      activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
-      setDeploying(false);
+      setInstallingTargetId("");
     }
   }
 
   async function handleUpdateTarget(targetId: "standard" | "managed-local") {
     setUpdatingTargetId(targetId);
-    setMessage("");
     const activityRun = startActivity(copy.progressUpdateTitle, updateStepLabels);
 
     try {
       const result = await updateDeploymentTarget(targetId);
-      setMessage(result.message);
       activityRun.complete(result.message);
       await Promise.all([refresh({ fresh: true }), loadTargets({ fresh: true })]);
     } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : copy.progressFailed;
-      setMessage(nextMessage);
-      activityRun.fail(nextMessage);
+      activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
       setUpdatingTargetId("");
     }
   }
 
+  async function handleUninstallTarget(targetId: "standard" | "managed-local") {
+    setUninstallingTargetId(targetId);
+    const activityRun = startActivity(copy.progressUninstallTitle, uninstallStepLabels);
+
+    try {
+      const result = await uninstallDeploymentTarget(targetId);
+      const summary = result.message;
+      if (result.status === "completed") {
+        activityRun.complete(summary);
+      } else {
+        activityRun.fail(summary);
+      }
+      const [, refreshedTargets] = await Promise.all([
+        refresh({ fresh: true }),
+        waitForTargetInstalledState(fetchDeploymentTargets, targetId, false, {
+          onUpdate: applyTargetsResult
+        })
+      ]);
+      applyTargetsResult(refreshedTargets);
+    } catch (error) {
+      activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
+    } finally {
+      setUninstallingTargetId("");
+    }
+  }
+
   async function handleRestartGateway() {
     setRestartingGateway(true);
-    setMessage("");
     const activityRun = startActivity(copy.progressRestartTitle, restartStepLabels);
 
     try {
       const result = await restartGateway();
-      setMessage(result.message);
       if (result.status === "completed") {
         activityRun.complete(result.message);
       } else {
@@ -325,42 +379,32 @@ export default function DeployPage() {
       }
       await Promise.all([refresh({ fresh: true }), loadTargets({ fresh: true })]);
     } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : copy.progressFailed;
-      setMessage(nextMessage);
-      activityRun.fail(nextMessage);
+      activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
       setRestartingGateway(false);
     }
   }
 
-  function renderTargetCard(target: DeployTargetCard, selectable: boolean) {
-    const selected = selectable && selectedVariant === target.id;
+  function renderTargetCard(target: DeployTargetCard) {
     const updatableTargetId =
+      target.id === "standard" || target.id === "managed-local" ? target.id : undefined;
+    const actionableTargetId =
       target.id === "standard" || target.id === "managed-local" ? target.id : undefined;
     const latestVersionDisplay =
       target.latestVersion ?? (!target.updateAvailable && target.version ? target.version : "n/a");
+    const actionKinds = getTargetActionKinds(target);
 
     return (
       <Card
         className={[
           "deploy-variant-card",
           target.gradientClass,
-          selected ? "deploy-variant-card--selected" : "",
-          selectable && !selected ? target.hoverBorderClass : "",
           target.planned ? "deploy-variant-card--planned" : "",
-          !selectable ? "deploy-variant-card--static" : ""
+          "deploy-variant-card--static"
         ]
           .filter(Boolean)
           .join(" ")}
         key={target.id}
-        onClick={() => {
-          if (selectable) {
-            setSelectedVariant(target.id);
-          }
-        }}
-        onKeyDown={(event) => handleCardKeyDown(event, () => setSelectedVariant(target.id), !selectable)}
-        role={selectable ? "button" : undefined}
-        tabIndex={selectable ? 0 : -1}
       >
         <CardHeader>
           <div className="deploy-variant-card__header">
@@ -419,14 +463,33 @@ export default function DeployPage() {
                 <p>{copy.latestVersionLabel}</p>
                 <strong>{latestVersionDisplay}</strong>
               </div>
-              {target.installed && updatableTargetId ? (
-                <div className="deploy-target-version-grid__action">
+            </div>
+            {target.updateSummary ? <p className="deploy-target-update">{target.updateSummary}</p> : null}
+            {actionKinds.length ? (
+              <div className="deploy-target-actions">
+                {actionKinds.includes("install") && actionableTargetId ? (
+                  <Button
+                    disabled={actionBusy}
+                    onClick={() => void handleInstallTarget(actionableTargetId)}
+                    size="sm"
+                  >
+                    {installingTargetId === actionableTargetId ? (
+                      <>
+                        <Loader2 className="deploy-cta-button__spinner" size={16} />
+                        {copy.deploying}
+                      </>
+                    ) : (
+                      <>
+                        <Rocket size={16} />
+                        {copy.installButton}
+                      </>
+                    )}
+                  </Button>
+                ) : null}
+                {actionKinds.includes("update") && updatableTargetId ? (
                   <Button
                     disabled={actionBusy || !target.updateAvailable}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleUpdateTarget(updatableTargetId);
-                    }}
+                    onClick={() => void handleUpdateTarget(updatableTargetId)}
                     size="sm"
                     variant="outline"
                   >
@@ -442,10 +505,29 @@ export default function DeployPage() {
                       </>
                     )}
                   </Button>
-                </div>
-              ) : null}
-            </div>
-            {target.updateSummary ? <p className="deploy-target-update">{target.updateSummary}</p> : null}
+                ) : null}
+                {actionKinds.includes("uninstall") && actionableTargetId ? (
+                  <Button
+                    disabled={actionBusy}
+                    onClick={() => void handleUninstallTarget(actionableTargetId)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {uninstallingTargetId === actionableTargetId ? (
+                      <>
+                        <Loader2 className="deploy-cta-button__spinner" size={16} />
+                        {copy.uninstallingLabel}
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={16} />
+                        {copy.uninstallButton}
+                      </>
+                    )}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             <div>
               <h4>{copy.featuresTitle}</h4>
               <ul className="deploy-feature-list">
@@ -613,7 +695,7 @@ export default function DeployPage() {
                 </div>
               ) : installedTargets.length ? (
                 <div className="deploy-variant-grid">
-                  {installedTargets.map((target) => renderTargetCard(target, false))}
+                  {installedTargets.map((target) => renderTargetCard(target))}
                 </div>
               ) : (
                 <EmptyState
@@ -639,7 +721,7 @@ export default function DeployPage() {
                 </div>
               ) : availableTargets.length ? (
                 <div className="deploy-variant-grid">
-                  {availableTargets.map((target) => renderTargetCard(target, true))}
+                  {availableTargets.map((target) => renderTargetCard(target))}
                 </div>
               ) : (
                 <EmptyState
@@ -660,48 +742,13 @@ export default function DeployPage() {
               </CardHeader>
               <CardContent className="deploy-section-card__content">
                 <div className="deploy-variant-grid">
-                  {plannedTargets.map((target) => renderTargetCard(target, false))}
+                  {plannedTargets.map((target) => renderTargetCard(target))}
                 </div>
               </CardContent>
             </Card>
           ) : null}
         </>
       ) : null}
-
-      <Card className="deploy-cta-card">
-        <CardContent className="deploy-cta-card__content">
-          <div>
-            <h3>{copy.readyTitle}</h3>
-            <p>
-              {selectedVariantName
-                ? copy.selectedTarget.replace("{target}", selectedVariantName)
-                : copy.selectTargetPrompt}
-            </p>
-            {message ? <p className="deploy-cta-card__message">{message}</p> : null}
-            {!message && overview?.firstRun.setupCompleted ? (
-              <p className="deploy-cta-card__message">{copy.completion}</p>
-            ) : null}
-          </div>
-          <Button
-            className="deploy-cta-button"
-            disabled={!selectedVariant || actionBusy}
-            onClick={handleDeploy}
-            size="lg"
-          >
-            {deploying ? (
-              <>
-                <Loader2 className="deploy-cta-button__spinner" size={20} />
-                {copy.deploying}
-              </>
-            ) : (
-              <>
-                <Rocket size={20} />
-                {copy.installSelected}
-              </>
-            )}
-          </Button>
-        </CardContent>
-      </Card>
 
       <div className="deploy-summary-grid">
         <Card>

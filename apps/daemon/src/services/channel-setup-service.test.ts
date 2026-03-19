@@ -18,18 +18,21 @@ function createServices(testName: string) {
   };
 }
 
-test("channel setup requires onboarding before configuration", async () => {
+test("channel setup allows configuration without a separate onboarding step", async () => {
   const { service } = createServices("channel-setup-gate");
 
-  await assert.rejects(
-    () => service.saveEntry(undefined, { channelId: "telegram", action: "save", values: { token: "telegram-test-token" } }),
-    /Complete OpenClaw onboarding before configuring channels/
-  );
+  const result = await service.saveEntry(undefined, {
+    channelId: "telegram",
+    action: "save",
+    values: { token: "telegram-test-token" }
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.channelConfig.entries[0]?.id, "telegram:default");
 });
 
 test("channel setup persists generic channel entries and configured channel state", async () => {
   const { service, store } = createServices("channel-setup-persist");
-  await service.markBaseOnboardingCompleted();
 
   const result = await service.saveEntry(undefined, {
     channelId: "telegram",
@@ -101,7 +104,6 @@ test("channel config overview includes live configured entries even without stor
 
 test("channel setup removes a configured entry through the generic path", async () => {
   const { service, store } = createServices("channel-setup-remove");
-  await service.markBaseOnboardingCompleted();
   await service.saveEntry(undefined, {
     channelId: "telegram",
     action: "save",

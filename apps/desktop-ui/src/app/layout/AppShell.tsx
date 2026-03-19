@@ -50,11 +50,13 @@ export function AppShell(props: PropsWithChildren<{ loading?: boolean }>) {
           </p>
           <p>{overview?.engine.summary ?? copy.common.connecting}</p>
         </div>
+        <div className="sidebar-language">
+          <LanguageSelector />
+        </div>
       </aside>
       <main className="app-main">
         <header className="app-topbar">
           <div />
-          <LanguageSelector />
         </header>
         <section className="app-content">
           {props.loading ? <LoadingPanel title={copy.common.loading} description={copy.common.connecting} /> : props.children}

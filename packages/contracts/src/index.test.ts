@@ -18,6 +18,7 @@ test("default product overview starts with OpenClaw not installed", () => {
 
   assert.equal(overview.engine.engine, "openclaw");
   assert.equal(overview.engine.installed, false);
+  assert.equal(overview.installSpec.desiredVersion, "latest");
   assert.equal(overview.templates.length > 4, true);
   assert.equal(overview.recoveryActions.some((action) => action.id === "reinstall-engine"), true);
 });

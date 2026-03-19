@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import { Activity, ArrowRight, Brain, CheckCircle2, Shield, Sparkles, Users } from "lucide-react";
 import { Link } from "react-router-dom";
+import type { ModelConfigOverview, ProductOverview } from "@slackclaw/contracts";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
+import { fetchModelConfig } from "../../shared/api/client.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -19,14 +22,40 @@ function toneColor(tone: string) {
   return "#4f46e5";
 }
 
+export function connectedModelCount(modelConfig: ModelConfigOverview | undefined): number {
+  return modelConfig?.configuredModelKeys.length ?? 0;
+}
+
+export function connectedModelDetail(
+  overview: ProductOverview | undefined,
+  modelConfig: ModelConfigOverview | undefined
+): string {
+  if (!overview?.engine.installed) {
+    return "OpenClaw is not installed.";
+  }
+
+  if (modelConfig?.defaultModel) {
+    return modelConfig.defaultModel;
+  }
+
+  return "No configured models";
+}
+
 export default function DashboardPage() {
   const { locale } = useLocale();
   const copy = t(locale).dashboard;
   const { overview } = useOverview();
   const { overview: aiTeam } = useAITeam();
+  const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
   const readyCount = aiTeam?.members.filter((member) => member.status === "ready").length ?? 0;
   const busyCount = aiTeam?.members.filter((member) => member.status === "busy").length ?? 0;
   const channelReady = overview?.channelSetup.channels.filter((channel) => channel.status === "completed" || channel.status === "ready").length ?? 0;
+
+  useEffect(() => {
+    void fetchModelConfig()
+      .then((next) => setModelConfig(next))
+      .catch(() => setModelConfig(undefined));
+  }, []);
 
   return (
     <div className="panel-stack">
@@ -71,7 +100,11 @@ export default function DashboardPage() {
 
       <div className="grid--metrics">
         <MetricCard detail={overview?.engine.summary} label="Engine" value={overview?.engine.installed ? "Installed" : "Missing"} />
-        <MetricCard detail={overview?.installSpec.desiredVersion} label="Connected Models" value={overview?.installChecks.length ?? 0} />
+        <MetricCard
+          detail={connectedModelDetail(overview, modelConfig)}
+          label="Connected Models"
+          value={connectedModelCount(modelConfig)}
+        />
         <MetricCard detail={`${readyCount} ready / ${busyCount} busy`} label="AI Members" value={aiTeam?.members.length ?? 0} />
         <MetricCard detail="In Progress" label="Active Tasks" value={aiTeam?.members.reduce((total, member) => total + member.activeTaskCount, 0) ?? 0} />
         <MetricCard detail={overview?.channelSetup.gatewaySummary} label="Channels Ready" value={channelReady} />

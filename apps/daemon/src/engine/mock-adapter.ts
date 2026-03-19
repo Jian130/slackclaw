@@ -312,12 +312,38 @@ export class MockAdapter implements EngineAdapter {
     };
   }
 
+  async installDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
+    this.installed = true;
+    return {
+      targetId,
+      status: "completed",
+      message:
+        targetId === "standard"
+          ? "Mock standard OpenClaw runtime is deployed."
+          : "Mock managed local OpenClaw runtime is deployed.",
+      engineStatus: await this.status()
+    };
+  }
+
   async uninstall(): Promise<EngineActionResponse> {
     this.installed = false;
     return {
       action: "uninstall-engine",
       status: "completed",
       message: "Mock OpenClaw runtime was removed.",
+      engineStatus: await this.status()
+    };
+  }
+
+  async uninstallDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
+    this.installed = false;
+    return {
+      targetId,
+      status: "completed",
+      message:
+        targetId === "standard"
+          ? "Mock standard OpenClaw runtime was removed."
+          : "Mock managed local OpenClaw runtime was removed.",
       engineStatus: await this.status()
     };
   }

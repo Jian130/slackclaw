@@ -89,6 +89,18 @@
   font-weight: 500;
 }
 
+.sidebar-language {
+  margin: 0 16px 16px;
+}
+
+.sidebar-language .language-selector {
+  width: 100%;
+}
+
+.sidebar-language .language-selector select {
+  width: 100%;
+}
+
 .app-main {
   min-width: 0;
   margin-left: 256px;

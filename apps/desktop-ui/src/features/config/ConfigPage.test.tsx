@@ -2,17 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { ModelConfigOverview, ModelProviderConfig } from "@slackclaw/contracts";
 
 import {
+  activeSavedModelEntries,
   applyModelEntryRole,
   channelIcon,
   channelStatusTone,
+  defaultModelEntryRole,
   entryAuthLabel,
   feishuDirectLinks,
   feishuGuideSteps,
+  inactiveSavedModelEntries,
+  MODEL_KEY_CUSTOM_OPTION,
+  modelSelectValue,
   modelOptions,
   providerActiveModel,
   providerConfiguredModels,
   providerIcon,
   runtimeConfiguredModels,
+  showInactiveSavedEntries,
   resolveModelEntryRole,
   validateModelEntryDraft
 } from "./ConfigPage.js";
@@ -112,6 +118,97 @@ describe("ConfigPage helpers", () => {
         configuredModelKeys: ["openai/gpt-4o-mini", "openai/gpt-5", "openai/gpt-4.1"]
       }).map((model) => model.key)
     ).toEqual(["openai/gpt-5", "openai/gpt-4.1", "openai/gpt-4o-mini"]);
+  });
+
+  it("splits saved model entries into active runtime entries and inactive saved entries", () => {
+    const runtimeModels = runtimeConfiguredModels({
+      ...modelConfig,
+      models: [
+        {
+          key: "anthropic/claude-opus-4-6",
+          name: "Claude Opus 4.6",
+          input: "text+image",
+          contextWindow: 977000,
+          local: false,
+          available: true,
+          tags: ["default", "configured"],
+          missing: false
+        }
+      ],
+      defaultModel: "anthropic/claude-opus-4-6",
+      configuredModelKeys: ["anthropic/claude-opus-4-6"]
+    });
+    const savedEntries = [
+      {
+        id: "saved-openai",
+        label: "OpenAI GPT-5",
+        providerId: "openai",
+        modelKey: "openai/gpt-5",
+        agentId: "main",
+        isDefault: false,
+        isFallback: false,
+        createdAt: "2026-03-18T00:00:00.000Z",
+        updatedAt: "2026-03-18T00:00:00.000Z"
+      },
+      {
+        id: "saved-anthropic",
+        label: "Claude Opus 4.6",
+        providerId: "anthropic",
+        modelKey: "anthropic/claude-opus-4-6",
+        agentId: "main",
+        isDefault: true,
+        isFallback: false,
+        createdAt: "2026-03-18T00:00:00.000Z",
+        updatedAt: "2026-03-18T00:00:00.000Z"
+      }
+    ];
+
+    expect(activeSavedModelEntries(savedEntries, runtimeModels).map((entry) => entry.id)).toEqual(["saved-anthropic"]);
+    expect(inactiveSavedModelEntries(savedEntries, runtimeModels).map((entry) => entry.id)).toEqual(["saved-openai"]);
+  });
+
+  it("hides inactive saved entries from the main models view when live runtime models already exist", () => {
+    expect(showInactiveSavedEntries(1, 1)).toBe(false);
+    expect(showInactiveSavedEntries(1, 0)).toBe(false);
+    expect(showInactiveSavedEntries(0, 1)).toBe(true);
+  });
+
+  it("falls back to provider sample models when the runtime has none for that provider", () => {
+    const anthropicProvider: ModelProviderConfig = {
+      ...provider,
+      id: "anthropic",
+      label: "Anthropic",
+      providerRefs: ["anthropic/"],
+      sampleModels: ["anthropic/claude-opus-4-6"]
+    };
+
+    expect(modelOptions(modelConfig, anthropicProvider).map((model) => model.key)).toEqual(["anthropic/claude-opus-4-6"]);
+  });
+
+  it("uses a real select value for known model keys and falls back to custom for unknown keys", () => {
+    const models = modelOptions(modelConfig, provider);
+
+    expect(modelSelectValue(models, "openai/gpt-5")).toBe("openai/gpt-5");
+    expect(modelSelectValue(models, "openai/custom-preview-model")).toBe(MODEL_KEY_CUSTOM_OPTION);
+  });
+
+  it("defaults the first saved entry to default and later entries to normal", () => {
+    expect(defaultModelEntryRole([])).toBe("default");
+    expect(
+      defaultModelEntryRole([
+        {
+          id: "saved-openai",
+          label: "OpenAI GPT-5",
+          providerId: "openai",
+          modelKey: "openai/gpt-5",
+          agentId: "main",
+          isDefault: true,
+          isFallback: false,
+          createdAt: "2026-03-18T00:00:00.000Z",
+          updatedAt: "2026-03-18T00:00:00.000Z"
+        }
+      ])
+    ).toBe("normal");
   });
 
   it("uses stable provider glyphs for known providers", () => {

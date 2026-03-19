@@ -1,5 +1,5 @@
-import { Copy, ExternalLink, KeyRound, Link2, MessageCircle, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Copy, ExternalLink, Link2, MessageCircle, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ChannelConfigOverview,
   ConfiguredChannelEntry,
@@ -10,7 +10,6 @@ import type {
 } from "@slackclaw/contracts";
 
 import {
-  completeOnboarding,
   createChannelEntry,
   createSavedModelEntry,
   fetchChannelConfig,
@@ -25,7 +24,6 @@ import {
   submitModelAuthSessionInput
 } from "../../shared/api/client.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
-import { useOverview } from "../../app/providers/OverviewProvider.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -121,9 +119,24 @@ export function channelIcon(channelId: string) {
 
 export function modelOptions(modelConfig: ModelConfigOverview | undefined, provider: ModelProviderConfig | undefined) {
   if (!modelConfig || !provider) return [];
-  return modelConfig.models.filter((model) =>
+  const providerModels = modelConfig.models.filter((model) =>
     provider.providerRefs.some((ref) => model.key.startsWith(`${ref.replace(/\/$/, "")}/`))
   );
+
+  if (providerModels.length > 0) {
+    return providerModels;
+  }
+
+  return provider.sampleModels.map((modelKey) => ({
+    key: modelKey,
+    name: modelKey.split("/").pop() ?? modelKey,
+    input: "text",
+    contextWindow: 0,
+    local: false,
+    available: false,
+    tags: [],
+    missing: false
+  }));
 }
 
 function modelKeyPlaceholder(provider: ModelProviderConfig | undefined) {
@@ -178,7 +191,39 @@ export function runtimeConfiguredModels(modelConfig: ModelConfigOverview | undef
     });
 }
 
+export function activeSavedModelEntries(
+  savedEntries: SavedModelEntry[],
+  runtimeModels: Array<{ key: string }>
+) {
+  const runtimeKeys = new Set(runtimeModels.map((model) => model.key));
+  return savedEntries.filter((entry) => runtimeKeys.has(entry.modelKey));
+}
+
+export function inactiveSavedModelEntries(
+  savedEntries: SavedModelEntry[],
+  runtimeModels: Array<{ key: string }>
+) {
+  const runtimeKeys = new Set(runtimeModels.map((model) => model.key));
+  return savedEntries.filter((entry) => !runtimeKeys.has(entry.modelKey));
+}
+
+export function showInactiveSavedEntries(runtimeModelCount: number, inactiveEntryCount: number) {
+  return runtimeModelCount === 0 && inactiveEntryCount > 0;
+}
+
 export const providerIcon = providerFallbackGlyph;
+export const MODEL_KEY_CUSTOM_OPTION = "__custom_model_key__";
+
+export function modelSelectValue(
+  models: Array<{ key: string }>,
+  modelKey: string
+) {
+  if (!modelKey) {
+    return models[0]?.key ?? MODEL_KEY_CUSTOM_OPTION;
+  }
+
+  return models.some((item) => item.key === modelKey) ? modelKey : MODEL_KEY_CUSTOM_OPTION;
+}
 
 export function entryAuthLabel(entry: Pick<SavedModelEntry, "authModeLabel" | "authMethodId">): string | undefined {
   if (entry.authModeLabel) {
@@ -215,6 +260,14 @@ export function applyModelEntryRole(role: ModelEntryRole): { makeDefault: boolea
     makeDefault: role === "default",
     useAsFallback: role === "fallback"
   };
+}
+
+export function defaultModelEntryRole(savedEntries: SavedModelEntry[], initialEntry?: SavedModelEntry): ModelEntryRole {
+  if (initialEntry) {
+    return resolveModelEntryRole(Boolean(initialEntry.isDefault), Boolean(initialEntry.isFallback));
+  }
+
+  return savedEntries.length === 0 ? "default" : "normal";
 }
 
 export function validateModelEntryDraft(
@@ -279,9 +332,14 @@ function ModelDialog(props: {
   const provider = props.modelConfig?.providers.find((item) => item.id === providerId);
   const method = provider?.authMethods.find((item) => item.id === methodId);
   const models = modelOptions(props.modelConfig, provider);
+  const selectedModelValue = modelSelectValue(models, modelKey);
+  const showCustomModelInput = models.length === 0 || selectedModelValue === MODEL_KEY_CUSTOM_OPTION;
   const isEdit = Boolean(props.initialEntry);
-  const selectedRole = resolveModelEntryRole(makeDefault, useAsFallback);
-  const validationError = validateModelEntryDraft(method, values, selectedRole);
+  const savedEntries = useMemo(
+    () => (props.modelConfig?.savedEntries ?? []).filter((entry) => !entry.id.startsWith("runtime:")),
+    [props.modelConfig?.savedEntries]
+  );
+  const validationError = validateModelEntryDraft(method, values, resolveModelEntryRole(makeDefault, useAsFallback));
 
   useEffect(() => {
     if (!props.open) {
@@ -295,9 +353,11 @@ function ModelDialog(props: {
     setValues({});
     setSession(undefined);
     setSessionInput("");
-    setMakeDefault(Boolean(props.initialEntry?.isDefault));
-    setUseAsFallback(Boolean(props.initialEntry?.isFallback));
-  }, [props.initialEntry, props.open]);
+    const nextRole = defaultModelEntryRole(savedEntries, props.initialEntry);
+    const nextFlags = applyModelEntryRole(nextRole);
+    setMakeDefault(nextFlags.makeDefault);
+    setUseAsFallback(nextFlags.useAsFallback);
+  }, [props.initialEntry, props.open, savedEntries]);
 
   useEffect(() => {
     if (!props.open || !provider) {
@@ -322,9 +382,6 @@ function ModelDialog(props: {
     const timer = window.setInterval(async () => {
       const nextSession = await fetchModelAuthSession(session.id);
       setSession(nextSession.session);
-      if (nextSession.session.launchUrl) {
-        window.open(nextSession.session.launchUrl, "_blank", "noopener,noreferrer");
-      }
 
       if (nextSession.session.status === "completed") {
         await props.reloadModelConfig();
@@ -359,9 +416,6 @@ function ModelDialog(props: {
 
       props.onModelConfigChange(result.modelConfig);
       setSession(result.authSession);
-      if (result.authSession?.launchUrl) {
-        window.open(result.authSession.launchUrl, "_blank", "noopener,noreferrer");
-      }
 
       if (!result.authSession && result.status === "completed") {
         props.onClose();
@@ -441,22 +495,39 @@ function ModelDialog(props: {
               <Input id="entry-label" onChange={(event) => setLabel(event.target.value)} placeholder={`${provider.label} ${modelKey.split("/").pop() ?? "model"}`} value={label} />
             </div>
             <div>
-              <FieldLabel htmlFor="model-key">Model</FieldLabel>
-              <Input
-                id="model-key"
-                list={models.length ? "model-key-options" : undefined}
-                onChange={(event) => setModelKey(event.target.value)}
-                placeholder={modelKeyPlaceholder(provider)}
-                value={modelKey}
-              />
+              <FieldLabel htmlFor="model-key-select">Model</FieldLabel>
               {models.length ? (
-                <datalist id="model-key-options">
+                <Select
+                  id="model-key-select"
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    if (nextValue === MODEL_KEY_CUSTOM_OPTION) {
+                      setModelKey((current) => (models.some((item) => item.key === current) ? "" : current));
+                      return;
+                    }
+
+                    setModelKey(nextValue);
+                  }}
+                  value={selectedModelValue}
+                >
                   {models.map((item) => (
                     <option key={item.key} value={item.key}>
-                      {item.name}
+                      {item.name} ({item.key})
                     </option>
                   ))}
-                </datalist>
+                  <option value={MODEL_KEY_CUSTOM_OPTION}>Custom model key…</option>
+                </Select>
+              ) : null}
+              {showCustomModelInput ? (
+                <div style={{ marginTop: models.length ? 12 : 0 }}>
+                  <FieldLabel htmlFor="model-key">Custom model key</FieldLabel>
+                  <Input
+                    id="model-key"
+                    onChange={(event) => setModelKey(event.target.value)}
+                    placeholder={modelKeyPlaceholder(provider)}
+                    value={modelKey}
+                  />
+                </div>
               ) : null}
             </div>
             <div style={{ gridColumn: "1 / -1" }}>
@@ -518,50 +589,6 @@ function ModelDialog(props: {
               </CardContent>
             </Card>
           ) : null}
-
-          <Card>
-            <CardContent className="panel-stack">
-              <strong>Roles</strong>
-              <div className="model-role-grid">
-                <button
-                  className={`model-role-toggle${selectedRole === "normal" ? " model-role-toggle--active" : ""}`}
-                  onClick={() => {
-                    const next = applyModelEntryRole("normal");
-                    setMakeDefault(next.makeDefault);
-                    setUseAsFallback(next.useAsFallback);
-                  }}
-                  type="button"
-                >
-                  <span>Normal</span>
-                  <small>Saved for later, but not active in runtime routing.</small>
-                </button>
-                <button
-                  className={`model-role-toggle${selectedRole === "default" ? " model-role-toggle--active" : ""}`}
-                  onClick={() => {
-                    const next = applyModelEntryRole("default");
-                    setMakeDefault(next.makeDefault);
-                    setUseAsFallback(next.useAsFallback);
-                  }}
-                  type="button"
-                >
-                  <span>Default model</span>
-                  <small>SlackClaw runs tasks with this entry.</small>
-                </button>
-                <button
-                  className={`model-role-toggle${selectedRole === "fallback" ? " model-role-toggle--active" : ""}`}
-                  onClick={() => {
-                    const next = applyModelEntryRole("fallback");
-                    setMakeDefault(next.makeDefault);
-                    setUseAsFallback(next.useAsFallback);
-                  }}
-                  type="button"
-                >
-                  <span>Fallback model</span>
-                  <small>Used when the active default needs a backup.</small>
-                </button>
-              </div>
-            </CardContent>
-          </Card>
 
           <div className="actions-row" style={{ justifyContent: "space-between" }}>
             <div className="actions-row">
@@ -866,7 +893,6 @@ function ChannelDialog(props: {
 export default function ConfigPage() {
   const { locale } = useLocale();
   const copy = t(locale).config;
-  const { overview, setOverview } = useOverview();
   const [activeTab, setActiveTab] = useState<"models" | "channels">("models");
   const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
   const [channelConfig, setChannelConfig] = useState<ChannelConfigOverview>();
@@ -879,8 +905,6 @@ export default function ConfigPage() {
   const [selectedChannelEntry, setSelectedChannelEntry] = useState<ConfiguredChannelEntry>();
   const [channelMessage, setChannelMessage] = useState("");
   const [busy, setBusy] = useState("");
-
-  const channelsLocked = !(channelConfig?.baseOnboardingCompleted ?? overview?.channelSetup.baseOnboardingCompleted);
 
   useEffect(() => {
     void reloadModelConfig();
@@ -940,21 +964,6 @@ export default function ConfigPage() {
     setSelectedChannelEntry(entry);
     setSelectedChannelId(entry.channelId);
     setChannelDialogOpen(true);
-  }
-
-  async function handleCompleteOnboarding() {
-    if (!overview) return;
-    setBusy("onboarding");
-    try {
-      const profileId = overview.firstRun.selectedProfileId ?? overview.profiles[0]?.id;
-      if (!profileId) return;
-      const next = await completeOnboarding({ profileId });
-      setOverview(next);
-      setChannelConfig(undefined);
-      await reloadChannelConfig({ fresh: true });
-    } finally {
-      setBusy("");
-    }
   }
 
   async function handleRemoveChannel(entry: ConfiguredChannelEntry) {
@@ -1031,7 +1040,10 @@ export default function ConfigPage() {
   const savedEntries = (modelConfig?.savedEntries ?? []).filter((entry) => !entry.id.startsWith("runtime:"));
   const runtimeModels = runtimeConfiguredModels(modelConfig);
   const runtimeModelsByKey = new Map(runtimeModels.map((model) => [model.key, model]));
-  const runtimeOnlyModels = runtimeModels.filter((model) => !savedEntries.some((entry) => entry.modelKey === model.key));
+  const runtimeManagedEntries = activeSavedModelEntries(savedEntries, runtimeModels);
+  const inactiveEntries = inactiveSavedModelEntries(savedEntries, runtimeModels);
+  const runtimeOnlyModels = runtimeModels.filter((model) => !runtimeManagedEntries.some((entry) => entry.modelKey === model.key));
+  const showSavedEntriesSection = showInactiveSavedEntries(runtimeModels.length, inactiveEntries.length);
   const configuredChannels = channelConfig?.entries ?? [];
   const modelBusy = busy.startsWith("models:");
 
@@ -1070,8 +1082,27 @@ export default function ConfigPage() {
           {!modelsLoading && modelConfig ? (
             <>
           <InfoBanner icon={<Sparkles size={22} />} title={copy.modelsInfoTitle} description={copy.modelsInfoBody} />
+          <Card>
+            <CardContent className="actions-row" style={{ justifyContent: "space-between" }}>
+              <div>
+                <strong>Current model configuration</strong>
+                <p className="card__description">
+                  {"SlackClaw manages saved model entries and shows the live OpenClaw runtime model chain."}
+                </p>
+              </div>
+              <Button
+                onClick={() => {
+                  setSelectedModelEntry(undefined);
+                  setModelDialogOpen(true);
+                }}
+              >
+                <Plus size={14} />
+                {copy.addModel}
+              </Button>
+            </CardContent>
+          </Card>
 
-          {savedEntries.length ? (
+          {runtimeManagedEntries.length ? (
             <Card>
               <CardContent className="panel-stack">
                 <div>
@@ -1079,10 +1110,10 @@ export default function ConfigPage() {
                   <p className="card__description">{copy.runtimeModelsBody}</p>
                 </div>
                 <div className="panel-stack">
-                  {savedEntries.map((entry) => {
+                  {runtimeManagedEntries.map((entry) => {
                     const provider = modelConfig?.providers.find((item) => item.id === entry.providerId);
                     const authLabel = entryAuthLabel(entry);
-                    const duplicateActiveEntry = savedEntries.find(
+                    const duplicateActiveEntry = runtimeManagedEntries.find(
                       (item) => item.id !== entry.id && item.modelKey === entry.modelKey && (item.isDefault || item.isFallback)
                     );
                     const runtimeModel = runtimeModelsByKey.get(entry.modelKey);
@@ -1208,43 +1239,69 @@ export default function ConfigPage() {
             </Card>
           ) : null}
 
-          {!savedEntries.length && !runtimeOnlyModels.length ? (
+          {showSavedEntriesSection ? (
+            <Card>
+              <CardContent className="panel-stack">
+                <div>
+                  <strong>{copy.savedEntriesTitle}</strong>
+                  <p className="card__description">{copy.savedEntriesBody}</p>
+                </div>
+                <div className="panel-stack">
+                  {inactiveEntries.map((entry) => {
+                    const provider = modelConfig?.providers.find((item) => item.id === entry.providerId);
+                    const authLabel = entryAuthLabel(entry);
+
+                    return (
+                      <div className="configured-model-card" key={entry.id}>
+                        <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
+                          <div className="actions-row">
+                            <ProviderLogo label={provider?.label ?? entry.providerId} providerId={entry.providerId} />
+                            <div className="provider-details">
+                              <strong>{entry.label}</strong>
+                              <span className="card__description">{provider?.label ?? entry.providerId}</span>
+                              <div className="actions-row">
+                                <Badge tone="info">{entry.modelKey}</Badge>
+                                {authLabel ? <Badge tone="neutral">{authLabel}</Badge> : null}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="actions-row">
+                            <Button
+                              onClick={() => {
+                                setSelectedModelEntry(entry);
+                                setModelDialogOpen(true);
+                              }}
+                              variant="outline"
+                            >
+                              Edit
+                            </Button>
+                            <Button disabled={modelBusy && busy !== `models:remove:${entry.id}`} loading={busy === `models:remove:${entry.id}`} onClick={() => void handleRemoveModelEntry(entry)} variant="outline">
+                              <Trash2 size={14} />
+                              {busy === `models:remove:${entry.id}` ? "Removing..." : "Remove"}
+                            </Button>
+                            {provider?.docsUrl ? (
+                              <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="outline">
+                                <ExternalLink size={14} />
+                                {copy.docs}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {!runtimeManagedEntries.length && !runtimeOnlyModels.length && !inactiveEntries.length ? (
             <EmptyState
               title={copy.modelsEmptyTitle}
               description={copy.modelsEmptyBody}
             />
           ) : null}
 
-          <Card>
-            <CardContent className="actions-row" style={{ justifyContent: "center" }}>
-              <Button
-                onClick={() => {
-                  setSelectedModelEntry(undefined);
-                  setModelDialogOpen(true);
-                }}
-                variant="outline"
-              >
-                <KeyRound size={14} />
-                {copy.addModel}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="actions-row" style={{ justifyContent: "space-between" }}>
-              <div>
-                <strong>{overview?.channelSetup.baseOnboardingCompleted ? copy.onboardingDone : "Unlock channels"}</strong>
-                <p className="card__description">
-                  {overview?.channelSetup.baseOnboardingCompleted
-                    ? "Channels are unlocked. Continue with Telegram, WhatsApp, Feishu, and WeChat."
-                    : "Complete OpenClaw onboarding after models are configured to unlock channels."}
-                </p>
-              </div>
-              <Button loading={busy === "onboarding"} onClick={handleCompleteOnboarding}>
-                {busy === "onboarding" ? "Saving..." : copy.completeOnboarding}
-              </Button>
-            </CardContent>
-          </Card>
             </>
           ) : null}
         </TabsContent>
@@ -1257,9 +1314,6 @@ export default function ConfigPage() {
           {!channelsLoading && channelConfig ? (
             <>
           <InfoBanner icon={<MessageCircle size={22} />} title={copy.channelsInfoTitle} description={copy.channelsInfoBody} />
-          {channelsLocked ? (
-            <InfoBanner accent="orange" title={copy.completeOnboardingFirst} description="SlackClaw only unlocks channels after OpenClaw onboarding succeeds." />
-          ) : null}
           <Card>
             <CardContent className="actions-row" style={{ justifyContent: "space-between" }}>
               <div>
@@ -1268,10 +1322,7 @@ export default function ConfigPage() {
                   {channelMessage || channelConfig?.gatewaySummary || "SlackClaw manages configured channels through the installed OpenClaw runtime."}
                 </p>
               </div>
-              <Button
-                disabled={channelsLocked}
-                onClick={openAddChannelDialog}
-              >
+              <Button onClick={openAddChannelDialog}>
                 <Plus size={14} />
                 Add Channel
               </Button>

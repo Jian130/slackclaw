@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node ./scripts/start-dev.mjs",
     "stop": "node ./scripts/stop-dev.mjs",
+    "restart": "npm stop && npm start",
     "build": "npm run build --workspace @slackclaw/contracts && npm run build --workspace @slackclaw/daemon && npm run build --workspace @slackclaw/desktop-ui",
     "test": "npm run test --workspace @slackclaw/contracts && npm run test --workspace @slackclaw/daemon && npm run test --workspace @slackclaw/desktop-ui",
     "test:engine-compat": "node --import tsx ./scripts/test-engine-compatibility.ts",
