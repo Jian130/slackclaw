@@ -25,7 +25,8 @@ This file captures the important operating rules for agents working in this repo
 
 ## OpenClaw integration rules
 
-- SlackClaw currently targets pinned OpenClaw version `2026.3.7`.
+- SlackClaw installs the latest available OpenClaw version by default for users.
+- Only use an explicit OpenClaw version override for compatibility testing or controlled diagnostics.
 - Always check for an existing compatible OpenClaw install before reinstalling.
 - Reuse an existing compatible install when possible.
 - If OpenClaw is missing or incompatible, use SlackClaw’s bootstrap/install path rather than inventing a second installer path.
@@ -84,6 +85,7 @@ This file captures the important operating rules for agents working in this repo
 - If changing local startup behavior, verify `npm start` still waits for the daemon and UI before reporting readiness.
 - If changing local startup behavior, preserve clear step-by-step console output so `npm start` shows exactly what it is doing and what it is waiting for.
 - If changing local startup or teardown behavior, verify `npm stop` removes the managed dev processes and clears `.data/dev-processes.json`.
+- In development mode, external commands SlackClaw executes must be echoed to the console before they run so install, update, repair, and bootstrap behavior stays observable.
 - Prefer validating real OpenClaw status/health behavior through the adapter when possible.
 
 ## When making changes

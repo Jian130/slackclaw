@@ -11,7 +11,7 @@ import {
   getLaunchAgentPlistPath,
   getScriptsDir
 } from "../runtime-paths.js";
-import { writeErrorLog } from "./logger.js";
+import { logDevelopmentCommand, writeErrorLog } from "./logger.js";
 
 interface CommandResult {
   code: number;
@@ -30,6 +30,7 @@ async function fileExists(pathname: string): Promise<boolean> {
 
 async function run(command: string, args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
+    logDevelopmentCommand("service", command, args);
     const child = spawn(command, args, {
       env: {
         ...process.env,

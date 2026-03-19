@@ -94,6 +94,26 @@ test("mock adapter supports generic channel save and remove flows", async () => 
   assert.equal((await adapter.getChannelState("telegram")).status, "not-started");
 });
 
+test("mock adapter supports target-specific uninstall flows", async () => {
+  const adapter = new MockAdapter();
+
+  const removed = await adapter.uninstallDeploymentTarget("standard");
+
+  assert.equal(removed.targetId, "standard");
+  assert.equal(removed.status, "completed");
+  assert.equal(removed.engineStatus.installed, false);
+});
+
+test("mock adapter supports target-specific install flows", async () => {
+  const adapter = new MockAdapter();
+
+  const installed = await adapter.installDeploymentTarget("managed-local");
+
+  assert.equal(installed.targetId, "managed-local");
+  assert.equal(installed.status, "completed");
+  assert.equal(installed.engineStatus.installed, true);
+});
+
 test("mock adapter supports skills runtime and marketplace flows", async () => {
   const adapter = new MockAdapter();
 

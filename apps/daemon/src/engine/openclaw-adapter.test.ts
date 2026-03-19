@@ -8,6 +8,7 @@ import type { ModelCatalogEntry } from "@slackclaw/contracts";
 import {
   OpenClawAdapter,
   buildGatewaySocketConnectParams,
+  isGlobalNpmManagedOpenClawCommand,
   isVisibleAIMemberAgentId,
   parseClawHubExploreOutput,
   parseClawHubSearchOutput,
@@ -160,6 +161,36 @@ test("AI member detection includes every real OpenClaw agent id", () => {
   assert.equal(isVisibleAIMemberAgentId(""), false);
 });
 
+test("npm-managed OpenClaw detection only matches the expected global npm command path", () => {
+  assert.equal(
+    isGlobalNpmManagedOpenClawCommand(
+      "/opt/homebrew/bin/openclaw",
+      "/opt/homebrew",
+      "/opt/homebrew/lib/node_modules",
+      true
+    ),
+    true
+  );
+  assert.equal(
+    isGlobalNpmManagedOpenClawCommand(
+      "/usr/local/bin/openclaw",
+      "/opt/homebrew",
+      "/opt/homebrew/lib/node_modules",
+      true
+    ),
+    false
+  );
+  assert.equal(
+    isGlobalNpmManagedOpenClawCommand(
+      "/opt/homebrew/bin/openclaw",
+      "/opt/homebrew",
+      "/opt/homebrew/lib/node_modules",
+      false
+    ),
+    false
+  );
+});
+
 test("AI member discovery tolerates mixed plugin logs and preserves runtime metadata", async () => {
   await withFakeOpenClaw(async ({ adapter }) => {
     const members = await adapter.listAIMemberRuntimeCandidates();
@@ -256,21 +287,34 @@ test("summarizeTargetUpdateStatus prefers registry latest version when update lo
   assert.match(status.summary, /2026\.3\.12/);
 });
 
+let fakeOpenClawLock: Promise<void> = Promise.resolve();
+
 async function withFakeOpenClaw(
-  fn: (context: { adapter: OpenClawAdapter; logPath: string }) => Promise<void>,
+  fn: (context: { adapter: OpenClawAdapter; logPath: string; configPath: string }) => Promise<void>,
   options?: {
     updateNoChange?: boolean;
     updatePackageManager?: "npm" | "pnpm" | "bun";
     chatHistoryPayload?: string;
     agentsListJsonOnStderr?: boolean;
     cleanModelRuntime?: boolean;
+    failTelegramChannelsAdd?: boolean;
+    failFeishuConfigSet?: boolean;
+    failWechatConfigSet?: boolean;
   }
 ): Promise<void> {
+  const previousLock = fakeOpenClawLock;
+  let releaseLock = () => {};
+  fakeOpenClawLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await previousLock;
+
   const tempDir = await mkdtemp(resolve(process.cwd(), "apps/daemon/.data/openclaw-cache-test-"));
   const logPath = join(tempDir, "openclaw.log");
   const configPath = join(tempDir, "openclaw.json");
   const versionPath = join(tempDir, "version.txt");
   const updateMarkerPath = join(tempDir, "update-marker.txt");
+  const agentDirPath = join(tempDir, "main-agent");
   const dataDir = join(tempDir, "data");
   const binaryPath = join(dataDir, "openclaw-runtime", "node_modules", ".bin", "openclaw");
   const originalPath = process.env.PATH;
@@ -282,12 +326,16 @@ async function withFakeOpenClaw(
   const updatePackageManager = options?.updatePackageManager ?? "npm";
   const agentsListJsonOnStderr = options?.agentsListJsonOnStderr === true;
   const cleanModelRuntime = options?.cleanModelRuntime === true;
+  const failTelegramChannelsAdd = options?.failTelegramChannelsAdd === true;
+  const failFeishuConfigSet = options?.failFeishuConfigSet === true;
+  const failWechatConfigSet = options?.failWechatConfigSet === true;
   const chatHistoryPayload =
     options?.chatHistoryPayload ??
     '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
 
   await writeFile(configPath, JSON.stringify({}));
   await writeFile(versionPath, "2026.3.7\n");
+  await mkdir(agentDirPath, { recursive: true });
   await mkdir(join(dataDir, "openclaw-runtime", "node_modules", ".bin"), { recursive: true });
   await writeFile(
     binaryPath,
@@ -323,14 +371,29 @@ elif [ "$1" = "models" ] && [ "$2" = "list" ] && [ "$3" = "--all" ] && [ "$4" = 
   echo '{"models":[{"key":"openai/gpt-5","name":"GPT-5","input":"text","contextWindow":400000,"local":false,"available":true,"tags":["default","configured"],"missing":false},{"key":"anthropic/claude-sonnet-4-6","name":"Claude Sonnet 4.6","input":"text+image","contextWindow":200000,"local":false,"available":true,"tags":["fallback#1","configured"],"missing":false},{"key":"google/gemini-2.5-pro","name":"Gemini 2.5 Pro","input":"text+image","contextWindow":1000000,"local":false,"available":true,"tags":[],"missing":false}]}'
 elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   if [ "${cleanModelRuntime ? "1" : "0"}" = "1" ]; then
-    echo '{"configPath":${JSON.stringify(configPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
+    echo '{"configPath":${JSON.stringify(configPath)},"agentDir":${JSON.stringify(agentDirPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
   else
-    echo '{"configPath":${JSON.stringify(configPath)},"defaultModel":"openai/gpt-5","resolvedDefault":"openai/gpt-5","fallbacks":["anthropic/claude-sonnet-4-6"],"auth":{"providers":[],"oauth":{"providers":[]}}}'
+    echo '{"configPath":${JSON.stringify(configPath)},"agentDir":${JSON.stringify(agentDirPath)},"defaultModel":"openai/gpt-5","resolvedDefault":"openai/gpt-5","fallbacks":["anthropic/claude-sonnet-4-6"],"auth":{"providers":[],"oauth":{"providers":[]}}}'
   fi
+elif [ "$1" = "models" ] && [ "$2" = "auth" ] && [ "$3" = "login" ] && [ "$4" = "--provider" ] && [ "$5" = "openai-codex" ]; then
+  cat > ${JSON.stringify(join(agentDirPath, "auth-profiles.json"))} <<'EOF'
+{"version":1,"profiles":{"openai-codex:slackclaw":{"provider":"openai-codex","type":"oauth","label":"OpenAI Codex OAuth"}},"usageStats":{},"order":{"openai-codex":["openai-codex:slackclaw"]},"lastGood":{"openai-codex":"openai-codex:slackclaw"}}
+EOF
+  echo 'Open this URL to continue sign-in: https://auth.openai.example/authorize'
+  sleep 0.1
 elif [ "$1" = "channels" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   echo '{"chat":{"telegram":["default"]}}'
 elif [ "$1" = "channels" ] && [ "$2" = "status" ] && [ "$3" = "--json" ] && [ "$4" = "--probe" ]; then
   echo '{"channels":{"telegram":{"configured":true,"running":true,"linked":true}},"channelAccounts":{"telegram":[{"accountId":"default","configured":true,"linked":true,"probe":{"bot":{"username":"support_bot"}}}]}}'
+elif [ "$1" = "channels" ] && [ "$2" = "add" ] && [ "$3" = "--channel" ] && [ "$4" = "telegram" ] && [ "${failTelegramChannelsAdd ? "1" : "0"}" = "1" ]; then
+  >&2 echo 'Unknown channel: telegram'
+  exit 1
+elif [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "--strict-json" ] && [ "$4" = "channels.feishu" ] && [ "${failFeishuConfigSet ? "1" : "0"}" = "1" ]; then
+  >&2 echo 'unknown option --strict-json'
+  exit 1
+elif [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "--strict-json" ] && [ "$4" = "channels.wecom-app" ] && [ "${failWechatConfigSet ? "1" : "0"}" = "1" ]; then
+  >&2 echo 'unknown option --strict-json'
+  exit 1
 elif [ "$1" = "skills" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   echo '{"workspaceDir":"/tmp/skills","managedSkillsDir":"/tmp/skills","skills":[]}'
 elif [ "$1" = "skills" ] && [ "$2" = "check" ]; then
@@ -372,7 +435,7 @@ fi
   adapter.invalidateReadCaches();
 
   try {
-    await fn({ adapter, logPath });
+    await fn({ adapter, logPath, configPath });
   } finally {
     adapter.invalidateReadCaches();
     if (originalPath === undefined) {
@@ -401,6 +464,7 @@ fi
       process.env.OPENCLAW_TEST_UPDATE_MARKER = originalUpdateMarkerPath;
     }
     await rm(tempDir, { recursive: true, force: true });
+    releaseLock();
   }
 }
 
@@ -413,17 +477,18 @@ function countCommands(commands: string[], needle: string): number {
   return commands.filter((command) => command === needle).length;
 }
 
-test("OpenClaw model config uses the configured model list and one status read per refresh cycle", async () => {
+test("OpenClaw model config uses the full provider catalog and one status read per refresh cycle", async () => {
   await withFakeOpenClaw(async ({ adapter, logPath }) => {
     const config = await adapter.getModelConfig();
     const commands = await readCommands(logPath);
 
     assert.equal(countCommands(commands, "models list --json"), 1);
     assert.equal(countCommands(commands, "models status --json"), 1);
-    assert.equal(countCommands(commands, "models list --all --json"), 0);
+    assert.equal(countCommands(commands, "models list --all --json"), 1);
     assert.deepEqual(config.models.map((model) => model.key), [
       "openai/gpt-5",
-      "anthropic/claude-sonnet-4-6"
+      "anthropic/claude-sonnet-4-6",
+      "google/gemini-2.5-pro"
     ]);
   });
 });
@@ -476,6 +541,39 @@ test("OpenClaw model config clears stale configured models when the live runtime
   });
 });
 
+test("creating a normal OAuth saved model entry authenticates through models auth login without creating a hidden agent", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const created = await adapter.createSavedModelEntry({
+      label: "OpenAI Codex",
+      providerId: "openai",
+      methodId: "openai-codex",
+      modelKey: "openai-codex/gpt-5.4",
+      values: {},
+      makeDefault: false,
+      useAsFallback: false
+    });
+
+    assert.equal(created.status, "interactive");
+    assert.ok(created.authSession?.id);
+
+    let session = await adapter.getModelAuthSession(created.authSession!.id);
+    for (let attempt = 0; attempt < 10 && session.session.status === "running"; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      session = await adapter.getModelAuthSession(created.authSession!.id);
+    }
+    const commands = await readCommands(logPath);
+
+    assert.equal(session.session.status, "completed");
+    assert.match(session.session.message, /is ready|authentication completed/i);
+    assert.ok(session.modelConfig.savedEntries.some((entry) => entry.label === "OpenAI Codex"));
+    assert.equal(
+      commands.some((command) => command.startsWith("agents add slackclaw-model-") || command.startsWith("agents set-identity --agent slackclaw-model-")),
+      false
+    );
+    assert.equal(countCommands(commands, "models auth login --provider openai-codex"), 1);
+  });
+});
+
 test("OpenClaw channel reads reuse one list and one probe across channel state and configured entry loads", async () => {
   await withFakeOpenClaw(async ({ adapter, logPath }) => {
     await Promise.all([
@@ -489,6 +587,76 @@ test("OpenClaw channel reads reuse one list and one probe across channel state a
 
     assert.equal(countCommands(commands, "channels list --json"), 1);
     assert.equal(countCommands(commands, "channels status --json --probe"), 1);
+  });
+});
+
+test("configureTelegram falls back to direct config writes when the command path rejects telegram", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath, configPath }) => {
+    const result = await adapter.configureTelegram({
+      token: "123:fake-token",
+      accountName: "Fallback Bot"
+    });
+    const commands = await readCommands(logPath);
+    const config = JSON.parse(await readFile(configPath, "utf8")) as {
+      channels?: { telegram?: Record<string, unknown> };
+    };
+
+    assert.match(result.message, /reachable/i);
+    assert.equal(countCommands(commands, "channels add --channel telegram --token 123:fake-token --name Fallback Bot"), 1);
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(config.channels?.telegram?.enabled, true);
+    assert.equal(config.channels?.telegram?.botToken, "123:fake-token");
+    assert.equal(config.channels?.telegram?.dmPolicy, "pairing");
+  }, {
+    failTelegramChannelsAdd: true
+  });
+});
+
+test("configureFeishu falls back to direct config writes when config set drifts", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath, configPath }) => {
+    const result = await adapter.configureFeishu({
+      appId: "cli-app-id",
+      appSecret: "cli-app-secret",
+      domain: "feishu",
+      botName: "SlackClaw Feishu"
+    });
+    const commands = await readCommands(logPath);
+    const config = JSON.parse(await readFile(configPath, "utf8")) as {
+      channels?: { feishu?: Record<string, unknown> };
+    };
+
+    assert.match(result.message, /reachable/i);
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(config.channels?.feishu?.enabled, true);
+    assert.equal(config.channels?.feishu?.domain, "feishu");
+  }, {
+    failFeishuConfigSet: true
+  });
+});
+
+test("configureWechatWorkaround falls back to direct config writes when config set drifts", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath, configPath }) => {
+    const result = await adapter.configureWechatWorkaround({
+      pluginSpec: "@openclaw-china/wecom-app",
+      corpId: "corp-id",
+      agentId: "1000001",
+      secret: "corp-secret",
+      token: "verify-token",
+      encodingAesKey: "aes-key"
+    });
+    const commands = await readCommands(logPath);
+    const config = JSON.parse(await readFile(configPath, "utf8")) as {
+      channels?: Record<string, Record<string, unknown>>;
+    };
+    const saved = config.channels?.["wecom-app"];
+
+    assert.match(result.message, /reachable/i);
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(saved?.enabled, true);
+    assert.equal(saved?.corpId, "corp-id");
+    assert.equal(saved?.agentId, 1000001);
+  }, {
+    failWechatConfigSet: true
   });
 });
 
@@ -510,6 +678,25 @@ test("engine status and health checks share one version, status, and gateway rea
     assert.equal(countCommands(commands, "--version"), 1);
     assert.equal(countCommands(commands, "status --json"), 1);
     assert.equal(countCommands(commands, "gateway status --json"), 1);
+  });
+});
+
+test("installSpec reports latest by default", () => {
+  const adapter = new OpenClawAdapter();
+
+  assert.equal(adapter.installSpec.desiredVersion, "latest");
+  assert.equal(
+    adapter.installSpec.prerequisites.includes("Permission to install or reuse the latest available OpenClaw CLI"),
+    true
+  );
+});
+
+test("deployment targets report latest as the desired install version by default", async () => {
+  await withFakeOpenClaw(async ({ adapter }) => {
+    const overview = await adapter.getDeploymentTargets();
+
+    assert.equal(overview.targets[0]?.desiredVersion, "latest");
+    assert.equal(overview.targets[1]?.desiredVersion, "latest");
   });
 });
 

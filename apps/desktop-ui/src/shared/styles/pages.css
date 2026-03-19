@@ -440,6 +440,12 @@
   line-height: 1.5;
 }
 
+.deploy-target-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .deploy-variant-card__body h4,
 .deploy-requirements h4 {
   margin-bottom: 8px;

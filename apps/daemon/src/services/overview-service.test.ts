@@ -12,4 +12,6 @@ test("overview service returns SlackClaw product data", async () => {
   assert.equal(overview.appName, "SlackClaw");
   assert.equal(overview.engine.installed, true);
   assert.equal(Array.isArray(overview.profiles), true);
+  assert.equal(overview.channelSetup.baseOnboardingCompleted, true);
+  assert.match(overview.channelSetup.gatewaySummary, /Next recommended channel|All channel setup steps are complete|Gateway restarted/);
 });

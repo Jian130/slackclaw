@@ -20,7 +20,6 @@ import type {
   InstallRequest,
   ModelAuthSessionInputRequest,
   ModelAuthRequest,
-  OnboardingSelection,
   ReplaceFallbackModelEntriesRequest,
   SaveModelEntryRequest,
   SetDefaultModelRequest,
@@ -180,11 +179,31 @@ export function startServer(port = 4545) {
 
       if (
         request.method === "POST" &&
+        (request.url === "/api/deploy/targets/standard/install" ||
+          request.url === "/api/deploy/targets/managed-local/install")
+      ) {
+        const targetId = request.url.includes("/managed-local/") ? "managed-local" : "standard";
+        sendJson(response, 200, await adapter.installDeploymentTarget(targetId));
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
         (request.url === "/api/deploy/targets/standard/update" ||
           request.url === "/api/deploy/targets/managed-local/update")
       ) {
         const targetId = request.url.includes("/managed-local/") ? "managed-local" : "standard";
         sendJson(response, 200, await adapter.updateDeploymentTarget(targetId));
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        (request.url === "/api/deploy/targets/standard/uninstall" ||
+          request.url === "/api/deploy/targets/managed-local/uninstall")
+      ) {
+        const targetId = request.url.includes("/managed-local/") ? "managed-local" : "standard";
+        sendJson(response, 200, await adapter.uninstallDeploymentTarget(targetId));
         return;
       }
 
@@ -287,12 +306,6 @@ export function startServer(port = 4545) {
       if (request.method === "POST" && request.url === "/api/first-run/setup") {
         const body = await readJson<InstallRequest>(request);
         sendJson(response, 200, await setupService.runFirstRunSetup({ forceLocal: body.forceLocal ?? false }));
-        return;
-      }
-
-      if (request.method === "POST" && request.url === "/api/onboarding") {
-        const body = await readJson<OnboardingSelection>(request);
-        sendJson(response, 200, await overviewService.completeOnboarding(body));
         return;
       }
 

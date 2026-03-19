@@ -662,10 +662,6 @@ export interface InstallResponse {
   actualVersion?: string;
 }
 
-export interface OnboardingSelection {
-  profileId: string;
-}
-
 export interface ModelAuthRequest {
   providerId: string;
   methodId: string;
@@ -995,13 +991,13 @@ export function createDefaultProductOverview(): ProductOverview {
     },
     installSpec: {
       engine: "openclaw",
-      desiredVersion: "2026.3.7",
+      desiredVersion: "latest",
       installSource: "npm-local",
       prerequisites: [
         "macOS",
         "Node.js 22 or newer",
         "pnpm only if you build OpenClaw from source",
-        "Ability to install or reuse the pinned OpenClaw CLI"
+        "Ability to install or reuse the latest available OpenClaw CLI"
       ]
     },
     capabilities: {
@@ -1036,7 +1032,7 @@ export function createDefaultProductOverview(): ProductOverview {
       }
     ],
     channelSetup: {
-      baseOnboardingCompleted: false,
+      baseOnboardingCompleted: true,
       channels: [
         {
           id: "telegram",
@@ -1073,7 +1069,7 @@ export function createDefaultProductOverview(): ProductOverview {
       ],
       nextChannelId: "telegram",
       gatewayStarted: false,
-      gatewaySummary: "Complete channel setup, then restart the gateway."
+      gatewaySummary: "Next recommended channel: Telegram."
     },
     profiles: defaultProfiles,
     templates: defaultTemplates,
@@ -1091,7 +1087,7 @@ export function createDefaultProductOverview(): ProductOverview {
         title: "Configuration",
         severity: "info",
         summary: "Default profile has not been selected.",
-        detail: "Complete onboarding so SlackClaw can apply sane defaults.",
+        detail: "Choose a default SlackClaw workflow profile so tasks start with sane defaults.",
         remediationActionIds: ["repair-config"]
       }
     ],

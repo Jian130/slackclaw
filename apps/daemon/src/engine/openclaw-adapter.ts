@@ -72,7 +72,7 @@ import type {
   SkillRuntimeEntry
 } from "./adapter.js";
 import { getAppRootDir, getDataDir, getManagedOpenClawBinPath, getManagedOpenClawDir } from "../runtime-paths.js";
-import { errorToLogDetails, writeErrorLog, writeInfoLog } from "../services/logger.js";
+import { errorToLogDetails, logDevelopmentCommand, writeErrorLog, writeInfoLog } from "../services/logger.js";
 
 interface CommandResult {
   code: number;
@@ -426,6 +426,7 @@ interface OpenClawConfigFileJson {
       token?: string;
     };
   };
+  channels?: Record<string, unknown>;
   auth?: {
     profiles?: Record<string, { provider?: string; mode?: string; email?: string }>;
     order?: Record<string, string[]>;
@@ -456,7 +457,9 @@ interface OpenClawAuthProfileStoreJson {
 }
 
 const OPENCLAW_STATE_PATH = resolve(getDataDir(), "openclaw-state.json");
-const OPENCLAW_VERSION_PIN = "2026.3.7";
+const OPENCLAW_VERSION_OVERRIDE = process.env.SLACKCLAW_OPENCLAW_VERSION?.trim() || undefined;
+const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
+const OPENCLAW_PACKAGE_SPEC = OPENCLAW_VERSION_OVERRIDE ? `openclaw@${OPENCLAW_VERSION_OVERRIDE}` : "openclaw@latest";
 const FEISHU_BUNDLED_SINCE = "2026.3.7";
 const OPENCLAW_MAIN_AGENT_ID = "main";
 const OPENCLAW_INSTALL_DOCS_URL = "https://docs.openclaw.ai/install";
@@ -486,6 +489,11 @@ interface CommandInvocation {
   command: string;
   argsPrefix: string[];
   display: string;
+}
+
+interface NpmManagedSystemOpenClaw {
+  invocation: CommandInvocation;
+  packageRoot: string;
 }
 
 interface LoginSessionState {
@@ -534,6 +542,8 @@ interface PendingSavedModelEntryOperation {
   workspaceDir: string;
   draft: SaveModelEntryRequest;
 }
+
+type CommandFallbackDecision = "retry-with-config" | "hard-fail" | "not-applicable";
 
 let whatsappLoginSession: LoginSessionState | undefined;
 const modelAuthSessions = new Map<string, RuntimeModelAuthSession>();
@@ -1488,24 +1498,25 @@ function buildCommandEnv(command?: string, envOverrides?: Record<string, string 
   return env;
 }
 
-function shouldLogOpenClawCommands(): boolean {
-  if (process.env.SLACKCLAW_LOG_OPENCLAW_COMMANDS === "0") {
-    return false;
-  }
-
-  return process.env.SLACKCLAW_LOG_OPENCLAW_COMMANDS === "1" || !getAppRootDir();
-}
-
 function isOpenClawCommand(command: string): boolean {
   return basename(command) === "openclaw";
 }
 
-function logOpenClawCommand(command: string, args: string[]): void {
-  if (!shouldLogOpenClawCommands() || !isOpenClawCommand(command)) {
-    return;
+export function isGlobalNpmManagedOpenClawCommand(
+  commandPath: string | undefined,
+  npmPrefix: string | undefined,
+  npmRoot: string | undefined,
+  packageInstalled: boolean
+): boolean {
+  if (!commandPath || !npmPrefix || !npmRoot || !packageInstalled) {
+    return false;
   }
 
-  console.log(`[SlackClaw daemon][openclaw] ${command} ${args.join(" ")}`);
+  return resolve(commandPath) === resolve(npmPrefix, "bin", "openclaw");
+}
+
+function logExternalCommand(command: string, args: string[]): void {
+  logDevelopmentCommand(isOpenClawCommand(command) ? "openclaw" : "exec", command, args);
 }
 
 function toInstallDisposition(
@@ -1666,7 +1677,7 @@ async function runCommand(
   options?: { allowFailure?: boolean; envOverrides?: Record<string, string | undefined>; input?: string }
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    logOpenClawCommand(command, args);
+    logExternalCommand(command, args);
     const child = spawn(command, args, {
       env: buildCommandEnv(command, options?.envOverrides)
     });
@@ -1805,7 +1816,12 @@ async function resolveSystemOpenClawCommand(options?: { fresh?: boolean }): Prom
   return resolveStickyCommand(
     "openclaw:system",
     async () => {
-      return resolveCommand("openclaw", ["/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]);
+      const npmManagedCommand = await resolveExpectedNpmGlobalOpenClawCommand(await resolveNpmInvocation());
+      return resolveCommand("openclaw", [
+        "/opt/homebrew/bin/openclaw",
+        "/usr/local/bin/openclaw",
+        ...(npmManagedCommand ? [npmManagedCommand] : [])
+      ]);
     },
     options
   );
@@ -1907,6 +1923,67 @@ async function resolveNpmInvocation(): Promise<CommandInvocation | undefined> {
   return undefined;
 }
 
+async function readInvocationStdout(invocation: CommandInvocation, args: string[]): Promise<string | undefined> {
+  try {
+    const result = await runCommand(invocation.command, [...invocation.argsPrefix, ...args], { allowFailure: true });
+    const output = result.stdout.trim();
+    return result.code === 0 && output ? output : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveExpectedNpmGlobalOpenClawCommand(
+  npmInvocation: CommandInvocation | undefined
+): Promise<string | undefined> {
+  if (!npmInvocation) {
+    return undefined;
+  }
+
+  const [prefix, root] = await Promise.all([
+    readInvocationStdout(npmInvocation, ["prefix", "--global"]),
+    readInvocationStdout(npmInvocation, ["root", "--global"])
+  ]);
+
+  if (!prefix || !root) {
+    return undefined;
+  }
+
+  const packageRoot = resolve(root, "openclaw");
+  const commandPath = resolve(prefix, "bin", "openclaw");
+
+  if (!(await fileExists(packageRoot)) || !(await fileExists(commandPath))) {
+    return undefined;
+  }
+
+  return commandPath;
+}
+
+async function resolveNpmManagedSystemOpenClaw(
+  systemCommand: string | undefined,
+  npmInvocation: CommandInvocation | undefined
+): Promise<NpmManagedSystemOpenClaw | undefined> {
+  if (!systemCommand || !npmInvocation) {
+    return undefined;
+  }
+
+  const [prefix, root] = await Promise.all([
+    readInvocationStdout(npmInvocation, ["prefix", "--global"]),
+    readInvocationStdout(npmInvocation, ["root", "--global"])
+  ]);
+  const packageRoot = root ? resolve(root, "openclaw") : undefined;
+  const packageInstalled = packageRoot ? await fileExists(packageRoot) : false;
+
+  if (!isGlobalNpmManagedOpenClawCommand(systemCommand, prefix, root, packageInstalled) || !packageRoot) {
+    return undefined;
+  }
+
+  return {
+    invocation: npmInvocation,
+    packageRoot
+  };
+}
+
 async function resolveGitCommand(): Promise<string | undefined> {
   const gitCommand = await resolveCommand("git", ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"]);
 
@@ -2002,13 +2079,35 @@ function compareOpenClawVersions(left: string | undefined, right: string | undef
   return 0;
 }
 
-function isOpenClawVersionCompatible(version: string | undefined, minimumVersion = OPENCLAW_VERSION_PIN): boolean {
-  const comparison = compareOpenClawVersions(version, minimumVersion);
-  if (comparison === undefined) {
+function isOpenClawVersionCompatible(version: string | undefined): boolean {
+  if (!version) {
     return false;
   }
 
-  return comparison >= 0;
+  if (!OPENCLAW_VERSION_OVERRIDE) {
+    return true;
+  }
+
+  const comparison = compareOpenClawVersions(version, OPENCLAW_VERSION_OVERRIDE);
+  return comparison !== undefined && comparison >= 0;
+}
+
+function openClawInstallTargetSummary(): string {
+  return OPENCLAW_VERSION_OVERRIDE ?? "the latest available version";
+}
+
+function openClawVersionSummary(version: string | undefined): string {
+  if (!version) {
+    return "OpenClaw version could not be determined.";
+  }
+
+  if (!OPENCLAW_VERSION_OVERRIDE) {
+    return `OpenClaw ${version} is installed. SlackClaw uses the latest available version for new installs.`;
+  }
+
+  return isOpenClawVersionCompatible(version)
+    ? `OpenClaw ${version} meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+    : `OpenClaw ${version} is older than SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`;
 }
 
 export function summarizeTargetUpdateStatus(
@@ -2878,6 +2977,34 @@ function trimLogLines(lines: string[]): string[] {
   return lines.slice(-80);
 }
 
+function commandFailureText(result: CommandResult): string {
+  return [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
+}
+
+function classifyCommandDriftFailure(result: CommandResult, patterns: string[] = []): CommandFallbackDecision {
+  const text = commandFailureText(result).toLowerCase();
+
+  if (!text) {
+    return "not-applicable";
+  }
+
+  if (patterns.some((pattern) => text.includes(pattern.toLowerCase()))) {
+    return "retry-with-config";
+  }
+
+  if (
+    text.includes("unknown option") ||
+    text.includes("unknown argument") ||
+    text.includes("unsupported option") ||
+    text.includes("unsupported flag") ||
+    text.includes("did you mean")
+  ) {
+    return "retry-with-config";
+  }
+
+  return "not-applicable";
+}
+
 function spawnInteractiveCommand(command: string, args: string[], envOverrides?: Record<string, string | undefined>) {
   const relayScript = String.raw`
 import os
@@ -3174,7 +3301,8 @@ async function readModelSnapshot(options?: { fresh?: boolean }): Promise<ModelRe
     "models:snapshot",
     READ_CACHE_TTL_MS.models,
     async () => {
-      const [allModels, status] = await Promise.all([
+      const [allModels, configuredModelCatalog, status] = await Promise.all([
+        readModelCatalog(true, options),
         readModelCatalog(false, options),
         readModelStatus(options)
       ]);
@@ -3184,7 +3312,7 @@ async function readModelSnapshot(options?: { fresh?: boolean }): Promise<ModelRe
 
       return {
         allModels,
-        configuredModels: deriveConfiguredModels(allModels, supplemental),
+        configuredModels: deriveConfiguredModels(configuredModelCatalog, supplemental),
         status,
         activeConfig,
         configuredAuthProviders,
@@ -3543,6 +3671,39 @@ export function reconcileSavedEntriesWithRuntime(
 
 function isRuntimeModelRole(request: SaveModelEntryRequest): boolean {
   return Boolean(request.makeDefault || request.useAsFallback);
+}
+
+function hasProvidedModelAuthValues(request: SaveModelEntryRequest): boolean {
+  return Object.values(request.values ?? {}).some((value) => value.trim().length > 0);
+}
+
+function requiresInteractiveModelAuth(method: InternalModelAuthMethod): boolean {
+  return Boolean(
+    method.setupTokenProvider ||
+    method.specialCommand === "login-github-copilot" ||
+    method.loginProviderId ||
+    method.onboardAuthChoice
+  );
+}
+
+function shouldAuthenticateSavedModelEntry(
+  mode: "create" | "update",
+  request: SaveModelEntryRequest,
+  method: InternalModelAuthMethod
+): boolean {
+  if (isRuntimeModelRole(request)) {
+    return true;
+  }
+
+  if (hasProvidedModelAuthValues(request)) {
+    return true;
+  }
+
+  if (mode === "create" && requiresInteractiveModelAuth(method)) {
+    return true;
+  }
+
+  return false;
 }
 
 function describeProfileLabel(profileId: string, profile: Record<string, unknown> & { email?: string; accountId?: string }): string {
@@ -4047,13 +4208,13 @@ function createTaskTitle(request: EngineTaskRequest): string {
 export class OpenClawAdapter implements EngineAdapter {
   readonly installSpec: EngineInstallSpec = {
     engine: "openclaw",
-    desiredVersion: OPENCLAW_VERSION_PIN,
+    desiredVersion: OPENCLAW_INSTALL_TARGET,
     installSource: "npm-local",
     prerequisites: [
       "macOS",
       "Node.js 22 or newer",
       "pnpm only if you build OpenClaw from source",
-      "Permission to install or reuse the pinned OpenClaw CLI"
+      "Permission to install or reuse the latest available OpenClaw CLI"
     ],
     installPath: getManagedOpenClawDir()
   };
@@ -4094,6 +4255,143 @@ export class OpenClawAdapter implements EngineAdapter {
   private async writeOpenClawConfigSnapshot(configPath: string, config: OpenClawConfigFileJson): Promise<void> {
     await writeOpenClawConfigFile(configPath, config);
     invalidateReadCache("models:", "engine:");
+  }
+
+  private async mutateOpenClawConfig(
+    mutate: (snapshot: { configPath: string; config: OpenClawConfigFileJson }) => void | Promise<void>
+  ): Promise<void> {
+    const snapshot = await this.readOpenClawConfigSnapshot();
+    await mutate(snapshot);
+    await this.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
+  }
+
+  private async runMutationWithConfigFallback(options: {
+    commandArgs: string[];
+    fallbackDescription: string;
+    fallbackPatterns?: string[];
+    applyFallback: () => Promise<void>;
+  }): Promise<{ usedFallback: boolean; result: CommandResult }> {
+    const result = await runOpenClaw(options.commandArgs, { allowFailure: true });
+
+    if (result.code === 0) {
+      return {
+        usedFallback: false,
+        result
+      };
+    }
+
+    const decision = classifyCommandDriftFailure(result, options.fallbackPatterns);
+
+    if (decision !== "retry-with-config") {
+      return {
+        usedFallback: false,
+        result
+      };
+    }
+
+    logDevelopmentCommand("fallback", "openclaw-config", [options.fallbackDescription]);
+    await writeInfoLog("SlackClaw activated config-backed OpenClaw fallback.", {
+      commandArgs: options.commandArgs,
+      fallbackDescription: options.fallbackDescription,
+      failure: commandFailureText(result)
+    });
+    await options.applyFallback();
+
+    return {
+      usedFallback: true,
+      result
+    };
+  }
+
+  private async writeTelegramChannelConfig(request: TelegramSetupRequest): Promise<void> {
+    await this.mutateOpenClawConfig(({ config }) => {
+      config.channels = config.channels ?? {};
+      config.channels.telegram = {
+        enabled: true,
+        botToken: request.token,
+        dmPolicy: "pairing",
+        groups: {
+          "*": {
+            requireMention: true
+          }
+        }
+      };
+    });
+  }
+
+  private async writeFeishuChannelConfig(request: FeishuSetupRequest): Promise<void> {
+    await this.mutateOpenClawConfig(({ config }) => {
+      config.channels = config.channels ?? {};
+      config.channels.feishu = {
+        enabled: true,
+        domain: request.domain ?? "feishu",
+        dmPolicy: "pairing",
+        groupPolicy: "open",
+        useLongConnection: true,
+        accounts: {
+          default: {
+            appId: request.appId,
+            appSecret: request.appSecret,
+            ...(request.botName?.trim() ? { botName: request.botName.trim() } : {})
+          }
+        }
+      };
+    });
+  }
+
+  private async writeWechatChannelConfig(pluginId: string, request: WechatSetupRequest): Promise<void> {
+    await this.mutateOpenClawConfig(({ config }) => {
+      config.channels = config.channels ?? {};
+      config.channels[pluginId] = {
+        enabled: true,
+        webhookPath: `/${pluginId}`,
+        token: request.token,
+        encodingAESKey: request.encodingAesKey,
+        corpId: request.corpId,
+        corpSecret: request.secret,
+        agentId: Number(request.agentId),
+        dmPolicy: "pairing",
+        groupPolicy: "open"
+      };
+    });
+  }
+
+  private async removeChannelConfig(channelKey: string): Promise<void> {
+    await this.mutateOpenClawConfig(({ config }) => {
+      if (!config.channels || !(channelKey in config.channels)) {
+        return;
+      }
+
+      delete config.channels[channelKey];
+      if (Object.keys(config.channels).length === 0) {
+        delete config.channels;
+      }
+    });
+  }
+
+  private async writeDefaultModelConfig(modelKey: string): Promise<void> {
+    await this.mutateOpenClawConfig(({ config }) => {
+      config.agents = config.agents ?? {};
+      const existingDefaults = config.agents.defaults ?? {};
+      const existingModel = existingDefaults.model;
+      const fallbacks =
+        typeof existingModel === "object" && existingModel && Array.isArray(existingModel.fallbacks)
+          ? existingModel.fallbacks.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          : [];
+      const models = existingDefaults.models ?? {};
+
+      config.agents.defaults = {
+        ...existingDefaults,
+        model: {
+          primary: modelKey,
+          fallbacks
+        },
+        models: {
+          ...models,
+          [modelKey]: models[modelKey] ?? {}
+        }
+      };
+    });
   }
 
   private async readOpenClawSkillsList(options?: { fresh?: boolean }): Promise<OpenClawSkillsListJson | undefined> {
@@ -4417,23 +4715,46 @@ export class OpenClawAdapter implements EngineAdapter {
       request.brain.modelKey
     );
 
-    const sourceStore = sourceEntry.agentDir ? await readAuthStore(sourceEntry.agentDir) : undefined;
+    const sourceAuthDir = sourceEntry.agentDir || snapshot.status?.agentDir || getMainOpenClawAgentDir();
+    const sourceStore = sourceAuthDir ? await readAuthStore(sourceAuthDir) : undefined;
     if (!sourceStore?.profiles || Object.keys(sourceStore.profiles).length === 0) {
       return;
     }
 
+    const profileIdsToCopy =
+      sourceEntry.profileIds.length > 0
+        ? sourceEntry.profileIds.filter((profileId) => Boolean(sourceStore.profiles?.[profileId]))
+        : Object.keys(sourceStore.profiles ?? {});
+    const nextProfiles = Object.fromEntries(
+      profileIdsToCopy.map((profileId) => [profileId, sourceStore.profiles?.[profileId]]).filter((entry): entry is [string, NonNullable<OpenClawAuthProfileStoreJson["profiles"]>[string]] => Boolean(entry[1]))
+    );
+    const nextUsageStats = Object.fromEntries(
+      profileIdsToCopy
+        .map((profileId) => [profileId, sourceStore.usageStats?.[profileId]] as const)
+        .filter((entry): entry is [string, NonNullable<OpenClawAuthProfileStoreJson["usageStats"]>[string]] => Boolean(entry[1]))
+    );
+    const nextOrder = Object.fromEntries(
+      Object.entries(sourceStore.order ?? {}).map(([providerId, profileIds]) => [
+        providerId,
+        profileIds.filter((profileId) => profileIdsToCopy.includes(profileId))
+      ]).filter((entry) => entry[1].length > 0)
+    );
+    const nextLastGood = Object.fromEntries(
+      Object.entries(sourceStore.lastGood ?? {}).filter(([, profileId]) => profileIdsToCopy.includes(profileId))
+    );
+
     await writeAuthStore(agentDir, {
       version: sourceStore.version ?? 1,
-      profiles: { ...(sourceStore.profiles ?? {}) },
-      usageStats: { ...(sourceStore.usageStats ?? {}) },
-      order: { ...(sourceStore.order ?? {}) },
-      lastGood: { ...(sourceStore.lastGood ?? {}) }
+      profiles: nextProfiles,
+      usageStats: nextUsageStats,
+      order: nextOrder,
+      lastGood: nextLastGood
     });
 
     snapshot.config.auth = snapshot.config.auth ?? {};
     snapshot.config.auth.profiles = snapshot.config.auth.profiles ?? {};
 
-    for (const [profileId, profile] of Object.entries(sourceStore.profiles ?? {})) {
+    for (const [profileId, profile] of Object.entries(nextProfiles)) {
       snapshot.config.auth.profiles[profileId] = {
         provider: String(profile.provider ?? sourceEntry.providerId),
         mode: authModeForCredentialType(profile.type),
@@ -4460,43 +4781,6 @@ export class OpenClawAdapter implements EngineAdapter {
           .filter((entry): entry is MemberBindingSummary => Boolean(entry));
       }
     );
-  }
-
-  private async ensureManagedAgent(entryId: string, agentId: string, modelKey: string, label: string): Promise<{
-    agentDir: string;
-    workspaceDir: string;
-  }> {
-    const paths = getManagedModelAgentPaths(entryId);
-    const agents = await this.listOpenClawAgents();
-
-    if (!agents.some((agent) => agent.id === agentId)) {
-      const add = await runOpenClaw(
-        [
-          "agents",
-          "add",
-          agentId,
-          "--agent-dir",
-          paths.agentDir,
-          "--workspace",
-          paths.workspaceDir,
-          "--model",
-          modelKey,
-          "--non-interactive",
-          "--json"
-        ],
-        { allowFailure: true }
-      );
-
-      if (add.code !== 0) {
-        throw new Error(add.stderr || add.stdout || `SlackClaw could not create the hidden OpenClaw agent ${agentId}.`);
-      }
-    }
-
-    await runOpenClaw(["agents", "set-identity", "--agent", agentId, "--name", label, "--json"], {
-      allowFailure: true
-    });
-
-    return paths;
   }
 
   private async upsertAgentConfigEntry(
@@ -4647,7 +4931,7 @@ export class OpenClawAdapter implements EngineAdapter {
       const sourceStore = await readAuthStore(entry.agentDir);
       const providerOrder: string[] = [];
 
-      for (const profileId of entry.profileIds) {
+      for (const profileId of entry.profileIds ?? []) {
         const profile = sourceStore.profiles?.[profileId];
         if (!profile) {
           continue;
@@ -4854,14 +5138,21 @@ export class OpenClawAdapter implements EngineAdapter {
       updatedAt: now
     };
     const snapshot = await this.readOpenClawConfigSnapshot();
-    const nextEntry = await this.replaceEntryProfileIds(snapshot.configPath, snapshot.config, {
+    const provider = providerDefinitionById(operation.draft.providerId);
+    const entryDraft = {
       ...nextEntryBase,
       label: this.buildEntryLabel(operation.draft.label, operation.draft.providerId, operation.draft.modelKey),
       providerId: operation.draft.providerId,
       modelKey: operation.draft.modelKey,
       authMethodId: operation.draft.methodId,
       updatedAt: now
-    });
+    };
+    const nextEntry = isManagedModelAgentId(entryDraft.agentId)
+      ? await this.replaceEntryProfileIds(snapshot.configPath, snapshot.config, entryDraft)
+      : {
+          ...entryDraft,
+          ...(await this.readEntryAuthSummary(entryDraft.agentDir || snapshot.status?.agentDir || getMainOpenClawAgentDir(), provider?.id))
+        };
 
     const otherEntries = (state.modelEntries ?? []).filter((entry) => entry.id !== nextEntry.id);
     let nextState: OpenClawAdapterState = this.applySavedModelEntryState(
@@ -4913,11 +5204,13 @@ export class OpenClawAdapter implements EngineAdapter {
       };
     }
 
-    removeProfileIdsFromConfig(snapshot.config, entry.profileIds);
-    await this.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
+    if (isManagedModelAgentId(entry.agentId)) {
+      removeProfileIdsFromConfig(snapshot.config, entry.profileIds);
+      await this.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
 
-    const nextDefaultEntry = (nextState.modelEntries ?? []).find((item) => item.id === nextState.defaultModelEntryId);
-    await removeProfileIdsFromAuthStore(nextDefaultEntry?.agentDir, entry.profileIds);
+      const nextDefaultEntry = (nextState.modelEntries ?? []).find((item) => item.id === nextState.defaultModelEntryId);
+      await removeProfileIdsFromAuthStore(nextDefaultEntry?.agentDir, entry.profileIds);
+    }
 
     if (isManagedModelAgentId(entry.agentId)) {
       await this.deleteManagedModelAgent(entry);
@@ -5041,22 +5334,23 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     const existingEntry = currentState.modelEntries?.find((entry) => entry.id === entryId);
-    if (!isRuntimeModelRole(request)) {
+    if (!shouldAuthenticateSavedModelEntry(mode, request, method)) {
       return this.finalizeSavedModelEntryMetadataOnly(entryId, request);
     }
 
-    const agentId = mode === "update" ? existingEntry?.agentId || `slackclaw-model-${entryId}` : `slackclaw-model-${entryId}`;
+    const defaultAuthContext = await this.readOpenClawConfigSnapshot();
+    const sharedAuthAgentDir = defaultAuthContext.status?.agentDir ?? getMainOpenClawAgentDir();
+    const agentId = mode === "update" ? existingEntry?.agentId ?? "" : "";
     const paths =
       mode === "update"
         ? {
-            agentDir: existingEntry?.agentDir || getManagedModelAgentPaths(entryId).agentDir,
-            workspaceDir: existingEntry?.workspaceDir || getManagedModelAgentPaths(entryId).workspaceDir
+            agentDir: existingEntry?.agentDir || sharedAuthAgentDir,
+            workspaceDir: existingEntry?.workspaceDir || ""
           }
-        : await this.ensureManagedAgent(entryId, agentId, request.modelKey, this.buildEntryLabel(request.label, request.providerId, request.modelKey));
-
-    if (mode === "update" && agentId !== OPENCLAW_MAIN_AGENT_ID) {
-      await this.ensureManagedAgent(entryId, agentId, request.modelKey, this.buildEntryLabel(request.label, request.providerId, request.modelKey));
-    }
+        : {
+            agentDir: sharedAuthAgentDir,
+            workspaceDir: ""
+          };
 
     const operation: PendingSavedModelEntryOperation = {
       mode,
@@ -5067,9 +5361,7 @@ export class OpenClawAdapter implements EngineAdapter {
       draft: request
     };
 
-    const hasSuppliedValues = Object.values(request.values ?? {}).some((value) => value.trim().length > 0);
-
-    if (mode === "update" && !hasSuppliedValues) {
+    if (mode === "update" && !hasProvidedModelAuthValues(request)) {
       return this.finalizeSavedModelEntryOperation(operation);
     }
 
@@ -5077,7 +5369,7 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse> {
-    const bootstrap = await this.ensurePinnedOpenClaw(options?.forceLocal ?? false);
+    const bootstrap = await this.ensurePinnedOpenClaw(options?.forceLocal ? "managed-local" : "auto");
     const state = await readAdapterState();
     const mode: "detected" | "onboarded" = "detected";
     let message = `${bootstrap.message} SlackClaw is ready to run OpenClaw onboarding next.`;
@@ -5102,9 +5394,30 @@ export class OpenClawAdapter implements EngineAdapter {
       disposition: toInstallDisposition(bootstrap.status, mode),
       changed: bootstrap.changed,
       hadExisting: bootstrap.hadExisting,
-      pinnedVersion: OPENCLAW_VERSION_PIN,
+      pinnedVersion: OPENCLAW_VERSION_OVERRIDE,
       existingVersion: bootstrap.existingVersion,
       actualVersion: bootstrap.version ?? undefined
+    };
+  }
+
+  async installDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
+    const bootstrap = await this.ensurePinnedOpenClaw(targetId === "managed-local" ? "managed-local" : "system");
+    const state = await readAdapterState();
+
+    await writeAdapterState({
+      ...state,
+      installedAt: new Date().toISOString(),
+      lastInstallMode: "detected"
+    });
+
+    this.invalidateReadCaches();
+    const engineStatus = await this.status();
+
+    return {
+      targetId,
+      status: "completed",
+      message: bootstrap.message,
+      engineStatus
     };
   }
 
@@ -5142,6 +5455,87 @@ export class OpenClawAdapter implements EngineAdapter {
       action: "uninstall-engine",
       status: "completed",
       message,
+      engineStatus
+    };
+  }
+
+  async uninstallDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
+    if (targetId === "managed-local") {
+      const result = await this.uninstall();
+      return {
+        targetId,
+        status: result.status === "completed" ? "completed" : "failed",
+        message: result.message,
+        engineStatus: result.engineStatus
+      };
+    }
+
+    const systemCommand = await resolveSystemOpenClawCommand({ fresh: true });
+
+    if (!systemCommand) {
+      return {
+        targetId,
+        status: "completed",
+        message: "SlackClaw did not detect a system OpenClaw install to remove.",
+        engineStatus: await this.status()
+      };
+    }
+
+    await runCommand(systemCommand, ["uninstall", "--all", "--yes", "--non-interactive"], { allowFailure: true }).catch(() => undefined);
+
+    const npmInvocation = await resolveNpmInvocation();
+    const npmManaged = await resolveNpmManagedSystemOpenClaw(systemCommand, npmInvocation);
+
+    if (!npmManaged) {
+      return {
+        targetId,
+        status: "failed",
+        message: `SlackClaw detected the external OpenClaw at ${systemCommand}, but could not prove it is the global npm install SlackClaw can safely remove automatically.`,
+        engineStatus: await this.status()
+      };
+    }
+
+    const uninstallArgs = ["rm", "--global", "openclaw"];
+    const uninstallResult = await runCommand(
+      npmManaged.invocation.command,
+      [...npmManaged.invocation.argsPrefix, ...uninstallArgs],
+      { allowFailure: true }
+    );
+
+    if (uninstallResult.code !== 0) {
+      await writeErrorLog("OpenClaw npm uninstall command failed.", {
+        command: npmManaged.invocation.display,
+        args: uninstallArgs,
+        result: uninstallResult,
+        systemCommand,
+        packageRoot: npmManaged.packageRoot
+      });
+
+      return {
+        targetId,
+        status: "failed",
+        message: uninstallResult.stderr || uninstallResult.stdout || "SlackClaw could not remove the npm-managed OpenClaw install.",
+        engineStatus: await this.status()
+      };
+    }
+
+    this.invalidateReadCaches();
+    const remainingSystemCommand = await resolveSystemOpenClawCommand({ fresh: true });
+    const engineStatus = await this.status();
+
+    if (remainingSystemCommand) {
+      return {
+        targetId,
+        status: "failed",
+        message: `SlackClaw ran npm uninstall for ${systemCommand}, but SlackClaw still detects a system OpenClaw afterward at ${remainingSystemCommand}.`,
+        engineStatus
+      };
+    }
+
+    return {
+      targetId,
+      status: "completed",
+      message: `SlackClaw removed the npm-managed OpenClaw install at ${systemCommand}.`,
       engineStatus
     };
   }
@@ -5954,7 +6348,18 @@ export class OpenClawAdapter implements EngineAdapter {
       return this.setDefaultModelEntry({ entryId: matchingEntry.id });
     }
 
-    await runOpenClaw(["models", "set", modelKey], { allowFailure: false });
+    const mutation = await this.runMutationWithConfigFallback({
+      commandArgs: ["models", "set", modelKey],
+      fallbackDescription: `models.default ${modelKey}`,
+      applyFallback: async () => {
+        await this.writeDefaultModelConfig(modelKey);
+      }
+    });
+
+    if (!mutation.usedFallback && mutation.result.code !== 0) {
+      throw new Error(commandFailureText(mutation.result) || `SlackClaw could not set the default model to ${modelKey}.`);
+    }
+
     await this.restartGatewayAndRequireHealthy("model configuration");
     return {
       status: "completed",
@@ -6040,7 +6445,7 @@ export class OpenClawAdapter implements EngineAdapter {
       {
         id: "standard",
         title: "OpenClaw Standard",
-        description: "Reuse an existing compatible OpenClaw install when available.",
+        description: "Reuse an existing OpenClaw install when available.",
         installMode: "system",
         installed: Boolean(systemVersion),
         installable: true,
@@ -6048,16 +6453,18 @@ export class OpenClawAdapter implements EngineAdapter {
         recommended: true,
         active: Boolean(systemCommand && activeCommand === systemCommand),
         version: systemVersion,
-        desiredVersion: OPENCLAW_VERSION_PIN,
+        desiredVersion: OPENCLAW_INSTALL_TARGET,
         latestVersion: systemUpdate?.latestVersion ?? systemVersion,
         updateAvailable: systemUpdate?.updateAvailable ?? false,
         requirements: STANDARD_OPENCLAW_REQUIREMENTS,
         requirementsSourceUrl: OPENCLAW_MAC_DOCS_URL,
         summary: systemVersion
-          ? systemCompatible
-            ? `System OpenClaw ${systemVersion} meets SlackClaw's minimum supported version ${OPENCLAW_VERSION_PIN}.`
-            : `System OpenClaw ${systemVersion} is installed, but SlackClaw expects at least ${OPENCLAW_VERSION_PIN}.`
-          : "No compatible system OpenClaw install was detected.",
+          ? OPENCLAW_VERSION_OVERRIDE
+            ? systemCompatible
+              ? `System OpenClaw ${systemVersion} meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+              : `System OpenClaw ${systemVersion} is installed, but SlackClaw expects at least ${OPENCLAW_VERSION_OVERRIDE}.`
+            : `System OpenClaw ${systemVersion} is installed and can be reused.`
+          : "No system OpenClaw install was detected.",
         updateSummary: systemVersion ? systemUpdate?.summary : undefined
       },
       {
@@ -6071,15 +6478,17 @@ export class OpenClawAdapter implements EngineAdapter {
         recommended: false,
         active: Boolean(managedCommand && activeCommand === managedCommand),
         version: managedVersion,
-        desiredVersion: OPENCLAW_VERSION_PIN,
+        desiredVersion: OPENCLAW_INSTALL_TARGET,
         latestVersion: managedUpdate?.latestVersion ?? managedVersion,
         updateAvailable: managedUpdate?.updateAvailable ?? false,
         requirements: MANAGED_OPENCLAW_REQUIREMENTS,
         requirementsSourceUrl: OPENCLAW_INSTALL_DOCS_URL,
         summary: managedVersion
-          ? managedCompatible
-            ? `Managed local OpenClaw ${managedVersion} meets SlackClaw's minimum supported version ${OPENCLAW_VERSION_PIN}.`
-            : `Managed local OpenClaw ${managedVersion} is installed, but SlackClaw expects at least ${OPENCLAW_VERSION_PIN}.`
+          ? OPENCLAW_VERSION_OVERRIDE
+            ? managedCompatible
+              ? `Managed local OpenClaw ${managedVersion} meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+              : `Managed local OpenClaw ${managedVersion} is installed, but SlackClaw expects at least ${OPENCLAW_VERSION_OVERRIDE}.`
+            : `Managed local OpenClaw ${managedVersion} is installed.`
           : "SlackClaw's managed local OpenClaw runtime is not installed yet.",
         updateSummary: managedVersion ? managedUpdate?.summary : undefined
       },
@@ -6377,13 +6786,11 @@ export class OpenClawAdapter implements EngineAdapter {
       id: "version-compatibility",
       title: "Version compatibility",
       severity: isOpenClawVersionCompatible(data.cliVersion) ? "ok" : data.cliVersion ? "warning" : "info",
-      summary: data.cliVersion
-        ? isOpenClawVersionCompatible(data.cliVersion)
-          ? `OpenClaw ${data.cliVersion} meets SlackClaw's minimum supported version ${OPENCLAW_VERSION_PIN}.`
-          : `OpenClaw ${data.cliVersion} is older than SlackClaw's minimum supported version ${OPENCLAW_VERSION_PIN}.`
-        : "OpenClaw version is unknown.",
-      detail: "SlackClaw currently targets a pinned-compatible OpenClaw release for reliability.",
-      remediationActionIds: isOpenClawVersionCompatible(data.cliVersion) ? [] : ["rollback-update"]
+      summary: openClawVersionSummary(data.cliVersion),
+      detail: OPENCLAW_VERSION_OVERRIDE
+        ? "SlackClaw is running with an explicit OpenClaw version override."
+        : "SlackClaw uses the latest available OpenClaw release for new installs.",
+      remediationActionIds: OPENCLAW_VERSION_OVERRIDE && !isOpenClawVersionCompatible(data.cliVersion) ? ["rollback-update"] : []
     });
 
     checks.push({
@@ -6535,7 +6942,7 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     return {
-      message: "SlackClaw verified that no newer pinned-compatible OpenClaw version is currently visible.",
+      message: "SlackClaw verified that no newer OpenClaw version is currently visible.",
       engineStatus
     };
   }
@@ -6595,12 +7002,12 @@ export class OpenClawAdapter implements EngineAdapter {
           actionId: action.id,
           status: "completed",
           message: parsed?.availability?.available
-            ? `SlackClaw detected update drift. Manual rollback to ${OPENCLAW_VERSION_PIN} is recommended until automated rollback is added.`
-            : `SlackClaw remains pinned to ${OPENCLAW_VERSION_PIN}; no rollback was needed.`
+            ? `SlackClaw detected update drift. Manual reinstall of ${openClawInstallTargetSummary()} is recommended until automated rollback is added.`
+            : "OpenClaw update state looks consistent; no rollback was needed."
         };
       }
       case "reinstall-engine": {
-        const bootstrap = await this.ensurePinnedOpenClaw(false);
+        const bootstrap = await this.ensurePinnedOpenClaw("auto");
         const reinstall = await runOpenClaw(["gateway", "install", "--force"], { allowFailure: true });
         const installStatus = bootstrap.status !== "failed" && reinstall.code === 0 ? "completed" : "failed";
         if (installStatus === "failed") {
@@ -6792,24 +7199,43 @@ export class OpenClawAdapter implements EngineAdapter {
 
       whatsappLoginSession = undefined;
     } else if (channelId === "telegram") {
-      const remove = await runOpenClaw(["channels", "remove", "--channel", "telegram", "--account", "default", "--delete"], { allowFailure: true });
+      const remove = await this.runMutationWithConfigFallback({
+        commandArgs: ["channels", "remove", "--channel", "telegram", "--account", "default", "--delete"],
+        fallbackDescription: "channels.telegram remove",
+        fallbackPatterns: ["Unknown channel: telegram"],
+        applyFallback: async () => {
+          await this.removeChannelConfig("telegram");
+        }
+      });
 
-      if (remove.code !== 0) {
-        throw new Error(remove.stderr || remove.stdout || "SlackClaw could not remove the Telegram configuration.");
+      if (!remove.usedFallback && remove.result.code !== 0) {
+        throw new Error(remove.result.stderr || remove.result.stdout || "SlackClaw could not remove the Telegram configuration.");
       }
     } else if (channelId === "feishu") {
-      const remove = await runOpenClaw(["config", "unset", "channels.feishu"], { allowFailure: true });
+      const remove = await this.runMutationWithConfigFallback({
+        commandArgs: ["config", "unset", "channels.feishu"],
+        fallbackDescription: "channels.feishu remove",
+        applyFallback: async () => {
+          await this.removeChannelConfig("feishu");
+        }
+      });
 
-      if (remove.code !== 0) {
-        throw new Error(remove.stderr || remove.stdout || "SlackClaw could not remove the Feishu configuration.");
+      if (!remove.usedFallback && remove.result.code !== 0) {
+        throw new Error(remove.result.stderr || remove.result.stdout || "SlackClaw could not remove the Feishu configuration.");
       }
     } else {
       const pluginSpec = request.values?.pluginSpec?.trim() || "@openclaw-china/wecom-app";
       const pluginId = pluginSpec.split("/").pop() ?? pluginSpec;
-      const remove = await runOpenClaw(["config", "unset", `channels.${pluginId}`], { allowFailure: true });
+      const remove = await this.runMutationWithConfigFallback({
+        commandArgs: ["config", "unset", `channels.${pluginId}`],
+        fallbackDescription: `channels.${pluginId} remove`,
+        applyFallback: async () => {
+          await this.removeChannelConfig(pluginId);
+        }
+      });
 
-      if (remove.code !== 0) {
-        throw new Error(remove.stderr || remove.stdout || "SlackClaw could not remove the WeChat workaround configuration.");
+      if (!remove.usedFallback && remove.result.code !== 0) {
+        throw new Error(remove.result.stderr || remove.result.stdout || "SlackClaw could not remove the WeChat workaround configuration.");
       }
     }
 
@@ -7082,8 +7508,8 @@ export class OpenClawAdapter implements EngineAdapter {
   async configureFeishu(
     request: FeishuSetupRequest
   ): Promise<{ message: string; channel: ChannelSetupState }> {
-    const configSave = await runOpenClaw(
-      [
+    const configSave = await this.runMutationWithConfigFallback({
+      commandArgs: [
         "config",
         "set",
         "--strict-json",
@@ -7103,11 +7529,14 @@ export class OpenClawAdapter implements EngineAdapter {
           }
         })
       ],
-      { allowFailure: true }
-    );
+      fallbackDescription: "channels.feishu config write",
+      applyFallback: async () => {
+        await this.writeFeishuChannelConfig(request);
+      }
+    });
 
-    if (configSave.code !== 0) {
-      throw new Error(configSave.stderr || configSave.stdout || "SlackClaw could not save the Feishu configuration into OpenClaw.");
+    if (!configSave.usedFallback && configSave.result.code !== 0) {
+      throw new Error(configSave.result.stderr || configSave.result.stdout || "SlackClaw could not save the Feishu configuration into OpenClaw.");
     }
 
     await this.restartGatewayAndRequireHealthy("Feishu configuration");
@@ -7130,10 +7559,17 @@ export class OpenClawAdapter implements EngineAdapter {
       args.push("--name", request.accountName.trim());
     }
 
-    const result = await runOpenClaw(args, { allowFailure: true });
+    const result = await this.runMutationWithConfigFallback({
+      commandArgs: args,
+      fallbackDescription: "channels.telegram config write",
+      fallbackPatterns: ["Unknown channel: telegram"],
+      applyFallback: async () => {
+        await this.writeTelegramChannelConfig(request);
+      }
+    });
 
-    if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || "SlackClaw could not save the Telegram channel configuration.");
+    if (!result.usedFallback && result.result.code !== 0) {
+      throw new Error(result.result.stderr || result.result.stdout || "SlackClaw could not save the Telegram channel configuration.");
     }
 
     await this.restartGatewayAndRequireHealthy("Telegram configuration");
@@ -7174,7 +7610,7 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     const loginArgs = ["channels", "login", "--channel", "whatsapp", "--verbose"];
-    logOpenClawCommand(command, loginArgs);
+    logExternalCommand(command, loginArgs);
     const child = spawn(command, loginArgs, {
       env: buildCommandEnv(command)
     });
@@ -7274,17 +7710,26 @@ export class OpenClawAdapter implements EngineAdapter {
     if (enableById.code !== 0) {
       await runOpenClaw(["plugins", "enable", pluginSpec], { allowFailure: true });
     }
-    await runOpenClaw(["config", "set", "--strict-json", `channels.${pluginId}`, JSON.stringify({
-      enabled: true,
-      webhookPath: `/${pluginId}`,
-      token: request.token,
-      encodingAESKey: request.encodingAesKey,
-      corpId: request.corpId,
-      corpSecret: request.secret,
-      agentId: Number(request.agentId),
-      dmPolicy: "pairing",
-      groupPolicy: "open"
-    })], { allowFailure: true });
+    const configSave = await this.runMutationWithConfigFallback({
+      commandArgs: ["config", "set", "--strict-json", `channels.${pluginId}`, JSON.stringify({
+        enabled: true,
+        webhookPath: `/${pluginId}`,
+        token: request.token,
+        encodingAESKey: request.encodingAesKey,
+        corpId: request.corpId,
+        corpSecret: request.secret,
+        agentId: Number(request.agentId),
+        dmPolicy: "pairing",
+        groupPolicy: "open"
+      })],
+      fallbackDescription: `channels.${pluginId} config write`,
+      applyFallback: async () => {
+        await this.writeWechatChannelConfig(pluginId, request);
+      }
+    });
+    if (!configSave.usedFallback && configSave.result.code !== 0) {
+      throw new Error(configSave.result.stderr || configSave.result.stdout || `SlackClaw could not save the WeChat workaround configuration ${pluginSpec}.`);
+    }
     await this.restartGatewayAndRequireHealthy("WeChat workaround configuration");
 
     return {
@@ -7391,11 +7836,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
     const gatewayDetail = gatewayReachabilitySummary(snapshot);
 
-    const versionSummary = cliVersion
-      ? isOpenClawVersionCompatible(cliVersion)
-        ? `OpenClaw ${cliVersion} meets SlackClaw's minimum supported version ${OPENCLAW_VERSION_PIN}.`
-        : `OpenClaw ${cliVersion} detected. SlackClaw expects at least ${OPENCLAW_VERSION_PIN}.`
-      : "OpenClaw version could not be determined.";
+    const versionSummary = openClawVersionSummary(cliVersion);
 
     const summary = snapshot.installed
       ? gatewayReachable
@@ -7417,11 +7858,11 @@ export class OpenClawAdapter implements EngineAdapter {
     };
   }
 
-  private async ensurePinnedOpenClaw(forceLocal: boolean): Promise<BootstrapResult> {
-    const existingVersion = forceLocal ? await readManagedOpenClawVersion() : await readInstalledOpenClawVersion();
-    const systemVersion = forceLocal ? await readSystemOpenClawVersion() : existingVersion;
+  private async ensurePinnedOpenClaw(targetMode: "auto" | "system" | "managed-local"): Promise<BootstrapResult> {
+    const usesManagedLocalRuntime = targetMode === "managed-local" || (targetMode === "auto" && Boolean(getAppRootDir()));
+    const existingVersion = usesManagedLocalRuntime ? await readManagedOpenClawVersion() : await readSystemOpenClawVersion();
+    const systemVersion = usesManagedLocalRuntime ? await readSystemOpenClawVersion() : existingVersion;
     const installPath = getManagedOpenClawDir();
-    const usesManagedLocalRuntime = forceLocal || Boolean(getAppRootDir());
     const brewCommand = await resolveBrewCommand();
 
     if (isOpenClawVersionCompatible(existingVersion)) {
@@ -7433,7 +7874,9 @@ export class OpenClawAdapter implements EngineAdapter {
         version: existingVersion,
         message: usesManagedLocalRuntime
           ? `OpenClaw ${existingVersion} is already available in SlackClaw's managed local runtime.`
-          : `OpenClaw ${existingVersion} is already installed and meets SlackClaw's minimum supported version ${OPENCLAW_VERSION_PIN}.`
+          : OPENCLAW_VERSION_OVERRIDE
+            ? `OpenClaw ${existingVersion} is already installed and meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+            : `OpenClaw ${existingVersion} is already installed and ready for SlackClaw.`
       };
     }
 
@@ -7455,8 +7898,8 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     const installArgs = usesManagedLocalRuntime
-      ? ["install", "--prefix", installPath, `openclaw@${OPENCLAW_VERSION_PIN}`]
-      : ["install", "--global", `openclaw@${OPENCLAW_VERSION_PIN}`];
+      ? ["install", "--prefix", installPath, OPENCLAW_PACKAGE_SPEC]
+      : ["install", "--global", OPENCLAW_PACKAGE_SPEC];
 
     const installResult = await runCommand(
       ensuredNpmInvocation.command,
@@ -7473,9 +7916,9 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(installResult.stderr || installResult.stdout || "OpenClaw installation failed.");
     }
 
-    const nextVersion = await readInstalledOpenClawVersion();
+    const nextVersion = usesManagedLocalRuntime ? await readManagedOpenClawVersion() : await readSystemOpenClawVersion();
 
-    if (nextVersion !== OPENCLAW_VERSION_PIN) {
+    if (!nextVersion || (OPENCLAW_VERSION_OVERRIDE && nextVersion !== OPENCLAW_VERSION_OVERRIDE)) {
       throw new Error(
         usesManagedLocalRuntime
           ? `SlackClaw downloaded OpenClaw into ${installPath}, but could not verify that the managed runtime can execute on this Mac.`

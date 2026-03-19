@@ -10,7 +10,7 @@ import {
   getLaunchAgentLabel,
   getLaunchAgentPlistPath
 } from "../runtime-paths.js";
-import { errorToLogDetails, writeErrorLog } from "./logger.js";
+import { errorToLogDetails, logDevelopmentCommand, writeErrorLog } from "./logger.js";
 
 function scheduleExit(serverClose: () => void, delayMs = 400): void {
   setTimeout(() => {
@@ -21,6 +21,7 @@ function scheduleExit(serverClose: () => void, delayMs = 400): void {
 
 async function spawnDetachedShell(scriptPath: string): Promise<void> {
   try {
+    logDevelopmentCommand("app-control", "/bin/sh", [scriptPath]);
     const child = spawn("/bin/sh", [scriptPath], {
       detached: true,
       stdio: "ignore",

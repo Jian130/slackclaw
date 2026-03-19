@@ -13,6 +13,7 @@ SlackClaw is a macOS-first, local-first desktop product that makes OpenClaw usab
 - `apps/daemon`: local API and orchestration layer
 - `packages/contracts`: shared domain types and defaults
 - `docs/adr`: architecture decisions for v0.1
+- `docs/reference`: operator and developer reference notes
 
 ## Current state
 
@@ -28,13 +29,14 @@ The desktop shell is implemented as a web UI + local daemon boundary so a Tauri 
   - supports install, update, and uninstall flows for the current OpenClaw targets
   - shows current and latest version information
 - Configuration page:
-  - shows the live OpenClaw runtime model chain and a separate SlackClaw saved-entry list
-  - supports saved model entry add/edit flows
+  - shows the live OpenClaw runtime model chain and SlackClaw-managed configured model records
+  - supports model add/edit flows
   - supports default and fallback model selection
   - restarts the OpenClaw gateway and verifies health after runtime-affecting config changes
+  - falls back to direct OpenClaw config writes for known CLI command drift on safe config-backed mutations
 - Channel setup:
   - supports Telegram, WhatsApp, Feishu, and a WeChat workaround path
-  - keeps onboarding gating in place before channels are unlocked
+  - keeps command-first setup behavior, with config-backed recovery for known safe command drift cases
 - Chat page:
   - supports real multi-thread chat with AI members backed by OpenClaw agents
   - creates or reuses chat threads per AI member
@@ -77,7 +79,7 @@ flowchart LR
 - The daemon also owns OpenClaw chat session lifecycle and relays live chat updates to the UI over SSE.
 - Read-only OpenClaw CLI reads are cached and coalesced inside the daemon per logical refresh cycle so one page load does not fan out into repeated duplicate CLI calls.
 - The engine seam lives behind `EngineAdapter`, so SlackClaw product logic does not talk to OpenClaw directly.
-- `OpenClawAdapter` checks for an existing pinned OpenClaw install, reuses it when compatible, and otherwise deploys a SlackClaw-managed local OpenClaw runtime under the user's SlackClaw data directory.
+- `OpenClawAdapter` checks for an existing OpenClaw install, reuses it when available, and otherwise deploys a SlackClaw-managed local OpenClaw runtime under the user's SlackClaw data directory.
 - The adapter seam is intentionally future-facing: it should later support local-LLM runtimes and model families such as Qwen, MiniMax-exposed local runtimes, Llama, Mistral, and other OpenAI-compatible local gateways.
 - User state, diagnostics, and SlackClaw metadata live in `~/Library/Application Support/SlackClaw` when packaged.
 
@@ -85,7 +87,7 @@ flowchart LR
 
 - `SlackClaw-macOS.pkg` installs `SlackClaw.app` into `/Applications`.
 - The app bundle contains the built UI, daemon, LaunchAgent helper scripts, and OpenClaw bootstrap/install logic.
-- OpenClaw itself is reused when a compatible install already exists, or deployed into SlackClaw-managed local app data when setup needs to install it.
+- OpenClaw itself is reused when an existing install is already available, or deployed into SlackClaw-managed local app data when setup needs to install it.
 
 ## Languages
 
@@ -113,13 +115,14 @@ SlackClaw should remain able to support more than OpenClaw.
 1. Install dependencies with `npm install`
 2. Start the full local test stack with `npm start`
 3. Stop the full local test stack with `npm stop`
+4. Restart the full local test stack with `npm restart`
 
 The daemon defaults to `http://127.0.0.1:4545`.
 
 ### What `npm start` does
 
 - checks that local Node dependencies already exist
-- runs `npm run bootstrap:openclaw` and waits for it to finish
+- skips OpenClaw bootstrap so local dev startup does not install or modify the engine automatically
 - builds the shared contracts and daemon before launching them
 - starts the daemon and waits for port `4545` to open
 - starts the UI and waits for port `4173` to open
@@ -134,11 +137,19 @@ The daemon defaults to `http://127.0.0.1:4545`.
 - stops the managed SlackClaw daemon and UI process groups
 - clears the tracked dev-process state file
 
+### What `npm restart` does
+
+- runs the managed `npm stop` flow first
+- then runs the managed `npm start` flow
+- gives you a one-command way to recycle the local daemon and UI without changing the existing startup path
+
 If you still want to run pieces separately for debugging:
 
-1. `npm run bootstrap:openclaw`
-2. `npm run dev:daemon`
-3. `npm run dev:ui`
+1. `npm run dev:daemon`
+2. `npm run dev:ui`
+3. optionally run `npm run bootstrap:openclaw` if you want to prepare OpenClaw ahead of time instead of using the in-product install flow
+
+For the exact upstream OpenClaw commands SlackClaw uses for install, models, channels, agents, and chat, see [docs/reference/openclaw-commands.md](/Users/home/Ryo/Projects/slackclaw/docs/reference/openclaw-commands.md).
 
 ## Engine compatibility workflow
 
@@ -177,22 +188,29 @@ When a user installs and opens SlackClaw for the first time:
 2. After `Get started`, SlackClaw opens a first-run setup page.
 3. The setup flow checks whether OpenClaw already exists on the Mac.
 4. If OpenClaw already exists, SlackClaw reuses it.
-5. If OpenClaw is missing or incompatible, SlackClaw deploys the pinned OpenClaw runtime into `~/Library/Application Support/SlackClaw/data/openclaw-runtime`.
-6. Once deployment is complete, SlackClaw moves the user into the normal product UI to run OpenClaw onboarding.
-7. After onboarding, SlackClaw guides channel setup.
-8. Only after onboarding and channel setup does SlackClaw restart the OpenClaw gateway.
+5. If OpenClaw is missing, SlackClaw deploys the latest available OpenClaw runtime into `~/Library/Application Support/SlackClaw/data/openclaw-runtime`.
+6. Once deployment is complete, SlackClaw moves the user into the normal product UI for model, channel, and agent setup.
+7. SlackClaw guides channel setup directly from Configuration without a separate channel-unlock onboarding gate.
+8. SlackClaw restarts the OpenClaw gateway only when runtime-affecting setup changes require it.
 
 The intro page is skipped on later launches. If setup was not completed, SlackClaw resumes the setup page instead of dropping the user straight into the main workspace.
 
-## Channel onboarding
+## Channel setup
 
-After OpenClaw is deployed and onboarding is complete, SlackClaw exposes a guided channel setup panel in the UI:
+After OpenClaw is deployed, SlackClaw exposes a guided channel setup panel in the UI:
 
 - `Telegram`: saves a bot token with `openclaw channels add --channel telegram --token ...`, then approves the first pairing code.
 - `WhatsApp`: starts `openclaw channels login --channel whatsapp --verbose`, streams the session output into SlackClaw, then approves the pairing code.
 - `Feishu`: prepares the official plugin when needed, saves Feishu credentials into OpenClaw, restarts the gateway, and guides pairing.
 - `WeChat workaround`: installs and enables a community WeCom-style plugin path, saves the workaround config, and clearly marks this path as experimental rather than official OpenClaw support.
 - `Gateway restart`: after channel setup is complete, SlackClaw restarts the OpenClaw gateway so all configured channels load together.
+
+When the OpenClaw CLI drifts in known ways for config-backed mutations, SlackClaw now tries the normal command first and then falls back to writing the equivalent OpenClaw config directly before restarting and re-verifying the gateway. This currently covers:
+
+- Telegram channel config save and removal
+- Feishu channel config save and removal
+- WeChat workaround config save and removal
+- default-model config writes
 
 SlackClaw now also exposes an explicit `Deploy OpenClaw locally` action in the first-run setup page and the install panel. That path forces deployment into SlackClaw's managed local runtime instead of merely reusing a compatible system OpenClaw.
 The service panel also now exposes app-level controls to stop the local SlackClaw daemon and uninstall the packaged app's managed service/data.
@@ -202,14 +220,15 @@ The service panel also now exposes app-level controls to stop the local SlackCla
 SlackClaw manages AI models in two related ways:
 
 - `Current OpenClaw runtime`: the active default + fallback model chain reported by the installed OpenClaw runtime
-- `Saved model entries`: SlackClaw-managed model entries that preserve credentials and role choices for switching runtime behavior
+- `Configured models`: SlackClaw-managed model records that preserve provider choice, auth method, and display metadata for switching runtime behavior
 
 Current behavior:
 
-- normal saved entries stay as SlackClaw metadata until promoted to default or fallback
-- runtime-affecting entries use hidden OpenClaw agents behind the scenes when needed
+- normal configured entries stay as SlackClaw metadata until promoted to default or fallback
+- provider auth uses the OpenClaw `models auth` command family instead of creating helper model agents
 - if OpenClaw is changed outside SlackClaw, SlackClaw reconciles the active runtime chain back into the model overview so the UI stays truthful
-- duplicate saved entries for the same model can exist, but only one copy of a model can be active in the runtime chain at a time
+- duplicate configured entries for the same model can exist, but only one copy of a model can be active in the runtime chain at a time
+- for safe model-chain mutations such as setting the default model, SlackClaw can fall back to direct config writes if the CLI command shape drifts
 
 ## Chat management
 
@@ -234,9 +253,9 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 
 ### Local OpenClaw deployment
 
-- Packaged SlackClaw prefers a compatible existing `openclaw` install if one is already available.
-- If no compatible install is found, SlackClaw deploys `openclaw@2026.3.7` into `~/Library/Application Support/SlackClaw/data/openclaw-runtime`.
-- A newer compatible OpenClaw install is reused as-is; SlackClaw no longer downgrades it back to the minimum supported version on the next start.
+- Packaged SlackClaw prefers an existing `openclaw` install if one is already available.
+- If no install is found, SlackClaw deploys `openclaw@latest` into `~/Library/Application Support/SlackClaw/data/openclaw-runtime`.
+- Existing OpenClaw installs are reused as-is by default; explicit version overrides are reserved for compatibility testing and diagnostics.
 - Once that managed runtime exists, SlackClaw prefers it over an incompatible system-level OpenClaw.
 - If the user clicks `Deploy OpenClaw locally`, SlackClaw deploys the managed local runtime even when a compatible system OpenClaw already exists.
 - If `npm` is missing but Homebrew is available, SlackClaw now tries to install the needed `node`/`npm` toolchain and `git` through Homebrew before retrying local OpenClaw deployment.
@@ -256,6 +275,7 @@ This produces:
 
 The packaged app bundles the built UI and a self-contained `slackclaw-daemon` executable. On launch it starts the local SlackClaw daemon, serves the built UI on `http://127.0.0.1:4545/`, and opens the app in the default browser.
 The packaged SlackClaw daemon no longer depends on a separate Homebrew-style Node runtime on the target Mac.
+The installer builder now stages the `.app` bundle in a separate temporary directory under `dist/` before producing the final `.pkg`, so an old stale `dist/macos/SlackClaw.app` does not block future package builds.
 
 The packaged app also includes LaunchAgent helper scripts so SlackClaw can run as a login-time background service on macOS.
 If LaunchAgent startup does not come up in time, the launcher now falls back to starting the bundled daemon directly so `http://127.0.0.1:4545/` is still reachable.

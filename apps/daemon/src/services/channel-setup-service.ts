@@ -289,10 +289,6 @@ function gatewaySummary(
     return "Gateway restarted after channel setup.";
   }
 
-  if (!onboardingCompleted) {
-    return "Complete OpenClaw onboarding before setting up channels.";
-  }
-
   if (nextId) {
     return `Next recommended channel: ${channels[nextId].title}.`;
   }
@@ -309,9 +305,9 @@ export class ChannelSetupService {
   async getOverviewFromState(state?: AppState): Promise<ChannelSetupOverview> {
     const current = state ?? (await this.store.read());
     const liveChannels = await this.readLiveChannelStates();
-    const onboardingCompleted = Boolean(current.channelOnboarding?.baseOnboardingCompletedAt);
+    const onboardingCompleted = true;
     const channels = mergeChannelStates(current.channelOnboarding?.channels, liveChannels);
-    const nextId = onboardingCompleted ? nextChannelId(channels) : undefined;
+    const nextId = nextChannelId(channels);
     const gatewayStarted = Boolean(current.channelOnboarding?.gatewayStartedAt);
 
     return {
@@ -328,7 +324,7 @@ export class ChannelSetupService {
     const liveChannels = await this.readLiveChannelStates();
     const liveEntries = await this.adapter.getConfiguredChannelEntries();
     const channels = mergeChannelStates(current.channelOnboarding?.channels, liveChannels);
-    const onboardingCompleted = Boolean(current.channelOnboarding?.baseOnboardingCompletedAt);
+    const onboardingCompleted = true;
     const storedEntries = current.channelOnboarding?.entries ?? {};
     const entriesById = new Map<string, ConfiguredChannelEntry>();
 
@@ -366,20 +362,7 @@ export class ChannelSetupService {
     };
   }
 
-  async markBaseOnboardingCompleted(): Promise<void> {
-    await this.store.update((current) => ({
-      ...current,
-      channelOnboarding: {
-        baseOnboardingCompletedAt: current.channelOnboarding?.baseOnboardingCompletedAt ?? new Date().toISOString(),
-        gatewayStartedAt: current.channelOnboarding?.gatewayStartedAt,
-        channels: mergeChannelStates(current.channelOnboarding?.channels, {}),
-        entries: current.channelOnboarding?.entries ?? {}
-      }
-    }));
-  }
-
   async saveEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
-    await this.ensureBaseOnboardingCompleted();
     const result = await this.adapter.saveChannelEntry({ ...request, entryId });
     const channelId = request.channelId;
     const now = new Date().toISOString();
@@ -410,7 +393,7 @@ export class ChannelSetupService {
       return {
         ...current,
         channelOnboarding: {
-          baseOnboardingCompletedAt: current.channelOnboarding?.baseOnboardingCompletedAt,
+          baseOnboardingCompletedAt: current.channelOnboarding?.baseOnboardingCompletedAt ?? now,
           gatewayStartedAt: gatewayRestarted ? now : current.channelOnboarding?.gatewayStartedAt,
           channels: {
             ...mergeChannelStates(current.channelOnboarding?.channels, {}),
@@ -430,7 +413,6 @@ export class ChannelSetupService {
   }
 
   async removeEntry(request: RemoveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
-    await this.ensureBaseOnboardingCompleted();
     const current = await this.store.read();
     const record =
       current.channelOnboarding?.entries?.[request.entryId] ??
@@ -457,7 +439,7 @@ export class ChannelSetupService {
       return {
         ...next,
         channelOnboarding: {
-          baseOnboardingCompletedAt: next.channelOnboarding?.baseOnboardingCompletedAt,
+          baseOnboardingCompletedAt: next.channelOnboarding?.baseOnboardingCompletedAt ?? new Date().toISOString(),
           gatewayStartedAt: new Date().toISOString(),
           channels: {
             ...mergeChannelStates(next.channelOnboarding?.channels, {}),
@@ -487,14 +469,6 @@ export class ChannelSetupService {
       session: await this.adapter.submitChannelSessionInput(sessionId, request),
       channelConfig: await this.getConfigOverview()
     };
-  }
-
-  private async ensureBaseOnboardingCompleted(): Promise<void> {
-    const current = await this.store.read();
-
-    if (!current.channelOnboarding?.baseOnboardingCompletedAt) {
-      throw new Error("Complete OpenClaw onboarding before configuring channels.");
-    }
   }
 
   private async readLiveChannelStates(): Promise<Partial<Record<SupportedChannelId, ChannelSetupState>>> {

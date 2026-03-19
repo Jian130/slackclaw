@@ -162,6 +162,8 @@ export interface EngineAdapter {
 
   install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse>;
   uninstall(): Promise<EngineActionResponse>;
+  installDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
+  uninstallDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
   restartGateway(): Promise<GatewayActionResponse>;
   getModelConfig(): Promise<ModelConfigOverview>;
   createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse>;

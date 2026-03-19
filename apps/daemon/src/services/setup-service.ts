@@ -68,7 +68,7 @@ export class SetupService {
       status: failedStep ? "failed" : "completed",
       message: failedStep
         ? "SlackClaw finished part of setup, but OpenClaw still needs attention."
-        : "OpenClaw deployment is complete. Continue to Configuration for onboarding and channel setup.",
+        : "OpenClaw deployment is complete. Continue to Configuration for models and channels.",
       steps,
       overview,
       install: installResult

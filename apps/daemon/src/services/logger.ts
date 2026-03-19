@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { getLogDir } from "../runtime-paths.js";
+import { getAppRootDir, getLogDir } from "../runtime-paths.js";
 
 const ERROR_LOG_PATH = resolve(getLogDir(), "error.log");
 
@@ -30,6 +30,31 @@ export async function writeInfoLog(message: string, details?: unknown): Promise<
   } catch {
     // Logging must never crash the app.
   }
+}
+
+export function shouldLogDevelopmentCommands(): boolean {
+  if (process.env.SLACKCLAW_LOG_DEV_COMMANDS === "0") {
+    return false;
+  }
+
+  return process.env.SLACKCLAW_LOG_DEV_COMMANDS === "1" || !getAppRootDir();
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) {
+    return value;
+  }
+
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export function logDevelopmentCommand(scope: string, command: string, args: string[] = []): void {
+  if (!shouldLogDevelopmentCommands()) {
+    return;
+  }
+
+  const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
+  console.log(`[SlackClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`);
 }
 
 export function errorToLogDetails(error: unknown): Record<string, unknown> {

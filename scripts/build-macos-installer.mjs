@@ -6,10 +6,11 @@ import { dirname, resolve } from "node:path";
 
 const ROOT = process.cwd();
 const DIST_DIR = resolve(ROOT, "dist/macos");
-const BUILD_DIR = resolve(DIST_DIR, ".build");
+const STAGING_DIR = resolve(ROOT, "dist/.macos-staging");
+const BUILD_DIR = resolve(STAGING_DIR, ".build");
 const APP_NAME = "SlackClaw";
 const APP_VERSION = "0.1.2";
-const APP_BUNDLE = resolve(DIST_DIR, `${APP_NAME}.app`);
+const APP_BUNDLE = resolve(STAGING_DIR, `${APP_NAME}.app`);
 const APP_CONTENTS = resolve(APP_BUNDLE, "Contents");
 const APP_MACOS = resolve(APP_CONTENTS, "MacOS");
 const APP_RESOURCES = resolve(APP_CONTENTS, "Resources");
@@ -318,7 +319,7 @@ function infoPlist() {
 }
 
 async function stageBundle() {
-  await rm(DIST_DIR, { recursive: true, force: true });
+  await rm(STAGING_DIR, { recursive: true, force: true });
   await mkdir(APP_MACOS, { recursive: true });
   await mkdir(APP_RUNTIME, { recursive: true });
   await mkdir(APP_UI, { recursive: true });

@@ -30,7 +30,6 @@ import type {
   ModelConfigActionResponse,
   ModelConfigOverview,
   MemberBindingsResponse,
-  OnboardingSelection,
   PairingApprovalRequest,
   ProductOverview,
   RemoveSkillRequest,
@@ -186,10 +185,26 @@ export function fetchDeploymentTargets(options?: { fresh?: boolean }): Promise<D
   return readJson<DeploymentTargetsResponse>("/deploy/targets", options);
 }
 
+export function installDeploymentTarget(
+  targetId: "standard" | "managed-local"
+): Promise<DeploymentTargetActionResponse> {
+  return readJson<DeploymentTargetActionResponse>(`/deploy/targets/${targetId}/install`, {
+    method: "POST"
+  });
+}
+
 export function updateDeploymentTarget(
   targetId: "standard" | "managed-local"
 ): Promise<DeploymentTargetActionResponse> {
   return readJson<DeploymentTargetActionResponse>(`/deploy/targets/${targetId}/update`, {
+    method: "POST"
+  });
+}
+
+export function uninstallDeploymentTarget(
+  targetId: "standard" | "managed-local"
+): Promise<DeploymentTargetActionResponse> {
+  return readJson<DeploymentTargetActionResponse>(`/deploy/targets/${targetId}/uninstall`, {
     method: "POST"
   });
 }
@@ -292,13 +307,6 @@ export function installSlackClaw(
 export function uninstallEngine(): Promise<{ result: EngineActionResponse; overview: ProductOverview }> {
   return readJson<{ result: EngineActionResponse; overview: ProductOverview }>("/engine/uninstall", {
     method: "POST"
-  });
-}
-
-export function completeOnboarding(selection: OnboardingSelection): Promise<ProductOverview> {
-  return readJson<ProductOverview>("/onboarding", {
-    method: "POST",
-    body: JSON.stringify(selection)
   });
 }
 
