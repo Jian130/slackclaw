@@ -564,13 +564,17 @@ test("creating a normal OAuth saved model entry authenticates through models aut
     const commands = await readCommands(logPath);
 
     assert.equal(session.session.status, "completed");
-    assert.match(session.session.message, /is ready|authentication completed/i);
+    assert.match(session.session.message, /apply.*gateway|saved/i);
     assert.ok(session.modelConfig.savedEntries.some((entry) => entry.label === "OpenAI Codex"));
     assert.equal(
       commands.some((command) => command.startsWith("agents add slackclaw-model-") || command.startsWith("agents set-identity --agent slackclaw-model-")),
       false
     );
     assert.equal(countCommands(commands, "models auth login --provider openai-codex"), 1);
+    assert.equal(countCommands(commands, "gateway restart"), 0);
+
+    const status = await adapter.status();
+    assert.equal(status.pendingGatewayApply, true);
   });
 });
 
@@ -601,14 +605,99 @@ test("configureTelegram falls back to direct config writes when the command path
       channels?: { telegram?: Record<string, unknown> };
     };
 
-    assert.match(result.message, /reachable/i);
+    assert.match(result.message, /saved|apply/i);
+    assert.equal(result.requiresGatewayApply, true);
     assert.equal(countCommands(commands, "channels add --channel telegram --token 123:fake-token --name Fallback Bot"), 1);
-    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(countCommands(commands, "gateway restart"), 0);
     assert.equal(config.channels?.telegram?.enabled, true);
     assert.equal(config.channels?.telegram?.botToken, "123:fake-token");
     assert.equal(config.channels?.telegram?.dmPolicy, "pairing");
+
+    const status = await adapter.status();
+    assert.equal(status.pendingGatewayApply, true);
   }, {
     failTelegramChannelsAdd: true
+  });
+});
+
+test("saveCustomSkill stages the skill change without restarting the gateway", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const result = await adapter.saveCustomSkill(undefined, {
+      name: "Summarizer",
+      description: "Summarize content",
+      instructions: "Summarize user content clearly."
+    });
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.requiresGatewayApply, true);
+    assert.equal(result.slug, "summarizer");
+    assert.equal(countCommands(commands, "gateway restart"), 0);
+
+    const status = await adapter.status();
+    assert.equal(status.pendingGatewayApply, true);
+  });
+});
+
+test("saveAIMemberRuntime stages agent changes without restarting the gateway", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const modelConfig = await adapter.getModelConfig();
+    const brainEntry = modelConfig.savedEntries[0];
+    const result = await adapter.saveAIMemberRuntime({
+      memberId: "member-1",
+      existingAgentId: "existing-agent",
+      name: "AI Assistant",
+      jobTitle: "Research Assistant",
+      avatar: {
+        presetId: "operator",
+        accent: "var(--avatar-1)",
+        emoji: "🦊",
+        theme: "sunrise"
+      },
+      personality: "Calm and methodical",
+      soul: "Helpful and precise",
+      workStyles: ["Methodical"],
+      skillIds: [],
+      selectedSkills: [],
+      capabilitySettings: {
+        memoryEnabled: true,
+        contextWindow: 128000
+      },
+      knowledgePacks: [],
+      brain: {
+        entryId: brainEntry.id,
+        label: brainEntry.label,
+        providerId: brainEntry.providerId,
+        modelKey: brainEntry.modelKey
+      }
+    });
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.agentId, "existing-agent");
+    assert.equal(result.requiresGatewayApply, true);
+    assert.equal(countCommands(commands, "gateway restart"), 0);
+
+    const status = await adapter.status();
+    assert.equal(status.pendingGatewayApply, true);
+  });
+});
+
+test("restartGateway clears the pending apply flag after staged changes", async () => {
+  await withFakeOpenClaw(async ({ adapter }) => {
+    await adapter.configureTelegram({
+      token: "123:fake-token",
+      accountName: "Apply Bot"
+    });
+
+    const before = await adapter.status();
+    assert.equal(before.pendingGatewayApply, true);
+
+    const result = await adapter.restartGateway();
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.engineStatus.pendingGatewayApply, false);
+
+    const after = await adapter.status();
+    assert.equal(after.pendingGatewayApply, false);
   });
 });
 
@@ -625,8 +714,9 @@ test("configureFeishu falls back to direct config writes when config set drifts"
       channels?: { feishu?: Record<string, unknown> };
     };
 
-    assert.match(result.message, /reachable/i);
-    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(result.requiresGatewayApply, true);
+    assert.match(result.message, /apply pending/i);
+    assert.equal(countCommands(commands, "gateway restart"), 0);
     assert.equal(config.channels?.feishu?.enabled, true);
     assert.equal(config.channels?.feishu?.domain, "feishu");
   }, {
@@ -650,8 +740,9 @@ test("configureWechatWorkaround falls back to direct config writes when config s
     };
     const saved = config.channels?.["wecom-app"];
 
-    assert.match(result.message, /reachable/i);
-    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(result.requiresGatewayApply, true);
+    assert.match(result.message, /apply pending/i);
+    assert.equal(countCommands(commands, "gateway restart"), 0);
     assert.equal(saved?.enabled, true);
     assert.equal(saved?.corpId, "corp-id");
     assert.equal(saved?.agentId, 1000001);
@@ -698,6 +789,92 @@ test("deployment targets report latest as the desired install version by default
     assert.equal(overview.targets[0]?.desiredVersion, "latest");
     assert.equal(overview.targets[1]?.desiredVersion, "latest");
   });
+});
+
+test("install refreshes managed-local command resolution after npm creates the runtime", async () => {
+  const previousLock = fakeOpenClawLock;
+  let releaseLock = () => {};
+  fakeOpenClawLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await previousLock;
+
+  const tempDir = await mkdtemp(resolve(process.cwd(), "apps/daemon/.data/openclaw-managed-install-test-"));
+  const dataDir = join(tempDir, "data");
+  const binDir = join(tempDir, "bin");
+  const npmPath = join(binDir, "npm");
+  const originalPath = process.env.PATH;
+  const originalDataDir = process.env.SLACKCLAW_DATA_DIR;
+
+  await mkdir(dataDir, { recursive: true });
+  await mkdir(binDir, { recursive: true });
+  await writeFile(
+    npmPath,
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "10.9.0"
+  exit 0
+fi
+if [ "$1" = "prefix" ] && [ "$2" = "--global" ]; then
+  echo ${JSON.stringify(join(tempDir, "npm-prefix"))}
+  exit 0
+fi
+if [ "$1" = "root" ] && [ "$2" = "--global" ]; then
+  echo ${JSON.stringify(join(tempDir, "npm-root"))}
+  exit 0
+fi
+if [ "$1" = "install" ] && [ "$2" = "--prefix" ]; then
+  prefix="$3"
+  mkdir -p "$prefix/node_modules/.bin"
+  cat > "$prefix/node_modules/.bin/openclaw" <<'EOF'
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "2026.3.13"
+elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
+  echo '{"setup":{"required":false},"gateway":{"reachable":true},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"rpc":{"ok":true},"service":{"installed":true,"loaded":true}}'
+elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.13"}},"channel":{"label":"stable"}}'
+else
+  echo '{}'
+fi
+EOF
+  chmod +x "$prefix/node_modules/.bin/openclaw"
+  exit 0
+fi
+exit 1
+`
+  );
+  await chmod(npmPath, 0o755);
+
+  process.env.PATH = originalPath ? `${binDir}:${originalPath}` : binDir;
+  process.env.SLACKCLAW_DATA_DIR = dataDir;
+
+  const adapter = new OpenClawAdapter();
+  adapter.invalidateReadCaches();
+
+  try {
+    const result = await adapter.install(false, { forceLocal: true });
+
+    assert.equal(result.status, "installed");
+    assert.match(result.actualVersion ?? "", /2026\.3\.13/);
+    assert.match(result.message, /2026\.3\.13/);
+  } finally {
+    adapter.invalidateReadCaches();
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+    if (originalDataDir === undefined) {
+      delete process.env.SLACKCLAW_DATA_DIR;
+    } else {
+      process.env.SLACKCLAW_DATA_DIR = originalDataDir;
+    }
+    await rm(tempDir, { recursive: true, force: true });
+    releaseLock();
+  }
 });
 
 test("updateDeploymentTarget fails when the command succeeds but the active version does not advance", async () => {

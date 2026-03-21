@@ -11,6 +11,7 @@ import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent } from "../../shared/ui/Card.js";
+import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
 import { MetricCard } from "../../shared/ui/MetricCard.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 
@@ -44,7 +45,7 @@ export function connectedModelDetail(
 export default function DashboardPage() {
   const { locale } = useLocale();
   const copy = t(locale).dashboard;
-  const { overview } = useOverview();
+  const { overview, refresh } = useOverview();
   const { overview: aiTeam } = useAITeam();
   const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
   const readyCount = aiTeam?.members.filter((member) => member.status === "ready").length ?? 0;
@@ -52,10 +53,11 @@ export default function DashboardPage() {
   const channelReady = overview?.channelSetup.channels.filter((channel) => channel.status === "completed" || channel.status === "ready").length ?? 0;
 
   useEffect(() => {
-    void fetchModelConfig()
+    void refresh({ fresh: true });
+    void fetchModelConfig({ fresh: true })
       .then((next) => setModelConfig(next))
       .catch(() => setModelConfig(undefined));
-  }, []);
+  }, [refresh]);
 
   return (
     <div className="panel-stack">
@@ -126,9 +128,12 @@ export default function DashboardPage() {
               {aiTeam?.members.map((member) => (
                 <div className="employee-card" key={member.id}>
                   <div className="actions-row" style={{ gap: 16, alignItems: "center" }}>
-                    <div className="employee-card__avatar" style={{ background: member.avatar.accent, width: 72, minWidth: 72, aspectRatio: "1" }}>
-                      {member.name.split(" ").map((part) => part[0]).join("").slice(0, 2)}
-                    </div>
+                    <MemberAvatar
+                      avatar={member.avatar}
+                      className="employee-card__avatar"
+                      name={member.name}
+                      style={{ background: member.avatar.accent, width: 72, minWidth: 72, aspectRatio: "1" }}
+                    />
                     <div className="employee-details">
                       <strong>{member.name}</strong>
                       <span className="card__description">{member.jobTitle}</span>

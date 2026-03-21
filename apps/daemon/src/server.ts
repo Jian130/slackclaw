@@ -5,6 +5,7 @@ import { extname, join, resolve } from "node:path";
 import type {
   AbortChatRequest,
   BindAIMemberChannelRequest,
+  CompleteOnboardingRequest,
   CreateChatThreadRequest,
   DeleteAIMemberRequest,
   InstallSkillRequest,
@@ -24,6 +25,7 @@ import type {
   SaveModelEntryRequest,
   SetDefaultModelRequest,
   SetDefaultModelEntryRequest,
+  UpdateOnboardingStateRequest,
   UpdateSkillRequest
 } from "@slackclaw/contracts";
 
@@ -34,6 +36,7 @@ import { AITeamService } from "./services/ai-team-service.js";
 import { ChatService } from "./services/chat-service.js";
 import { ChannelSetupService } from "./services/channel-setup-service.js";
 import { errorToLogDetails, writeErrorLog, writeInfoLog } from "./services/logger.js";
+import { OnboardingService } from "./services/onboarding-service.js";
 import { OverviewService } from "./services/overview-service.js";
 import { SetupService } from "./services/setup-service.js";
 import { SkillService } from "./services/skill-service.js";
@@ -124,6 +127,7 @@ export function startServer(port = 4545) {
   const chatService = new ChatService(adapter, store, aiTeamService);
   const skillService = new SkillService(adapter, store);
   const setupService = new SetupService(adapter, store, overviewService);
+  const onboardingService = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService);
   const taskService = new TaskService(adapter, store);
   let server: ReturnType<typeof createServer>;
   const appControlService = new AppControlService(() => {
@@ -173,7 +177,7 @@ export function startServer(port = 4545) {
       }
 
       if (request.method === "GET" && pathname === "/api/deploy/targets") {
-        sendJson(response, 200, await adapter.getDeploymentTargets());
+        sendJson(response, 200, await adapter.instances.getDeploymentTargets());
         return;
       }
 
@@ -183,7 +187,7 @@ export function startServer(port = 4545) {
           request.url === "/api/deploy/targets/managed-local/install")
       ) {
         const targetId = request.url.includes("/managed-local/") ? "managed-local" : "standard";
-        sendJson(response, 200, await adapter.installDeploymentTarget(targetId));
+        sendJson(response, 200, await adapter.instances.installDeploymentTarget(targetId));
         return;
       }
 
@@ -193,7 +197,7 @@ export function startServer(port = 4545) {
           request.url === "/api/deploy/targets/managed-local/update")
       ) {
         const targetId = request.url.includes("/managed-local/") ? "managed-local" : "standard";
-        sendJson(response, 200, await adapter.updateDeploymentTarget(targetId));
+        sendJson(response, 200, await adapter.instances.updateDeploymentTarget(targetId));
         return;
       }
 
@@ -203,79 +207,79 @@ export function startServer(port = 4545) {
           request.url === "/api/deploy/targets/managed-local/uninstall")
       ) {
         const targetId = request.url.includes("/managed-local/") ? "managed-local" : "standard";
-        sendJson(response, 200, await adapter.uninstallDeploymentTarget(targetId));
+        sendJson(response, 200, await adapter.instances.uninstallDeploymentTarget(targetId));
         return;
       }
 
       if (request.method === "POST" && pathname === "/api/deploy/gateway/restart") {
-        sendJson(response, 200, await adapter.restartGateway());
+        sendJson(response, 200, await adapter.gateway.restartGateway());
         return;
       }
 
       if (request.method === "GET" && pathname === "/api/models/config") {
-        sendJson(response, 200, await adapter.getModelConfig());
+        sendJson(response, 200, await adapter.config.getModelConfig());
         return;
       }
 
       if (request.method === "POST" && request.url === "/api/models/entries") {
         const body = await readJson<SaveModelEntryRequest>(request);
-        sendJson(response, 200, await adapter.createSavedModelEntry(body));
+        sendJson(response, 200, await adapter.config.createSavedModelEntry(body));
         return;
       }
 
       if (request.method === "PATCH" && request.url.startsWith("/api/models/entries/")) {
         const entryId = request.url.slice("/api/models/entries/".length);
         const body = await readJson<SaveModelEntryRequest>(request);
-        sendJson(response, 200, await adapter.updateSavedModelEntry(entryId, body));
+        sendJson(response, 200, await adapter.config.updateSavedModelEntry(entryId, body));
         return;
       }
 
       if (request.method === "DELETE" && pathname.startsWith("/api/models/entries/")) {
         const entryId = pathname.slice("/api/models/entries/".length);
-        sendJson(response, 200, await adapter.removeSavedModelEntry(entryId));
+        sendJson(response, 200, await adapter.config.removeSavedModelEntry(entryId));
         return;
       }
 
       if (request.method === "POST" && request.url === "/api/models/default-entry") {
         const body = await readJson<SetDefaultModelEntryRequest>(request);
-        sendJson(response, 200, await adapter.setDefaultModelEntry(body));
+        sendJson(response, 200, await adapter.config.setDefaultModelEntry(body));
         return;
       }
 
       if (request.method === "POST" && request.url === "/api/models/fallbacks") {
         const body = await readJson<ReplaceFallbackModelEntriesRequest>(request);
-        sendJson(response, 200, await adapter.replaceFallbackModelEntries(body));
+        sendJson(response, 200, await adapter.config.replaceFallbackModelEntries(body));
         return;
       }
 
       if (request.method === "POST" && request.url === "/api/models/auth") {
         const body = await readJson<ModelAuthRequest>(request);
-        sendJson(response, 200, await adapter.authenticateModelProvider(body));
+        sendJson(response, 200, await adapter.config.authenticateModelProvider(body));
         return;
       }
 
       if (request.method === "GET" && request.url.startsWith("/api/models/auth/session/")) {
         const sessionId = request.url.slice("/api/models/auth/session/".length);
-        sendJson(response, 200, await adapter.getModelAuthSession(sessionId));
+        sendJson(response, 200, await adapter.config.getModelAuthSession(sessionId));
         return;
       }
 
       if (request.method === "POST" && request.url.startsWith("/api/models/auth/session/") && request.url.endsWith("/input")) {
         const sessionId = request.url.slice("/api/models/auth/session/".length, -"/input".length);
         const body = await readJson<ModelAuthSessionInputRequest>(request);
-        sendJson(response, 200, await adapter.submitModelAuthSessionInput(sessionId, body));
+        sendJson(response, 200, await adapter.config.submitModelAuthSessionInput(sessionId, body));
         return;
       }
 
       if (request.method === "POST" && request.url === "/api/models/default") {
         const body = await readJson<SetDefaultModelRequest>(request);
-        sendJson(response, 200, await adapter.setDefaultModel(body.modelKey));
+        sendJson(response, 200, await adapter.config.setDefaultModel(body.modelKey));
         return;
       }
 
       if (request.method === "POST" && request.url === "/api/install") {
         const body = await readJson<InstallRequest>(request);
-        const result = await adapter.install(body.autoConfigure ?? true, { forceLocal: body.forceLocal ?? false });
+        const result = await adapter.instances.install(body.autoConfigure ?? true, { forceLocal: body.forceLocal ?? false });
         sendJson(response, 200, {
           install: result,
           overview: await overviewService.getOverview()
@@ -284,11 +288,12 @@ export function startServer(port = 4545) {
       }
 
       if (request.method === "POST" && request.url === "/api/engine/uninstall") {
-        const result = await adapter.uninstall();
+        const result = await adapter.instances.uninstall();
         await store.update((current) => ({
           ...current,
           setupCompletedAt: undefined,
           selectedProfileId: undefined,
+          onboarding: undefined,
           channelOnboarding: undefined
         }));
         sendJson(response, 200, {
@@ -309,6 +314,23 @@ export function startServer(port = 4545) {
         return;
       }
 
+      if (request.method === "GET" && pathname === "/api/onboarding/state") {
+        sendJson(response, 200, await onboardingService.getState());
+        return;
+      }
+
+      if (request.method === "PATCH" && pathname === "/api/onboarding/state") {
+        const body = await readJson<UpdateOnboardingStateRequest>(request);
+        sendJson(response, 200, await onboardingService.updateState(body));
+        return;
+      }
+
+      if (request.method === "POST" && pathname === "/api/onboarding/complete") {
+        const body = await readJson<CompleteOnboardingRequest>(request);
+        sendJson(response, 200, await onboardingService.complete(body));
+        return;
+      }
+
       if (request.method === "GET" && pathname === "/api/channels/config") {
         sendJson(response, 200, await channelSetupService.getConfigOverview());
         return;
@@ -320,7 +342,7 @@ export function startServer(port = 4545) {
       }
 
       if (request.method === "GET" && pathname === "/api/skills/marketplace/explore") {
-        sendJson(response, 200, await adapter.exploreSkillMarketplace(10));
+        sendJson(response, 200, await adapter.config.exploreSkillMarketplace(10));
         return;
       }
 
@@ -520,7 +542,7 @@ export function startServer(port = 4545) {
       }
 
       if (request.method === "POST" && request.url === "/api/update") {
-        sendJson(response, 200, await adapter.update());
+        sendJson(response, 200, await adapter.instances.update());
         return;
       }
 
@@ -564,7 +586,7 @@ export function startServer(port = 4545) {
       }
 
       if (request.method === "GET" && pathname === "/api/diagnostics") {
-        const bundle = await adapter.exportDiagnostics();
+        const bundle = await adapter.instances.exportDiagnostics();
         const diagnosticsPath = resolve(getDataDir(), bundle.filename);
         await writeFile(diagnosticsPath, bundle.content);
         sendJson(response, 200, {
@@ -584,7 +606,7 @@ export function startServer(port = 4545) {
         }
 
         sendJson(response, 200, {
-          result: await adapter.repair(action),
+          result: await adapter.instances.repair(action),
           overview: await overviewService.getOverview()
         });
         return;

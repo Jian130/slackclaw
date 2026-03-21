@@ -62,8 +62,20 @@ import type {
 } from "@slackclaw/contracts";
 import { writeMemberWorkspaceFiles } from "./member-workspace.js";
 import { resolveReadableMemberAgentId } from "./member-agent-id.js";
+import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
+import { OpenClawConfigManager } from "./openclaw-config-manager.js";
+import { OpenClawGatewayManager } from "./openclaw-gateway-manager.js";
+import { OpenClawInstanceManager } from "./openclaw-instance-manager.js";
+import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
 
-import type { EngineAdapter, EngineChatLiveEvent } from "./adapter.js";
+import type {
+  AIEmployeeManager,
+  ConfigManager,
+  EngineAdapter,
+  EngineChatLiveEvent,
+  GatewayManager,
+  InstanceManager
+} from "./adapter.js";
 import type {
   AIMemberRuntimeCandidate,
   AIMemberRuntimeRequest,
@@ -418,6 +430,8 @@ interface OpenClawAdapterState {
   modelEntries?: SavedModelEntryState[];
   defaultModelEntryId?: string;
   fallbackModelEntryIds?: string[];
+  pendingGatewayApply?: boolean;
+  pendingGatewayApplySummary?: string;
 }
 
 interface OpenClawConfigFileJson {
@@ -2033,12 +2047,12 @@ async function readVersionFromCommand(command: string | undefined, options?: { f
   );
 }
 
-async function readManagedOpenClawVersion(): Promise<string | undefined> {
-  return readVersionFromCommand(await resolveManagedOpenClawCommand());
+async function readManagedOpenClawVersion(options?: { fresh?: boolean }): Promise<string | undefined> {
+  return readVersionFromCommand(await resolveManagedOpenClawCommand(options), options);
 }
 
-async function readSystemOpenClawVersion(): Promise<string | undefined> {
-  return readVersionFromCommand(await resolveSystemOpenClawCommand());
+async function readSystemOpenClawVersion(options?: { fresh?: boolean }): Promise<string | undefined> {
+  return readVersionFromCommand(await resolveSystemOpenClawCommand(options), options);
 }
 
 function compareOpenClawVersions(left: string | undefined, right: string | undefined): number | undefined {
@@ -4231,6 +4245,18 @@ export class OpenClawAdapter implements EngineAdapter {
     futureLocalModelFamilies: ["qwen", "minimax", "llama", "mistral", "custom-openai-compatible"]
   };
 
+  readonly instances: InstanceManager;
+  readonly config: ConfigManager;
+  readonly aiEmployees: AIEmployeeManager;
+  readonly gateway: GatewayManager;
+
+  constructor() {
+    this.instances = new OpenClawInstanceManager(this);
+    this.config = new OpenClawConfigManager(this);
+    this.aiEmployees = new OpenClawAIEmployeeManager(this);
+    this.gateway = new OpenClawGatewayManager(this);
+  }
+
   invalidateReadCaches(): void {
     invalidateReadCache();
     invalidateCommandResolutionCache();
@@ -4504,8 +4530,34 @@ export class OpenClawAdapter implements EngineAdapter {
         isFallback: fallbackEntryIds.includes(entry.id)
       })),
       defaultModelEntryId: defaultEntryId,
-      fallbackModelEntryIds: fallbackEntryIds
+      fallbackModelEntryIds: fallbackEntryIds,
+      pendingGatewayApply: state.pendingGatewayApply === true,
+      pendingGatewayApplySummary: state.pendingGatewayApply ? state.pendingGatewayApplySummary : undefined
     };
+  }
+
+  private async markGatewayApplyPending(summary = summarizePendingGatewayApply()): Promise<void> {
+    const state = this.normalizeStateFlags(await readAdapterState());
+
+    await writeAdapterState({
+      ...state,
+      pendingGatewayApply: true,
+      pendingGatewayApplySummary: summary
+    });
+  }
+
+  private async clearGatewayApplyPending(): Promise<void> {
+    const state = this.normalizeStateFlags(await readAdapterState());
+
+    if (!state.pendingGatewayApply && !state.pendingGatewayApplySummary) {
+      return;
+    }
+
+    await writeAdapterState({
+      ...state,
+      pendingGatewayApply: false,
+      pendingGatewayApplySummary: undefined
+    });
   }
 
   private buildEntryLabel(label: string | undefined, providerId: string, modelKey: string): string {
@@ -5102,11 +5154,12 @@ export class OpenClawAdapter implements EngineAdapter {
 
     if (previousWasRuntime) {
       nextState = await this.syncRuntimeModelChain(nextState);
-      await this.restartGatewayAndRequireHealthy("model configuration");
+      await this.markGatewayApplyPending();
       return {
         status: "completed",
-        message: `${nextEntry.label} was updated. OpenClaw gateway restarted and is reachable.`,
-        modelConfig: await this.getModelConfig()
+        message: appendGatewayApplyMessage(`${nextEntry.label} was updated.`),
+        modelConfig: await this.getModelConfig(),
+        requiresGatewayApply: true
       };
     }
 
@@ -5114,7 +5167,8 @@ export class OpenClawAdapter implements EngineAdapter {
     return {
       status: "completed",
       message: `${nextEntry.label} was added to SlackClaw. OpenClaw will only configure it when you set it as default or fallback.`,
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: false
     };
   }
 
@@ -5164,12 +5218,13 @@ export class OpenClawAdapter implements EngineAdapter {
       operation.draft
     );
     nextState = await this.syncRuntimeModelChain(nextState);
-    await this.restartGatewayAndRequireHealthy("model configuration");
+    await this.markGatewayApplyPending();
 
     return {
       status: "completed",
-      message: `${nextEntry.label} is ready. OpenClaw gateway restarted and is reachable.`,
-      modelConfig: await this.getModelConfig()
+      message: appendGatewayApplyMessage(`${nextEntry.label} is ready.`),
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -5799,7 +5854,7 @@ export class OpenClawAdapter implements EngineAdapter {
     });
   }
 
-  async installMarketplaceSkill(request: InstallSkillRequest): Promise<void> {
+  async installMarketplaceSkill(request: InstallSkillRequest): Promise<{ requiresGatewayApply?: boolean }> {
     const context = await this.resolveClawHubContext();
 
     if (!context) {
@@ -5815,10 +5870,12 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(result.stderr || result.stdout || `SlackClaw could not install ${request.slug} from ClawHub.`);
     }
 
-    await this.restartGatewayAndRequireHealthy("skill installation");
+    await this.markGatewayApplyPending();
+    invalidateReadCache("skills:");
+    return { requiresGatewayApply: true };
   }
 
-  async updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<void> {
+  async updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<{ requiresGatewayApply?: boolean }> {
     const context = await this.resolveClawHubContext();
 
     if (!context) {
@@ -5835,10 +5892,12 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(result.stderr || result.stdout || `SlackClaw could not ${request.action} ${slug}.`);
     }
 
-    await this.restartGatewayAndRequireHealthy("skill update");
+    await this.markGatewayApplyPending();
+    invalidateReadCache("skills:");
+    return { requiresGatewayApply: true };
   }
 
-  async saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string }> {
+  async saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string; requiresGatewayApply?: boolean }> {
     const list = await this.readOpenClawSkillsList();
     const skillsDir = await this.resolveSharedSkillsDir(list);
 
@@ -5857,12 +5916,16 @@ export class OpenClawAdapter implements EngineAdapter {
     await mkdir(baseDir, { recursive: true });
     await writeFile(join(baseDir, "SKILL.md"), buildCustomSkillMarkdown(request, slug, existing?.version));
 
-    await this.restartGatewayAndRequireHealthy("custom skill update");
+    await this.markGatewayApplyPending();
+    invalidateReadCache("skills:");
 
-    return { slug };
+    return { slug, requiresGatewayApply: true };
   }
 
-  async removeInstalledSkill(slug: string, request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }): Promise<void> {
+  async removeInstalledSkill(
+    slug: string,
+    request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+  ): Promise<{ requiresGatewayApply?: boolean }> {
     if (request.managedBy === "clawhub") {
       const context = await this.resolveClawHubContext();
 
@@ -5885,7 +5948,9 @@ export class OpenClawAdapter implements EngineAdapter {
       await rm(join(skillsDir, slug), { recursive: true, force: true });
     }
 
-    await this.restartGatewayAndRequireHealthy("skill removal");
+    await this.markGatewayApplyPending();
+    invalidateReadCache("skills:");
+    return { requiresGatewayApply: true };
   }
 
   async getModelConfig(): Promise<ModelConfigOverview> {
@@ -6015,21 +6080,21 @@ export class OpenClawAdapter implements EngineAdapter {
                 });
               }
 
-              await this.restartGatewayAndRequireHealthy("model authentication");
+              await this.markGatewayApplyPending();
               session.status = "completed";
-              session.message = `${provider.label} authentication completed. The OpenClaw gateway restarted and is reachable.`;
+              session.message = appendGatewayApplyMessage(`${provider.label} authentication completed.`);
             }
           } catch (error) {
             session.status = "failed";
             session.message =
               session.pendingEntry
                 ? `${provider.label} authentication completed, but SlackClaw could not finish the saved model entry setup.`
-                : `${provider.label} authentication completed, but the OpenClaw gateway did not come back healthy.`;
+                : `${provider.label} authentication completed, but SlackClaw could not save the staged configuration.`;
             session.logs = trimLogLines([
               ...session.logs,
               error instanceof Error ? error.message : "SlackClaw could not finish the interactive model setup."
             ]);
-            await writeErrorLog("Failed to restart OpenClaw gateway after interactive model auth.", {
+            await writeErrorLog("Failed to finalize interactive OpenClaw model auth.", {
               providerId: provider.id,
               methodId: method.id,
               entryId: session.pendingEntry?.entryId,
@@ -6154,12 +6219,13 @@ export class OpenClawAdapter implements EngineAdapter {
 
     if (touchedRuntime) {
       await this.syncRuntimeModelChain(nextState);
-      await this.restartGatewayAndRequireHealthy("model removal");
+      await this.markGatewayApplyPending();
 
       return {
         status: "completed",
-        message: `${entry.label} was removed. OpenClaw gateway restarted and is reachable.`,
-        modelConfig: await this.getModelConfig()
+        message: appendGatewayApplyMessage(`${entry.label} was removed.`),
+        modelConfig: await this.getModelConfig(),
+        requiresGatewayApply: true
       };
     }
 
@@ -6167,7 +6233,8 @@ export class OpenClawAdapter implements EngineAdapter {
     return {
       status: "completed",
       message: `${entry.label} was removed from SlackClaw.`,
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: false
     };
   }
 
@@ -6184,12 +6251,13 @@ export class OpenClawAdapter implements EngineAdapter {
       fallbackModelEntryIds: (state.fallbackModelEntryIds ?? []).filter((entryId) => entryId !== request.entryId)
     });
 
-    await this.restartGatewayAndRequireHealthy("model configuration");
+    await this.markGatewayApplyPending();
 
     return {
       status: "completed",
-      message: "Default AI model updated. OpenClaw gateway restarted and is reachable.",
-      modelConfig: await this.getModelConfig()
+      message: appendGatewayApplyMessage("Default AI model updated."),
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -6201,12 +6269,13 @@ export class OpenClawAdapter implements EngineAdapter {
       fallbackModelEntryIds: request.entryIds
     });
 
-    await this.restartGatewayAndRequireHealthy("fallback model configuration");
+    await this.markGatewayApplyPending();
 
     return {
       status: "completed",
-      message: "Fallback AI models updated. OpenClaw gateway restarted and is reachable.",
-      modelConfig: await this.getModelConfig()
+      message: appendGatewayApplyMessage("Fallback AI models updated."),
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -6330,13 +6399,14 @@ export class OpenClawAdapter implements EngineAdapter {
       message = `${message} Default model set to ${request.setDefaultModel}.`;
     }
 
-    await this.restartGatewayAndRequireHealthy("model configuration");
-    message = `${message} OpenClaw gateway restarted and is reachable.`;
+    await this.markGatewayApplyPending();
+    message = appendGatewayApplyMessage(message);
 
     return {
       status: "completed",
       message,
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -6360,11 +6430,12 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(commandFailureText(mutation.result) || `SlackClaw could not set the default model to ${modelKey}.`);
     }
 
-    await this.restartGatewayAndRequireHealthy("model configuration");
+    await this.markGatewayApplyPending();
     return {
       status: "completed",
-      message: `Default model set to ${modelKey}. OpenClaw gateway restarted and is reachable.`,
-      modelConfig: await this.getModelConfig()
+      message: appendGatewayApplyMessage(`Default model set to ${modelKey}.`),
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -6404,7 +6475,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
     if (await resolveOpenClawCommand()) {
       await runOpenClaw(["config", "set", "slackclaw.defaultProfile", profileId], { allowFailure: true });
-      await this.restartGatewayAndRequireHealthy("profile configuration");
+      await this.markGatewayApplyPending("SlackClaw saved profile configuration changes that still need to be applied through Gateway Manager.");
     }
 
     await writeAdapterState({
@@ -6415,13 +6486,16 @@ export class OpenClawAdapter implements EngineAdapter {
 
   async status(): Promise<EngineStatus> {
     const data = await this.collectStatusData();
+    const state = this.normalizeStateFlags(await readAdapterState());
 
     return {
       engine: "openclaw",
       installed: data.installed,
       running: data.gatewayReachable,
       version: data.cliVersion,
-      summary: data.summary,
+      summary: state.pendingGatewayApply ? appendGatewayApplyMessage(data.summary) : data.summary,
+      pendingGatewayApply: state.pendingGatewayApply === true,
+      pendingGatewayApplySummary: state.pendingGatewayApply ? state.pendingGatewayApplySummary ?? summarizePendingGatewayApply() : undefined,
       lastCheckedAt: new Date().toISOString()
     };
   }
@@ -7132,7 +7206,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
   async saveChannelEntry(
     request: SaveChannelEntryRequest
-  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession }> {
+  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession; requiresGatewayApply?: boolean }> {
     switch (request.channelId) {
       case "telegram":
         if (request.action === "approve-pairing") {
@@ -7186,7 +7260,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
   async removeChannelEntry(
     request: RemoveChannelEntryRequest
-  ): Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat" }> {
+  ): Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat"; requiresGatewayApply?: boolean }> {
     const channelId = request.channelId ?? channelIdFromEntryId(request.entryId);
 
     if (channelId === "whatsapp") {
@@ -7239,15 +7313,16 @@ export class OpenClawAdapter implements EngineAdapter {
       }
     }
 
-    await this.restartGatewayAndRequireHealthy(`${channelId} channel removal`);
+    await this.markGatewayApplyPending();
 
     return {
-      message: `${channelId === "wechat" ? "WeChat workaround" : channelId[0].toUpperCase() + channelId.slice(1)} configuration removed and the gateway is reachable.`,
-      channelId
+      message: appendGatewayApplyMessage(`${channelId === "wechat" ? "WeChat workaround" : channelId[0].toUpperCase() + channelId.slice(1)} configuration removed.`),
+      channelId,
+      requiresGatewayApply: true
     };
   }
 
-  async saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState> {
+  async saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState & { requiresGatewayApply?: boolean }> {
     const agentId =
       request.existingAgentId ??
       resolveReadableMemberAgentId(
@@ -7261,7 +7336,7 @@ export class OpenClawAdapter implements EngineAdapter {
     await writeMemberWorkspaceFiles(request, workspaceDir, { createBootstrap: created });
     await this.syncMemberBrain(request, agentId, agentDir, workspaceDir);
     await runOpenClaw(["memory", "index", "--agent", agentId, "--force"], { allowFailure: true });
-    await this.restartGatewayAndRequireHealthy("AI member configuration");
+    await this.markGatewayApplyPending();
     invalidateReadCache("agents:list", `agents:bindings:${agentId}`, "skills:");
 
     const agents = await this.listOpenClawAgents();
@@ -7273,7 +7348,8 @@ export class OpenClawAdapter implements EngineAdapter {
       agentId,
       agentDir,
       workspaceDir,
-      bindings: await this.readMemberBindings(agentId)
+      bindings: await this.readMemberBindings(agentId),
+      requiresGatewayApply: true
     };
   }
 
@@ -7285,7 +7361,10 @@ export class OpenClawAdapter implements EngineAdapter {
     return this.readMemberBindings(agentId);
   }
 
-  async bindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]> {
+  async bindAIMemberChannel(
+    agentId: string,
+    request: BindAIMemberChannelRequest
+  ): Promise<{ bindings: MemberBindingSummary[]; requiresGatewayApply?: boolean }> {
     if (!agentId) {
       throw new Error("AI member agent is missing.");
     }
@@ -7295,12 +7374,18 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(result.stderr || result.stdout || `SlackClaw could not bind ${request.binding} to ${agentId}.`);
     }
 
-    await this.restartGatewayAndRequireHealthy("AI member channel binding");
+    await this.markGatewayApplyPending();
     invalidateReadCache(`agents:bindings:${agentId}`);
-    return this.readMemberBindings(agentId);
+    return {
+      bindings: await this.readMemberBindings(agentId),
+      requiresGatewayApply: true
+    };
   }
 
-  async unbindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]> {
+  async unbindAIMemberChannel(
+    agentId: string,
+    request: BindAIMemberChannelRequest
+  ): Promise<{ bindings: MemberBindingSummary[]; requiresGatewayApply?: boolean }> {
     if (!agentId) {
       throw new Error("AI member agent is missing.");
     }
@@ -7310,21 +7395,24 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(result.stderr || result.stdout || `SlackClaw could not unbind ${request.binding} from ${agentId}.`);
     }
 
-    await this.restartGatewayAndRequireHealthy("AI member channel unbinding");
+    await this.markGatewayApplyPending();
     invalidateReadCache(`agents:bindings:${agentId}`);
-    return this.readMemberBindings(agentId);
+    return {
+      bindings: await this.readMemberBindings(agentId),
+      requiresGatewayApply: true
+    };
   }
 
-  async deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<void> {
+  async deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<{ requiresGatewayApply?: boolean }> {
     if (!agentId) {
-      return;
+      return { requiresGatewayApply: false };
     }
 
     const agents = await this.listOpenClawAgents();
     const existing = agents.find((agent) => agent.id === agentId);
 
     if (!existing) {
-      return;
+      return { requiresGatewayApply: false };
     }
 
     const result = await runOpenClaw(["agents", "delete", agentId, "--force", "--json"], { allowFailure: true });
@@ -7341,13 +7429,15 @@ export class OpenClawAdapter implements EngineAdapter {
       await rm(dirname(existing.agentDir), { recursive: true, force: true }).catch(() => undefined);
     }
 
-    await this.restartGatewayAndRequireHealthy("AI member removal");
+    await this.markGatewayApplyPending();
     invalidateReadCache("agents:list", `agents:bindings:${agentId}`);
 
     const remaining = await this.listOpenClawAgents();
     if (remaining.some((agent) => agent.id === agentId)) {
       throw new Error(`SlackClaw could not verify deletion of AI member agent ${agentId}.`);
     }
+
+    return { requiresGatewayApply: true };
   }
 
   async getChatThreadDetail(request: { agentId: string; threadId: string; sessionKey: string }): Promise<ChatThreadDetail> {
@@ -7507,7 +7597,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
   async configureFeishu(
     request: FeishuSetupRequest
-  ): Promise<{ message: string; channel: ChannelSetupState }> {
+  ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
     const configSave = await this.runMutationWithConfigFallback({
       commandArgs: [
         "config",
@@ -7539,20 +7629,21 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(configSave.result.stderr || configSave.result.stdout || "SlackClaw could not save the Feishu configuration into OpenClaw.");
     }
 
-    await this.restartGatewayAndRequireHealthy("Feishu configuration");
+    await this.markGatewayApplyPending();
 
     return {
       message:
-        "SlackClaw saved your Feishu app credentials into OpenClaw, restarted the gateway, and verified it is reachable. Next enable long connection, publish the Feishu app, send a test DM, and approve the pairing code in SlackClaw.",
+        "SlackClaw saved your Feishu app credentials into OpenClaw. Apply pending changes from Gateway Manager, then enable long connection, publish the Feishu app, send a test DM, and approve the pairing code in SlackClaw.",
       channel: createChannelState("feishu", {
         status: "awaiting-pairing",
         summary: "Official Feishu plugin configured.",
-        detail: `OpenClaw saved the ${request.domain ?? "feishu"} tenant credentials and the gateway is reachable. Switch Feishu event delivery to long connection, publish the app, send a DM to the bot, then approve the Feishu pairing code in SlackClaw.`
-      })
+        detail: `OpenClaw saved the ${request.domain ?? "feishu"} tenant credentials. Apply pending gateway changes, switch Feishu event delivery to long connection, publish the app, send a DM to the bot, then approve the Feishu pairing code in SlackClaw.`
+      }),
+      requiresGatewayApply: true
     };
   }
 
-  async configureTelegram(request: TelegramSetupRequest): Promise<{ message: string; channel: ChannelSetupState }> {
+  async configureTelegram(request: TelegramSetupRequest): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
     const args = ["channels", "add", "--channel", "telegram", "--token", request.token];
 
     if (request.accountName?.trim()) {
@@ -7572,15 +7663,16 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(result.result.stderr || result.result.stdout || "SlackClaw could not save the Telegram channel configuration.");
     }
 
-    await this.restartGatewayAndRequireHealthy("Telegram configuration");
+    await this.markGatewayApplyPending();
 
     return {
-      message: "Telegram bot token saved. OpenClaw gateway restarted and is reachable. Send a message to the bot, then approve the pairing code in SlackClaw.",
+      message: "Telegram bot token saved. Apply pending changes from Gateway Manager, send a message to the bot, then approve the pairing code in SlackClaw.",
       channel: createChannelState("telegram", {
         status: "awaiting-pairing",
         summary: "Telegram token saved.",
-        detail: "The Telegram bot is configured and the gateway is reachable. Send the first message to your bot, then approve the pairing code."
-      })
+        detail: "The Telegram bot is configured. Apply pending gateway changes, send the first message to your bot, then approve the pairing code."
+      }),
+      requiresGatewayApply: true
     };
   }
 
@@ -7696,7 +7788,7 @@ export class OpenClawAdapter implements EngineAdapter {
 
   async configureWechatWorkaround(
     request: WechatSetupRequest
-  ): Promise<{ message: string; channel: ChannelSetupState }> {
+  ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
     const pluginSpec = request.pluginSpec?.trim() || "@openclaw-china/wecom-app";
     const pluginId = pluginSpec.split("/").pop() ?? pluginSpec;
     const install = await runOpenClaw(["plugins", "install", pluginSpec], { allowFailure: true });
@@ -7730,15 +7822,16 @@ export class OpenClawAdapter implements EngineAdapter {
     if (!configSave.usedFallback && configSave.result.code !== 0) {
       throw new Error(configSave.result.stderr || configSave.result.stdout || `SlackClaw could not save the WeChat workaround configuration ${pluginSpec}.`);
     }
-    await this.restartGatewayAndRequireHealthy("WeChat workaround configuration");
+    await this.markGatewayApplyPending();
 
     return {
-      message: `SlackClaw installed the experimental ${pluginSpec} workaround, restarted the OpenClaw gateway, and verified it is reachable.`,
+      message: `SlackClaw installed the experimental ${pluginSpec} workaround and saved its configuration. Apply pending changes from Gateway Manager to make it live.`,
       channel: createChannelState("wechat", {
         status: "completed",
         summary: "WeChat workaround configured.",
-        detail: "The WeChat workaround plugin is configured and the gateway is reachable."
-      })
+        detail: "The WeChat workaround plugin is configured. Apply pending gateway changes to make it live."
+      }),
+      requiresGatewayApply: true
     };
   }
 
@@ -7759,8 +7852,13 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     invalidateReadCache("engine:", "models:", "channels:", "skills:", "agents:", "command:version:", "command:update:");
-
-    return this.waitForGatewayReachable(reason);
+    const status = await this.waitForGatewayReachable(reason);
+    await this.clearGatewayApplyPending();
+    return {
+      ...status,
+      pendingGatewayApply: false,
+      pendingGatewayApplySummary: undefined
+    };
   }
 
   private async waitForGatewayReachable(reason: string): Promise<EngineStatus> {
@@ -7916,7 +8014,9 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(installResult.stderr || installResult.stdout || "OpenClaw installation failed.");
     }
 
-    const nextVersion = usesManagedLocalRuntime ? await readManagedOpenClawVersion() : await readSystemOpenClawVersion();
+    const nextVersion = usesManagedLocalRuntime
+      ? await readManagedOpenClawVersion({ fresh: true })
+      : await readSystemOpenClawVersion({ fresh: true });
 
     if (!nextVersion || (OPENCLAW_VERSION_OVERRIDE && nextVersion !== OPENCLAW_VERSION_OVERRIDE)) {
       throw new Error(

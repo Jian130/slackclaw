@@ -180,8 +180,8 @@ export class AITeamService {
   async getOverview(): Promise<AITeamOverview> {
     const state = await this.store.read();
     const aiTeam = state.aiTeam ?? defaultAITeamState();
-    const modelConfig = await this.adapter.getModelConfig();
-    const runtimeSkills = await this.adapter.getSkillRuntimeCatalog();
+    const modelConfig = await this.adapter.config.getModelConfig();
+    const runtimeSkills = await this.adapter.config.getSkillRuntimeCatalog();
     const teams = Object.values(aiTeam.teams).sort((left, right) => (left.displayOrder ?? 0) - (right.displayOrder ?? 0) || left.name.localeCompare(right.name));
     const baseOverview = {
       teamVision: aiTeam.teamVision,
@@ -201,7 +201,7 @@ export class AITeamService {
           })
         )
     } satisfies AITeamOverview;
-    const runtimeMembers = await this.adapter.listAIMemberRuntimeCandidates();
+    const runtimeMembers = await this.adapter.aiEmployees.listAIMemberRuntimeCandidates();
     const storedByAgentId = new Map(Object.values(aiTeam.members).map((member) => [member.agentId, member]));
 
     const members = runtimeMembers
@@ -266,7 +266,7 @@ export class AITeamService {
     const brain = buildBrainAssignment(overview.availableBrains, request.brainEntryId);
     const knowledgePacks = DEFAULT_KNOWLEDGE_PACKS.filter((pack) => request.knowledgePackIds.includes(pack.id));
     const selectedSkills = overview.skillOptions.filter((skill) => request.skillIds.includes(skill.id));
-    const runtime = await this.adapter.saveAIMemberRuntime({
+    const runtime = await this.adapter.aiEmployees.saveAIMemberRuntime({
       memberId: id,
       existingAgentId: current?.agentId,
       name: request.name.trim(),
@@ -337,7 +337,8 @@ export class AITeamService {
     return {
       status: "completed",
       message: current ? `${request.name.trim()} was updated.` : `${request.name.trim()} was created.`,
-      overview: await this.getOverview()
+      overview: await this.getOverview(),
+      requiresGatewayApply: runtime.requiresGatewayApply
     };
   }
 
@@ -350,7 +351,7 @@ export class AITeamService {
       throw new Error("AI member not found.");
     }
 
-    await this.adapter.deleteAIMemberRuntime(member.agentId, request);
+    const result = await this.adapter.aiEmployees.deleteAIMemberRuntime(member.agentId, request);
 
     await this.store.update((current) => {
       const currentState = current.aiTeam ?? defaultAITeamState();
@@ -397,7 +398,8 @@ export class AITeamService {
         request.deleteMode === "keep-workspace"
           ? `${member.name} was removed and the workspace/history was kept.`
           : `${member.name} was removed.`,
-      overview: await this.getOverview()
+      overview: await this.getOverview(),
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
@@ -409,7 +411,7 @@ export class AITeamService {
       throw new Error("AI member not found.");
     }
 
-    const bindings = await this.adapter.getAIMemberBindings(member.agentId);
+    const bindings = await this.adapter.aiEmployees.getAIMemberBindings(member.agentId);
     await this.store.update((current) => {
       const currentState = current.aiTeam ?? defaultAITeamState();
       const existingMember = currentState.members[memberId];
@@ -450,7 +452,8 @@ export class AITeamService {
       throw new Error("AI member not found.");
     }
 
-    const bindings = await this.adapter.bindAIMemberChannel(member.agentId, request);
+    const result = await this.adapter.aiEmployees.bindAIMemberChannel(member.agentId, request);
+    const bindings = result.bindings;
     await this.store.update((current) => {
       const currentState = current.aiTeam ?? defaultAITeamState();
       return {
@@ -477,7 +480,8 @@ export class AITeamService {
     return {
       status: "completed",
       message: `${member.name} is now bound to ${request.binding}.`,
-      overview: await this.getOverview()
+      overview: await this.getOverview(),
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
@@ -490,7 +494,8 @@ export class AITeamService {
       throw new Error("AI member not found.");
     }
 
-    const bindings = await this.adapter.unbindAIMemberChannel(member.agentId, request);
+    const result = await this.adapter.aiEmployees.unbindAIMemberChannel(member.agentId, request);
+    const bindings = result.bindings;
     await this.store.update((current) => {
       const currentState = current.aiTeam ?? defaultAITeamState();
       return {
@@ -517,7 +522,8 @@ export class AITeamService {
     return {
       status: "completed",
       message: `${member.name} is no longer bound to ${request.binding}.`,
-      overview: await this.getOverview()
+      overview: await this.getOverview(),
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 

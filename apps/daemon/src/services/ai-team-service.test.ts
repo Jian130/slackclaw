@@ -55,9 +55,12 @@ test("AI team delete passes keep-workspace mode through and removes team members
   class RecordingMockAdapter extends MockAdapter {
     deleteRequest?: DeleteAIMemberRequest;
 
-    override async deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<void> {
+    override async deleteAIMemberRuntime(
+      agentId: string,
+      request: DeleteAIMemberRequest
+    ): Promise<{ requiresGatewayApply?: boolean }> {
       this.deleteRequest = request;
-      await super.deleteAIMemberRuntime(agentId, request);
+      return super.deleteAIMemberRuntime(agentId, request);
     }
   }
 

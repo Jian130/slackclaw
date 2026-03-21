@@ -190,7 +190,7 @@ export class ChatService {
     }
 
     try {
-      const detail = await this.adapter.getChatThreadDetail({
+      const detail = await this.adapter.gateway.getChatThreadDetail({
         threadId: thread.id,
         agentId: thread.agentId,
         sessionKey: thread.sessionKey
@@ -346,7 +346,7 @@ export class ChatService {
     this.broadcastThreadSummary(threadId);
 
     try {
-      await this.adapter.abortChatMessage({
+      await this.adapter.gateway.abortChatMessage({
         threadId,
         agentId: thread.agentId,
         sessionKey: thread.sessionKey
@@ -404,7 +404,7 @@ export class ChatService {
       return this.liveBridgeInitPromise;
     }
 
-    this.liveBridgeInitPromise = this.adapter
+    this.liveBridgeInitPromise = this.adapter.gateway
       .subscribeToLiveChatEvents((event) => {
         void this.handleLiveEvent(event);
       })
@@ -525,7 +525,7 @@ export class ChatService {
     this.startFallbackPolling(activeRun, 1200);
 
     try {
-      const result = await this.adapter.sendChatMessage({
+      const result = await this.adapter.gateway.sendChatMessage({
         threadId: activeRun.threadId,
         agentId: activeRun.agentId,
         sessionKey: activeRun.sessionKey,
@@ -586,7 +586,7 @@ export class ChatService {
 
     activeRun.pollInFlight = true;
     try {
-      const detail = await this.adapter.getChatThreadDetail({
+      const detail = await this.adapter.gateway.getChatThreadDetail({
         threadId: activeRun.threadId,
         agentId: activeRun.agentId,
         sessionKey: activeRun.sessionKey
@@ -830,7 +830,7 @@ export class ChatService {
   private async recoverRunFromHistory(activeRun: ActiveChatRun, fallbackError: string): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        const detail = await this.adapter.getChatThreadDetail({
+        const detail = await this.adapter.gateway.getChatThreadDetail({
           threadId: activeRun.threadId,
           agentId: activeRun.agentId,
           sessionKey: activeRun.sessionKey

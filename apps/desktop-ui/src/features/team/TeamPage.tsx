@@ -14,6 +14,7 @@ import { Dialog } from "../../shared/ui/Dialog.js";
 import { FieldLabel, Input, Textarea } from "../../shared/ui/Field.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
+import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 
@@ -290,9 +291,12 @@ export default function TeamPage() {
                           onClick={() => setSelectedMemberId(member.id)}
                           type="button"
                         >
-                          <div className="employee-card__avatar" style={{ background: member.avatar.accent }}>
-                            {member.name.slice(0, 2).toUpperCase()}
-                          </div>
+                          <MemberAvatar
+                            avatar={member.avatar}
+                            className="employee-card__avatar"
+                            name={member.name}
+                            style={{ background: member.avatar.accent }}
+                          />
                           <div className="employee-details">
                             <strong>{member.name}</strong>
                             <span className="card__description">{member.jobTitle}</span>

@@ -24,6 +24,7 @@ import {
   submitModelAuthSessionInput
 } from "../../shared/api/client.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
+import { settleAfterMutation } from "../../shared/data/settle.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -310,11 +311,50 @@ async function copyText(value: string) {
   await navigator.clipboard.writeText(value);
 }
 
+function savedEntrySignature(entry: SavedModelEntry | undefined) {
+  if (!entry) {
+    return "";
+  }
+
+  return JSON.stringify({
+    id: entry.id,
+    providerId: entry.providerId,
+    modelKey: entry.modelKey,
+    authMethodId: entry.authMethodId,
+    isDefault: entry.isDefault,
+    isFallback: entry.isFallback,
+    updatedAt: entry.updatedAt
+  });
+}
+
+function configuredChannelSignature(entry: ConfiguredChannelEntry | undefined) {
+  if (!entry) {
+    return "";
+  }
+
+  return JSON.stringify({
+    id: entry.id,
+    channelId: entry.channelId,
+    status: entry.status,
+    summary: entry.summary,
+    pairingRequired: entry.pairingRequired,
+    lastUpdatedAt: entry.lastUpdatedAt
+  });
+}
+
+function findCreatedSavedEntry(previousEntries: SavedModelEntry[], nextEntries: SavedModelEntry[]) {
+  return nextEntries.find((entry) => !previousEntries.some((previous) => previous.id === entry.id));
+}
+
+function findCreatedChannelEntry(previousEntries: ConfiguredChannelEntry[], nextEntries: ConfiguredChannelEntry[]) {
+  return nextEntries.find((entry) => !previousEntries.some((previous) => previous.id === entry.id));
+}
+
 function ModelDialog(props: {
   open: boolean;
   onClose: () => void;
   modelConfig?: ModelConfigOverview;
-  reloadModelConfig: () => Promise<ModelConfigOverview>;
+  reloadModelConfig: (options?: { fresh?: boolean }) => Promise<ModelConfigOverview>;
   onModelConfigChange: (next: ModelConfigOverview) => void;
   initialEntry?: SavedModelEntry;
 }) {
@@ -384,13 +424,32 @@ function ModelDialog(props: {
       setSession(nextSession.session);
 
       if (nextSession.session.status === "completed") {
-        await props.reloadModelConfig();
+        const result = await settleAfterMutation({
+          mutate: async () => nextSession,
+          getProvisionalState: (mutation) => mutation.modelConfig,
+          applyState: props.onModelConfigChange,
+          readFresh: () => props.reloadModelConfig({ fresh: true }),
+          isSettled: (state, mutation) => {
+            const entryId = mutation.session.entryId ?? props.initialEntry?.id;
+
+            if (!entryId) {
+              return true;
+            }
+
+            const expectedEntry = mutation.modelConfig.savedEntries.find((entry) => entry.id === entryId);
+            const actualEntry = state.savedEntries.find((entry) => entry.id === entryId);
+            return savedEntrySignature(actualEntry) === savedEntrySignature(expectedEntry);
+          },
+          attempts: 8,
+          delayMs: 700
+        });
+        props.onModelConfigChange(result.state);
         props.onClose();
         return;
       }
 
       if (nextSession.session.status === "failed") {
-        await props.reloadModelConfig();
+        props.onModelConfigChange(await props.reloadModelConfig({ fresh: true }));
       }
     }, 1600);
 
@@ -410,14 +469,52 @@ function ModelDialog(props: {
         makeDefault,
         useAsFallback
       };
+      const previousEntries = props.modelConfig?.savedEntries ?? [];
       const result = props.initialEntry
-        ? await updateSavedModelEntry(props.initialEntry.id, request)
-        : await createSavedModelEntry(request);
+        ? await settleAfterMutation({
+            mutate: () => updateSavedModelEntry(props.initialEntry!.id, request),
+            getProvisionalState: (mutation) => mutation.modelConfig,
+            applyState: props.onModelConfigChange,
+            readFresh: () => props.reloadModelConfig({ fresh: true }),
+            isSettled: (state, mutation) => {
+              if (mutation.authSession) {
+                return false;
+              }
 
-      props.onModelConfigChange(result.modelConfig);
-      setSession(result.authSession);
+              const expectedEntry = mutation.modelConfig.savedEntries.find((entry) => entry.id === props.initialEntry!.id);
+              const actualEntry = state.savedEntries.find((entry) => entry.id === props.initialEntry!.id);
+              return savedEntrySignature(actualEntry) === savedEntrySignature(expectedEntry);
+            },
+            attempts: 8,
+            delayMs: 700
+          })
+        : await settleAfterMutation({
+            mutate: () => createSavedModelEntry(request),
+            getProvisionalState: (mutation) => mutation.modelConfig,
+            applyState: props.onModelConfigChange,
+            readFresh: () => props.reloadModelConfig({ fresh: true }),
+            isSettled: (state, mutation) => {
+              if (mutation.authSession) {
+                return false;
+              }
 
-      if (!result.authSession && result.status === "completed") {
+              const createdEntry = findCreatedSavedEntry(previousEntries, mutation.modelConfig.savedEntries);
+
+              if (!createdEntry) {
+                return false;
+              }
+
+              const actualEntry = state.savedEntries.find((entry) => entry.id === createdEntry.id);
+              return savedEntrySignature(actualEntry) === savedEntrySignature(createdEntry);
+            },
+            attempts: 8,
+            delayMs: 700
+          });
+
+      props.onModelConfigChange(result.state);
+      setSession(result.mutation.authSession);
+
+      if (!result.mutation.authSession && result.mutation.status === "completed") {
         props.onClose();
       }
     } finally {
@@ -619,7 +716,7 @@ function ChannelDialog(props: {
   onClose: () => void;
   channelConfig?: ChannelConfigOverview;
   onChannelConfigChange: (next: ChannelConfigOverview) => void;
-  reloadChannelConfig: () => Promise<ChannelConfigOverview>;
+  reloadChannelConfig: (options?: { fresh?: boolean }) => Promise<ChannelConfigOverview>;
   initialEntry?: ConfiguredChannelEntry;
   initialChannelId?: string;
 }) {
@@ -655,16 +752,49 @@ function ChannelDialog(props: {
     setBusy(action);
     try {
       const request = { channelId: capability.id, values, action };
+      const previousEntries = props.channelConfig?.entries ?? [];
       const result = props.initialEntry
-        ? await updateChannelEntry(props.initialEntry.id, request)
-        : await createChannelEntry(request);
-      props.onChannelConfigChange(result.channelConfig);
-      setMessage(result.message);
+        ? await settleAfterMutation({
+            mutate: () => updateChannelEntry(props.initialEntry!.id, request),
+            getProvisionalState: (mutation) => mutation.channelConfig,
+            applyState: props.onChannelConfigChange,
+            readFresh: () => props.reloadChannelConfig({ fresh: true }),
+            isSettled: (state, mutation) => {
+              if (mutation.session) {
+                return false;
+              }
 
-      if (!result.session && action !== "approve-pairing") {
-        const refreshed = await props.reloadChannelConfig();
-        props.onChannelConfigChange(refreshed);
-      }
+              const expectedEntry = mutation.channelConfig.entries.find((entry) => entry.id === props.initialEntry!.id);
+              const actualEntry = state.entries.find((entry) => entry.id === props.initialEntry!.id);
+              return configuredChannelSignature(actualEntry) === configuredChannelSignature(expectedEntry);
+            },
+            attempts: 8,
+            delayMs: 700
+          })
+        : await settleAfterMutation({
+            mutate: () => createChannelEntry(request),
+            getProvisionalState: (mutation) => mutation.channelConfig,
+            applyState: props.onChannelConfigChange,
+            readFresh: () => props.reloadChannelConfig({ fresh: true }),
+            isSettled: (state, mutation) => {
+              if (mutation.session) {
+                return false;
+              }
+
+              const createdEntry = findCreatedChannelEntry(previousEntries, mutation.channelConfig.entries);
+
+              if (!createdEntry) {
+                return false;
+              }
+
+              const actualEntry = state.entries.find((entry) => entry.id === createdEntry.id);
+              return configuredChannelSignature(actualEntry) === configuredChannelSignature(createdEntry);
+            },
+            attempts: 8,
+            delayMs: 700
+          });
+      props.onChannelConfigChange(result.state);
+      setMessage(result.mutation.message);
 
       if (action === "save" && capability.id !== "whatsapp") {
         props.onClose();
@@ -932,7 +1062,7 @@ export default function ConfigPage() {
     }
 
     const timer = window.setInterval(() => {
-      void reloadChannelConfig();
+      void reloadChannelConfig({ fresh: true });
     }, 1600);
 
     return () => window.clearInterval(timer);
@@ -969,9 +1099,17 @@ export default function ConfigPage() {
   async function handleRemoveChannel(entry: ConfiguredChannelEntry) {
     setBusy(`remove:${entry.id}`);
     try {
-      const result = await removeChannelEntry(entry.id);
-      setChannelConfig(result.channelConfig);
-      setChannelMessage(result.message);
+      const result = await settleAfterMutation({
+        mutate: () => removeChannelEntry(entry.id),
+        getProvisionalState: (mutation) => mutation.channelConfig,
+        applyState: setChannelConfig,
+        readFresh: () => reloadChannelConfig({ fresh: true }),
+        isSettled: (state) => !state.entries.some((item) => item.id === entry.id),
+        attempts: 8,
+        delayMs: 700
+      });
+      setChannelConfig(result.state);
+      setChannelMessage(result.mutation.message);
     } finally {
       setBusy("");
     }
@@ -980,8 +1118,16 @@ export default function ConfigPage() {
   async function handleSetDefaultEntry(entry: SavedModelEntry) {
     setBusy("models:gateway");
     try {
-      const result = await setDefaultModelEntry({ entryId: entry.id });
-      setModelConfig(result.modelConfig);
+      const result = await settleAfterMutation({
+        mutate: () => setDefaultModelEntry({ entryId: entry.id }),
+        getProvisionalState: (mutation) => mutation.modelConfig,
+        applyState: setModelConfig,
+        readFresh: () => reloadModelConfig({ fresh: true }),
+        isSettled: (state) => state.defaultEntryId === entry.id,
+        attempts: 8,
+        delayMs: 700
+      });
+      setModelConfig(result.state);
     } finally {
       setBusy("");
     }
@@ -1014,8 +1160,20 @@ export default function ConfigPage() {
         })
         .map((item) => item.id);
 
-      const result = await replaceFallbackModelEntries({ entryIds: nextFallbackIds });
-      setModelConfig(result.modelConfig);
+      const result = await settleAfterMutation({
+        mutate: () => replaceFallbackModelEntries({ entryIds: nextFallbackIds }),
+        getProvisionalState: (mutation) => mutation.modelConfig,
+        applyState: setModelConfig,
+        readFresh: () => reloadModelConfig({ fresh: true }),
+        isSettled: (state) => {
+          const actualFallbackIds = state.savedEntries.filter((item) => item.isFallback).map((item) => item.id).sort();
+          const expectedFallbackIds = [...nextFallbackIds].sort();
+          return JSON.stringify(actualFallbackIds) === JSON.stringify(expectedFallbackIds);
+        },
+        attempts: 8,
+        delayMs: 700
+      });
+      setModelConfig(result.state);
     } finally {
       setBusy("");
     }
@@ -1028,8 +1186,16 @@ export default function ConfigPage() {
 
     setBusy(`models:remove:${entry.id}`);
     try {
-      const result = await removeSavedModelEntry(entry.id);
-      setModelConfig(result.modelConfig);
+      const result = await settleAfterMutation({
+        mutate: () => removeSavedModelEntry(entry.id),
+        getProvisionalState: (mutation) => mutation.modelConfig,
+        applyState: setModelConfig,
+        readFresh: () => reloadModelConfig({ fresh: true }),
+        isSettled: (state) => !state.savedEntries.some((item) => item.id === entry.id),
+        attempts: 8,
+        delayMs: 700
+      });
+      setModelConfig(result.state);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "SlackClaw could not remove this configured model.");
     } finally {

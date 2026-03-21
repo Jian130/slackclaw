@@ -46,9 +46,11 @@ test("channel setup persists generic channel entries and configured channel stat
 
   assert.equal(result.status, "completed");
   assert.equal(result.channelConfig.entries[0]?.id, "telegram:default");
-  assert.equal(Boolean(state.channelOnboarding?.gatewayStartedAt), true);
+  assert.equal(result.requiresGatewayApply, true);
+  assert.equal(Boolean(state.channelOnboarding?.gatewayStartedAt), false);
   assert.equal(state.channelOnboarding?.channels.telegram.status, "awaiting-pairing");
   assert.equal(state.channelOnboarding?.entries?.["telegram:default"]?.label, "Compatibility Test");
+  assert.match(result.channelConfig.gatewaySummary, /staged engine change|gateway manager/i);
 });
 
 test("channel config overview includes live configured entries even without stored metadata", async () => {

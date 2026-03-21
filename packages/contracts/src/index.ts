@@ -35,6 +35,8 @@ export interface EngineStatus {
   running: boolean;
   version?: string;
   summary: string;
+  pendingGatewayApply?: boolean;
+  pendingGatewayApplySummary?: string;
   lastCheckedAt: string;
 }
 
@@ -219,6 +221,81 @@ export interface FirstRunState {
   introCompleted: boolean;
   setupCompleted: boolean;
   selectedProfileId?: string;
+}
+
+export type OnboardingStep = "welcome" | "install" | "model" | "channel" | "employee" | "complete";
+export type OnboardingDestination = "team" | "dashboard" | "chat";
+
+export interface OnboardingInstallState {
+  installed: boolean;
+  version?: string;
+  disposition?: "reused-existing" | "installed-managed" | "installed-system" | "not-installed";
+}
+
+export interface OnboardingModelState {
+  providerId: string;
+  modelKey: string;
+  methodId?: string;
+  entryId?: string;
+}
+
+export interface OnboardingChannelState {
+  channelId: SupportedChannelId;
+  entryId?: string;
+}
+
+export interface OnboardingEmployeeState {
+  memberId?: string;
+  name: string;
+  jobTitle: string;
+  avatarPresetId: string;
+  personalityTraits?: string[];
+  skillIds?: string[];
+  memoryEnabled?: boolean;
+}
+
+export interface OnboardingDraftState {
+  currentStep: OnboardingStep;
+  install?: OnboardingInstallState;
+  model?: OnboardingModelState;
+  channel?: OnboardingChannelState;
+  employee?: OnboardingEmployeeState;
+  activeModelAuthSessionId?: string;
+  activeChannelSessionId?: string;
+}
+
+export interface OnboardingCompletionSummary {
+  install?: OnboardingInstallState;
+  model?: OnboardingModelState;
+  channel?: OnboardingChannelState;
+  employee?: OnboardingEmployeeState;
+}
+
+export interface OnboardingStateResponse {
+  firstRun: FirstRunState;
+  draft: OnboardingDraftState;
+  summary: OnboardingCompletionSummary;
+}
+
+export interface UpdateOnboardingStateRequest {
+  currentStep?: OnboardingStep;
+  install?: OnboardingInstallState;
+  model?: OnboardingModelState;
+  channel?: OnboardingChannelState;
+  employee?: OnboardingEmployeeState;
+  activeModelAuthSessionId?: string;
+  activeChannelSessionId?: string;
+}
+
+export interface CompleteOnboardingRequest {
+  destination: OnboardingDestination;
+}
+
+export interface CompleteOnboardingResponse {
+  status: "completed";
+  destination: OnboardingDestination;
+  summary: OnboardingCompletionSummary;
+  overview: ProductOverview;
 }
 
 export interface SetupStepResult {
@@ -717,6 +794,7 @@ export interface ModelConfigActionResponse {
   message: string;
   modelConfig: ModelConfigOverview;
   authSession?: ModelAuthSession;
+  requiresGatewayApply?: boolean;
 }
 
 export interface RecoveryRunResponse {
@@ -807,6 +885,7 @@ export interface ChannelConfigActionResponse {
   message: string;
   channelConfig: ChannelConfigOverview;
   session?: ChannelSession;
+  requiresGatewayApply?: boolean;
 }
 
 export interface ChannelSessionResponse {
@@ -870,6 +949,7 @@ export interface AITeamActionResponse {
   status: "completed" | "failed";
   message: string;
   overview: AITeamOverview;
+  requiresGatewayApply?: boolean;
 }
 
 export interface ChatActionResponse {
@@ -883,6 +963,7 @@ export interface SkillCatalogActionResponse {
   status: "completed" | "failed";
   message: string;
   skillConfig: SkillCatalogOverview;
+  requiresGatewayApply?: boolean;
 }
 
 export interface ChannelActionResponse {
@@ -987,6 +1068,8 @@ export function createDefaultProductOverview(): ProductOverview {
       running: false,
       version: undefined,
       summary: "OpenClaw is not installed yet.",
+      pendingGatewayApply: false,
+      pendingGatewayApplySummary: undefined,
       lastCheckedAt: now
     },
     installSpec: {

@@ -184,9 +184,9 @@ test("mock adapter supports AI member runtime lifecycle", async () => {
   assert.equal((await adapter.listAIMemberRuntimeCandidates())[0]?.agentId, runtime.agentId);
 
   const bindings = await adapter.bindAIMemberChannel(runtime.agentId, { binding: "telegram:default" });
-  assert.deepEqual(bindings.map((binding) => binding.target), ["telegram:default"]);
+  assert.deepEqual(bindings.bindings.map((binding) => binding.target), ["telegram:default"]);
   const afterUnbind = await adapter.unbindAIMemberChannel(runtime.agentId, { binding: "telegram:default" });
-  assert.deepEqual(afterUnbind, []);
+  assert.deepEqual(afterUnbind.bindings, []);
 
   await adapter.deleteAIMemberRuntime(runtime.agentId, { deleteMode: "keep-workspace" });
   assert.deepEqual(await adapter.getAIMemberBindings(runtime.agentId), []);

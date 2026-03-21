@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DeploymentTargetId, DeploymentTargetStatus, DeploymentTargetsResponse } from "@slackclaw/contracts";
+import type { DeploymentTargetId, DeploymentTargetStatus, DeploymentTargetsResponse, ProductOverview } from "@slackclaw/contracts";
 import {
   AlertCircle,
   CheckCircle2,
@@ -14,6 +14,7 @@ import {
 import { fetchDeploymentTargets, installDeploymentTarget, restartGateway, uninstallDeploymentTarget, updateDeploymentTarget } from "../../shared/api/client.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
+import { settleAfterMutation } from "../../shared/data/settle.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../shared/ui/Card.js";
@@ -179,6 +180,11 @@ function delay(ms: number) {
   });
 }
 
+type DeploymentSettledState = {
+  targets: DeploymentTargetsResponse;
+  overview?: ProductOverview;
+};
+
 export async function waitForTargetInstalledState(
   fetcher: (options?: { fresh?: boolean }) => Promise<DeploymentTargetsResponse>,
   targetId: "standard" | "managed-local",
@@ -304,20 +310,53 @@ export default function DeployPage() {
     };
   }
 
+  async function settleDeploymentAction<TMutation>(options: {
+    mutate: () => Promise<TMutation>;
+    getProvisionalState?: (mutation: TMutation) => DeploymentTargetsResponse | undefined;
+    isSettled: (state: DeploymentSettledState, mutation: TMutation) => boolean;
+  }) {
+    return settleAfterMutation<TMutation, DeploymentSettledState>({
+      mutate: options.mutate,
+      getProvisionalState: (mutation) => {
+        const provisionalTargets = options.getProvisionalState?.(mutation);
+        if (!provisionalTargets) {
+          return undefined;
+        }
+
+        return {
+          targets: provisionalTargets
+        };
+      },
+      applyState: (state) => {
+        applyTargetsResult(state.targets);
+      },
+      readFresh: async () => {
+        const [targetsResult, overviewResult] = await Promise.all([
+          fetchDeploymentTargets({ fresh: true }),
+          refresh({ fresh: true })
+        ]);
+
+        return {
+          targets: targetsResult,
+          overview: overviewResult
+        };
+      },
+      isSettled: options.isSettled,
+      attempts: 12,
+      delayMs: 750
+    });
+  }
+
   async function handleInstallTarget(targetId: "standard" | "managed-local") {
     setInstallingTargetId(targetId);
     const activityRun = startActivity(copy.progressInstallTitle, installStepLabels);
 
     try {
-      const result = await installDeploymentTarget(targetId);
-      activityRun.complete(result.message);
-      const [, refreshedTargets] = await Promise.all([
-        refresh({ fresh: true }),
-        waitForTargetInstalledState(fetchDeploymentTargets, targetId, true, {
-          onUpdate: applyTargetsResult
-        })
-      ]);
-      applyTargetsResult(refreshedTargets);
+      const result = await settleDeploymentAction({
+        mutate: () => installDeploymentTarget(targetId),
+        isSettled: (state) => state.targets.targets.some((target) => target.id === targetId && target.installed)
+      });
+      activityRun.complete(result.mutation.message);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
@@ -330,9 +369,27 @@ export default function DeployPage() {
     const activityRun = startActivity(copy.progressUpdateTitle, updateStepLabels);
 
     try {
-      const result = await updateDeploymentTarget(targetId);
-      activityRun.complete(result.message);
-      await Promise.all([refresh({ fresh: true }), loadTargets({ fresh: true })]);
+      const result = await settleDeploymentAction({
+        mutate: () => updateDeploymentTarget(targetId),
+        isSettled: (state, mutation) => {
+          const target = state.targets.targets.find((item) => item.id === targetId);
+
+          if (!target?.installed) {
+            return false;
+          }
+
+          if (mutation.status !== "completed") {
+            return true;
+          }
+
+          if (mutation.engineStatus.version && target.version !== mutation.engineStatus.version) {
+            return false;
+          }
+
+          return !target.updateAvailable;
+        }
+      });
+      activityRun.complete(result.mutation.message);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
@@ -345,20 +402,16 @@ export default function DeployPage() {
     const activityRun = startActivity(copy.progressUninstallTitle, uninstallStepLabels);
 
     try {
-      const result = await uninstallDeploymentTarget(targetId);
-      const summary = result.message;
-      if (result.status === "completed") {
+      const result = await settleDeploymentAction({
+        mutate: () => uninstallDeploymentTarget(targetId),
+        isSettled: (state) => state.targets.targets.some((target) => target.id === targetId && !target.installed)
+      });
+      const summary = result.mutation.message;
+      if (result.mutation.status === "completed") {
         activityRun.complete(summary);
       } else {
         activityRun.fail(summary);
       }
-      const [, refreshedTargets] = await Promise.all([
-        refresh({ fresh: true }),
-        waitForTargetInstalledState(fetchDeploymentTargets, targetId, false, {
-          onUpdate: applyTargetsResult
-        })
-      ]);
-      applyTargetsResult(refreshedTargets);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
@@ -371,13 +424,22 @@ export default function DeployPage() {
     const activityRun = startActivity(copy.progressRestartTitle, restartStepLabels);
 
     try {
-      const result = await restartGateway();
-      if (result.status === "completed") {
-        activityRun.complete(result.message);
+      const result = await settleDeploymentAction({
+        mutate: () => restartGateway(),
+        isSettled: (state, mutation) => {
+          if (mutation.status !== "completed") {
+            return true;
+          }
+
+          const engine = state.overview?.engine;
+          return Boolean(engine?.installed && engine.running);
+        }
+      });
+      if (result.mutation.status === "completed") {
+        activityRun.complete(result.mutation.message);
       } else {
-        activityRun.fail(result.message);
+        activityRun.fail(result.mutation.message);
       }
-      await Promise.all([refresh({ fresh: true }), loadTargets({ fresh: true })]);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {

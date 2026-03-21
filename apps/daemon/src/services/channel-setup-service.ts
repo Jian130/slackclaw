@@ -279,16 +279,15 @@ function legacyEntryFromState(channelState: ChannelSetupState): StoredChannelEnt
 }
 
 function gatewaySummary(
-  onboardingCompleted: boolean,
-  gatewayStartedAt: string | undefined,
+  pendingGatewayApply: boolean,
+  pendingGatewayApplySummary: string | undefined,
   channels: Record<SupportedChannelId, ChannelSetupState>
 ): string {
-  const nextId = onboardingCompleted ? nextChannelId(channels) : undefined;
-
-  if (gatewayStartedAt) {
-    return "Gateway restarted after channel setup.";
+  if (pendingGatewayApply) {
+    return pendingGatewayApplySummary ?? "Channel changes were saved and are ready to apply to the gateway.";
   }
 
+  const nextId = nextChannelId(channels);
   if (nextId) {
     return `Next recommended channel: ${channels[nextId].title}.`;
   }
@@ -305,24 +304,26 @@ export class ChannelSetupService {
   async getOverviewFromState(state?: AppState): Promise<ChannelSetupOverview> {
     const current = state ?? (await this.store.read());
     const liveChannels = await this.readLiveChannelStates();
+    const engine = await this.adapter.instances.status();
     const onboardingCompleted = true;
     const channels = mergeChannelStates(current.channelOnboarding?.channels, liveChannels);
     const nextId = nextChannelId(channels);
-    const gatewayStarted = Boolean(current.channelOnboarding?.gatewayStartedAt);
+    const gatewayStarted = engine.running;
 
     return {
       baseOnboardingCompleted: onboardingCompleted,
       channels: CHANNEL_ORDER.map((id) => channels[id]),
       nextChannelId: nextId,
       gatewayStarted,
-      gatewaySummary: gatewaySummary(onboardingCompleted, current.channelOnboarding?.gatewayStartedAt, channels)
+      gatewaySummary: gatewaySummary(engine.pendingGatewayApply === true, engine.pendingGatewayApplySummary, channels)
     };
   }
 
   async getConfigOverview(state?: AppState): Promise<ChannelConfigOverview> {
     const current = state ?? (await this.store.read());
     const liveChannels = await this.readLiveChannelStates();
-    const liveEntries = await this.adapter.getConfiguredChannelEntries();
+    const liveEntries = await this.adapter.config.getConfiguredChannelEntries();
+    const engine = await this.adapter.instances.status();
     const channels = mergeChannelStates(current.channelOnboarding?.channels, liveChannels);
     const onboardingCompleted = true;
     const storedEntries = current.channelOnboarding?.entries ?? {};
@@ -357,18 +358,17 @@ export class ChannelSetupService {
       baseOnboardingCompleted: onboardingCompleted,
       capabilities: CHANNEL_CAPABILITIES,
       entries,
-      activeSession: await this.adapter.getActiveChannelSession(),
-      gatewaySummary: gatewaySummary(onboardingCompleted, current.channelOnboarding?.gatewayStartedAt, channels)
+      activeSession: await this.adapter.gateway.getActiveChannelSession(),
+      gatewaySummary: gatewaySummary(engine.pendingGatewayApply === true, engine.pendingGatewayApplySummary, channels)
     };
   }
 
   async saveEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
-    const result = await this.adapter.saveChannelEntry({ ...request, entryId });
+    const result = await this.adapter.config.saveChannelEntry({ ...request, entryId });
     const channelId = request.channelId;
     const now = new Date().toISOString();
     const shouldPersistEntry = request.action !== "prepare";
     const nextEntryId = entryId ?? entryIdFor(channelId);
-    const gatewayRestarted = request.action === "save" || request.action === "login";
 
     const nextState = await this.store.update((current) => {
       const existingEntries = current.channelOnboarding?.entries ?? {};
@@ -394,7 +394,7 @@ export class ChannelSetupService {
         ...current,
         channelOnboarding: {
           baseOnboardingCompletedAt: current.channelOnboarding?.baseOnboardingCompletedAt ?? now,
-          gatewayStartedAt: gatewayRestarted ? now : current.channelOnboarding?.gatewayStartedAt,
+          gatewayStartedAt: current.channelOnboarding?.gatewayStartedAt,
           channels: {
             ...mergeChannelStates(current.channelOnboarding?.channels, {}),
             [channelId]: result.channel
@@ -408,7 +408,8 @@ export class ChannelSetupService {
       status: result.session ? "interactive" : "completed",
       message: result.message,
       channelConfig: await this.getConfigOverview(nextState),
-      session: result.session
+      session: result.session,
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
@@ -425,7 +426,7 @@ export class ChannelSetupService {
       throw new Error("SlackClaw could not find that saved channel entry.");
     }
 
-    const result = await this.adapter.removeChannelEntry({
+    const result = await this.adapter.config.removeChannelEntry({
       ...request,
       channelId: record.channelId,
       values: record.editableValues
@@ -440,7 +441,7 @@ export class ChannelSetupService {
         ...next,
         channelOnboarding: {
           baseOnboardingCompletedAt: next.channelOnboarding?.baseOnboardingCompletedAt ?? new Date().toISOString(),
-          gatewayStartedAt: new Date().toISOString(),
+          gatewayStartedAt: next.channelOnboarding?.gatewayStartedAt,
           channels: {
             ...mergeChannelStates(next.channelOnboarding?.channels, {}),
             [result.channelId]: defaults[result.channelId]
@@ -453,26 +454,29 @@ export class ChannelSetupService {
     return {
       status: "completed",
       message: result.message,
-      channelConfig: await this.getConfigOverview(nextState)
+      channelConfig: await this.getConfigOverview(nextState),
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
   async getSession(sessionId: string): Promise<ChannelSessionResponse> {
     return {
-      session: await this.adapter.getChannelSession(sessionId),
+      session: await this.adapter.gateway.getChannelSession(sessionId),
       channelConfig: await this.getConfigOverview()
     };
   }
 
   async submitSessionInput(sessionId: string, request: ChannelSessionInputRequest): Promise<ChannelSessionResponse> {
     return {
-      session: await this.adapter.submitChannelSessionInput(sessionId, request),
+      session: await this.adapter.gateway.submitChannelSessionInput(sessionId, request),
       channelConfig: await this.getConfigOverview()
     };
   }
 
   private async readLiveChannelStates(): Promise<Partial<Record<SupportedChannelId, ChannelSetupState>>> {
-    const live = await Promise.all(CHANNEL_ORDER.map(async (channelId) => [channelId, await this.adapter.getChannelState(channelId)] as const));
+    const live = await Promise.all(
+      CHANNEL_ORDER.map(async (channelId) => [channelId, await this.adapter.config.getChannelState(channelId)] as const)
+    );
     return Object.fromEntries(live) as Partial<Record<SupportedChannelId, ChannelSetupState>>;
   }
 }

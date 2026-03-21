@@ -14,6 +14,10 @@ import TeamPage from "../features/team/TeamPage.js";
 import SettingsPage from "../features/settings/SettingsPage.js";
 import { EmptyState } from "../shared/ui/EmptyState.js";
 
+export function shouldRedirectToOnboarding(setupCompleted: boolean, pathname: string): boolean {
+  return !setupCompleted && pathname !== "/onboarding";
+}
+
 function AppBoundary() {
   const location = useLocation();
   const { error, loading, overview } = useOverview();
@@ -39,14 +43,13 @@ function AppBoundary() {
     return null;
   }
 
-  const introCompleted = overview.firstRun.introCompleted;
-  const needsOnboarding = !introCompleted && location.pathname !== "/onboarding";
+  const needsOnboarding = shouldRedirectToOnboarding(overview.firstRun.setupCompleted, location.pathname);
 
   if (needsOnboarding) {
     return <Navigate to="/onboarding" replace />;
   }
 
-  if (introCompleted && location.pathname === "/onboarding" && overview.firstRun.setupCompleted) {
+  if (overview.firstRun.setupCompleted && location.pathname === "/onboarding") {
     return <Navigate to="/deploy" replace />;
   }
 

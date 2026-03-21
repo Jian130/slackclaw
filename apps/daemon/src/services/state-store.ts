@@ -7,6 +7,7 @@ import type {
   ChannelFieldSummary,
   ChannelSetupState,
   EngineTaskResult,
+  OnboardingDraftState,
   TeamDetail,
   SupportedChannelId
 } from "@slackclaw/contracts";
@@ -63,15 +64,26 @@ export interface ChatState {
   threads: Record<string, StoredChatThreadState>;
 }
 
+export interface OnboardingState {
+  draft: OnboardingDraftState;
+}
+
 export interface AppState {
   selectedProfileId?: string;
   tasks: EngineTaskResult[];
   introCompletedAt?: string;
   setupCompletedAt?: string;
+  onboarding?: OnboardingState;
   channelOnboarding?: ChannelOnboardingState;
   aiTeam?: AITeamState;
   skills?: SkillState;
   chat?: ChatState;
+}
+
+export function defaultOnboardingDraftState(): OnboardingDraftState {
+  return {
+    currentStep: "welcome"
+  };
 }
 
 const DEFAULT_STATE: AppState = {

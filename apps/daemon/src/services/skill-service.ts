@@ -80,9 +80,9 @@ export class SkillService {
 
   async getConfigOverview(): Promise<SkillCatalogOverview> {
     const [runtime, state, marketplaceInstalled] = await Promise.all([
-      this.adapter.getSkillRuntimeCatalog(),
+      this.adapter.config.getSkillRuntimeCatalog(),
       this.store.read(),
-      this.adapter.listMarketplaceInstalledSkills()
+      this.adapter.config.listMarketplaceInstalledSkills()
     ]);
 
     const customEntries = state.skills?.customEntries ?? {};
@@ -115,7 +115,7 @@ export class SkillService {
       marketplaceSummary: runtime.marketplaceSummary,
       installedSkills: installed,
       readiness: runtime.readiness,
-      marketplacePreview: runtime.marketplaceAvailable ? await this.adapter.exploreSkillMarketplace(8) : []
+      marketplacePreview: runtime.marketplaceAvailable ? await this.adapter.config.exploreSkillMarketplace(8) : []
     };
   }
 
@@ -127,7 +127,7 @@ export class SkillService {
   async getInstalledSkillDetail(skillId: string): Promise<InstalledSkillDetail> {
     const [overview, detail, state] = await Promise.all([
       this.getConfigOverview(),
-      this.adapter.getInstalledSkillDetail(skillId),
+      this.adapter.config.getInstalledSkillDetail(skillId),
       this.store.read()
     ]);
 
@@ -148,8 +148,8 @@ export class SkillService {
 
   async searchMarketplace(query: string): Promise<SkillMarketplaceEntry[]> {
     const [results, installed] = await Promise.all([
-      this.adapter.searchSkillMarketplace(query, 10),
-      this.adapter.listMarketplaceInstalledSkills()
+      this.adapter.config.searchSkillMarketplace(query, 10),
+      this.adapter.config.listMarketplaceInstalledSkills()
     ]);
     const installedSet = new Set(installed.map((entry) => entry.slug));
     return results.map((entry) => ({
@@ -159,20 +159,21 @@ export class SkillService {
   }
 
   async getMarketplaceDetail(slug: string): Promise<SkillMarketplaceDetail> {
-    return this.adapter.getSkillMarketplaceDetail(slug);
+    return this.adapter.config.getSkillMarketplaceDetail(slug);
   }
 
   async installMarketplaceSkill(request: InstallSkillRequest): Promise<SkillCatalogActionResponse> {
-    await this.adapter.installMarketplaceSkill(request);
+    const result = await this.adapter.config.installMarketplaceSkill(request);
     return {
       status: "completed",
       message: `${request.slug} was installed.`,
-      skillConfig: await this.getConfigOverview()
+      skillConfig: await this.getConfigOverview(),
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
   async saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<SkillCatalogActionResponse> {
-    const saved = await this.adapter.saveCustomSkill(skillId, request);
+    const saved = await this.adapter.config.saveCustomSkill(skillId, request);
     await this.store.update((current) => ({
       ...current,
       skills: {
@@ -193,7 +194,8 @@ export class SkillService {
     return {
       status: "completed",
       message: skillId ? `${request.name} was updated.` : `${request.name} was created.`,
-      skillConfig: await this.getConfigOverview()
+      skillConfig: await this.getConfigOverview(),
+      requiresGatewayApply: saved.requiresGatewayApply
     };
   }
 
@@ -223,11 +225,12 @@ export class SkillService {
       throw new Error("This skill cannot be updated from SlackClaw.");
     }
 
-    await this.adapter.updateMarketplaceSkill(skill.slug, request);
+    const result = await this.adapter.config.updateMarketplaceSkill(skill.slug, request);
     return {
       status: "completed",
       message: request.action === "reinstall" ? `${skill.name} was reinstalled.` : `${skill.name} was updated.`,
-      skillConfig: await this.getConfigOverview()
+      skillConfig: await this.getConfigOverview(),
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
@@ -243,7 +246,7 @@ export class SkillService {
       throw new Error("This skill cannot be removed from SlackClaw.");
     }
 
-    await this.adapter.removeInstalledSkill(skill.slug, { ...request, managedBy: skill.managedBy });
+    const result = await this.adapter.config.removeInstalledSkill(skill.slug, { ...request, managedBy: skill.managedBy });
 
     if (skill.managedBy === "slackclaw-custom") {
       await this.store.update((current) => {
@@ -262,7 +265,8 @@ export class SkillService {
     return {
       status: "completed",
       message: `${skill.name} was removed.`,
-      skillConfig: await this.getConfigOverview()
+      skillConfig: await this.getConfigOverview(),
+      requiresGatewayApply: result.requiresGatewayApply
     };
   }
 }

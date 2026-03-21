@@ -156,6 +156,81 @@
   padding: 10px 14px;
 }
 
+.app-shell--tablet .app-sidebar,
+.app-shell--phone .app-sidebar {
+  position: static;
+  width: auto;
+  height: auto;
+}
+
+.app-shell--tablet .brand,
+.app-shell--phone .brand {
+  padding: 20px;
+}
+
+.app-shell--tablet .sidebar-nav,
+.app-shell--phone .sidebar-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.app-shell--tablet .sidebar-nav__item,
+.app-shell--phone .sidebar-nav__item {
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.app-shell--tablet .sidebar-status,
+.app-shell--phone .sidebar-status {
+  margin-top: 8px;
+}
+
+.app-shell--tablet .app-main,
+.app-shell--phone .app-main {
+  margin-left: 0;
+}
+
+.app-shell--tablet .app-main {
+  padding: 24px;
+}
+
+.app-shell--phone .app-main {
+  padding: 16px;
+}
+
+.app-shell--tablet .page-header,
+.app-shell--phone .page-header {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.app-shell--tablet .page-header__actions,
+.app-shell--phone .page-header__actions {
+  width: 100%;
+}
+
+.app-shell--phone .page-header h1 {
+  font-size: 1.8rem;
+}
+
+.app-shell--phone .page-header__actions > * {
+  width: 100%;
+}
+
+.app-shell--phone .page-header__actions > * > .button,
+.app-shell--phone .page-header__actions > .button {
+  width: 100%;
+  justify-content: center;
+}
+
+.app-shell--phone .feedback-widget {
+  right: 16px;
+  bottom: 16px;
+  padding: 9px 12px;
+}
+
 .loading-panel {
   display: grid;
   place-items: center;

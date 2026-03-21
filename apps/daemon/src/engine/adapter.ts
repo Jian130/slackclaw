@@ -154,9 +154,93 @@ export interface SkillRuntimeCatalog {
   skills: SkillRuntimeEntry[];
 }
 
+export interface InstanceManager {
+  install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse>;
+  uninstall(): Promise<EngineActionResponse>;
+  status(): Promise<EngineStatus>;
+  getDeploymentTargets(): Promise<DeploymentTargetsResponse>;
+  installDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
+  uninstallDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
+  updateDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
+  update(): Promise<{ message: string; engineStatus: EngineStatus }>;
+  repair(action: RecoveryAction): Promise<RecoveryRunResponse>;
+  exportDiagnostics(): Promise<{ filename: string; content: string }>;
+}
+
+export interface ConfigManager {
+  getModelConfig(): Promise<ModelConfigOverview>;
+  createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse>;
+  updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest): Promise<ModelConfigActionResponse>;
+  removeSavedModelEntry(entryId: string): Promise<ModelConfigActionResponse>;
+  setDefaultModelEntry(request: SetDefaultModelEntryRequest): Promise<ModelConfigActionResponse>;
+  replaceFallbackModelEntries(request: ReplaceFallbackModelEntriesRequest): Promise<ModelConfigActionResponse>;
+  authenticateModelProvider(request: ModelAuthRequest): Promise<ModelConfigActionResponse>;
+  getModelAuthSession(sessionId: string): Promise<ModelAuthSessionResponse>;
+  submitModelAuthSessionInput(sessionId: string, request: ModelAuthSessionInputRequest): Promise<ModelAuthSessionResponse>;
+  setDefaultModel(modelKey: string): Promise<ModelConfigActionResponse>;
+  getChannelState(channelId: "telegram" | "whatsapp" | "feishu" | "wechat"): Promise<ChannelSetupState>;
+  getConfiguredChannelEntries(): Promise<ConfiguredChannelEntry[]>;
+  saveChannelEntry(
+    request: SaveChannelEntryRequest
+  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession; requiresGatewayApply?: boolean }>;
+  removeChannelEntry(
+    request: RemoveChannelEntryRequest
+  ): Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat"; requiresGatewayApply?: boolean }>;
+  getSkillRuntimeCatalog(): Promise<SkillRuntimeCatalog>;
+  getInstalledSkillDetail(skillId: string): Promise<InstalledSkillDetail>;
+  listMarketplaceInstalledSkills(): Promise<Array<{ slug: string; version?: string }>>;
+  exploreSkillMarketplace(limit?: number): Promise<SkillMarketplaceEntry[]>;
+  searchSkillMarketplace(query: string, limit?: number): Promise<SkillMarketplaceEntry[]>;
+  getSkillMarketplaceDetail(slug: string): Promise<SkillMarketplaceDetail>;
+  installMarketplaceSkill(request: InstallSkillRequest): Promise<{ requiresGatewayApply?: boolean }>;
+  updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<{ requiresGatewayApply?: boolean }>;
+  saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string; requiresGatewayApply?: boolean }>;
+  removeInstalledSkill(
+    slug: string,
+    request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+  ): Promise<{ requiresGatewayApply?: boolean }>;
+}
+
+export interface AIEmployeeManager {
+  listAIMemberRuntimeCandidates(): Promise<AIMemberRuntimeCandidate[]>;
+  saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState & { requiresGatewayApply?: boolean }>;
+  getAIMemberBindings(agentId: string): Promise<MemberBindingSummary[]>;
+  bindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<{
+    bindings: MemberBindingSummary[];
+    requiresGatewayApply?: boolean;
+  }>;
+  unbindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<{
+    bindings: MemberBindingSummary[];
+    requiresGatewayApply?: boolean;
+  }>;
+  deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<{ requiresGatewayApply?: boolean }>;
+}
+
+export interface GatewayManager {
+  restartGateway(): Promise<GatewayActionResponse>;
+  healthCheck(selectedProfileId?: string): Promise<HealthCheckResult[]>;
+  getActiveChannelSession(): Promise<ChannelSession | undefined>;
+  getChannelSession(sessionId: string): Promise<ChannelSession>;
+  submitChannelSessionInput(sessionId: string, request: ChannelSessionInputRequest): Promise<ChannelSession>;
+  getChatThreadDetail(request: { agentId: string; threadId: string; sessionKey: string }): Promise<ChatThreadDetail>;
+  subscribeToLiveChatEvents(listener: (event: EngineChatLiveEvent) => void): Promise<() => void>;
+  sendChatMessage(
+    request: SendChatMessageRequest & { agentId: string; threadId: string; sessionKey: string }
+  ): Promise<{ runId?: string }>;
+  abortChatMessage(request: AbortChatRequest & { agentId: string; threadId: string; sessionKey: string }): Promise<void>;
+  startWhatsappLogin(): Promise<{ message: string; channel: ChannelSetupState }>;
+  approvePairing(channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest): Promise<{ message: string; channel: ChannelSetupState }>;
+  prepareFeishu(): Promise<{ message: string; channel: ChannelSetupState }>;
+  startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }>;
+}
+
 export interface EngineAdapter {
   readonly installSpec: EngineInstallSpec;
   readonly capabilities: EngineCapabilities;
+  readonly instances: InstanceManager;
+  readonly config: ConfigManager;
+  readonly aiEmployees: AIEmployeeManager;
+  readonly gateway: GatewayManager;
 
   invalidateReadCaches(): void;
 
@@ -192,24 +276,35 @@ export interface EngineAdapter {
   submitChannelSessionInput(sessionId: string, request: ChannelSessionInputRequest): Promise<ChannelSession>;
   saveChannelEntry(
     request: SaveChannelEntryRequest
-  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession }>;
-  removeChannelEntry(request: RemoveChannelEntryRequest): Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat" }>;
+  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession; requiresGatewayApply?: boolean }>;
+  removeChannelEntry(
+    request: RemoveChannelEntryRequest
+  ): Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat"; requiresGatewayApply?: boolean }>;
   getSkillRuntimeCatalog(): Promise<SkillRuntimeCatalog>;
   getInstalledSkillDetail(skillId: string): Promise<InstalledSkillDetail>;
   listMarketplaceInstalledSkills(): Promise<Array<{ slug: string; version?: string }>>;
   exploreSkillMarketplace(limit?: number): Promise<SkillMarketplaceEntry[]>;
   searchSkillMarketplace(query: string, limit?: number): Promise<SkillMarketplaceEntry[]>;
   getSkillMarketplaceDetail(slug: string): Promise<SkillMarketplaceDetail>;
-  installMarketplaceSkill(request: InstallSkillRequest): Promise<void>;
-  updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<void>;
-  saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string }>;
-  removeInstalledSkill(slug: string, request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }): Promise<void>;
+  installMarketplaceSkill(request: InstallSkillRequest): Promise<{ requiresGatewayApply?: boolean }>;
+  updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<{ requiresGatewayApply?: boolean }>;
+  saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string; requiresGatewayApply?: boolean }>;
+  removeInstalledSkill(
+    slug: string,
+    request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+  ): Promise<{ requiresGatewayApply?: boolean }>;
   listAIMemberRuntimeCandidates(): Promise<AIMemberRuntimeCandidate[]>;
-  saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState>;
+  saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState & { requiresGatewayApply?: boolean }>;
   getAIMemberBindings(agentId: string): Promise<MemberBindingSummary[]>;
-  bindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]>;
-  unbindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]>;
-  deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<void>;
+  bindAIMemberChannel(
+    agentId: string,
+    request: BindAIMemberChannelRequest
+  ): Promise<{ bindings: MemberBindingSummary[]; requiresGatewayApply?: boolean }>;
+  unbindAIMemberChannel(
+    agentId: string,
+    request: BindAIMemberChannelRequest
+  ): Promise<{ bindings: MemberBindingSummary[]; requiresGatewayApply?: boolean }>;
+  deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<{ requiresGatewayApply?: boolean }>;
   getChatThreadDetail(request: { agentId: string; threadId: string; sessionKey: string }): Promise<ChatThreadDetail>;
   subscribeToLiveChatEvents(listener: (event: EngineChatLiveEvent) => void): Promise<() => void>;
   sendChatMessage(

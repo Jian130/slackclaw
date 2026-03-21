@@ -4,6 +4,7 @@ import { NavLink } from "react-router-dom";
 
 import { useLocale } from "../providers/LocaleProvider.js";
 import { useOverview } from "../providers/OverviewProvider.js";
+import { useViewportMode } from "../../shared/data/responsive.js";
 import { SidebarNav } from "../../shared/ui/SidebarNav.js";
 import { LanguageSelector } from "../../shared/ui/LanguageSelector.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
@@ -22,6 +23,7 @@ export function AppShell(props: PropsWithChildren<{ loading?: boolean }>) {
   const { locale } = useLocale();
   const { overview } = useOverview();
   const copy = t(locale);
+  const viewportMode = useViewportMode();
 
   const statusLabel = !overview
     ? copy.common.loading
@@ -32,7 +34,7 @@ export function AppShell(props: PropsWithChildren<{ loading?: boolean }>) {
         : copy.shell.setupRequired;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell app-shell--${viewportMode}`}>
       <aside className="app-sidebar">
         <NavLink className="brand" to="/">
           <div className="brand__mark">
@@ -54,7 +56,7 @@ export function AppShell(props: PropsWithChildren<{ loading?: boolean }>) {
           <LanguageSelector />
         </div>
       </aside>
-      <main className="app-main">
+      <main className={`app-main app-main--${viewportMode}`}>
         <header className="app-topbar">
           <div />
         </header>

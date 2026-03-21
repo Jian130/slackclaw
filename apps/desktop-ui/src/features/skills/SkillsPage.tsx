@@ -19,6 +19,7 @@ import {
   searchMarketplaceSkills,
   updateSkill
 } from "../../shared/api/client.js";
+import { settleAfterMutation } from "../../shared/data/settle.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -78,11 +79,28 @@ export function filterMarketplaceSearchResults(results: SkillMarketplaceEntry[])
   });
 }
 
+function skillEntrySignature(skill: InstalledSkillEntry | undefined) {
+  if (!skill) {
+    return "";
+  }
+
+  return JSON.stringify({
+    id: skill.id,
+    slug: skill.slug,
+    readiness: skill.readiness,
+    version: skill.version,
+    disabled: skill.disabled,
+    eligible: skill.eligible,
+    missing: skill.missing
+  });
+}
+
 function MarketplaceSkillDialog(props: {
   open: boolean;
   slug?: string;
   onClose: () => void;
   onInstalled: (catalog: SkillCatalogOverview) => void;
+  reloadSkills: (options?: { fresh?: boolean }) => Promise<SkillCatalogOverview>;
 }) {
   const [detail, setDetail] = useState<SkillMarketplaceDetail>();
   const [busy, setBusy] = useState(false);
@@ -114,8 +132,16 @@ function MarketplaceSkillDialog(props: {
     setError(undefined);
 
     try {
-      const response = await installMarketplaceSkill({ slug: detail.slug });
-      props.onInstalled(response.skillConfig);
+      const response = await settleAfterMutation({
+        mutate: () => installMarketplaceSkill({ slug: detail.slug }),
+        getProvisionalState: (mutation) => mutation.skillConfig,
+        applyState: props.onInstalled,
+        readFresh: () => props.reloadSkills({ fresh: true }),
+        isSettled: (state) => state.installedSkills.some((skill) => skill.slug === detail.slug),
+        attempts: 8,
+        delayMs: 700
+      });
+      props.onInstalled(response.state);
       props.onClose();
     } catch (installError) {
       setError(installError instanceof Error ? installError.message : "SlackClaw could not install this skill.");
@@ -318,6 +344,7 @@ function EditCustomSkillDialog(props: {
   skill?: InstalledSkillEntry;
   onClose: () => void;
   onSaved: (catalog: SkillCatalogOverview) => void;
+  reloadSkills: (options?: { fresh?: boolean }) => Promise<SkillCatalogOverview>;
 }) {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
@@ -357,14 +384,26 @@ function EditCustomSkillDialog(props: {
     setError(undefined);
 
     try {
-      const response = await updateSkill(skill.id, {
-        action: "edit-custom",
-        name,
-        description,
-        instructions,
-        homepage
+      const response = await settleAfterMutation({
+        mutate: () =>
+          updateSkill(skill.id, {
+            action: "edit-custom",
+            name,
+            description,
+            instructions,
+            homepage
+          }),
+        getProvisionalState: (mutation) => mutation.skillConfig,
+        applyState: props.onSaved,
+        readFresh: () => props.reloadSkills({ fresh: true }),
+        isSettled: (state) => {
+          const nextSkill = state.installedSkills.find((item) => item.id === skill.id);
+          return Boolean(nextSkill && nextSkill.name === name && nextSkill.description === description);
+        },
+        attempts: 8,
+        delayMs: 700
       });
-      props.onSaved(response.skillConfig);
+      props.onSaved(response.state);
       props.onClose();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "SlackClaw could not save this custom skill.");
@@ -421,6 +460,7 @@ function AddSkillDialog(props: {
   overview?: SkillCatalogOverview;
   onClose: () => void;
   onSaved: (catalog: SkillCatalogOverview) => void;
+  reloadSkills: (options?: { fresh?: boolean }) => Promise<SkillCatalogOverview>;
 }) {
   const [tab, setTab] = useState("search");
   const [search, setSearch] = useState("");
@@ -489,8 +529,16 @@ function AddSkillDialog(props: {
     setError(undefined);
 
     try {
-      const response = await installMarketplaceSkill({ slug });
-      props.onSaved(response.skillConfig);
+      const response = await settleAfterMutation({
+        mutate: () => installMarketplaceSkill({ slug }),
+        getProvisionalState: (mutation) => mutation.skillConfig,
+        applyState: props.onSaved,
+        readFresh: () => props.reloadSkills({ fresh: true }),
+        isSettled: (state) => state.installedSkills.some((skill) => skill.slug === slug),
+        attempts: 8,
+        delayMs: 700
+      });
+      props.onSaved(response.state);
       props.onClose();
     } catch (installError) {
       setError(installError instanceof Error ? installError.message : "SlackClaw could not install this skill.");
@@ -504,14 +552,37 @@ function AddSkillDialog(props: {
     setError(undefined);
 
     try {
-      const response = await createCustomSkill({
-        name: customName,
-        slug: customSlug,
-        description: customDescription,
-        instructions: customInstructions,
-        homepage: customHomepage
+      const expectedSlug = customSlug.trim();
+      const expectedName = customName.trim();
+      const response = await settleAfterMutation({
+        mutate: () =>
+          createCustomSkill({
+            name: customName,
+            slug: customSlug,
+            description: customDescription,
+            instructions: customInstructions,
+            homepage: customHomepage
+          }),
+        getProvisionalState: (mutation) => mutation.skillConfig,
+        applyState: props.onSaved,
+        readFresh: () => props.reloadSkills({ fresh: true }),
+        isSettled: (state, mutation) => {
+          const previousIds = new Set((props.overview?.installedSkills ?? []).map((skill) => skill.id));
+          const createdSkill =
+            mutation.skillConfig.installedSkills.find((skill) => !previousIds.has(skill.id)) ??
+            mutation.skillConfig.installedSkills.find((skill) => (expectedSlug ? skill.slug === expectedSlug : skill.name === expectedName));
+
+          if (!createdSkill) {
+            return false;
+          }
+
+          const actualSkill = state.installedSkills.find((skill) => skill.id === createdSkill.id);
+          return skillEntrySignature(actualSkill) === skillEntrySignature(createdSkill);
+        },
+        attempts: 8,
+        delayMs: 700
       });
-      props.onSaved(response.skillConfig);
+      props.onSaved(response.state);
       props.onClose();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "SlackClaw could not create this custom skill.");
@@ -686,6 +757,16 @@ export default function SkillsPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function reloadSkillsStrict(options?: { fresh?: boolean }) {
+    const next = await reloadSkills(options);
+
+    if (!next) {
+      throw new Error("SlackClaw could not verify the latest skill catalog.");
+    }
+
+    return next;
   }
 
   useEffect(() => {
@@ -998,18 +1079,21 @@ export default function SkillsPage() {
         overview={overview}
         onClose={() => setAddDialogOpen(false)}
         onSaved={setOverview}
+        reloadSkills={reloadSkillsStrict}
       />
       <EditCustomSkillDialog
         open={Boolean(editSkillEntry)}
         skill={editSkillEntry}
         onClose={() => setEditSkillEntry(undefined)}
         onSaved={setOverview}
+        reloadSkills={reloadSkillsStrict}
       />
       <MarketplaceSkillDialog
         open={Boolean(marketplaceDetailSlug)}
         slug={marketplaceDetailSlug}
         onClose={() => setMarketplaceDetailSlug(undefined)}
         onInstalled={setOverview}
+        reloadSkills={reloadSkillsStrict}
       />
       <SkillDetailDialog
         open={detailOpen}
@@ -1023,8 +1107,20 @@ export default function SkillsPage() {
 
           setBusy("update");
           try {
-            const response = await updateSkill(detailSkill.id, { action: "update" });
-            setOverview(response.skillConfig);
+            const response = await settleAfterMutation({
+              mutate: () => updateSkill(detailSkill.id, { action: "update" }),
+              getProvisionalState: (mutation) => mutation.skillConfig,
+              applyState: setOverview,
+              readFresh: () => reloadSkillsStrict({ fresh: true }),
+              isSettled: (state, mutation) => {
+                const expectedSkill = mutation.skillConfig.installedSkills.find((skill) => skill.id === detailSkill.id);
+                const actualSkill = state.installedSkills.find((skill) => skill.id === detailSkill.id);
+                return skillEntrySignature(actualSkill) === skillEntrySignature(expectedSkill);
+              },
+              attempts: 8,
+              delayMs: 700
+            });
+            setOverview(response.state);
             setDetailData(await fetchInstalledSkillDetail(detailSkill.id));
           } finally {
             setBusy("");
@@ -1037,8 +1133,20 @@ export default function SkillsPage() {
 
           setBusy("reinstall");
           try {
-            const response = await updateSkill(detailSkill.id, { action: "reinstall" });
-            setOverview(response.skillConfig);
+            const response = await settleAfterMutation({
+              mutate: () => updateSkill(detailSkill.id, { action: "reinstall" }),
+              getProvisionalState: (mutation) => mutation.skillConfig,
+              applyState: setOverview,
+              readFresh: () => reloadSkillsStrict({ fresh: true }),
+              isSettled: (state, mutation) => {
+                const expectedSkill = mutation.skillConfig.installedSkills.find((skill) => skill.id === detailSkill.id);
+                const actualSkill = state.installedSkills.find((skill) => skill.id === detailSkill.id);
+                return skillEntrySignature(actualSkill) === skillEntrySignature(expectedSkill);
+              },
+              attempts: 8,
+              delayMs: 700
+            });
+            setOverview(response.state);
             setDetailData(await fetchInstalledSkillDetail(detailSkill.id));
           } finally {
             setBusy("");
@@ -1065,8 +1173,16 @@ export default function SkillsPage() {
 
           setBusy("remove");
           try {
-            const response = await removeSkill(removeSkillEntry.id);
-            setOverview(response.skillConfig);
+            const response = await settleAfterMutation({
+              mutate: () => removeSkill(removeSkillEntry.id),
+              getProvisionalState: (mutation) => mutation.skillConfig,
+              applyState: setOverview,
+              readFresh: () => reloadSkillsStrict({ fresh: true }),
+              isSettled: (state) => !state.installedSkills.some((skill) => skill.id === removeSkillEntry.id),
+              attempts: 8,
+              delayMs: 700
+            });
+            setOverview(response.state);
             setRemoveSkillEntry(undefined);
           } catch (removeError) {
             setError(removeError instanceof Error ? removeError.message : "SlackClaw could not remove this skill.");

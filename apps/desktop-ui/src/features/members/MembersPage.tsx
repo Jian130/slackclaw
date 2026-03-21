@@ -27,6 +27,7 @@ import { useNavigate } from "react-router-dom";
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { fetchAIMemberBindings } from "../../shared/api/client.js";
+import { memberAvatarPresets } from "../../shared/avatar-presets.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -35,15 +36,9 @@ import { Dialog } from "../../shared/ui/Dialog.js";
 import { FieldLabel, Input, Select, Textarea } from "../../shared/ui/Field.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
+import { MemberAvatar, memberInitials } from "../../shared/ui/MemberAvatar.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
-
-const avatarPresets = [
-  { id: "operator", label: "Operator", emoji: "🦊", accent: "var(--avatar-1)", theme: "sunrise" },
-  { id: "analyst", label: "Analyst", emoji: "🧭", accent: "var(--avatar-2)", theme: "forest" },
-  { id: "partner", label: "Partner", emoji: "🌟", accent: "var(--avatar-3)", theme: "ocean" },
-  { id: "builder", label: "Builder", emoji: "🛠️", accent: "var(--avatar-4)", theme: "ember" }
-];
 
 const workStyleOptions = ["Methodical", "Fast-paced", "Data-driven", "Adaptive", "Warm", "Structured"];
 const quickActionTemplates = [
@@ -75,15 +70,6 @@ const quickActionTemplates = [
     buildPrompt: () => "Review the information I provide and extract the most important insights, open questions, and practical follow-ups."
   }
 ] as const;
-
-function memberInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 export function memberOriginTone(member: Pick<AIMemberDetail, "source" | "hasManagedMetadata">): "success" | "warning" {
   return member.source === "slackclaw" && member.hasManagedMetadata ? "success" : "warning";
@@ -195,7 +181,7 @@ function MemberDialog(props: {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [jobTitle, setJobTitle] = useState("");
-  const [avatarPresetId, setAvatarPresetId] = useState(avatarPresets[0].id);
+  const [avatarPresetId, setAvatarPresetId] = useState(memberAvatarPresets[0].id);
   const [brainEntryId, setBrainEntryId] = useState("");
   const [personality, setPersonality] = useState("");
   const [soul, setSoul] = useState("");
@@ -211,7 +197,7 @@ function MemberDialog(props: {
       return;
     }
 
-    const preset = avatarPresets.find((item) => item.id === props.member?.avatar.presetId) ?? avatarPresets[0];
+    const preset = memberAvatarPresets.find((item) => item.id === props.member?.avatar.presetId) ?? memberAvatarPresets[0];
     setName(props.member?.name ?? "");
     setJobTitle(props.member?.jobTitle ?? "");
     setAvatarPresetId(preset.id);
@@ -226,7 +212,7 @@ function MemberDialog(props: {
     setError(undefined);
   }, [overview?.availableBrains, props.member, props.open]);
 
-  const avatar = avatarPresets.find((item) => item.id === avatarPresetId) ?? avatarPresets[0];
+  const avatar = memberAvatarPresets.find((item) => item.id === avatarPresetId) ?? memberAvatarPresets[0];
 
   function toggle(list: string[], setter: (next: string[]) => void, value: string) {
     setter(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
@@ -297,7 +283,7 @@ function MemberDialog(props: {
             <div>
               <FieldLabel htmlFor="member-avatar">Avatar</FieldLabel>
               <Select id="member-avatar" value={avatarPresetId} onChange={(event) => setAvatarPresetId(event.target.value)}>
-                {avatarPresets.map((preset) => (
+                {memberAvatarPresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.label}
                   </option>
@@ -715,7 +701,11 @@ export default function MembersPage() {
                     {member.capabilitySettings.memoryEnabled ? <Badge tone="info">{copy.memoryEnabled}</Badge> : null}
                   </div>
                   <div className="member-spotlight-card__avatar-shell">
-                    <div className="member-spotlight-card__avatar-emoji">{member.avatar.emoji || "🤖"}</div>
+                    <MemberAvatar
+                      avatar={member.avatar}
+                      className="member-spotlight-card__avatar-emoji"
+                      name={member.name}
+                    />
                     <div className="member-spotlight-card__avatar-mark">{memberInitials(member.name)}</div>
                   </div>
                 </div>
@@ -807,9 +797,11 @@ export default function MembersPage() {
             >
               <div className="members-panel__topbar">
                 <div className="members-panel__identity">
-                  <div className="members-panel__avatar">
-                    <span>{selectedMember.avatar.emoji || memberInitials(selectedMember.name)}</span>
-                  </div>
+                  <MemberAvatar
+                    avatar={selectedMember.avatar}
+                    className="members-panel__avatar"
+                    name={selectedMember.name}
+                  />
                   <div>
                     <h2>{selectedMember.name}</h2>
                     <p>{selectedMember.jobTitle}</p>
@@ -898,9 +890,11 @@ export default function MembersPage() {
 
                   <section className="members-chat-preview">
                     <div className="members-chat-preview__bubble members-chat-preview__bubble--assistant">
-                      <div className="members-chat-preview__avatar">
-                        <span>{selectedMember.avatar.emoji || "🤖"}</span>
-                      </div>
+                      <MemberAvatar
+                        avatar={selectedMember.avatar}
+                        className="members-chat-preview__avatar"
+                        name={selectedMember.name}
+                      />
                       <div>
                         <strong>{selectedMember.name}</strong>
                         <p>{memberGreeting(selectedMember)}</p>

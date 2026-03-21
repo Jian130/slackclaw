@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Native macOS client
+
+- added a new daemon-backed native macOS client under `apps/macos-native`
+- added `apps/shared/SlackClawKit` with shared Swift protocol, daemon client, and chat UI packages
+- changed the macOS installer build so the packaged app launches the native SwiftUI client by default while still bundling the React UI as an explicit fallback
+- added `npm run build:mac-native` and `npm run test:mac-native` for native-client development
+- added the same daemon-backed six-step onboarding flow to the native macOS client, including first-run gating, draft resume, settled install/model/channel/employee mutations, and native onboarding avatar resources
+
+### Engine architecture
+
+- refactored the engine seam into a composed four-manager facade:
+  - `instances` for install, uninstall, update, and runtime detection
+  - `config` for staged model, channel, skill, workspace, and tool configuration
+  - `aiEmployees` for OpenClaw agent-backed AI employee config and per-agent workspaces
+  - `gateway` for live gateway lifecycle, health, chat, pairing, and apply/restart flows
+- changed daemon services and routes to delegate through the composed manager boundary while keeping the existing HTTP route surface stable
+- added pending gateway-apply signals so SlackClaw can distinguish staged config from live/applied runtime state
+
 ### Deploy and runtime management
 
 - added deploy target detection for installed and installable OpenClaw runtimes
@@ -25,8 +43,8 @@
 
 ### Channel and gateway behavior
 
-- restart the OpenClaw gateway after runtime-affecting model and channel configuration changes
-- verify gateway health after restart before reporting success
+- stage runtime-affecting model, channel, skill, and AI-employee changes without restarting the gateway during save
+- reserve gateway restart and live verification for gateway-manager actions such as restart/apply, login, pairing, and chat runtime use
 - improved Telegram, WhatsApp, Feishu, and WeChat setup flows and recovery messaging
 - added config-backed fallback recovery for known OpenClaw CLI drift on safe channel mutations such as Telegram, Feishu, and WeChat config writes and removals
 - restored the Feishu setup guide in-product with direct links to the official OpenClaw and platform docs
@@ -79,8 +97,15 @@
 - changed `npm start` so local dev startup no longer auto-runs OpenClaw bootstrap or installation; use the in-product install flow or `npm run bootstrap:openclaw` when you want to install it explicitly
 - expanded development-mode command logging so daemon-side `npm`, `brew`, `launchctl`, helper shell commands, and bootstrap commands are echoed to the console, not just `openclaw`
 - added `npm restart` as the one-command managed dev restart path on top of the existing `npm stop` and `npm start` scripts
+- added a root `SlackClaw.xcworkspace` so Xcode can open the native macOS app and shared Swift packages together while keeping React and future native apps parallel in the repo layout
 
 ### UI polish
 
 - moved the language selector into the bottom-left sidebar under the status card
 - hid inactive saved-model records from the main Configuration models view whenever live runtime models already exist, so the page stays closer to `openclaw models list`
+- replaced the old intro/check onboarding with a daemon-backed six-step onboarding flow for welcome, install, model, channel, AI employee, and completion
+- added daemon-persisted onboarding draft state and completion summary routes so onboarding progress survives refreshes
+- added onboarding avatar presets and shared avatar rendering so the new preset images also render in members, team, dashboard, and chat surfaces
+- changed the native macOS client to gate startup on overview first and lazily load the active section afterward, avoiding cold-start failures caused by blasting every `fresh=1` page endpoint at once
+- fixed managed-local first-run installs so SlackClaw re-detects the freshly installed OpenClaw CLI before verifying it, instead of failing against a stale cached “not installed” result
+- extended native macOS client timeouts for long-running setup and deploy/install requests so real OpenClaw installs are less likely to fail with `The request timed out.`

@@ -20,6 +20,7 @@ import {
   sendChatMessage,
   subscribeToChatEvents
 } from "../../shared/api/client.js";
+import { useChatLayoutMode } from "../../shared/data/responsive.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -29,6 +30,7 @@ import { EmptyState } from "../../shared/ui/EmptyState.js";
 import { FieldLabel, Select, Textarea } from "../../shared/ui/Field.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
+import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
 import { PageHeader } from "../../shared/ui/PageHeader.js";
 
 function detailFromSummary(summary: ChatThreadSummary): ChatThreadDetail {
@@ -401,13 +403,12 @@ function MemberAvatarChip(props: { member?: AIMemberDetail; tone?: "assistant" |
   }
 
   return (
-    <div className="chat-avatar">
-      <span>{props.member?.avatar.emoji ?? "🤖"}</span>
-    </div>
+    <MemberAvatar avatar={props.member?.avatar} className="chat-avatar" name={props.member?.name} />
   );
 }
 
 export default function ChatPage() {
+  const chatLayoutMode = useChatLayoutMode();
   const { locale } = useLocale();
   const copy = t(locale).chatPage;
   const common = t(locale).common;
@@ -872,7 +873,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="panel-stack chat-page">
+    <div className={`panel-stack chat-page chat-page--${chatLayoutMode}`}>
       <PageHeader
         title={copy.title}
         subtitle={copy.subtitle}
@@ -892,7 +893,7 @@ export default function ChatPage() {
         </Card>
       ) : null}
 
-      <div className="chat-layout chat-layout--telegram">
+      <div className={`chat-layout chat-layout--telegram chat-layout--${chatLayoutMode}`}>
         <Card className="chat-sidebar chat-sidebar--telegram">
           <CardContent className="panel-stack">
             <div className="actions-row" style={{ justifyContent: "space-between" }}>

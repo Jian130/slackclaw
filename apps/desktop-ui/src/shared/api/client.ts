@@ -15,6 +15,8 @@ import type {
   ChannelConfigOverview,
   ChannelSessionInputRequest,
   ChannelSessionResponse,
+  CompleteOnboardingRequest,
+  CompleteOnboardingResponse,
   DeploymentTargetActionResponse,
   DeploymentTargetsResponse,
   EngineActionResponse,
@@ -32,6 +34,7 @@ import type {
   MemberBindingsResponse,
   PairingApprovalRequest,
   ProductOverview,
+  OnboardingStateResponse,
   RemoveSkillRequest,
   RemoveChannelEntryRequest,
   ReplaceFallbackModelEntriesRequest,
@@ -74,6 +77,7 @@ type JsonRequestInit = RequestInit & {
 function getGetCacheMs(path: string): number | undefined {
   if (
     path.startsWith("/overview") ||
+    path.startsWith("/onboarding/state") ||
     path.startsWith("/deploy/targets") ||
     path.startsWith("/models/config") ||
     path.startsWith("/channels/config") ||
@@ -218,6 +222,24 @@ export function restartGateway(): Promise<GatewayActionResponse> {
 export function markFirstRunIntroComplete(): Promise<ProductOverview> {
   return readJson<ProductOverview>("/first-run/intro", {
     method: "POST"
+  });
+}
+
+export function fetchOnboardingState(options?: { fresh?: boolean }): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/state", options);
+}
+
+export function updateOnboardingState(request: Partial<OnboardingStateResponse["draft"]>): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/state", {
+    method: "PATCH",
+    body: JSON.stringify(request)
+  });
+}
+
+export function completeOnboarding(request: CompleteOnboardingRequest): Promise<CompleteOnboardingResponse> {
+  return readJson<CompleteOnboardingResponse>("/onboarding/complete", {
+    method: "POST",
+    body: JSON.stringify(request)
   });
 }
 

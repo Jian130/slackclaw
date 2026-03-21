@@ -33,7 +33,7 @@ export class SetupService {
       introCompletedAt: current.introCompletedAt ?? new Date().toISOString()
     }));
 
-    const statusBefore = await this.adapter.status();
+    const statusBefore = await this.adapter.instances.status();
     steps.push({
       id: "check-existing-openclaw",
       title: "Check for an existing OpenClaw installation",
@@ -43,23 +43,13 @@ export class SetupService {
         : "No compatible OpenClaw installation was found yet. SlackClaw will deploy a managed local copy for this user."
     });
 
-    installResult = await this.adapter.install(false, { forceLocal: options?.forceLocal ?? false });
+    installResult = await this.adapter.instances.install(false, { forceLocal: options?.forceLocal ?? false });
     steps.push({
       id: "prepare-openclaw",
       title: "Prepare OpenClaw and its required dependencies",
       status: installResult.status === "installed" || installResult.status === "already-installed" ? "completed" : "failed",
       detail: installResult.message
     });
-
-    const finalStatus = await this.adapter.status();
-    const setupCompleted = finalStatus.installed;
-
-    if (setupCompleted) {
-      await this.store.update((current) => ({
-        ...current,
-        setupCompletedAt: new Date().toISOString()
-      }));
-    }
 
     const overview = await this.overviewService.getOverview();
     const failedStep = steps.find((step) => step.status === "failed");

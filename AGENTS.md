@@ -23,6 +23,31 @@ This file captures the important operating rules for agents working in this repo
 - If adding a new engine later, do it by implementing the existing adapter seam first, not by branching product logic throughout the codebase.
 - Treat future local-LLM backends as adapter work. Qwen-family models, MiniMax-compatible local gateways, Ollama, vLLM, LM Studio, and similar runtimes should integrate through the same product-layer seam.
 
+## Native macOS client rules
+
+- The native macOS app is a full SwiftUI client on top of the local SlackClaw daemon, not a direct OpenClaw client.
+- Preserve the `native UI -> SlackClaw daemon -> EngineAdapter -> engine` boundary for all native features, including onboarding, chat, install, config, and recovery.
+- Keep React as the fallback and developer surface. Do not move product logic out of the daemon just to satisfy one client.
+- Treat the native app as a second client of the same daemon APIs. React and SwiftUI should render the same backend truth.
+- Keep the native client OpenClaw-agnostic. Do not let SwiftUI code depend on OpenClaw CLI shapes, gateway internals, or engine-specific runtime assumptions.
+- Prefer SwiftUI for the native app and use AppKit only when SwiftUI is insufficient.
+- Keep the native app structured around:
+  - central `AppState` for shell, window, and client lifecycle state
+  - `DaemonEndpointStore` for daemon endpoint/auth/reachability resolution
+  - `DaemonProcessManager` and `LaunchAgentManager` for packaged daemon lifecycle
+  - reusable native client/chat packages in `apps/shared/SlackClawKit`
+- Keep the shared Swift packages split by responsibility:
+  - `SlackClawProtocol` for daemon DTOs
+  - `SlackClawClient` for HTTP + SSE transport
+  - `SlackClawChatUI` for native chat transport, transcript, and view models
+- Do not embed browser views for core product flows when a native screen exists. Native chat should stay native, not a web wrapper.
+- Keep daemon routes stable when possible. Add only the minimum daemon metadata needed for native parity rather than inventing native-only backend behavior.
+- Native UI must surface the same distinction between:
+  - installed instance
+  - staged config / pending gateway apply
+  - live gateway-applied state
+- Keep the client boundary daemon-centric so future Windows or other native clients can reuse the same backend pattern.
+
 ## OpenClaw integration rules
 
 - SlackClaw installs the latest available OpenClaw version by default for users.
@@ -40,6 +65,7 @@ This file captures the important operating rules for agents working in this repo
 ## UX rules
 
 - Keep install, onboarding, health, update, and recovery messaging in plain language.
+- All UI changes must remain responsive across desktop, tablet, and narrow-screen layouts. Do not ship desktop-only page structures.
 - Preserve localized UI support for English, Chinese, Japanese, Korean, and Spanish when changing frontend copy.
 - Prefer one primary action per screen or panel.
 - Surface recommended recovery actions first.
@@ -51,7 +77,8 @@ This file captures the important operating rules for agents working in this repo
 
 ## Packaging and runtime rules
 
-- The packaged app is currently a browser-served UI plus a bundled local daemon, not a native Tauri shell yet.
+- The packaged macOS app is a native SwiftUI client backed by the bundled local daemon.
+- Keep the React UI as the fallback and developer surface; do not let it become a second product backend.
 - The packaged macOS app should prefer a per-user `LaunchAgent` for daemon lifecycle instead of ad hoc background shell processes.
 - Packaged runtime data should live under `~/Library/Application Support/SlackClaw`.
 - Operational errors must be written to log files, not only returned to the UI. When adding new install, startup, shutdown, recovery, or external-command paths, make sure failures are persisted under the SlackClaw logs directory.
@@ -62,6 +89,9 @@ This file captures the important operating rules for agents working in this repo
 ## Repo-specific implementation guidance
 
 - `apps/desktop-ui`: first-party user experience only
+- `apps/macos-native`: native macOS client only; keep it daemon-backed and OpenClaw-agnostic
+- `apps/shared/SlackClawKit`: shared Swift protocol, client, and chat packages for native clients
+- `SlackClaw.xcworkspace`: the root native-development entry point for Xcode; keep native clients parallel to the React app and future native apps parallel to `apps/macos-native`
 - `apps/daemon`: orchestration, policy, health, recovery, diagnostics, static asset serving in packaged mode
 - `packages/contracts`: shared product/domain contracts; keep these stable and explicit
 - `scripts/bootstrap-openclaw.mjs`: the single source of truth for OpenClaw install/reuse behavior
