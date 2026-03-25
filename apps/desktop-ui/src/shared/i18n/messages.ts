@@ -346,7 +346,11 @@ const en: TranslationTree = {
     restartService: "Restart Service",
     removeService: "Remove Service",
     stopApp: "Stop SlackClaw",
-    uninstallApp: "Uninstall SlackClaw"
+    uninstallApp: "Uninstall SlackClaw",
+    redoOnboarding: "Redo onboarding",
+    redoOnboardingBody: "Run the guided setup again without uninstalling SlackClaw.",
+    redoOnboardingRunning: "Resetting...",
+    redoOnboardingDone: "Returning to guided setup..."
   }
 };
 
@@ -435,6 +439,12 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       summaryFastBody: "SlackClaw 会通过一个主要操作来检查、复用或部署 OpenClaw。",
       summarySafeTitle: "清晰且安全",
       summarySafeBody: "部署只负责安装。引导和频道配置会在下一步完成。"
+    },
+    settings: {
+      redoOnboarding: "重新运行引导",
+      redoOnboardingBody: "不卸载 SlackClaw，重新运行一次引导设置。",
+      redoOnboardingRunning: "正在重置...",
+      redoOnboardingDone: "正在返回引导..."
     }
   },
   ja: {
@@ -521,6 +531,12 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       summaryFastBody: "SlackClaw は 1 つの主要操作で OpenClaw を確認、再利用、または配備します。",
       summarySafeTitle: "安全で明確",
       summarySafeBody: "デプロイはインストールで止まります。オンボーディングとチャネル設定は次の段階です。"
+    },
+    settings: {
+      redoOnboarding: "オンボーディングをやり直す",
+      redoOnboardingBody: "SlackClaw をアンインストールせずに、ガイド付きセットアップをもう一度実行します。",
+      redoOnboardingRunning: "リセット中...",
+      redoOnboardingDone: "ガイド付きセットアップに戻っています..."
     }
   },
   ko: {
@@ -607,6 +623,12 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       summaryFastBody: "SlackClaw는 하나의 주요 작업으로 OpenClaw를 확인, 재사용 또는 배포합니다.",
       summarySafeTitle: "안전하고 명확함",
       summarySafeBody: "배포는 설치 단계까지만 진행됩니다. 온보딩과 채널 구성은 다음 단계에서 처리됩니다."
+    },
+    settings: {
+      redoOnboarding: "온보딩 다시 실행",
+      redoOnboardingBody: "SlackClaw를 제거하지 않고 안내형 설정을 다시 실행합니다.",
+      redoOnboardingRunning: "재설정하는 중...",
+      redoOnboardingDone: "안내형 설정으로 돌아가는 중..."
     }
   },
   es: {
@@ -693,6 +715,12 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       summaryFastBody: "SlackClaw comprueba, reutiliza o despliega OpenClaw con una sola acción principal.",
       summarySafeTitle: "Seguro y claro",
       summarySafeBody: "El despliegue termina en la instalación. El onboarding y la configuración de canales vienen después."
+    },
+    settings: {
+      redoOnboarding: "Repetir onboarding",
+      redoOnboardingBody: "Vuelve a ejecutar la configuración guiada sin desinstalar SlackClaw.",
+      redoOnboardingRunning: "Restableciendo...",
+      redoOnboardingDone: "Volviendo a la configuración guiada..."
     }
   }
 };

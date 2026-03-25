@@ -55,6 +55,7 @@ This file captures the important operating rules for agents working in this repo
 - Only use an explicit OpenClaw version override for compatibility testing or controlled diagnostics.
 - Always check for an existing compatible OpenClaw install before reinstalling.
 - Reuse an existing compatible install when possible.
+- During install or reuse, normalize the OpenClaw gateway config back to SlackClaw's safe local baseline: local mode, loopback bind, token auth, and no inherited remote override.
 - If OpenClaw is missing or incompatible, use SlackClaw’s bootstrap/install path rather than inventing a second installer path.
 - Distinguish between:
   - OpenClaw CLI installed
@@ -76,6 +77,40 @@ This file captures the important operating rules for agents working in this repo
   - what the user should do next if auto-repair is insufficient
 - Avoid adding advanced settings by default.
 
+## Onboarding design rules
+
+- Treat the onboarding flow as a centered macOS setup canvas, not a generic web form.
+- Use the same language selector component across the entire onboarding flow in each client, not a step-specific one-off control.
+- For onboarding welcome and setup screens, target:
+  - content width `clamp(windowWidth × 0.70, 672, 1120)`
+  - content aspect ratio near `1.618 : 1`
+  - welcome-card height `clamp(contentWidth ÷ 1.74, 520, 616)` so normal desktop windows do not feel oversized vertically
+  - header/logo text zone capped at `768` wide or `73%` of the content width, whichever is smaller
+  - side gutters that naturally land near `15%–16%` on wide windows
+- Use an 8-point spacing grid for onboarding surfaces.
+- Native onboarding windows should:
+  - default to `1280 × 860`
+  - stay resizable
+  - use a minimum size of `960 × 720`
+  - avoid forcing full-screen on first launch
+- Use the system font stack in code. For onboarding typography, prefer:
+  - hero title `34/40` semibold
+  - intro/subtitle `16/24` regular
+  - feature card title `20/26` semibold
+  - feature card body `14/20` regular
+  - primary button label `15/20` semibold
+  - meta/progress text `12/16` medium
+- Use these onboarding shape and spacing values by default:
+  - outer panel padding `32`
+  - inner feature card padding `24`
+  - gap between feature cards `16–20`
+  - gap between title and subtitle `8–12`
+  - gap between major sections `24–32`
+  - outer radius `24`
+  - feature card radius `16`
+  - icon tile radius `12`
+  - primary CTA height `48–52`
+
 ## Packaging and runtime rules
 
 - The packaged macOS app is a native SwiftUI client backed by the bundled local daemon.
@@ -93,7 +128,9 @@ This file captures the important operating rules for agents working in this repo
 - `apps/macos-native`: native macOS client only; keep it daemon-backed and OpenClaw-agnostic
 - `apps/shared/SlackClawKit`: shared Swift protocol, client, and chat packages for native clients
 - `apps/daemon`: orchestration, policy, health, recovery, diagnostics, static asset serving in packaged mode
+- `apps/daemon/src/config/onboarding-config.ts`: the single source of truth for curated onboarding-only provider and channel presentation, ordering, and guided setup metadata
 - `packages/contracts`: shared product/domain contracts; keep these stable and explicit
+- onboarding curated-provider and curated-channel metadata is daemon-owned; use `platformUrl` for provider/channel platform destinations, `docsUrl` for documentation links, and `tutorialVideoUrl` for optional in-app tutorial video flows so React and native stay aligned
 - `scripts/bootstrap-openclaw.mjs`: the single source of truth for OpenClaw install/reuse behavior
 - `scripts/build-macos-installer.mjs`: the single source of truth for packaged macOS app assembly
 - `scripts/start-dev.mjs`: the single source of truth for local end-to-end startup ordering during development

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
+import type { OnboardingStateResponse } from "@slackclaw/contracts";
+
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
 import { ChannelSetupService } from "./channel-setup-service.js";
@@ -91,4 +93,90 @@ test("onboarding completion clears the draft, marks setup completed, and returns
   assert.equal(state.onboarding, undefined);
   assert.equal(result.summary.channel?.channelId, "telegram");
   assert.equal(result.summary.employee?.name, "Alex Morgan");
+});
+
+test("redo onboarding clears completion state and resets the draft without wiping workspace data", async () => {
+  const { service, store } = createService("onboarding-service-reset");
+
+  await store.write({
+    selectedProfileId: "email-admin",
+    introCompletedAt: "2026-03-24T00:00:00.000Z",
+    setupCompletedAt: "2026-03-24T00:05:00.000Z",
+    tasks: [],
+    onboarding: {
+      draft: {
+        currentStep: "employee",
+        install: {
+          installed: true,
+          version: "2026.3.13",
+          disposition: "reused-existing"
+        }
+      }
+    },
+    chat: {
+      threads: {
+        "thread-1": {
+          id: "thread-1",
+          memberId: "member-1",
+          agentId: "agent-1",
+          sessionKey: "session-1",
+          title: "Hello",
+          createdAt: "2026-03-24T00:00:00.000Z",
+          updatedAt: "2026-03-24T00:00:00.000Z"
+        }
+      }
+    }
+  });
+
+  const reset = await service.reset();
+  const persisted = await store.read();
+
+  assert.equal(reset.firstRun.setupCompleted, false);
+  assert.equal(reset.draft.currentStep, "welcome");
+  assert.equal(reset.summary.install, undefined);
+  assert.equal(persisted.setupCompletedAt, undefined);
+  assert.equal(persisted.onboarding?.draft.currentStep, "welcome");
+  assert.ok(persisted.chat?.threads["thread-1"]);
+});
+
+test("onboarding state exposes the curated model providers for step 3", async () => {
+  const { service } = createService("onboarding-service-curated-providers");
+
+  const state = await service.getState() as OnboardingStateResponse & {
+    config?: {
+      modelProviders?: Array<{ id: string; label: string }>;
+    };
+  };
+
+  assert.deepEqual(
+    state.config?.modelProviders?.map((provider) => provider.id),
+    ["minimax", "modelstudio", "openai"]
+  );
+  assert.deepEqual(
+    state.config?.modelProviders?.map((provider) => provider.label),
+    ["MiniMax", "Qwen (通义千问)", "ChatGPT"]
+  );
+  assert.equal(state.config?.modelProviders?.[0]?.defaultModelKey, "minimax/MiniMax-M2.5");
+  assert.deepEqual(state.config?.modelProviders?.[0]?.authMethods.map((method) => method.id), ["minimax-api"]);
+  assert.equal(state.config?.modelProviders?.[1]?.defaultModelKey, "modelstudio/qwen3.5-plus");
+  assert.deepEqual(state.config?.modelProviders?.[1]?.authMethods.map((method) => method.id), ["modelstudio-api-key-cn"]);
+  assert.deepEqual(state.config?.modelProviders?.[2]?.authMethods.map((method) => method.id), ["openai-api-key", "openai-codex"]);
+  assert.deepEqual(
+    state.config?.channels?.map((channel) => channel.id),
+    ["wechat", "feishu", "telegram"]
+  );
+  assert.deepEqual(
+    state.config?.channels?.map((channel) => channel.label),
+    ["WeChat Work", "Feishu", "Telegram"]
+  );
+  assert.equal(state.config?.channels?.[0]?.setupKind, "wechat-guided");
+  assert.equal(state.config?.channels?.[1]?.setupKind, "feishu-guided");
+  assert.equal(state.config?.channels?.[2]?.setupKind, "telegram-guided");
+  assert.deepEqual(
+    state.config?.employeePresets?.map((preset) => preset.id),
+    ["research-analyst", "support-captain", "delivery-operator"]
+  );
+  assert.deepEqual(state.config?.employeePresets?.[0]?.skillIds, ["research-brief", "status-writer"]);
+  assert.deepEqual(state.config?.employeePresets?.[1]?.knowledgePackIds, ["customer-voice"]);
+  assert.equal(state.config?.employeePresets?.[2]?.theme, "operator");
 });

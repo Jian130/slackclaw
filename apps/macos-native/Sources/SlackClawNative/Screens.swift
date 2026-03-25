@@ -27,7 +27,15 @@ private struct SectionCard<Content: View>: View {
             content
         }
         .padding(20)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.white)
+                .shadow(color: Color.black.opacity(0.05), radius: 24, x: 0, y: 14)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color(red: 0.87, green: 0.9, blue: 0.96), lineWidth: 1)
+        )
     }
 }
 
@@ -49,7 +57,239 @@ private struct NativeMetricCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.white)
+                .shadow(color: Color.black.opacity(0.04), radius: 16, x: 0, y: 10)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color(red: 0.9, green: 0.93, blue: 0.97), lineWidth: 1)
+        )
+    }
+}
+
+private struct NativeBadge: View {
+    let label: String
+    let systemImage: String
+    let tone: NativeDashboardTone
+
+    var body: some View {
+        Label(label, systemImage: systemImage)
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(backgroundColor, in: Capsule())
+            .foregroundStyle(foregroundColor)
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .success:
+            return Color.green.opacity(0.14)
+        case .warning:
+            return Color.orange.opacity(0.16)
+        case .info:
+            return Color.blue.opacity(0.14)
+        case .neutral:
+            return Color.primary.opacity(0.08)
+        }
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .info:
+            return .blue
+        case .neutral:
+            return .primary
+        }
+    }
+}
+
+private struct DashboardStatusPill: View {
+    let status: String
+    let tone: NativeDashboardTone
+
+    var body: some View {
+        Text(status)
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(backgroundColor, in: Capsule())
+            .foregroundStyle(foregroundColor)
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .success:
+            return Color.green.opacity(0.14)
+        case .warning:
+            return Color.orange.opacity(0.16)
+        case .info:
+            return Color.blue.opacity(0.14)
+        case .neutral:
+            return Color.primary.opacity(0.08)
+        }
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .info:
+            return .blue
+        case .neutral:
+            return .primary
+        }
+    }
+}
+
+private struct NativeDashboardMemberAvatar: View {
+    let avatar: MemberAvatar
+    let name: String
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(accentColor.opacity(0.14))
+
+            if let image = onboardingAssetImage(avatar.presetId) {
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            } else {
+                Text(String(name.prefix(1)).uppercased())
+                    .font(.system(size: size * 0.42, weight: .bold))
+                    .foregroundStyle(accentColor)
+            }
+        }
+        .frame(width: size, height: size)
+        .overlay(
+            Circle()
+                .stroke(accentColor.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private var accentColor: Color {
+        colorFromHex(avatar.accent) ?? .blue
+    }
+}
+
+private func colorFromHex(_ hex: String) -> Color? {
+    var sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+    sanitized = sanitized.replacingOccurrences(of: "#", with: "")
+
+    guard sanitized.count == 6, let value = Int(sanitized, radix: 16) else {
+        return nil
+    }
+
+    let red = Double((value >> 16) & 0xFF) / 255.0
+    let green = Double((value >> 8) & 0xFF) / 255.0
+    let blue = Double(value & 0xFF) / 255.0
+    return Color(red: red, green: green, blue: blue)
+}
+
+private struct DashboardEmployeeCard: View {
+    let row: NativeDashboardEmployeeRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 16) {
+                NativeDashboardMemberAvatar(avatar: row.avatar, name: row.name, size: 72)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(row.name)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    Text(row.jobTitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        DashboardStatusPill(status: row.status, tone: row.status == "ready" ? .success : row.status == "busy" ? .info : .neutral)
+                        if row.activeTaskCount > 0 {
+                            DashboardStatusPill(status: "\(row.activeTaskCount) active", tone: .neutral)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Text(row.currentStatus)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+private struct DashboardActivityCard: View {
+    let row: NativeDashboardActivityRow
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(activityColor)
+                Text(String(row.memberName.prefix(1)).uppercased())
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(row.action)
+                    .fontWeight(.semibold)
+                Text(row.description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("\(row.memberName) · \(row.timestamp)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+
+    private var activityColor: Color {
+        switch row.tone {
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .info:
+            return .blue
+        case .neutral:
+            return .purple
+        }
+    }
+}
+
+private struct DashboardHealthRow: View {
+    let item: NativeDashboardHealthItem
+
+    var body: some View {
+        HStack {
+            Text(item.title)
+                .fontWeight(.semibold)
+            Spacer()
+            DashboardStatusPill(status: item.status, tone: item.tone)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -57,155 +297,710 @@ struct DashboardScreen: View {
     @Bindable var appState: SlackClawAppState
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Dashboard")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
+        GeometryReader { geometry in
+            ScrollView {
                 if let overview = appState.overview {
-                    HStack(spacing: 16) {
-                        NativeMetricCard(
-                            title: "Engine",
-                            value: overview.engine.installed ? "Installed" : "Missing",
-                            detail: overview.engine.summary
-                        )
-                        NativeMetricCard(
-                            title: "Connected Models",
-                            value: "\(appState.modelConfig?.configuredModelKeys.count ?? 0)",
-                            detail: appState.modelConfig?.defaultModel ?? "No default model"
-                        )
-                        NativeMetricCard(
-                            title: "AI Members",
-                            value: "\(appState.aiTeamOverview?.members.count ?? 0)",
-                            detail: "\(appState.aiTeamOverview?.teams.count ?? 0) teams"
-                        )
-                    }
+                    let presentation = makeDashboardPresentation(
+                        overview: overview,
+                        modelConfig: appState.modelConfig,
+                        aiTeamOverview: appState.aiTeamOverview
+                    )
 
-                    SectionCard(title: "Health & Recovery") {
-                        ForEach(overview.healthChecks) { check in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(check.title).fontWeight(.semibold)
-                                Text(check.summary)
-                                Text(check.detail).foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 4)
-                        }
-                    }
-
-                    SectionCard(title: "Recent Tasks") {
-                        if overview.recentTasks.isEmpty {
-                            Text("No recent tasks.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(overview.recentTasks) { task in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(task.title).fontWeight(.semibold)
-                                    Text(task.summary)
-                                    Text(task.status.capitalized).foregroundStyle(.secondary)
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-                    }
+                    dashboardContent(
+                        overview: overview,
+                        presentation: presentation,
+                        availableWidth: geometry.size.width
+                    )
+                    .padding(24)
                 } else {
                     ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(24)
                 }
             }
-            .padding(24)
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardContent(
+        overview: ProductOverview,
+        presentation: NativeDashboardPresentation,
+        availableWidth: CGFloat
+    ) -> some View {
+        let isCompact = availableWidth < 1120
+        let metricColumns = dashboardMetricColumns(for: availableWidth)
+
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Dashboard")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    Text("Track your workspace status, AI member roster, and recent activity from one screen.")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                HStack(spacing: 12) {
+                    Button("Create Employee") {
+                        appState.selectedSection = .members
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button("Open Team") {
+                        appState.selectedSection = .team
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    NativeBadge(label: "Powered by OpenClaw", systemImage: "sparkles", tone: .info)
+                    NativeBadge(label: "Workspace active", systemImage: "checkmark.circle.fill", tone: .success)
+                    NativeBadge(label: presentation.heroVersion, systemImage: "brain.head.profile", tone: .neutral)
+                }
+
+                Text("Figma shell, backend-truthful state")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                Text("The layout mirrors the React dashboard while the metrics and lists stay daemon-backed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color.blue.opacity(0.18),
+                        Color.green.opacity(0.10),
+                        Color.purple.opacity(0.12)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+            )
+
+            LazyVGrid(columns: metricColumns, spacing: 16) {
+                ForEach(presentation.metrics, id: \.title) { metric in
+                    NativeMetricCard(title: metric.title, value: metric.value, detail: metric.detail)
+                }
+            }
+
+            if isCompact {
+                VStack(alignment: .leading, spacing: 16) {
+                    employeeStatusSection(presentation: presentation)
+                    recentActivitySection(presentation: presentation)
+                    workspaceHealthSection(presentation: presentation)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    employeeStatusSection(presentation: presentation)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        recentActivitySection(presentation: presentation)
+                        workspaceHealthSection(presentation: presentation)
+                    }
+                    .frame(width: min(availableWidth * 0.34, 420), alignment: .top)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func dashboardMetricColumns(for width: CGFloat) -> [GridItem] {
+        if width >= 1340 {
+            return Array(repeating: GridItem(.flexible(minimum: 160), spacing: 16), count: 5)
+        }
+        if width >= 1100 {
+            return Array(repeating: GridItem(.flexible(minimum: 180), spacing: 16), count: 3)
+        }
+        if width >= 760 {
+            return Array(repeating: GridItem(.flexible(minimum: 200), spacing: 16), count: 2)
+        }
+        return [GridItem(.flexible(minimum: 220), spacing: 16)]
+    }
+
+    private func employeeStatusSection(presentation: NativeDashboardPresentation) -> some View {
+        SectionCard(title: "Employee Status") {
+            HStack {
+                Spacer()
+                Button("View all") {
+                    appState.selectedSection = .team
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
+
+            if presentation.employeeRows.isEmpty {
+                Text("No AI members yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(presentation.employeeRows) { row in
+                        DashboardEmployeeCard(row: row)
+                    }
+                }
+            }
+        }
+    }
+
+    private func recentActivitySection(presentation: NativeDashboardPresentation) -> some View {
+        SectionCard(title: "Recent Activity") {
+            if presentation.activityRows.isEmpty {
+                Text("No recent activity.")
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(presentation.activityRows) { row in
+                        DashboardActivityCard(row: row)
+                    }
+                }
+            }
+        }
+    }
+
+    private func workspaceHealthSection(presentation: NativeDashboardPresentation) -> some View {
+        SectionCard(title: "Workspace Health") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(presentation.healthItems, id: \.title) { item in
+                    DashboardHealthRow(item: item)
+                }
+            }
         }
     }
 }
 
 struct DeployScreen: View {
     @Bindable var appState: SlackClawAppState
+    @State private var installingTargetId = ""
+    @State private var updatingTargetId = ""
+    @State private var uninstallingTargetId = ""
+    @State private var restartingGateway = false
+    @State private var activityTitle = ""
+    @State private var activitySummary = ""
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Text("Deploy")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    Button("Restart Gateway") {
-                        Task { await runGatewayRestart() }
-                    }
-                }
+        GeometryReader { geometry in
+            ScrollView {
+                let presentation = makeDeployPresentation(
+                    overview: appState.overview,
+                    targets: appState.deploymentTargets
+                )
 
-                ForEach(appState.deploymentTargets?.targets ?? []) { target in
-                    SectionCard(title: target.title, subtitle: target.description) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(target.summary)
-                            HStack {
-                                Label(target.installed ? "Installed" : "Not installed", systemImage: target.installed ? "checkmark.circle.fill" : "circle")
-                                if let version = target.version {
-                                    Text(version).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Deploy OpenClaw")
+                                .font(.system(size: 46, weight: .bold))
+                                .fontWeight(.bold)
+                            Text("Choose a variant and deploy with one click")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await appState.refreshCurrentSectionIfNeeded() }
+                            } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                Task { await runGatewayRestart() }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    if restartingGateway {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    } else {
+                                        Image(systemName: "bolt.fill")
+                                    }
+                                    Text(restartingGateway ? "Restarting…" : "Restart Gateway")
                                 }
                             }
-                            HStack(spacing: 12) {
-                                if !target.installed && target.installable && !target.planned {
-                                    Button("Install") {
-                                        Task { await runInstall(target.id) }
-                                    }
-                                }
-                                if target.installed {
-                                    Button("Update") {
-                                        Task { await runUpdate(target.id) }
-                                    }
-                                    if target.installMode != "future" {
-                                        Button("Uninstall", role: .destructive) {
-                                            Task { await runUninstall(target.id) }
-                                        }
-                                    }
-                                }
-                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(actionBusy || presentation.installedTargets.isEmpty)
+                        }
+                    }
+
+                    if actionBusy {
+                        deployActivityCard
+                    }
+
+                    deployHeroCard(lastCheckedAt: presentation.lastCheckedAt)
+
+                    deploySection(
+                        title: "Installed variants",
+                        subtitle: "OpenClaw variants already ready on this Mac.",
+                        targets: presentation.installedTargets,
+                        emptyTitle: "Nothing installed yet",
+                        emptyBody: "Pick an available variant below to deploy OpenClaw."
+                    )
+
+                    deploySection(
+                        title: "Available variants",
+                        subtitle: "Ready-to-deploy options supported by SlackClaw today.",
+                        targets: presentation.availableTargets,
+                        emptyTitle: "No available variants",
+                        emptyBody: "SlackClaw could not find a deployable target right now."
+                    )
+
+                    if !presentation.plannedTargets.isEmpty {
+                        deploySection(
+                            title: "Planned variants",
+                            subtitle: "Future engine adapters reserved in the product architecture.",
+                            targets: presentation.plannedTargets,
+                            emptyTitle: "",
+                            emptyBody: ""
+                        )
+                    }
+
+                    LazyVGrid(columns: deploySummaryColumns(for: geometry.size.width), alignment: .leading, spacing: 16) {
+                        ForEach(presentation.summaryCards) { card in
+                            deploySummaryCard(card)
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
             }
-            .padding(24)
         }
     }
 
     private func runInstall(_ targetId: String) async {
+        installingTargetId = targetId
+        activityTitle = "Installing OpenClaw"
+        activitySummary = "Preparing the selected runtime and configuring SlackClaw."
         do {
             let response = try await appState.client.installTarget(targetId)
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
+        installingTargetId = ""
+        resetActivityIfIdle()
     }
 
     private func runUpdate(_ targetId: String) async {
+        updatingTargetId = targetId
+        activityTitle = "Updating OpenClaw"
+        activitySummary = "Applying the latest compatible OpenClaw update."
         do {
             let response = try await appState.client.updateTarget(targetId)
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
+        updatingTargetId = ""
+        resetActivityIfIdle()
     }
 
     private func runUninstall(_ targetId: String) async {
+        uninstallingTargetId = targetId
+        activityTitle = "Removing OpenClaw"
+        activitySummary = "Cleaning up the selected runtime from this Mac."
         do {
             let response = try await appState.client.uninstallTarget(targetId)
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
+        uninstallingTargetId = ""
+        resetActivityIfIdle()
     }
 
     private func runGatewayRestart() async {
+        restartingGateway = true
+        activityTitle = "Restarting gateway"
+        activitySummary = "Waiting for the OpenClaw gateway to become reachable again."
         do {
             let response = try await appState.client.restartGateway()
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
+        }
+        restartingGateway = false
+        resetActivityIfIdle()
+    }
+
+    private var actionBusy: Bool {
+        !installingTargetId.isEmpty || !updatingTargetId.isEmpty || !uninstallingTargetId.isEmpty || restartingGateway
+    }
+
+    private var deployActivityCard: some View {
+        HStack(spacing: 16) {
+            ProgressView()
+            VStack(alignment: .leading, spacing: 6) {
+                Text(activityTitle)
+                    .font(.headline)
+                Text(activitySummary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.04), radius: 20, x: 0, y: 12)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private func deployHeroCard(lastCheckedAt: String?) -> some View {
+        HStack(alignment: .top, spacing: 18) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color.blue.opacity(0.12))
+                Image(systemName: "rocket")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.blue)
+            }
+            .frame(width: 96, height: 132)
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text("One-Click Deployment")
+                    .font(.system(size: 24, weight: .bold))
+                Text("Select your preferred OpenClaw variant and deploy instantly. No terminal commands or manual configuration required.")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 24) {
+                    deployHeroCheck("Automatic setup")
+                    deployHeroCheck("Docker containerized")
+                    deployHeroCheck("Pre-configured")
+                }
+                if let lastCheckedAt {
+                    Text("Last checked: \(formattedDeployCheckedAt(lastCheckedAt))")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color.blue.opacity(0.08))
+                .shadow(color: Color.blue.opacity(0.08), radius: 22, x: 0, y: 14)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private func deployHeroCheck(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(text)
+                .font(.callout)
+        }
+    }
+
+    private func deploySection(
+        title: String,
+        subtitle: String,
+        targets: [NativeDeployTargetPresentation],
+        emptyTitle: String,
+        emptyBody: String
+    ) -> some View {
+        SectionCard(title: title, subtitle: subtitle) {
+            if targets.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !emptyTitle.isEmpty {
+                        Text(emptyTitle)
+                            .font(.headline)
+                    }
+                    if !emptyBody.isEmpty {
+                        Text(emptyBody)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(targets) { target in
+                        deployTargetCard(target)
+                    }
+                }
+            }
+        }
+    }
+
+    private func deployTargetCard(_ target: NativeDeployTargetPresentation) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(deployAccentColor(target.accent).opacity(0.14))
+                    Text(target.icon)
+                        .font(.system(size: 32))
+                }
+                .frame(width: 88, height: 88)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Text(target.title)
+                            .font(.system(size: 22, weight: .bold))
+                        ForEach(target.badges, id: \.self) { badge in
+                            deployBadge(badge)
+                        }
+                    }
+                    Text(target.description)
+                        .font(.system(size: 18))
+                        .foregroundStyle(.secondary)
+                    Text(target.summary)
+                        .font(.callout)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            if let version = target.version ?? target.latestVersion {
+                Text("Version: \(version)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let updateSummary = target.updateSummary {
+                Text(updateSummary)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Features")
+                    .font(.headline)
+                ForEach(target.features, id: \.self) { feature in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(feature)
+                            .font(.callout)
+                    }
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Requirements")
+                    .font(.headline)
+                if target.requirements.isEmpty {
+                    Text("Requirements will be documented when this target becomes available.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 160), spacing: 14), count: 3), alignment: .leading, spacing: 12) {
+                        ForEach(target.requirements, id: \.self) { requirement in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text(requirement)
+                                    .font(.callout)
+                            }
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 12) {
+                if let primaryAction = target.primaryAction {
+                    deployActionButton(primaryAction, targetId: target.id, prominent: true)
+                }
+                ForEach(target.secondaryActions, id: \.self) { action in
+                    deployActionButton(action, targetId: target.id, prominent: false)
+                }
+            }
+        }
+        .padding(22)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(.white)
+                .shadow(color: Color.black.opacity(0.05), radius: 22, x: 0, y: 14)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(Color(red: 0.86, green: 0.9, blue: 0.96), lineWidth: 1)
+        )
+    }
+
+    private func deployActionButton(_ action: NativeDeployActionKind, targetId: String, prominent: Bool) -> some View {
+        let isBusy = isActionBusy(action, targetId: targetId)
+        return Button {
+            Task {
+                switch action {
+                case .install:
+                    await runInstall(targetId)
+                case .update:
+                    await runUpdate(targetId)
+                case .uninstall:
+                    await runUninstall(targetId)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: iconName(for: action))
+                }
+                Text(buttonTitle(for: action, busy: isBusy))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .modifier(NativeDeployButtonStyleModifier(prominent: prominent))
+        .disabled(actionBusy)
+    }
+
+    private func deploySummaryCard(_ card: NativeDeploySummaryCard) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: card.symbol)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(deployAccentColor(card.accent))
+                .frame(width: 36, height: 36)
+                .background(deployAccentColor(card.accent).opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(card.title)
+                    .font(.headline)
+                Text(card.body)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.white)
+                .shadow(color: Color.black.opacity(0.04), radius: 18, x: 0, y: 12)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color(red: 0.9, green: 0.93, blue: 0.97), lineWidth: 1)
+        )
+    }
+
+    private func deployBadge(_ badge: NativeDeployBadge) -> some View {
+        let palette = deployBadgePalette(badge)
+        return Text(palette.label)
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(palette.background, in: Capsule())
+            .foregroundStyle(palette.foreground)
+    }
+
+    private func deployBadgePalette(_ badge: NativeDeployBadge) -> (label: String, background: Color, foreground: Color) {
+        switch badge {
+        case .installed:
+            return ("Installed", Color.green.opacity(0.14), .green)
+        case .current:
+            return ("Current", Color.blue.opacity(0.14), .blue)
+        case .updateAvailable:
+            return ("Update available", Color.orange.opacity(0.18), .orange)
+        case .recommended:
+            return ("Recommended", .green, .white)
+        case .comingSoon:
+            return ("Coming soon", Color.purple.opacity(0.16), .purple)
+        }
+    }
+
+    private func deploySummaryColumns(for width: CGFloat) -> [GridItem] {
+        if width >= 1260 {
+            return Array(repeating: GridItem(.flexible(minimum: 220), spacing: 16), count: 3)
+        }
+        if width >= 860 {
+            return Array(repeating: GridItem(.flexible(minimum: 220), spacing: 16), count: 2)
+        }
+        return [GridItem(.flexible(minimum: 240), spacing: 16)]
+    }
+
+    private func deployAccentColor(_ accent: NativeDeployAccent) -> Color {
+        switch accent {
+        case .blue:
+            return .blue
+        case .green:
+            return .green
+        case .purple:
+            return .purple
+        case .orange:
+            return .orange
+        }
+    }
+
+    private func iconName(for action: NativeDeployActionKind) -> String {
+        switch action {
+        case .install:
+            return "rocket"
+        case .update:
+            return "arrow.clockwise"
+        case .uninstall:
+            return "trash"
+        }
+    }
+
+    private func buttonTitle(for action: NativeDeployActionKind, busy: Bool) -> String {
+        switch action {
+        case .install:
+            return busy ? "Installing…" : "Install"
+        case .update:
+            return busy ? "Updating…" : "Update"
+        case .uninstall:
+            return busy ? "Removing…" : "Uninstall"
+        }
+    }
+
+    private func isActionBusy(_ action: NativeDeployActionKind, targetId: String) -> Bool {
+        switch action {
+        case .install:
+            return installingTargetId == targetId
+        case .update:
+            return updatingTargetId == targetId
+        case .uninstall:
+            return uninstallingTargetId == targetId
+        }
+    }
+
+    private func formattedDeployCheckedAt(_ checkedAt: String) -> String {
+        let parsed = ISO8601DateFormatter().date(from: checkedAt)
+        return parsed?.formatted(date: .abbreviated, time: .shortened) ?? checkedAt
+    }
+
+    private func resetActivityIfIdle() {
+        guard !actionBusy else { return }
+        activityTitle = ""
+        activitySummary = ""
+    }
+}
+
+private struct NativeDeployButtonStyleModifier: ViewModifier {
+    let prominent: Bool
+
+    func body(content: Content) -> some View {
+        if prominent {
+            content.buttonStyle(.borderedProminent)
+        } else {
+            content.buttonStyle(.bordered)
         }
     }
 }
@@ -325,7 +1120,7 @@ struct ConfigurationScreen: View {
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 
@@ -336,7 +1131,7 @@ struct ConfigurationScreen: View {
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 
@@ -347,7 +1142,7 @@ struct ConfigurationScreen: View {
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
@@ -415,7 +1210,7 @@ struct SkillsScreen: View {
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 
@@ -426,7 +1221,7 @@ struct SkillsScreen: View {
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
@@ -483,7 +1278,7 @@ struct MembersScreen: View {
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
@@ -613,13 +1408,14 @@ struct TeamScreen: View {
             appState.applyBanner(response.message)
             await appState.refreshAll()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
 
 struct SettingsScreen: View {
     @Bindable var appState: SlackClawAppState
+    @State private var isRedoingOnboarding = false
 
     var body: some View {
         ScrollView {
@@ -654,6 +1450,18 @@ struct SettingsScreen: View {
                     Button("Open Web Fallback") {
                         appState.openFallbackWeb()
                     }
+                }
+
+                SectionCard(title: "Guided Setup") {
+                    Text("Run the guided setup again without uninstalling SlackClaw.")
+                    Button(isRedoingOnboarding ? "Resetting..." : "Redo onboarding") {
+                        Task {
+                            isRedoingOnboarding = true
+                            defer { isRedoingOnboarding = false }
+                            await appState.redoOnboarding()
+                        }
+                    }
+                    .disabled(isRedoingOnboarding)
                 }
             }
             .padding(24)
@@ -737,7 +1545,7 @@ private struct ModelEntrySheet: View {
             await appState.refreshAll()
             dismiss()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
@@ -797,7 +1605,7 @@ private struct ChannelEntrySheet: View {
             await appState.refreshAll()
             dismiss()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
@@ -846,7 +1654,7 @@ private struct CustomSkillSheet: View {
             await appState.refreshAll()
             dismiss()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
@@ -913,7 +1721,7 @@ private struct MemberSheet: View {
             await appState.refreshAll()
             dismiss()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }
@@ -957,7 +1765,7 @@ private struct TeamSheet: View {
             await appState.refreshAll()
             dismiss()
         } catch {
-            appState.errorMessage = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
         }
     }
 }

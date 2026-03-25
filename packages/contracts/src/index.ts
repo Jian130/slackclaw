@@ -249,8 +249,11 @@ export interface OnboardingEmployeeState {
   name: string;
   jobTitle: string;
   avatarPresetId: string;
+  presetId?: string;
   personalityTraits?: string[];
   skillIds?: string[];
+  knowledgePackIds?: string[];
+  workStyles?: string[];
   memoryEnabled?: boolean;
 }
 
@@ -271,9 +274,57 @@ export interface OnboardingCompletionSummary {
   employee?: OnboardingEmployeeState;
 }
 
+export type OnboardingModelProviderTheme = "minimax" | "qwen" | "chatgpt";
+export type OnboardingChannelTheme = "wechat" | "feishu" | "telegram";
+export type OnboardingChannelSetupKind = "wechat-guided" | "feishu-guided" | "telegram-guided";
+export type OnboardingEmployeePresetTheme = "analyst" | "support" | "operator";
+
+export interface OnboardingModelProviderPresentation {
+  id: string;
+  label: string;
+  description: string;
+  theme: OnboardingModelProviderTheme;
+  platformUrl: string;
+  tutorialVideoUrl?: string;
+  defaultModelKey: string;
+  authMethods: ModelAuthMethod[];
+}
+
+export interface OnboardingChannelPresentation {
+  id: SupportedChannelId;
+  label: string;
+  secondaryLabel?: string;
+  description: string;
+  theme: OnboardingChannelTheme;
+  setupKind: OnboardingChannelSetupKind;
+  platformUrl?: string;
+  docsUrl?: string;
+  tutorialVideoUrl?: string;
+}
+
+export interface OnboardingEmployeePresetPresentation {
+  id: string;
+  label: string;
+  description: string;
+  theme: OnboardingEmployeePresetTheme;
+  starterSkillLabels: string[];
+  toolLabels: string[];
+  skillIds: string[];
+  knowledgePackIds: string[];
+  workStyles: string[];
+  defaultMemoryEnabled?: boolean;
+}
+
+export interface OnboardingUiConfig {
+  modelProviders: OnboardingModelProviderPresentation[];
+  channels: OnboardingChannelPresentation[];
+  employeePresets: OnboardingEmployeePresetPresentation[];
+}
+
 export interface OnboardingStateResponse {
   firstRun: FirstRunState;
   draft: OnboardingDraftState;
+  config: OnboardingUiConfig;
   summary: OnboardingCompletionSummary;
 }
 

@@ -21,12 +21,147 @@ struct SlackClawProtocolTests {
               "disposition": "reused-existing"
             },
             "model": {
-              "providerId": "anthropic",
-              "modelKey": "anthropic/claude-opus-4-6",
-              "methodId": "oauth",
+              "providerId": "openai",
+              "modelKey": "openai/gpt-5.1-codex",
+              "methodId": "openai-codex",
               "entryId": "entry-1"
             },
             "activeModelAuthSessionId": "session-1"
+          },
+          "config": {
+            "modelProviders": [
+              {
+                "id": "minimax",
+                "label": "MiniMax",
+                "description": "MiniMax models for fast onboarding.",
+                "theme": "minimax",
+                "platformUrl": "https://platform.minimaxi.com/login",
+                "tutorialVideoUrl": "https://video.example/minimax",
+                "defaultModelKey": "minimax/MiniMax-M2.5",
+                "authMethods": [
+                  {
+                    "id": "minimax-api-key",
+                    "label": "API Key",
+                    "kind": "api-key",
+                    "description": "Paste a MiniMax API key.",
+                    "interactive": false,
+                    "fields": [
+                      {
+                        "id": "apiKey",
+                        "label": "API Key",
+                        "required": true,
+                        "secret": true,
+                        "placeholder": "Paste your API key here"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "modelstudio",
+                "label": "Qwen (通义千问)",
+                "description": "Qwen models for fast onboarding.",
+                "theme": "qwen",
+                "platformUrl": "https://www.alibabacloud.com/help/en/model-studio/get-api-key",
+                "defaultModelKey": "modelstudio/qwen3.5-plus",
+                "authMethods": [
+                  {
+                    "id": "modelstudio-api-key-cn",
+                    "label": "API Key",
+                    "kind": "api-key",
+                    "description": "Paste a Model Studio API key.",
+                    "interactive": false,
+                    "fields": [
+                      {
+                        "id": "apiKey",
+                        "label": "API Key",
+                        "required": true,
+                        "secret": true,
+                        "placeholder": "Paste your API key here"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "openai",
+                "label": "ChatGPT",
+                "description": "OpenAI ChatGPT models for fast onboarding.",
+                "theme": "chatgpt",
+                "platformUrl": "https://platform.openai.com/api-keys",
+                "defaultModelKey": "openai/gpt-5.1-codex",
+                "authMethods": [
+                  {
+                    "id": "openai-api-key",
+                    "label": "API Key",
+                    "kind": "api-key",
+                    "description": "Paste an OpenAI API key.",
+                    "interactive": false,
+                    "fields": [
+                      {
+                        "id": "apiKey",
+                        "label": "API Key",
+                        "required": true,
+                        "secret": true,
+                        "placeholder": "Paste your API key here"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "openai-codex",
+                    "label": "OAuth",
+                    "kind": "oauth",
+                    "description": "Connect securely with your account.",
+                    "interactive": true,
+                    "fields": []
+                  }
+                ]
+              }
+            ],
+            "channels": [
+              {
+                "id": "wechat",
+                "label": "WeChat Work",
+                "secondaryLabel": "企业微信",
+                "description": "Set up WeChat Work credentials for your digital employees.",
+                "theme": "wechat",
+                "setupKind": "wechat-guided",
+                "docsUrl": "https://work.weixin.qq.com/"
+              },
+              {
+                "id": "feishu",
+                "label": "Feishu",
+                "secondaryLabel": "飞书",
+                "description": "Configure Feishu app credentials for your digital employees.",
+                "theme": "feishu",
+                "setupKind": "feishu-guided",
+                "platformUrl": "https://open.feishu.cn/app",
+                "tutorialVideoUrl": "https://open.feishu.cn/"
+              },
+              {
+                "id": "telegram",
+                "label": "Telegram",
+                "secondaryLabel": "Telegram",
+                "description": "Connect a Telegram bot token for your digital employees.",
+                "theme": "telegram",
+                "setupKind": "telegram-guided",
+                "docsUrl": "https://core.telegram.org/bots/tutorial"
+              }
+            ],
+            "employeePresets": [
+              {
+                "id": "research-analyst",
+                "label": "Research Analyst",
+                "description": "Research quickly, write crisp summaries, and keep answers grounded in the right context.",
+                "theme": "analyst",
+                "starterSkillLabels": ["Research Brief", "Status Writer"],
+                "toolLabels": ["Company handbook", "Delivery playbook"],
+                "skillIds": ["research-brief", "status-writer"],
+                "knowledgePackIds": ["company-handbook", "delivery-playbook"],
+                "workStyles": [],
+                "defaultMemoryEnabled": true
+              }
+            ]
           },
           "summary": {
             "install": {
@@ -34,8 +169,8 @@ struct SlackClawProtocolTests {
               "version": "2026.3.13"
             },
             "model": {
-              "providerId": "anthropic",
-              "modelKey": "anthropic/claude-opus-4-6",
+              "providerId": "openai",
+              "modelKey": "openai/gpt-5.1-codex",
               "entryId": "entry-1"
             }
           }
@@ -45,6 +180,15 @@ struct SlackClawProtocolTests {
         let response = try JSONDecoder.slackClaw.decode(OnboardingStateResponse.self, from: data)
         #expect(response.firstRun.setupCompleted == false)
         #expect(response.draft.currentStep == .channel)
+        #expect(response.config.modelProviders.map(\.id) == ["minimax", "modelstudio", "openai"])
+        #expect(response.config.modelProviders.map(\.label) == ["MiniMax", "Qwen (通义千问)", "ChatGPT"])
+        #expect(response.config.modelProviders[0].platformUrl == "https://platform.minimaxi.com/login")
+        #expect(response.config.modelProviders[0].tutorialVideoUrl == "https://video.example/minimax")
+        #expect(response.config.modelProviders[1].defaultModelKey == "modelstudio/qwen3.5-plus")
+        #expect(response.config.modelProviders[1].authMethods.map(\.id) == ["modelstudio-api-key-cn"])
+        #expect(response.config.modelProviders[2].authMethods.map(\.id) == ["openai-api-key", "openai-codex"])
+        #expect(response.config.channels.map(\.id) == ["wechat", "feishu", "telegram"])
+        #expect(response.config.channels[1].platformUrl == "https://open.feishu.cn/app")
         #expect(response.draft.install?.disposition == "reused-existing")
         #expect(response.draft.activeModelAuthSessionId == "session-1")
         #expect(response.summary.model?.entryId == "entry-1")

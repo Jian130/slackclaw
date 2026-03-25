@@ -19,6 +19,141 @@ struct OnboardingClientTests {
               "draft": {
                 "currentStep": "welcome"
               },
+              "config": {
+                "modelProviders": [
+                  {
+                    "id": "minimax",
+                    "label": "MiniMax",
+                    "description": "MiniMax models for fast onboarding.",
+                    "theme": "minimax",
+                    "platformUrl": "https://platform.minimaxi.com/login",
+                    "tutorialVideoUrl": "https://video.example/minimax",
+                    "defaultModelKey": "minimax/MiniMax-M2.5",
+                    "authMethods": [
+                      {
+                        "id": "minimax-api",
+                        "label": "API Key",
+                        "kind": "api-key",
+                        "description": "Paste a MiniMax API key.",
+                        "interactive": false,
+                        "fields": [
+                          {
+                            "id": "apiKey",
+                            "label": "API Key",
+                            "required": true,
+                            "secret": true,
+                            "placeholder": "Paste your API key here"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "modelstudio",
+                    "label": "Qwen (通义千问)",
+                    "description": "Qwen models for fast onboarding.",
+                    "theme": "qwen",
+                    "platformUrl": "https://www.alibabacloud.com/help/en/model-studio/get-api-key",
+                    "defaultModelKey": "modelstudio/qwen3.5-plus",
+                    "authMethods": [
+                      {
+                        "id": "modelstudio-api-key-cn",
+                        "label": "API Key",
+                        "kind": "api-key",
+                        "description": "Paste a Model Studio API key.",
+                        "interactive": false,
+                        "fields": [
+                          {
+                            "id": "apiKey",
+                            "label": "API Key",
+                            "required": true,
+                            "secret": true,
+                            "placeholder": "Paste your API key here"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "openai",
+                    "label": "ChatGPT",
+                    "description": "OpenAI ChatGPT models for fast onboarding.",
+                    "theme": "chatgpt",
+                    "platformUrl": "https://platform.openai.com/api-keys",
+                    "defaultModelKey": "openai/gpt-5.1-codex",
+                    "authMethods": [
+                      {
+                        "id": "openai-api-key",
+                        "label": "API Key",
+                        "kind": "api-key",
+                        "description": "Paste an OpenAI API key.",
+                        "interactive": false,
+                        "fields": [
+                          {
+                            "id": "apiKey",
+                            "label": "API Key",
+                            "required": true,
+                            "secret": true,
+                            "placeholder": "Paste your API key here"
+                          }
+                        ]
+                      },
+                      {
+                        "id": "openai-codex",
+                        "label": "OAuth",
+                        "kind": "oauth",
+                        "description": "Connect securely with your account.",
+                        "interactive": true,
+                        "fields": []
+                      }
+                    ]
+                  }
+                ],
+                "channels": [
+                  {
+                    "id": "wechat",
+                    "label": "WeChat Work",
+                    "secondaryLabel": "企业微信",
+                    "description": "Set up WeChat Work credentials for your digital employees.",
+                    "theme": "wechat",
+                    "setupKind": "wechat-guided",
+                    "docsUrl": "https://work.weixin.qq.com/"
+                  },
+                  {
+                    "id": "feishu",
+                    "label": "Feishu",
+                    "secondaryLabel": "飞书",
+                    "description": "Configure Feishu app credentials for your digital employees.",
+                    "theme": "feishu",
+                    "setupKind": "feishu-guided",
+                    "platformUrl": "https://open.feishu.cn/app",
+                    "tutorialVideoUrl": "https://open.feishu.cn/"
+                  },
+                  {
+                    "id": "telegram",
+                    "label": "Telegram",
+                    "secondaryLabel": "Telegram",
+                    "description": "Connect a Telegram bot token for your digital employees.",
+                    "theme": "telegram",
+                    "setupKind": "telegram-guided",
+                    "docsUrl": "https://core.telegram.org/bots/tutorial"
+                  }
+                ],
+                "employeePresets": [
+                  {
+                    "id": "research-analyst",
+                    "label": "Research Analyst",
+                    "description": "Research quickly, write crisp summaries, and keep answers grounded in the right context.",
+                    "theme": "analyst",
+                    "starterSkillLabels": ["Research Brief", "Status Writer"],
+                    "toolLabels": ["Company handbook", "Delivery playbook"],
+                    "skillIds": ["research-brief", "status-writer"],
+                    "knowledgePackIds": ["company-handbook", "delivery-playbook"],
+                    "workStyles": [],
+                    "defaultMemoryEnabled": true
+                  }
+                ]
+              },
               "summary": {}
             }
             """
@@ -36,6 +171,8 @@ struct OnboardingClientTests {
         let response = try await client.fetchOnboardingState()
 
         #expect(response.draft.currentStep == .welcome)
+        #expect(response.config.modelProviders.map(\.id) == ["minimax", "modelstudio", "openai"])
+        #expect(response.config.channels.map(\.id) == ["wechat", "feishu", "telegram"])
         let request = try #require(await recorder.lastRequest())
         #expect(request.httpMethod == "GET")
         #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/onboarding/state?fresh=1")
@@ -58,6 +195,141 @@ struct OnboardingClientTests {
                   "providerId": "anthropic",
                   "modelKey": "anthropic/claude-opus-4-6"
                 }
+              },
+              "config": {
+                "modelProviders": [
+                  {
+                    "id": "minimax",
+                    "label": "MiniMax",
+                    "description": "MiniMax models for fast onboarding.",
+                    "theme": "minimax",
+                    "platformUrl": "https://platform.minimaxi.com/login",
+                    "tutorialVideoUrl": "https://video.example/minimax",
+                    "defaultModelKey": "minimax/MiniMax-M2.5",
+                    "authMethods": [
+                      {
+                        "id": "minimax-api",
+                        "label": "API Key",
+                        "kind": "api-key",
+                        "description": "Paste a MiniMax API key.",
+                        "interactive": false,
+                        "fields": [
+                          {
+                            "id": "apiKey",
+                            "label": "API Key",
+                            "required": true,
+                            "secret": true,
+                            "placeholder": "Paste your API key here"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "modelstudio",
+                    "label": "Qwen (通义千问)",
+                    "description": "Qwen models for fast onboarding.",
+                    "theme": "qwen",
+                    "platformUrl": "https://www.alibabacloud.com/help/en/model-studio/get-api-key",
+                    "defaultModelKey": "modelstudio/qwen3.5-plus",
+                    "authMethods": [
+                      {
+                        "id": "modelstudio-api-key-cn",
+                        "label": "API Key",
+                        "kind": "api-key",
+                        "description": "Paste a Model Studio API key.",
+                        "interactive": false,
+                        "fields": [
+                          {
+                            "id": "apiKey",
+                            "label": "API Key",
+                            "required": true,
+                            "secret": true,
+                            "placeholder": "Paste your API key here"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "openai",
+                    "label": "ChatGPT",
+                    "description": "OpenAI ChatGPT models for fast onboarding.",
+                    "theme": "chatgpt",
+                    "platformUrl": "https://platform.openai.com/api-keys",
+                    "defaultModelKey": "openai/gpt-5.1-codex",
+                    "authMethods": [
+                      {
+                        "id": "openai-api-key",
+                        "label": "API Key",
+                        "kind": "api-key",
+                        "description": "Paste an OpenAI API key.",
+                        "interactive": false,
+                        "fields": [
+                          {
+                            "id": "apiKey",
+                            "label": "API Key",
+                            "required": true,
+                            "secret": true,
+                            "placeholder": "Paste your API key here"
+                          }
+                        ]
+                      },
+                      {
+                        "id": "openai-codex",
+                        "label": "OAuth",
+                        "kind": "oauth",
+                        "description": "Connect securely with your account.",
+                        "interactive": true,
+                        "fields": []
+                      }
+                    ]
+                  }
+                ],
+                "channels": [
+                  {
+                    "id": "wechat",
+                    "label": "WeChat Work",
+                    "secondaryLabel": "企业微信",
+                    "description": "Set up WeChat Work credentials for your digital employees.",
+                    "theme": "wechat",
+                    "setupKind": "wechat-guided",
+                    "docsUrl": "https://work.weixin.qq.com/"
+                  },
+                  {
+                    "id": "feishu",
+                    "label": "Feishu",
+                    "secondaryLabel": "飞书",
+                    "description": "Configure Feishu app credentials for your digital employees.",
+                    "theme": "feishu",
+                    "setupKind": "feishu-guided",
+                    "platformUrl": "https://open.feishu.cn/app",
+                    "tutorialVideoUrl": "https://open.feishu.cn/"
+                  },
+                  {
+                    "id": "telegram",
+                    "label": "Telegram",
+                    "secondaryLabel": "Telegram",
+                    "description": "Connect a Telegram bot token for your digital employees.",
+                    "theme": "telegram",
+                    "setupKind": "telegram-guided",
+                    "docsUrl": "https://core.telegram.org/bots/tutorial"
+                  }
+                ],
+                "employeePresets": [
+                  {
+                    "id": "research-analyst",
+                    "label": "Research Analyst",
+                    "description": "Research quickly, write crisp summaries, and keep answers grounded in the right context.",
+                    "theme": "analyst",
+                    "starterSkillLabels": ["Research Brief", "Status Writer"],
+                    "toolLabels": ["Company handbook", "Delivery playbook"],
+                    "skillIds": ["research-brief", "status-writer"],
+                    "knowledgePackIds": ["company-handbook", "delivery-playbook"],
+                    "workStyles": [],
+                    "defaultMemoryEnabled": true
+                  }
+                ]
               },
               "summary": {}
             }
@@ -85,6 +357,47 @@ struct OnboardingClientTests {
         let payload = try JSONDecoder.slackClaw.decode(UpdateOnboardingStateRequest.self, from: body)
         #expect(payload.currentStep == .model)
         #expect(payload.model?.providerId == "anthropic")
+    }
+
+    @Test
+    func resetOnboardingUsesPostEndpoint() async throws {
+        let recorder = RequestRecorder()
+        let session = await recorder.session(
+            statusCode: 200,
+            body: """
+            {
+              "firstRun": {
+                "introCompleted": true,
+                "setupCompleted": false
+              },
+              "draft": {
+                "currentStep": "welcome"
+              },
+              "config": {
+                "modelProviders": [],
+                "channels": [],
+                "employeePresets": []
+              },
+              "summary": {}
+            }
+            """
+        )
+        let client = SlackClawAPIClient(
+            session: session,
+            configurationProvider: {
+                .init(
+                    daemonURL: URL(string: "http://127.0.0.1:4545")!,
+                    fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+                )
+            }
+        )
+
+        let response = try await client.resetOnboarding()
+
+        #expect(response.draft.currentStep == .welcome)
+        let request = try #require(await recorder.lastRequest())
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/onboarding/reset")
     }
 
     @Test

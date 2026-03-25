@@ -22,12 +22,26 @@ final class NativeOnboardingViewModel {
     private var daemonEventTask: Task<Void, Never>?
     private var isApplyingDraft = false
 
-    let copy = nativeOnboardingCopy()
+    var selectedLocaleIdentifier = resolveNativeOnboardingLocaleIdentifier()
 
-    var onboardingState: OnboardingStateResponse?
+    var onboardingState: OnboardingStateResponse? {
+        didSet {
+            let providers = resolveOnboardingModelPickerProviders(onboardingState: onboardingState)
+            if !providers.isEmpty {
+                lastKnownModelPickerProviders = providers
+            }
+            let channels = resolveOnboardingChannelPresentations(onboardingState: onboardingState)
+            if !channels.isEmpty {
+                lastKnownChannels = channels
+            }
+        }
+    }
+    private var lastKnownModelPickerProviders: [OnboardingModelProviderPresentation] = []
+    private var lastKnownChannels: [OnboardingChannelPresentation] = []
     var pageLoading = true
     var pageError: String?
     var installBusy = false
+    var installProgress = NativeOnboardingInstallProgressSnapshot()
     var modelBusy = ""
     var channelBusy = false
     var employeeBusy = false
@@ -42,6 +56,10 @@ final class NativeOnboardingViewModel {
     var modelValues: [String: String] = [:]
     var modelSession: ModelAuthSession?
     var modelSessionInput = ""
+    var isModelTutorialPresented = false
+    var modelTutorialURLString: String?
+    var isChannelTutorialPresented = false
+    var channelTutorialURLString: String?
 
     var selectedChannelId = ""
     var channelValues: [String: String] = [
@@ -53,13 +71,20 @@ final class NativeOnboardingViewModel {
     var employeeName = ""
     var employeeJobTitle = ""
     var employeeAvatarPresetId = nativeOnboardingAvatarPresets[0].id
-    var selectedTraits: [String] = ["Analytical", "Detail-Oriented"]
-    var selectedSkillIds: [String] = []
+    var selectedEmployeePresetId = ""
     var memoryEnabled = true
 
     init(appState: SlackClawAppState, daemonEventStreamFactory: DaemonEventStreamFactory? = nil) {
         self.appState = appState
         self.daemonEventStreamFactory = daemonEventStreamFactory ?? { appState.client.daemonEvents() }
+    }
+
+    var copy: NativeOnboardingCopy {
+        nativeOnboardingCopy(localeIdentifier: selectedLocaleIdentifier)
+    }
+
+    var localeOptions: [NativeOnboardingLocaleOption] {
+        nativeOnboardingLocaleOptions
     }
 
     var currentDraft: OnboardingDraftState {
@@ -74,35 +99,47 @@ final class NativeOnboardingViewModel {
         onboardingStepIndex(currentStep)
     }
 
-    var selectedProvider: ModelProviderConfig? {
-        appState.modelConfig?.providers.first(where: { $0.id == providerId })
+    var modelPickerProviders: [OnboardingModelProviderPresentation] {
+        let providers = resolveOnboardingModelPickerProviders(onboardingState: onboardingState)
+        return providers.isEmpty ? lastKnownModelPickerProviders : providers
+    }
+
+    var curatedModelProviders: [NativeResolvedOnboardingModelProvider] {
+        resolveOnboardingModelProviders(onboardingState: onboardingState, modelConfig: appState.modelConfig)
+    }
+
+    var selectedProviderOption: NativeResolvedOnboardingModelProvider? {
+        curatedModelProviders.first(where: { $0.id == providerId })
+    }
+
+    var modelViewState: NativeOnboardingModelViewState {
+        resolveNativeOnboardingModelViewState(
+            providerId: providerId,
+            methodId: methodId,
+            modelKey: modelKey,
+            providers: curatedModelProviders,
+            selectedEntry: selectedModelEntry,
+            draftEntryID: currentDraft.model?.entryId,
+            summaryEntryID: onboardingState?.summary.model?.entryId,
+            activeModelAuthSessionId: currentDraft.activeModelAuthSessionId
+        )
+    }
+
+    var selectedCuratedProvider: OnboardingModelProviderPresentation? {
+        selectedProviderOption?.curated ?? modelPickerProviders.first(where: { $0.id == providerId })
     }
 
     var selectedMethod: ModelAuthMethod? {
-        selectedProvider?.authMethods.first(where: { $0.id == methodId })
+        selectedCuratedProvider?.authMethods.first(where: { $0.id == methodId })
     }
 
-    var availableModels: [ModelCatalogEntry] {
-        guard let selectedProvider, let modelConfig = appState.modelConfig else { return [] }
-        let providerRefs = Set(selectedProvider.providerRefs)
-        return modelConfig.models.filter { model in
-            providerRefs.contains(model.key.components(separatedBy: "/").first ?? "")
-                || providerRefs.contains(model.key.split(separator: "/").first.map(String.init) ?? "")
-                || selectedProvider.sampleModels.contains(model.key)
-        }
+    var curatedChannels: [OnboardingChannelPresentation] {
+        let channels = resolveOnboardingChannelPresentations(onboardingState: onboardingState)
+        return channels.isEmpty ? lastKnownChannels : channels
     }
 
-    var availableModelKeys: [String] {
-        let keys = availableModels.map(\.key)
-        return keys.isEmpty ? (selectedProvider?.sampleModels ?? []) : keys
-    }
-
-    var visibleChannelCapabilities: [ChannelCapability] {
-        appState.channelConfig?.capabilities.filter { nativeOnboardingChannelIDs.contains($0.id) } ?? []
-    }
-
-    var selectedChannelCapability: ChannelCapability? {
-        visibleChannelCapabilities.first(where: { $0.id == selectedChannelId })
+    var selectedChannelPresentation: OnboardingChannelPresentation? {
+        curatedChannels.first(where: { $0.id == selectedChannelId })
     }
 
     var selectedChannelEntry: ConfiguredChannelEntry? {
@@ -110,6 +147,10 @@ final class NativeOnboardingViewModel {
             return appState.channelConfig?.entries.first(where: { $0.id == entryId })
         }
         return appState.channelConfig?.entries.first(where: { $0.channelId == selectedChannelId })
+    }
+
+    var selectedChannelSetupVariant: NativeOnboardingChannelSetupVariant? {
+        resolveOnboardingChannelSetupVariant(selectedChannelPresentation?.setupKind)
     }
 
     var selectedModelEntry: SavedModelEntry? {
@@ -131,6 +172,43 @@ final class NativeOnboardingViewModel {
         resolveOnboardingAvatarPreset(employeeAvatarPresetId)
     }
 
+    var employeePresets: [OnboardingEmployeePresetPresentation] {
+        resolveOnboardingEmployeePresets(onboardingState: onboardingState)
+    }
+
+    var selectedEmployeePreset: OnboardingEmployeePresetPresentation? {
+        if employeePresets.isEmpty {
+            return nil
+        }
+
+        return employeePresets.first(where: { $0.id == selectedEmployeePresetId }) ?? employeePresets.first
+    }
+
+    func selectProvider(_ provider: OnboardingModelProviderPresentation) {
+        providerId = provider.id
+        methodId = provider.authMethods.first?.id ?? ""
+        modelKey = provider.defaultModelKey
+        modelLabel = provider.label
+        modelValues = [:]
+        modelSession = nil
+        modelSessionInput = ""
+    }
+
+    func clearProviderSelection() {
+        providerId = ""
+        methodId = ""
+        modelKey = ""
+        modelLabel = ""
+        modelValues = [:]
+        modelSession = nil
+        modelSessionInput = ""
+    }
+
+    func updateLocale(_ localeIdentifier: String) {
+        selectedLocaleIdentifier = resolveNativeOnboardingLocaleIdentifier(localeIdentifier)
+        persistNativeOnboardingLocaleIdentifier(selectedLocaleIdentifier)
+    }
+
     func bootstrap() async {
         pageLoading = true
         pageError = nil
@@ -144,7 +222,7 @@ final class NativeOnboardingViewModel {
             onboardingState = state
             applyDraft(state.draft)
 
-            if onboardingIsCurrentOrLater(state.draft.currentStep, target: .model) || !(state.draft.activeModelAuthSessionId ?? "").isEmpty || state.draft.model != nil {
+            if !(state.draft.activeModelAuthSessionId ?? "").isEmpty || state.draft.model?.entryId != nil {
                 _ = try await readFreshModelConfig()
             }
 
@@ -162,8 +240,22 @@ final class NativeOnboardingViewModel {
                 modelSession = next.session
                 startModelSessionPolling(sessionId: sessionId)
             }
+
+            if currentStep == .model && modelPickerProviders.isEmpty {
+                onboardingState = try await appState.client.fetchOnboardingState(fresh: true)
+                if let onboardingState {
+                    applyDraft(onboardingState.draft)
+                }
+            }
+
+            if currentStep == .channel && curatedChannels.isEmpty {
+                onboardingState = try await appState.client.fetchOnboardingState(fresh: true)
+                if let onboardingState {
+                    applyDraft(onboardingState.draft)
+                }
+            }
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
 
         pageLoading = false
@@ -178,33 +270,50 @@ final class NativeOnboardingViewModel {
         await persistDraftSafely(.init(currentStep: step))
     }
 
-    func persistModelSelection() {
-        guard currentStep == .model, !providerId.isEmpty, !modelKey.isEmpty else { return }
-        scheduleDraftPersistence { [providerId, modelKey, methodId] in
-            .init(
-                model: .init(providerId: providerId, modelKey: modelKey, methodId: methodId.isEmpty ? nil : methodId, entryId: self.currentDraft.model?.entryId)
-            )
+    func useExistingInstall() async {
+        pageError = nil
+
+        do {
+            onboardingState = try await persistDraft(buildExistingInstallAdvanceRequest(overview: appState.overview))
+        } catch {
+            presentErrorUnlessCancelled(error)
         }
     }
 
-    func persistChannelSelection() {
-        guard currentStep == .channel, !selectedChannelId.isEmpty else { return }
-        scheduleDraftPersistence { [selectedChannelId] in
-            .init(channel: .init(channelId: selectedChannelId, entryId: self.currentDraft.channel?.entryId))
-        }
+    func advancePastInstall() async {
+        await persistDraftSafely(.init(currentStep: .model))
+    }
+
+    func advancePastModel() async {
+        await persistDraftSafely(.init(currentStep: .channel))
+    }
+
+    func returnToModelPicker() async {
+        pageError = nil
+        clearProviderSelection()
+        await persistDraftSafely(
+            .init(
+                currentStep: .model,
+                model: .init(providerId: "", modelKey: "", methodId: ""),
+                activeModelAuthSessionId: ""
+            )
+        )
     }
 
     func persistEmployeeDraft() {
         guard currentStep == .employee else { return }
-        scheduleDraftPersistence { [employeeName, employeeJobTitle, employeeAvatarPresetId, selectedTraits, selectedSkillIds, memoryEnabled] in
+        scheduleDraftPersistence { [employeeName, employeeJobTitle, employeeAvatarPresetId, selectedEmployeePreset, memoryEnabled] in
             .init(
                 employee: .init(
                     memberId: self.currentDraft.employee?.memberId,
                     name: employeeName,
                     jobTitle: employeeJobTitle,
                     avatarPresetId: employeeAvatarPresetId,
-                    personalityTraits: selectedTraits,
-                    skillIds: selectedSkillIds,
+                    presetId: selectedEmployeePreset?.id,
+                    personalityTraits: [],
+                    skillIds: selectedEmployeePreset?.skillIds ?? [],
+                    knowledgePackIds: selectedEmployeePreset?.knowledgePackIds ?? [],
+                    workStyles: selectedEmployeePreset?.workStyles ?? [],
                     memoryEnabled: memoryEnabled
                 )
             )
@@ -214,6 +323,7 @@ final class NativeOnboardingViewModel {
     func runInstall() async {
         pageError = nil
         installBusy = true
+        installProgress = .init(phase: .detecting, percent: 16, message: copy.installStageDetecting)
         defer { installBusy = false }
 
         do {
@@ -231,14 +341,14 @@ final class NativeOnboardingViewModel {
                 disposition: installDisposition(overview: result.state, setup: result.mutation)
             )
 
-            onboardingState = try await persistDraft(.init(currentStep: .model, install: installState))
+            onboardingState = try await persistDraft(.init(currentStep: .install, install: installState))
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
     func saveModel() async {
-        guard let selectedProvider, selectedMethod != nil, !modelKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard selectedCuratedProvider != nil, selectedMethod != nil, !modelKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             pageError = copy.chooseProvider
             return
         }
@@ -247,12 +357,12 @@ final class NativeOnboardingViewModel {
         modelBusy = "save"
         defer { if modelBusy == "save" { modelBusy = "" } }
 
-        let request = SaveModelEntryRequest(
-            label: modelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "\(selectedProvider.label) \(modelKey.split(separator: "/").last.map(String.init) ?? modelKey)"
+            let request = SaveModelEntryRequest(
+                label: modelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "\((selectedCuratedProvider?.label ?? providerId)) \(modelKey.split(separator: "/").last.map(String.init) ?? modelKey)"
                 : modelLabel.trimmingCharacters(in: .whitespacesAndNewlines),
-            providerId: providerId,
-            methodId: methodId,
+                providerId: providerId,
+                methodId: methodId,
             modelKey: modelKey.trimmingCharacters(in: .whitespacesAndNewlines),
             values: modelValues,
             makeDefault: true,
@@ -299,7 +409,7 @@ final class NativeOnboardingViewModel {
 
             onboardingState = try await persistDraft(
                 .init(
-                    currentStep: .channel,
+                    currentStep: .model,
                     model: .init(
                         providerId: providerId,
                         modelKey: modelKey.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -310,7 +420,7 @@ final class NativeOnboardingViewModel {
                 )
             )
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
@@ -329,12 +439,12 @@ final class NativeOnboardingViewModel {
             modelSessionInput = ""
             onboardingState = try await appState.client.fetchOnboardingState()
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
     func saveChannel() async {
-        guard let selectedChannelCapability else {
+        guard let selectedChannelPresentation else {
             pageError = copy.chooseChannel
             return
         }
@@ -343,7 +453,12 @@ final class NativeOnboardingViewModel {
         channelBusy = true
         defer { channelBusy = false }
 
-        let request = SaveChannelEntryRequest(channelId: selectedChannelCapability.id, entryId: selectedChannelEntry?.id, values: channelValues, action: "save")
+        let request = SaveChannelEntryRequest(
+            channelId: selectedChannelPresentation.id,
+            entryId: selectedChannelEntry?.id,
+            values: buildOnboardingChannelSaveValues(channelID: selectedChannelPresentation.id, values: channelValues),
+            action: "save"
+        )
 
         do {
             let previousEntries = appState.channelConfig?.entries ?? []
@@ -381,34 +496,29 @@ final class NativeOnboardingViewModel {
             let savedEntry =
                 (selectedChannelEntry.flatMap { selected in result.state.entries.first(where: { $0.id == selected.id }) }) ??
                 findCreatedChannelEntry(previousEntries: previousEntries, nextEntries: result.state.entries) ??
-                result.state.entries.first(where: { $0.channelId == selectedChannelCapability.id })
+                result.state.entries.first(where: { $0.channelId == selectedChannelPresentation.id })
 
-            onboardingState = try await persistDraft(.init(currentStep: .employee, channel: .init(channelId: selectedChannelCapability.id, entryId: savedEntry?.id)))
+            onboardingState = try await persistDraft(.init(currentStep: .employee, channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id)))
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
-    func toggleTrait(_ trait: String) {
-        if selectedTraits.contains(trait) {
-            selectedTraits.removeAll(where: { $0 == trait })
-        } else {
-            selectedTraits.append(trait)
-        }
-        persistEmployeeDraft()
-    }
-
-    func toggleSkill(_ skillId: String) {
-        if selectedSkillIds.contains(skillId) {
-            selectedSkillIds.removeAll(where: { $0 == skillId })
-        } else {
-            selectedSkillIds.append(skillId)
+    func selectEmployeePreset(_ presetID: String) {
+        selectedEmployeePresetId = presetID
+        if let preset = employeePresets.first(where: { $0.id == presetID }), let defaultMemoryEnabled = preset.defaultMemoryEnabled {
+            memoryEnabled = defaultMemoryEnabled
         }
         persistEmployeeDraft()
     }
 
     func createEmployee() async {
-        guard let selectedBrainEntryId, !employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard
+            let selectedBrainEntryId,
+            let selectedEmployeePreset,
+            !employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
             pageError = "SlackClaw needs a saved model, employee name, and job title before it can create the AI employee."
             return
         }
@@ -421,8 +531,11 @@ final class NativeOnboardingViewModel {
             name: employeeName,
             jobTitle: employeeJobTitle,
             avatarPresetId: employeeAvatarPresetId,
-            personalityTraits: selectedTraits,
-            skillIds: selectedSkillIds,
+            presetId: selectedEmployeePreset.id,
+            personalityTraits: [],
+            skillIds: selectedEmployeePreset.skillIds,
+            knowledgePackIds: selectedEmployeePreset.knowledgePackIds,
+            workStyles: selectedEmployeePreset.workStyles,
             memoryEnabled: memoryEnabled,
             brainEntryId: selectedBrainEntryId
         )
@@ -442,9 +555,8 @@ final class NativeOnboardingViewModel {
                 }
             )
 
-            let createdMember =
-                findCreatedMember(previousMembers: previousMembers, nextMembers: result.state.members)
-                ?? result.state.members.first(where: { $0.name == draft.name && $0.jobTitle == draft.jobTitle })
+            let createdMemberFromMutation = findCreatedMember(previousMembers: previousMembers, nextMembers: result.state.members)
+            let createdMember = createdMemberFromMutation ?? result.state.members.first(where: { $0.name == draft.name && $0.jobTitle == draft.jobTitle })
 
             onboardingState = try await persistDraft(
                 .init(
@@ -454,14 +566,17 @@ final class NativeOnboardingViewModel {
                         name: createdMember?.name ?? draft.name,
                         jobTitle: createdMember?.jobTitle ?? draft.jobTitle,
                         avatarPresetId: createdMember?.avatar.presetId ?? draft.avatarPresetId,
-                        personalityTraits: selectedTraits,
-                        skillIds: selectedSkillIds,
+                        presetId: draft.presetId,
+                        personalityTraits: [],
+                        skillIds: draft.skillIds,
+                        knowledgePackIds: draft.knowledgePackIds,
+                        workStyles: draft.workStyles,
                         memoryEnabled: memoryEnabled
                     )
                 )
             )
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
@@ -477,7 +592,7 @@ final class NativeOnboardingViewModel {
             await appState.refreshAll()
             await appState.chatViewModel.start()
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
@@ -486,9 +601,147 @@ final class NativeOnboardingViewModel {
         NSWorkspace.shared.open(url)
     }
 
-    func openChannelDocs() {
-        guard let docsUrl = selectedChannelCapability?.docsUrl, let url = URL(string: docsUrl) else { return }
+    func openModelTutorial() {
+        modelTutorialURLString = selectedCuratedProvider?.tutorialVideoUrl
+        isModelTutorialPresented = true
+    }
+
+    func dismissModelTutorial() {
+        isModelTutorialPresented = false
+    }
+
+    func openModelDocs() {
+        guard let platformUrl = selectedCuratedProvider?.platformUrl, let url = URL(string: platformUrl) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    func openChannelDocs() {
+        guard let docsUrl = selectedChannelPresentation?.docsUrl, let url = URL(string: docsUrl) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func openChannelPlatform() {
+        guard let platformUrl = selectedChannelPresentation?.platformUrl, let url = URL(string: platformUrl) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func openChannelTutorial() {
+        channelTutorialURLString = selectedChannelPresentation?.tutorialVideoUrl
+        isChannelTutorialPresented = true
+    }
+
+    func dismissChannelTutorial() {
+        isChannelTutorialPresented = false
+    }
+
+    func returnToChannelPicker() async {
+        selectedChannelId = ""
+        channelValues = [
+            "domain": "feishu",
+            "botName": "SlackClaw Assistant",
+            "pluginSpec": "@openclaw-china/wecom-app",
+        ]
+        channelMessage = nil
+        channelRequiresApply = false
+        await persistDraftSafely(.init(currentStep: .channel))
+    }
+
+    func goBackFromChannelPicker() async {
+        await persistDraftSafely(.init(currentStep: .model))
+    }
+
+    func saveAndContinueChannel() async {
+        await saveChannel()
+    }
+
+    func updateSelectedChannel(_ channelID: String) {
+        selectedChannelId = channelID
+        channelMessage = nil
+        channelRequiresApply = false
+        if channelID == "feishu" {
+            channelValues["domain"] = channelValues["domain"] ?? "feishu"
+            channelValues["botName"] = channelValues["botName"] ?? "SlackClaw Assistant"
+        }
+    }
+
+    func isSelectedChannelMissingRequiredValues() -> Bool {
+        switch selectedChannelSetupVariant {
+        case .wechatGuided?:
+            return (channelValues["corpId"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || (channelValues["agentId"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || (channelValues["secret"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .feishuGuided?:
+            return (channelValues["appId"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || (channelValues["appSecret"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .telegramGuided?:
+            return (channelValues["token"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case nil:
+            return true
+        }
+    }
+
+    func channelSymbol(for channelID: String) -> String {
+        switch channelID {
+        case "telegram":
+            return "paperplane"
+        case "feishu", "wechat":
+            return "message"
+        default:
+            return "message"
+        }
+    }
+
+    func channelFieldValue(_ id: String, fallback: String = "") -> String {
+        let value = channelValues[id] ?? fallback
+        return value
+    }
+
+    func channelPlaceholder(for fieldID: String) -> String {
+        switch fieldID {
+        case "corpId":
+            return "ww..."
+        case "agentId":
+            return "1000002"
+        case "secret":
+            return "••••••••••••"
+        case "token":
+            return "123456:ABC-DEF..."
+        case "appId":
+            return "cli_..."
+        case "appSecret":
+            return "••••••••••••"
+        default:
+            return ""
+        }
+    }
+
+    func channelFieldIsSecret(_ fieldID: String) -> Bool {
+        fieldID == "secret" || fieldID == "appSecret" || fieldID == "token"
+    }
+
+    func channelSelectedSecondaryLabel() -> String? {
+        selectedChannelPresentation?.secondaryLabel
+    }
+
+    private func defaultChannelValues(for channelID: String) -> [String: String] {
+        switch channelID {
+        case "wechat":
+            return ["pluginSpec": "@openclaw-china/wecom-app"]
+        case "feishu":
+            return ["domain": "feishu", "botName": "SlackClaw Assistant"]
+        default:
+            return [:]
+        }
+    }
+
+    private func channelValuesFromEntry(_ channelID: String) -> [String: String] {
+        var values = defaultChannelValues(for: channelID)
+        if let editableValues = selectedChannelEntry?.editableValues {
+            for (key, value) in editableValues {
+                values[key] = value
+            }
+        }
+        return values
     }
 
     func updateModelValue(fieldId: String, value: String) {
@@ -513,7 +766,7 @@ final class NativeOnboardingViewModel {
         do {
             onboardingState = try await persistDraft(patch)
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
@@ -538,35 +791,52 @@ final class NativeOnboardingViewModel {
         isApplyingDraft = true
         defer { isApplyingDraft = false }
 
-        if let model = draft.model {
-            providerId = model.providerId
+        let resolvedProviderID = resolveOnboardingProviderID(
+            currentProviderId: providerId,
+            draftProviderId: draft.model?.providerId,
+            providers: modelPickerProviders
+        )
+        providerId = resolvedProviderID
+
+        if let model = draft.model, model.providerId == resolvedProviderID, !resolvedProviderID.isEmpty {
             modelKey = model.modelKey
             methodId = model.methodId ?? methodId
-        } else if providerId.isEmpty, let provider = appState.modelConfig?.providers.first {
-            providerId = provider.id
+        } else if providerId.isEmpty {
+            modelKey = ""
+            methodId = ""
+            if draft.model == nil {
+                modelLabel = ""
+            }
         }
 
-        if let selectedProvider {
-            if methodId.isEmpty || !selectedProvider.authMethods.contains(where: { $0.id == methodId }) {
-                methodId = draft.model?.methodId ?? selectedProvider.authMethods.first?.id ?? ""
+        if let selectedCuratedProvider {
+            if methodId.isEmpty || !selectedCuratedProvider.authMethods.contains(where: { $0.id == methodId }) {
+                methodId = draft.model?.methodId ?? selectedCuratedProvider.authMethods.first?.id ?? ""
             }
             if modelKey.isEmpty {
-                modelKey = draft.model?.modelKey ?? selectedProvider.sampleModels.first ?? availableModels.first?.key ?? ""
+                modelKey = draft.model?.modelKey ?? selectedCuratedProvider.defaultModelKey
             }
             if modelLabel.isEmpty, !modelKey.isEmpty {
-                modelLabel = "\(selectedProvider.label) \(modelKey.split(separator: "/").last.map(String.init) ?? "model")"
+                modelLabel = selectedCuratedProvider.label
             }
         }
 
         selectedChannelId = draft.channel?.channelId ?? selectedChannelId
+        if let channelId = draft.channel?.channelId, !channelId.isEmpty {
+            channelValues = channelValuesFromEntry(channelId)
+        }
 
         if let employee = draft.employee {
             employeeName = employee.name
             employeeJobTitle = employee.jobTitle
             employeeAvatarPresetId = employee.avatarPresetId
-            selectedTraits = employee.personalityTraits ?? selectedTraits
-            selectedSkillIds = employee.skillIds ?? selectedSkillIds
+            selectedEmployeePresetId = employee.presetId ?? selectedEmployeePresetId
             memoryEnabled = employee.memoryEnabled ?? memoryEnabled
+        } else if selectedEmployeePresetId.isEmpty, let firstPreset = employeePresets.first {
+            selectedEmployeePresetId = firstPreset.id
+            if let defaultMemoryEnabled = firstPreset.defaultMemoryEnabled {
+                memoryEnabled = defaultMemoryEnabled
+            }
         }
     }
 
@@ -601,7 +871,7 @@ final class NativeOnboardingViewModel {
 
                         self.onboardingState = try await self.persistDraft(
                             .init(
-                                currentStep: .channel,
+                                currentStep: .model,
                                 model: .init(
                                     providerId: nextEntry?.providerId ?? self.providerId,
                                     modelKey: nextEntry?.modelKey ?? self.modelKey,
@@ -621,7 +891,7 @@ final class NativeOnboardingViewModel {
                         return
                     }
                 } catch {
-                    self.pageError = error.localizedDescription
+                    self.presentErrorUnlessCancelled(error)
                     return
                 }
 
@@ -672,6 +942,10 @@ final class NativeOnboardingViewModel {
     }
 
     private func applyDaemonEvent(_ event: SlackClawEvent) async {
+        if onboardingState?.draft.currentStep == .install, case let .deployProgress(_, _, phase, percent, message) = event {
+            installProgress = .init(phase: phase, percent: percent.map(Double.init), message: message)
+        }
+
         guard let currentStep = onboardingState?.draft.currentStep else { return }
         guard let resource = onboardingRefreshResourceForEvent(currentStep, event) else { return }
 
@@ -688,8 +962,35 @@ final class NativeOnboardingViewModel {
             }
             pageError = nil
         } catch {
-            pageError = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
+    }
+
+    private func presentErrorUnlessCancelled(_ error: Error) {
+        guard !isCancellation(error) else { return }
+        pageError = error.localizedDescription
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        let nsError = error as NSError
+        if (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
+            || nsError.domain == "Swift.CancellationError"
+        {
+            return true
+        }
+
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSURLErrorDomain,
+           underlying.code == NSURLErrorCancelled
+        {
+            return true
+        }
+
+        return false
     }
 
     private func settleAfterMutation<Mutation, State>(

@@ -74,8 +74,11 @@ public struct OnboardingEmployeeState: Codable, Sendable {
     public var name: String
     public var jobTitle: String
     public var avatarPresetId: String
+    public var presetId: String?
     public var personalityTraits: [String]?
     public var skillIds: [String]?
+    public var knowledgePackIds: [String]?
+    public var workStyles: [String]?
     public var memoryEnabled: Bool?
 
     public init(
@@ -83,16 +86,22 @@ public struct OnboardingEmployeeState: Codable, Sendable {
         name: String,
         jobTitle: String,
         avatarPresetId: String,
+        presetId: String? = nil,
         personalityTraits: [String]? = nil,
         skillIds: [String]? = nil,
+        knowledgePackIds: [String]? = nil,
+        workStyles: [String]? = nil,
         memoryEnabled: Bool? = nil
     ) {
         self.memberId = memberId
         self.name = name
         self.jobTitle = jobTitle
         self.avatarPresetId = avatarPresetId
+        self.presetId = presetId
         self.personalityTraits = personalityTraits
         self.skillIds = skillIds
+        self.knowledgePackIds = knowledgePackIds
+        self.workStyles = workStyles
         self.memoryEnabled = memoryEnabled
     }
 }
@@ -144,14 +153,134 @@ public struct OnboardingCompletionSummary: Codable, Sendable {
     }
 }
 
+public struct OnboardingModelProviderPresentation: Codable, Sendable, Identifiable {
+    public var id: String
+    public var label: String
+    public var description: String
+    public var theme: String
+    public var platformUrl: String
+    public var tutorialVideoUrl: String?
+    public var defaultModelKey: String
+    public var authMethods: [ModelAuthMethod]
+
+    public init(
+        id: String,
+        label: String,
+        description: String,
+        theme: String,
+        platformUrl: String,
+        tutorialVideoUrl: String? = nil,
+        defaultModelKey: String,
+        authMethods: [ModelAuthMethod]
+    ) {
+        self.id = id
+        self.label = label
+        self.description = description
+        self.theme = theme
+        self.platformUrl = platformUrl
+        self.tutorialVideoUrl = tutorialVideoUrl
+        self.defaultModelKey = defaultModelKey
+        self.authMethods = authMethods
+    }
+}
+
+public struct OnboardingChannelPresentation: Codable, Sendable, Identifiable {
+    public var id: String
+    public var label: String
+    public var secondaryLabel: String?
+    public var description: String
+    public var theme: String
+    public var setupKind: String
+    public var platformUrl: String?
+    public var docsUrl: String?
+    public var tutorialVideoUrl: String?
+
+    public init(
+        id: String,
+        label: String,
+        secondaryLabel: String? = nil,
+        description: String,
+        theme: String,
+        setupKind: String,
+        platformUrl: String? = nil,
+        docsUrl: String? = nil,
+        tutorialVideoUrl: String? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.secondaryLabel = secondaryLabel
+        self.description = description
+        self.theme = theme
+        self.setupKind = setupKind
+        self.platformUrl = platformUrl
+        self.docsUrl = docsUrl
+        self.tutorialVideoUrl = tutorialVideoUrl
+    }
+}
+
+public struct OnboardingEmployeePresetPresentation: Codable, Sendable, Identifiable {
+    public var id: String
+    public var label: String
+    public var description: String
+    public var theme: String
+    public var starterSkillLabels: [String]
+    public var toolLabels: [String]
+    public var skillIds: [String]
+    public var knowledgePackIds: [String]
+    public var workStyles: [String]
+    public var defaultMemoryEnabled: Bool?
+
+    public init(
+        id: String,
+        label: String,
+        description: String,
+        theme: String,
+        starterSkillLabels: [String],
+        toolLabels: [String],
+        skillIds: [String],
+        knowledgePackIds: [String],
+        workStyles: [String],
+        defaultMemoryEnabled: Bool? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.description = description
+        self.theme = theme
+        self.starterSkillLabels = starterSkillLabels
+        self.toolLabels = toolLabels
+        self.skillIds = skillIds
+        self.knowledgePackIds = knowledgePackIds
+        self.workStyles = workStyles
+        self.defaultMemoryEnabled = defaultMemoryEnabled
+    }
+}
+
+public struct OnboardingUIConfig: Codable, Sendable {
+    public var modelProviders: [OnboardingModelProviderPresentation]
+    public var channels: [OnboardingChannelPresentation]
+    public var employeePresets: [OnboardingEmployeePresetPresentation]
+
+    public init(
+        modelProviders: [OnboardingModelProviderPresentation],
+        channels: [OnboardingChannelPresentation],
+        employeePresets: [OnboardingEmployeePresetPresentation]
+    ) {
+        self.modelProviders = modelProviders
+        self.channels = channels
+        self.employeePresets = employeePresets
+    }
+}
+
 public struct OnboardingStateResponse: Codable, Sendable {
     public var firstRun: FirstRunState
     public var draft: OnboardingDraftState
+    public var config: OnboardingUIConfig
     public var summary: OnboardingCompletionSummary
 
-    public init(firstRun: FirstRunState, draft: OnboardingDraftState, summary: OnboardingCompletionSummary) {
+    public init(firstRun: FirstRunState, draft: OnboardingDraftState, config: OnboardingUIConfig, summary: OnboardingCompletionSummary) {
         self.firstRun = firstRun
         self.draft = draft
+        self.config = config
         self.summary = summary
     }
 }

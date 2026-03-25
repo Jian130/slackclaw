@@ -9,6 +9,8 @@
 - changed the macOS installer build so the packaged app launches the native SwiftUI client by default while still bundling the React UI as an explicit fallback
 - added `npm run build:mac-native` and `npm run test:mac-native` for native-client development
 - added the same daemon-backed six-step onboarding flow to the native macOS client, including first-run gating, draft resume, settled install/model/channel/employee mutations, and native onboarding avatar resources
+- aligned onboarding step 1 in both React and native clients to the shared macOS welcome-screen design baseline, including a responsive `70%` content canvas, a flatter welcome-card height on normal desktop windows, native window defaults, system-font typography, and an onboarding-wide language selector
+- rebuilt onboarding step 2 in both React and native clients to the single-card Figma install flow, including the slim shared header/progress row, missing/installing/found/complete states, daemon-backed install progress, version badge, and explicit next-step confirmation instead of auto-advancing past install
 
 ### Engine architecture
 
@@ -47,6 +49,7 @@
 - added deploy/update progress tracking in the UI
 - changed OpenClaw install and bootstrap flows to target the latest available release by default instead of a hardcoded base version
 - changed install/deploy summaries and install metadata to describe latest-version reuse/install behavior instead of a pinned-version floor
+- changed install/reuse to normalize inherited OpenClaw gateway config back to SlackClaw's local baseline so a stale remote gateway override cannot silently poison first-run health checks
 
 ### Model management
 
@@ -125,6 +128,14 @@
 - replaced the old intro/check onboarding with a daemon-backed six-step onboarding flow for welcome, install, model, channel, AI employee, and completion
 - added daemon-persisted onboarding draft state and completion summary routes so onboarding progress survives refreshes
 - added onboarding avatar presets and shared avatar rendering so the new preset images also render in members, team, dashboard, and chat surfaces
+- changed onboarding step 3 to use a daemon-owned curated provider config so React and native now guide users through the same three-provider model setup path instead of exposing the full runtime provider catalog during onboarding
+- changed onboarding step 3 curated-provider metadata to use `platformUrl` and optional `tutorialVideoUrl`, and wired MiniMax tutorial playback into in-app web/native modal flows instead of opening an external link
+- changed onboarding step 4 to use the same daemon-owned config pattern for curated channels, so React and native now guide users through WeChat Work, Feishu, and Telegram setup from one shared source of truth
+- added a daemon-backed `Redo onboarding` action so web and native Settings can restart the guided setup without wiping the existing workspace
+- rebuilt onboarding steps 1 through 5 to match the current Figma/React flow more closely across both the web app and the native macOS app, including curated provider/channel selection, guided setup cards, tighter responsive layout rules, and config-driven tutorial/platform links
+- replaced the onboarding step 5 personality editor with curated employee presets and wired the new portrait avatar assets into both the web and native onboarding flows
+- refreshed the native macOS shell to use the lighter branded sidebar/status layout instead of the older dark developer-style chrome, so dashboard and deploy now sit much closer to the React/Figma product design
+- rebuilt the native macOS Deploy page around the React/Figma hierarchy with the one-click deployment hero, grouped variant cards, badges, feature lists, requirements, and summary cards
 - changed the native macOS client to gate startup on overview first and lazily load the active section afterward, avoiding cold-start failures caused by blasting every `fresh=1` page endpoint at once
 - fixed managed-local first-run installs so SlackClaw re-detects the freshly installed OpenClaw CLI before verifying it, instead of failing against a stale cached “not installed” result
 - extended native macOS client timeouts for long-running setup and deploy/install requests so real OpenClaw installs are less likely to fail with `The request timed out.`

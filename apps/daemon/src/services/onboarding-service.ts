@@ -7,6 +7,7 @@ import type {
 } from "@slackclaw/contracts";
 
 import type { EngineAdapter } from "../engine/adapter.js";
+import { onboardingUiConfig } from "../config/onboarding-config.js";
 import { ChannelSetupService } from "./channel-setup-service.js";
 import { OverviewService } from "./overview-service.js";
 import { StateStore, defaultOnboardingDraftState } from "./state-store.js";
@@ -37,6 +38,7 @@ export class OnboardingService {
         selectedProfileId: state.selectedProfileId
       },
       draft,
+      config: onboardingUiConfig,
       summary
     };
   }
@@ -77,6 +79,7 @@ export class OnboardingService {
         selectedProfileId: nextState.selectedProfileId
       },
       draft,
+      config: onboardingUiConfig,
       summary
     };
   }
@@ -98,6 +101,29 @@ export class OnboardingService {
       destination: request.destination,
       summary,
       overview: await this.overviewService.getOverview()
+    };
+  }
+
+  async reset(): Promise<OnboardingStateResponse> {
+    const nextState = await this.store.update((current) => ({
+      ...current,
+      setupCompletedAt: undefined,
+      onboarding: {
+        draft: defaultOnboardingDraftState()
+      }
+    }));
+
+    const draft = nextState.onboarding?.draft ?? defaultOnboardingDraftState();
+
+    return {
+      firstRun: {
+        introCompleted: Boolean(nextState.introCompletedAt),
+        setupCompleted: false,
+        selectedProfileId: nextState.selectedProfileId
+      },
+      draft,
+      config: onboardingUiConfig,
+      summary: await this.buildSummary(draft)
     };
   }
 

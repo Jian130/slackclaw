@@ -32,14 +32,609 @@ struct OnboardingTests {
     }
 
     @Test
+    func welcomeCopyMatchesFigmaStepOneMessage() {
+        let copy = nativeOnboardingCopy(localeIdentifier: "en")
+
+        #expect(copy.welcomeBody == "Build your OpenClaw-powered digital employee workspace in minutes")
+        #expect(copy.welcomeHighlights.map(\.title) == [
+            "One-Click Setup",
+            "Personal AI Workspace",
+            "Build Your First Digital Employee",
+        ])
+        #expect(copy.begin == "Get My Workspace Ready")
+    }
+
+    @Test
+    func nativeOnboardingSupportsSharedLocalePickerOptions() {
+        #expect(nativeOnboardingLocaleOptions.map(\.id) == ["en", "zh", "ja", "ko", "es"])
+    }
+
+    @Test
+    func nativeOnboardingUsesDocumentedWindowAndLayoutRatios() {
+        #expect(nativeOnboardingDefaultWindowSize.width == 1280)
+        #expect(nativeOnboardingDefaultWindowSize.height == 860)
+        #expect(nativeOnboardingMinimumWindowSize.width == 960)
+        #expect(nativeOnboardingMinimumWindowSize.height == 720)
+
+        #expect(nativeOnboardingContentWidth(for: 800) == 672)
+        #expect(abs(nativeOnboardingContentWidth(for: 1280) - 896) < 0.001)
+        #expect(abs(nativeOnboardingContentWidth(for: 1508.57) - 1056) < 0.5)
+        #expect(nativeOnboardingContentWidth(for: 1600) == 1120)
+        #expect(nativeOnboardingContentWidth(for: 2200) == 1120)
+        #expect(nativeOnboardingContentHeight(for: 896) == 520)
+        #expect(abs(nativeOnboardingContentHeight(for: 1056) - 606.89) < 0.25)
+        #expect(nativeOnboardingContentHeight(for: 1120) == 616)
+        #expect(nativeOnboardingHeaderWidth(for: 1056) == 768)
+    }
+
+    @Test
+    func nativeOnboardingUsesCompactLayoutForNarrowContentWidths() {
+        #expect(nativeOnboardingUsesCompactProgressLayout(for: 860) == true)
+        #expect(nativeOnboardingUsesCompactProgressLayout(for: 1000) == false)
+        #expect(nativeOnboardingUsesCompactEmployeeLayout(for: 860) == true)
+        #expect(nativeOnboardingUsesCompactEmployeeLayout(for: 1000) == false)
+    }
+
+    @Test
+    func installStepUsesFigmaMissingInstallingFoundAndCompleteStates() {
+        let copy = nativeOnboardingCopy(localeIdentifier: "en")
+
+        #expect(
+            resolveNativeOnboardingInstallViewState(
+                overview: makeOverview(setupCompleted: false, installed: false, running: false, version: nil),
+                install: nil,
+                busy: false,
+                progress: nil,
+                copy: copy
+            ).kind == .missing
+        )
+
+        #expect(
+            resolveNativeOnboardingInstallViewState(
+                overview: makeOverview(setupCompleted: false, installed: true, running: false, version: "2026.3.13"),
+                install: nil,
+                busy: false,
+                progress: nil,
+                copy: copy
+            ).kind == .found
+        )
+
+        let installing = resolveNativeOnboardingInstallViewState(
+            overview: nil,
+            install: nil,
+            busy: true,
+            progress: .init(phase: .verifying, percent: 82, message: nil),
+            copy: copy
+        )
+        #expect(installing.kind == .installing)
+        #expect(installing.progressPercent == 82)
+        #expect(installing.stageLabel == copy.installStageVerifying)
+
+        let complete = resolveNativeOnboardingInstallViewState(
+            overview: makeOverview(setupCompleted: false, installed: true, running: false, version: "2026.3.13"),
+            install: .init(installed: true, version: "2026.3.13", disposition: "installed-managed"),
+            busy: false,
+            progress: nil,
+            copy: copy
+        )
+        #expect(complete.kind == .complete)
+        #expect(complete.version == "2026.3.13")
+    }
+
+    @Test
+    func existingInstallAdvanceDraftMovesStraightToModel() {
+        let request = buildExistingInstallAdvanceRequest(
+            overview: makeOverview(setupCompleted: false, installed: true, running: false, version: "2026.3.13")
+        )
+
+        #expect(request.currentStep == .model)
+        #expect(request.install?.installed == true)
+        #expect(request.install?.version == "2026.3.13")
+        #expect(request.install?.disposition == "reused-existing")
+    }
+
+    @Test
+    func curatedModelProvidersFollowDaemonOnboardingConfig() {
+        let appState = SlackClawAppState()
+        appState.modelConfig = emptyModelConfig(
+            providers: [
+                .init(
+                    id: "anthropic",
+                    label: "Anthropic",
+                    description: "Anthropic",
+                    docsUrl: "https://example.com/anthropic",
+                    providerRefs: ["anthropic/"],
+                    authMethods: [],
+                    configured: false,
+                    modelCount: 1,
+                    sampleModels: ["anthropic/claude-opus-4-1"]
+                ),
+                .init(
+                    id: "minimax",
+                    label: "MiniMax",
+                    description: "MiniMax",
+                    docsUrl: "https://example.com/minimax",
+                    providerRefs: ["minimax/"],
+                    authMethods: [],
+                    configured: false,
+                    modelCount: 1,
+                    sampleModels: ["minimax/minimax-m1"]
+                ),
+                .init(
+                    id: "modelstudio",
+                    label: "Model Studio",
+                    description: "Model Studio",
+                    docsUrl: "https://example.com/qwen",
+                    providerRefs: ["modelstudio/"],
+                    authMethods: [],
+                    configured: false,
+                    modelCount: 1,
+                    sampleModels: ["modelstudio/qwen3.5-plus"]
+                ),
+                .init(
+                    id: "openai",
+                    label: "OpenAI (API + Codex)",
+                    description: "OpenAI",
+                    docsUrl: "https://example.com/openai",
+                    providerRefs: ["openai/"],
+                    authMethods: [],
+                    configured: false,
+                    modelCount: 1,
+                    sampleModels: ["openai/gpt-5"]
+                ),
+            ]
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model)
+
+        #expect(viewModel.curatedModelProviders.map(\.id) == ["minimax", "modelstudio", "openai"])
+        #expect(viewModel.curatedModelProviders.map(\.curated.label) == ["MiniMax", "Qwen (通义千问)", "ChatGPT"])
+        #expect(viewModel.curatedModelProviders[1].curated.authMethods.map(\.id) == ["modelstudio-api-key-cn"])
+        #expect(viewModel.curatedModelProviders[2].curated.authMethods.map(\.id) == ["openai-api-key", "openai-codex"])
+    }
+
+    @Test
+    func curatedPickerProvidersRemainVisibleBeforeRuntimeProvidersLoad() {
+        let appState = SlackClawAppState()
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model)
+
+        #expect(viewModel.modelPickerProviders.map(\.id) == ["minimax", "modelstudio", "openai"])
+        #expect(viewModel.modelPickerProviders.map(\.label) == ["MiniMax", "Qwen (通义千问)", "ChatGPT"])
+        #expect(viewModel.curatedModelProviders.map(\.id) == ["minimax", "modelstudio", "openai"])
+    }
+
+    @Test
+    func curatedChannelPickerFollowsDaemonOnboardingConfig() {
+        let appState = SlackClawAppState()
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .channel)
+
+        #expect(viewModel.curatedChannels.map(\.id) == ["wechat", "feishu", "telegram"])
+        #expect(viewModel.curatedChannels.map(\.label) == ["WeChat Work", "Feishu", "Telegram"])
+    }
+
+    @Test
+    func buildingOnboardingWechatSaveValuesAddsHiddenDefaults() {
+        let values = buildOnboardingChannelSaveValues(
+            channelID: "wechat",
+            values: [
+                "corpId": "ww123",
+                "agentId": "1000002",
+                "secret": "wechat-secret",
+            ]
+        )
+
+        #expect(values["corpId"] == "ww123")
+        #expect(values["agentId"] == "1000002")
+        #expect(values["secret"] == "wechat-secret")
+        #expect(values["pluginSpec"] == "@openclaw-china/wecom-app")
+        #expect((values["token"] ?? "").count > 10)
+        #expect((values["encodingAesKey"] ?? "").count == 43)
+    }
+
+    @Test
+    func openingModelTutorialUsesInAppTutorialState() {
+        let appState = SlackClawAppState()
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model)
+        viewModel.selectProvider(viewModel.modelPickerProviders[0])
+
+        viewModel.openModelTutorial()
+
+        #expect(viewModel.modelTutorialURLString == "https://video.example/minimax")
+        #expect(viewModel.isModelTutorialPresented == true)
+
+        viewModel.dismissModelTutorial()
+        #expect(viewModel.isModelTutorialPresented == false)
+    }
+
+    @Test
+    func onboardingProviderSelectionDoesNotAutoChooseFirstCuratedProvider() {
+        let providers: [NativeResolvedOnboardingModelProvider] = [
+            .init(
+                id: "minimax",
+                curated: .init(
+                    id: "minimax",
+                    label: "MiniMax",
+                    description: "MiniMax models for onboarding.",
+                    theme: "minimax",
+                    platformUrl: "https://platform.minimaxi.com/login",
+                    defaultModelKey: "minimax/MiniMax-M2.5",
+                    authMethods: []
+                ),
+                provider: .init(
+                    id: "minimax",
+                    label: "MiniMax",
+                    description: "MiniMax",
+                    docsUrl: "https://example.com/minimax",
+                    providerRefs: ["minimax/"],
+                    authMethods: [],
+                    configured: false,
+                    modelCount: 1,
+                    sampleModels: ["minimax/minimax-m1"]
+                )
+            )
+        ]
+
+        #expect(resolveOnboardingProviderID(currentProviderId: "", draftProviderId: nil, providers: providers).isEmpty)
+        #expect(resolveOnboardingProviderID(currentProviderId: "anthropic", draftProviderId: nil, providers: providers).isEmpty)
+        #expect(resolveOnboardingProviderID(currentProviderId: "", draftProviderId: "minimax", providers: providers) == "minimax")
+    }
+
+    @Test
+    func clearedDraftProviderWinsOverStaleLocalSelection() {
+        struct Provider: Identifiable {
+            let id: String
+        }
+
+        let providers = [Provider(id: "minimax"), Provider(id: "openai")]
+
+        #expect(resolveOnboardingProviderID(currentProviderId: "openai", draftProviderId: "", providers: providers).isEmpty)
+        #expect(resolveOnboardingProviderID(currentProviderId: "openai", draftProviderId: "minimax", providers: providers) == "minimax")
+        #expect(resolveOnboardingProviderID(currentProviderId: "openai", draftProviderId: nil, providers: providers) == "openai")
+    }
+
+    @Test
+    func modelStepUsesPickerConfigureAndConnectedStates() {
+        let providers: [NativeResolvedOnboardingModelProvider] = [
+            .init(
+                id: "openai",
+                curated: .init(
+                    id: "openai",
+                    label: "ChatGPT",
+                    description: "OpenAI ChatGPT for onboarding.",
+                    theme: "chatgpt",
+                    platformUrl: "https://platform.openai.com/api-keys",
+                    defaultModelKey: "openai/gpt-5.1-codex",
+                    authMethods: []
+                ),
+                provider: .init(
+                    id: "openai",
+                    label: "OpenAI",
+                    description: "OpenAI",
+                    docsUrl: "https://example.com/openai",
+                    providerRefs: ["openai/"],
+                    authMethods: [],
+                    configured: false,
+                    modelCount: 1,
+                    sampleModels: ["openai/gpt-5"]
+                )
+            )
+        ]
+
+        #expect(
+            resolveNativeOnboardingModelViewState(
+                providerId: "",
+                methodId: "",
+                modelKey: "",
+                providers: providers,
+                selectedEntry: nil,
+                draftEntryID: nil,
+                summaryEntryID: nil,
+                activeModelAuthSessionId: ""
+            ).kind == .picker
+        )
+
+        #expect(
+            resolveNativeOnboardingModelViewState(
+                providerId: "openai",
+                methodId: "api_key",
+                modelKey: "openai/gpt-5",
+                providers: providers,
+                selectedEntry: nil,
+                draftEntryID: nil,
+                summaryEntryID: nil,
+                activeModelAuthSessionId: ""
+            ).kind == .configure
+        )
+
+        #expect(
+            resolveNativeOnboardingModelViewState(
+                providerId: "openai",
+                methodId: "api_key",
+                modelKey: "openai/gpt-5",
+                providers: providers,
+                selectedEntry: .init(
+                    id: "entry-1",
+                    label: "ChatGPT",
+                    providerId: "openai",
+                    modelKey: "openai/gpt-5",
+                    agentId: "",
+                    authMethodId: "api_key",
+                    isDefault: true,
+                    isFallback: false,
+                    createdAt: "2026-03-22T00:00:00.000Z",
+                    updatedAt: "2026-03-22T00:00:00.000Z"
+                ),
+                draftEntryID: "entry-1",
+                summaryEntryID: nil,
+                activeModelAuthSessionId: ""
+            ).kind == .connected
+        )
+
+        #expect(
+            resolveNativeOnboardingModelViewState(
+                providerId: "openai",
+                methodId: "oauth",
+                modelKey: "openai/gpt-5",
+                providers: providers,
+                selectedEntry: .init(
+                    id: "entry-1",
+                    label: "ChatGPT",
+                    providerId: "openai",
+                    modelKey: "openai/gpt-5",
+                    agentId: "",
+                    authMethodId: "api_key",
+                    isDefault: true,
+                    isFallback: false,
+                    createdAt: "2026-03-22T00:00:00.000Z",
+                    updatedAt: "2026-03-22T00:00:00.000Z"
+                ),
+                draftEntryID: "entry-1",
+                summaryEntryID: nil,
+                activeModelAuthSessionId: ""
+            ).kind == .configure
+        )
+
+        #expect(
+            resolveNativeOnboardingModelViewState(
+                providerId: "openai",
+                methodId: "api_key",
+                modelKey: "openai/gpt-5",
+                providers: providers,
+                selectedEntry: .init(
+                    id: "entry-1",
+                    label: "ChatGPT",
+                    providerId: "openai",
+                    modelKey: "openai/gpt-5",
+                    agentId: "",
+                    authMethodId: "api_key",
+                    isDefault: true,
+                    isFallback: false,
+                    createdAt: "2026-03-22T00:00:00.000Z",
+                    updatedAt: "2026-03-22T00:00:00.000Z"
+                ),
+                draftEntryID: "entry-1",
+                summaryEntryID: nil,
+                activeModelAuthSessionId: "session-1"
+            ).kind == .configure
+        )
+    }
+
+    @Test
+    func modelStepDoesNotReportConnectedBeforeSavedEntryPersistsIntoOnboardingState() {
+        let providers: [NativeResolvedOnboardingModelProvider] = [
+            .init(
+                id: "openai",
+                curated: .init(
+                    id: "openai",
+                    label: "ChatGPT",
+                    description: "OpenAI ChatGPT for onboarding.",
+                    theme: "chatgpt",
+                    platformUrl: "https://platform.openai.com/api-keys",
+                    defaultModelKey: "openai/gpt-5.1-codex",
+                    authMethods: []
+                ),
+                provider: .init(
+                    id: "openai",
+                    label: "OpenAI",
+                    description: "OpenAI",
+                    docsUrl: "https://example.com/openai",
+                    providerRefs: ["openai/"],
+                    authMethods: [],
+                    configured: false,
+                    modelCount: 1,
+                    sampleModels: ["openai/gpt-5"]
+                )
+            )
+        ]
+
+        #expect(
+            resolveNativeOnboardingModelViewState(
+                providerId: "openai",
+                methodId: "api_key",
+                modelKey: "openai/gpt-5",
+                providers: providers,
+                selectedEntry: .init(
+                    id: "entry-1",
+                    label: "ChatGPT",
+                    providerId: "openai",
+                    modelKey: "openai/gpt-5",
+                    agentId: "",
+                    authMethodId: "api_key",
+                    isDefault: true,
+                    isFallback: false,
+                    createdAt: "2026-03-22T00:00:00.000Z",
+                    updatedAt: "2026-03-22T00:00:00.000Z"
+                ),
+                draftEntryID: nil,
+                summaryEntryID: nil,
+                activeModelAuthSessionId: ""
+            ).kind == .configure
+        )
+    }
+
+    @Test
+    func modelStepCopyMatchesFigmaCuratedProviderFlow() {
+        let copy = nativeOnboardingCopy(localeIdentifier: "en")
+
+        #expect(copy.modelTitle == "Choose Your AI Model")
+        #expect(copy.modelBody == "Select an AI provider to power your digital employees")
+        #expect(copy.providerTitle == "Select a provider to get started")
+        #expect(copy.authTitle == "How would you like to connect?")
+    }
+
+    @Test
+    func minimaxUsesGuidedApiKeySetupVariant() {
+        #expect(resolveNativeOnboardingModelSetupVariant(providerID: "minimax", methodKind: "api-key") == .guidedMiniMaxAPIKey)
+        #expect(resolveNativeOnboardingModelSetupVariant(providerID: "openai", methodKind: "api-key") == .defaultAPIKey)
+        #expect(resolveNativeOnboardingModelSetupVariant(providerID: "openai", methodKind: "oauth") == .oauth)
+    }
+
+    @Test
+    func authMethodChooserOnlyAppearsForMultiMethodProviders() {
+        let singleMethod: [ModelAuthMethod] = [
+            .init(id: "minimax-api", label: "API Key", kind: "api-key", description: "Paste a MiniMax API key.", interactive: false, fields: [])
+        ]
+        let multipleMethods: [ModelAuthMethod] = [
+            .init(id: "openai-api-key", label: "API Key", kind: "api-key", description: "Paste an OpenAI API key.", interactive: false, fields: []),
+            .init(id: "openai-codex", label: "OAuth", kind: "oauth", description: "Connect securely with your account.", interactive: true, fields: []),
+        ]
+
+        #expect(
+            shouldShowNativeOnboardingAuthMethodChooser(singleMethod) == false
+        )
+
+        #expect(
+            shouldShowNativeOnboardingAuthMethodChooser(multipleMethods) == true
+        )
+    }
+
+    @Test
+    func cancelledDraftPersistenceDoesNotSurfaceUserError() async throws {
+        let recorder = NativeRequestRecorder()
+        let session = await recorder.session { request in
+            let path = request.url?.path ?? ""
+            if path == "/api/onboarding/state" {
+                throw CancellationError()
+            }
+
+            throw URLError(.badServerResponse)
+        }
+
+        let configuration = SlackClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = SlackClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = SlackClawChatViewModel(transport: FakeChatTransport())
+        let appState = SlackClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model)
+
+        await viewModel.persistDraftSafely(.init(currentStep: .model))
+
+        #expect(viewModel.pageError == nil)
+    }
+
+    @Test
+    func modelStepDoesNotFetchRuntimeCatalogBeforeFinalSubmit() async throws {
+        let recorder = NativeRequestRecorder()
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            if url.path == "/api/onboarding/state" {
+                let body = try JSONEncoder.slackClaw.encode(makeOnboardingStateResponse(step: .model))
+                return (jsonResponse(url: url), body)
+            }
+
+            throw URLError(.badServerResponse)
+        }
+
+        let configuration = SlackClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = SlackClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = SlackClawChatViewModel(transport: FakeChatTransport())
+        let appState = SlackClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+
+        await viewModel.bootstrap()
+        viewModel.selectProvider(viewModel.modelPickerProviders[1])
+
+        let recordedPaths = await recorder.recordedURLs()
+        #expect(recordedPaths == ["http://127.0.0.1:4545/api/onboarding/state?fresh=1"])
+        #expect(viewModel.providerId == "modelstudio")
+        #expect(viewModel.methodId == "modelstudio-api-key-cn")
+        #expect(viewModel.modelKey == "modelstudio/qwen3.5-plus")
+    }
+
+    @Test
     func buildsOnboardingMemberRequestWithDeterministicHiddenFields() {
         let request = buildOnboardingMemberRequest(
             .init(
                 name: "Alex Morgan",
                 jobTitle: "Research Analyst",
                 avatarPresetId: "onboarding-analyst",
-                personalityTraits: ["Analytical", "Detail-Oriented"],
-                skillIds: ["research", "summarization"],
+                presetId: "research-analyst",
+                personalityTraits: [],
+                skillIds: ["research-brief", "status-writer"],
+                knowledgePackIds: ["company-handbook", "delivery-playbook"],
+                workStyles: ["Analytical", "Concise"],
                 memoryEnabled: true,
                 brainEntryId: "brain-1"
             )
@@ -51,12 +646,29 @@ struct OnboardingTests {
         #expect(request.avatar.accent == "#97b5ea")
         #expect(request.avatar.emoji == "🧠")
         #expect(request.avatar.theme == "onboarding")
-        #expect(request.personality == "Analytical, Detail-Oriented")
-        #expect(request.soul == "Analytical, Detail-Oriented")
-        #expect(request.workStyles.isEmpty)
-        #expect(request.knowledgePackIds.isEmpty)
+        #expect(request.personality == "Analytical, Concise")
+        #expect(request.soul == "Analytical, Concise")
+        #expect(request.workStyles == ["Analytical", "Concise"])
+        #expect(request.knowledgePackIds == ["company-handbook", "delivery-playbook"])
         #expect(request.capabilitySettings.memoryEnabled == true)
         #expect(request.capabilitySettings.contextWindow == 128000)
+    }
+
+    @Test
+    func onboardingAvatarResourcesResolveFromBundle() {
+        for preset in nativeOnboardingAvatarPresets {
+            #expect(onboardingAssetURL(preset.id) != nil)
+        }
+    }
+
+    @Test
+    func resolvesCuratedEmployeePresetsFromOnboardingState() {
+        let presets = resolveOnboardingEmployeePresets(onboardingState: makeOnboardingStateResponse(step: .employee))
+
+        #expect(presets.map(\.id) == ["research-analyst", "support-captain", "delivery-operator"])
+        #expect(presets[0].starterSkillLabels == ["Research Brief", "Status Writer"])
+        #expect(presets[1].toolLabels == ["Customer voice", "Memory"])
+        #expect(presets[2].knowledgePackIds == ["delivery-playbook", "company-handbook"])
     }
 
     @Test
@@ -158,19 +770,8 @@ struct OnboardingTests {
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
-            let body = """
-            {
-              "firstRun": {
-                "introCompleted": true,
-                "setupCompleted": false
-              },
-              "draft": {
-                "currentStep": "welcome"
-              },
-              "summary": {}
-            }
-            """
-            return (response, Data(body.utf8))
+            let body = try JSONEncoder.slackClaw.encode(makeOnboardingStateResponse(step: .welcome))
+            return (response, body)
         }
 
         let configuration = SlackClawClientConfiguration(
@@ -310,7 +911,6 @@ struct OnboardingTests {
         #expect(
             await recorder.recordedURLs() == [
                 "http://127.0.0.1:4545/api/onboarding/state?fresh=1",
-                "http://127.0.0.1:4545/api/models/config?fresh=1",
                 "http://127.0.0.1:4545/api/models/config?fresh=1"
             ]
         )
@@ -380,21 +980,25 @@ struct OnboardingTests {
         let urls = await recorder.recordedURLs()
         #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/state?fresh=1"))
         #expect(urls.contains("http://127.0.0.1:4545/api/channels/config?fresh=1"))
-        #expect(urls.contains("http://127.0.0.1:4545/api/models/config?fresh=1"))
         #expect(urls.filter { $0.contains("/api/channels/config") }.count == 1)
-        #expect(urls.filter { $0.contains("/api/models/config") }.count == 1)
+        #expect(urls.filter { $0.contains("/api/models/config") }.isEmpty)
         #expect(urls.filter { $0.contains("/api/ai-team/overview") }.isEmpty)
     }
 }
 
-private func makeOverview(setupCompleted: Bool) -> ProductOverview {
+private func makeOverview(
+    setupCompleted: Bool,
+    installed: Bool = true,
+    running: Bool = true,
+    version: String? = "2026.3.13"
+) -> ProductOverview {
     .init(
         appName: "SlackClaw",
         appVersion: "0.1.2",
         platformTarget: "macOS first",
         firstRun: .init(introCompleted: true, setupCompleted: setupCompleted, selectedProfileId: nil),
         appService: .init(mode: .launchagent, installed: true, running: true, managedAtLogin: true, label: nil, summary: "Running", detail: "Loaded"),
-        engine: .init(engine: "openclaw", installed: true, running: true, version: "2026.3.13", summary: "Ready", pendingGatewayApply: false, pendingGatewayApplySummary: nil, lastCheckedAt: "2026-03-20T00:00:00.000Z"),
+        engine: .init(engine: "openclaw", installed: installed, running: running, version: version, summary: installed ? "Ready" : "Missing", pendingGatewayApply: false, pendingGatewayApplySummary: nil, lastCheckedAt: "2026-03-20T00:00:00.000Z"),
         installSpec: .init(engine: "openclaw", desiredVersion: "latest", installSource: "npm-local", prerequisites: ["macOS"], installPath: nil),
         capabilities: .init(engine: "openclaw", supportsInstall: true, supportsUpdate: true, supportsRecovery: true, supportsStreaming: true, runtimeModes: ["gateway"], supportedChannels: ["telegram"], starterSkillCategories: ["communication"], futureLocalModelFamilies: ["qwen"]),
         installChecks: [],
@@ -434,9 +1038,9 @@ private func makeAppState(
     return appState
 }
 
-private func emptyModelConfig() -> ModelConfigOverview {
+private func emptyModelConfig(providers: [ModelProviderConfig] = []) -> ModelConfigOverview {
     .init(
-        providers: [],
+        providers: providers,
         models: [],
         defaultModel: nil,
         configuredModelKeys: [],
@@ -484,6 +1088,113 @@ private func makeOnboardingStateResponse(step: OnboardingStep) -> OnboardingStat
     .init(
         firstRun: .init(introCompleted: true, setupCompleted: false),
         draft: .init(currentStep: step),
+        config: .init(
+            modelProviders: [
+                .init(
+                    id: "minimax",
+                    label: "MiniMax",
+                    description: "MiniMax models for onboarding.",
+                    theme: "minimax",
+                    platformUrl: "https://platform.minimaxi.com/login",
+                    tutorialVideoUrl: "https://video.example/minimax",
+                    defaultModelKey: "minimax/MiniMax-M2.5",
+                    authMethods: [
+                        .init(id: "minimax-api", label: "API Key", kind: "api-key", description: "Paste a MiniMax API key.", interactive: false, fields: [])
+                    ]
+                ),
+                .init(
+                    id: "modelstudio",
+                    label: "Qwen (通义千问)",
+                    description: "Qwen models for onboarding.",
+                    theme: "qwen",
+                    platformUrl: "https://www.alibabacloud.com/help/en/model-studio/get-api-key",
+                    defaultModelKey: "modelstudio/qwen3.5-plus",
+                    authMethods: [
+                        .init(id: "modelstudio-api-key-cn", label: "API Key", kind: "api-key", description: "Paste a Model Studio API key.", interactive: false, fields: [])
+                    ]
+                ),
+                .init(
+                    id: "openai",
+                    label: "ChatGPT",
+                    description: "OpenAI ChatGPT for onboarding.",
+                    theme: "chatgpt",
+                    platformUrl: "https://platform.openai.com/api-keys",
+                    defaultModelKey: "openai/gpt-5.1-codex",
+                    authMethods: [
+                        .init(id: "openai-api-key", label: "API Key", kind: "api-key", description: "Paste an OpenAI API key.", interactive: false, fields: []),
+                        .init(id: "openai-codex", label: "OAuth", kind: "oauth", description: "Connect securely with your account.", interactive: true, fields: [])
+                    ]
+                ),
+            ],
+            channels: [
+                .init(
+                    id: "wechat",
+                    label: "WeChat Work",
+                    secondaryLabel: "企业微信",
+                    description: "Configure WeChat Work.",
+                    theme: "wechat",
+                    setupKind: "wechat-guided",
+                    docsUrl: "https://work.weixin.qq.com/"
+                ),
+                .init(
+                    id: "feishu",
+                    label: "Feishu",
+                    secondaryLabel: "飞书",
+                    description: "Configure Feishu.",
+                    theme: "feishu",
+                    setupKind: "feishu-guided",
+                    platformUrl: "https://open.feishu.cn/app",
+                    tutorialVideoUrl: "https://video.example/feishu"
+                ),
+                .init(
+                    id: "telegram",
+                    label: "Telegram",
+                    secondaryLabel: "Telegram",
+                    description: "Configure Telegram.",
+                    theme: "telegram",
+                    setupKind: "telegram-guided",
+                    docsUrl: "https://core.telegram.org/bots/tutorial"
+                )
+            ],
+            employeePresets: [
+                .init(
+                    id: "research-analyst",
+                    label: "Research Analyst",
+                    description: "Research quickly, write crisp summaries, and keep answers grounded in the right context.",
+                    theme: "analyst",
+                    starterSkillLabels: ["Research Brief", "Status Writer"],
+                    toolLabels: ["Company handbook", "Delivery playbook"],
+                    skillIds: ["research-brief", "status-writer"],
+                    knowledgePackIds: ["company-handbook", "delivery-playbook"],
+                    workStyles: ["Analytical", "Concise"],
+                    defaultMemoryEnabled: true
+                ),
+                .init(
+                    id: "support-captain",
+                    label: "Support Captain",
+                    description: "Handle customer-facing requests with calm tone, clear follow-ups, and fast status updates.",
+                    theme: "support",
+                    starterSkillLabels: ["Status Writer"],
+                    toolLabels: ["Customer voice", "Memory"],
+                    skillIds: ["status-writer"],
+                    knowledgePackIds: ["customer-voice"],
+                    workStyles: ["Calm", "Supportive"],
+                    defaultMemoryEnabled: true
+                ),
+                .init(
+                    id: "delivery-operator",
+                    label: "Delivery Operator",
+                    description: "Turn briefs into checklists, track milestones, and keep execution moving without extra setup.",
+                    theme: "operator",
+                    starterSkillLabels: ["Research Brief"],
+                    toolLabels: ["Delivery playbook", "Company handbook"],
+                    skillIds: ["research-brief"],
+                    knowledgePackIds: ["delivery-playbook", "company-handbook"],
+                    workStyles: ["Methodical", "Action-oriented"],
+                    defaultMemoryEnabled: true
+                )
+            ]
+        ),
         summary: .init()
     )
 }

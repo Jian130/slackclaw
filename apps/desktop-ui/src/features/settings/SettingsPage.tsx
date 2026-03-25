@@ -1,9 +1,11 @@
 import { Download, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   exportDiagnostics,
   installAppService,
+  redoOnboarding,
   restartAppService,
   runUpdate,
   stopSlackClawApp,
@@ -23,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.j
 import { Badge } from "../../shared/ui/Badge.js";
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
   const { locale } = useLocale();
   const copy = t(locale).settings;
   const { overview, refresh } = useOverview();
@@ -36,6 +39,18 @@ export default function SettingsPage() {
       const result = await action();
       setMessage(result?.message ?? message);
       await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleRedoOnboarding() {
+    setBusy("redo-onboarding");
+    try {
+      await redoOnboarding();
+      await refresh();
+      setMessage(copy.redoOnboardingDone);
+      navigate("/onboarding", { replace: true });
     } finally {
       setBusy("");
     }
@@ -179,6 +194,10 @@ export default function SettingsPage() {
               <CardContent className="panel-stack">
                 <strong>Danger Zone</strong>
                 <p className="card__description">These actions are real daemon-backed controls, not mock buttons.</p>
+                <Button loading={busy === "redo-onboarding"} onClick={() => void handleRedoOnboarding()} variant="outline">
+                  {busy === "redo-onboarding" ? copy.redoOnboardingRunning : copy.redoOnboarding}
+                </Button>
+                <p className="card__description">{copy.redoOnboardingBody}</p>
                 <Button loading={busy === "uninstall-app"} onClick={() => void runAction("uninstall-app", uninstallSlackClawApp)} variant="danger">
                   <Trash2 size={14} />
                   {busy === "uninstall-app" ? "Uninstalling..." : copy.uninstallApp}

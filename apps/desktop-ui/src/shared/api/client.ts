@@ -245,6 +245,12 @@ export function completeOnboarding(request: CompleteOnboardingRequest): Promise<
   });
 }
 
+export function redoOnboarding(): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/reset", {
+    method: "POST"
+  });
+}
+
 export function fetchModelConfig(options?: { fresh?: boolean }): Promise<ModelConfigOverview> {
   return readJson<ModelConfigOverview>("/models/config", options);
 }

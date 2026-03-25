@@ -1,10 +1,10 @@
 import type { MemberAvatar } from "@slackclaw/contracts";
 
-import onboardingAnalyst from "./assets/avatars/onboarding-analyst.svg";
-import onboardingBuilder from "./assets/avatars/onboarding-builder.svg";
-import onboardingGuide from "./assets/avatars/onboarding-guide.svg";
-import onboardingStrategist from "./assets/avatars/onboarding-strategist.svg";
-import onboardingVisionary from "./assets/avatars/onboarding-visionary.svg";
+import onboardingAnalyst from "./assets/avatars/onboarding-analyst.png";
+import onboardingBuilder from "./assets/avatars/onboarding-builder.png";
+import onboardingGuide from "./assets/avatars/onboarding-guide.png";
+import onboardingStrategist from "./assets/avatars/onboarding-strategist.png";
+import onboardingVisionary from "./assets/avatars/onboarding-visionary.png";
 
 export interface AvatarPresetDefinition {
   id: string;
@@ -73,4 +73,3 @@ export function memberAvatarImageSrc(avatar?: Pick<MemberAvatar, "presetId">): s
 export function memberAvatarEmoji(avatar?: Pick<MemberAvatar, "presetId" | "emoji">): string {
   return avatar?.emoji || resolveMemberAvatarPreset(avatar?.presetId).emoji;
 }
-

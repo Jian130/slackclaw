@@ -42,6 +42,7 @@ The desktop shell is implemented as a web UI + local daemon boundary so a Tauri 
   - uses a six-step full-screen onboarding flow at `/onboarding`
   - persists draft onboarding progress through the daemon so refreshes resume the current step
   - wires install, model setup, channel setup, and AI employee creation to the real SlackClaw daemon flows instead of mock state
+  - uses a daemon-owned onboarding UI config so step 3 can curate the three guided model providers independently from the full Configuration-page provider catalog
 - Chat page:
   - supports real multi-thread chat with AI members backed by OpenClaw agents
   - creates or reuses chat threads per AI member
@@ -115,6 +116,8 @@ SlackClaw now includes a daemon-backed native macOS client with:
 - `apps/macos-native`: SwiftUI app shell and native product screens
 - `apps/shared/SlackClawKit`: native protocol models, daemon HTTP/WebSocket client layers, and reusable chat UI/view models
 - the same six-step daemon-backed onboarding gate as the React client, shown before the main native shell until first-run setup is fully completed
+- the same daemon-owned onboarding config for curated provider and channel selection, so React and native steps 3 and 4 stay aligned to one source of truth
+  - onboarding curated provider/channel metadata uses `platformUrl` for platform destinations, `docsUrl` for documentation links, and `tutorialVideoUrl` for optional in-app tutorial video modals
 
 The native client is the packaged default. The React UI remains in the repo and in the app bundle as:
 
@@ -228,6 +231,20 @@ When a user installs and opens SlackClaw for the first time:
 
 SlackClaw only marks first-run setup complete after the final onboarding step. If setup was not completed, SlackClaw resumes the onboarding flow instead of dropping the user straight into the main workspace.
 
+### Onboarding design baseline
+
+Onboarding screens follow a centered macOS setup layout rather than a full-width web-app layout.
+
+- main content width should follow `clamp(windowWidth × 0.70, 672, 1120)`
+- step-1 welcome card height should follow `clamp(contentWidth ÷ 1.74, 520, 616)` to avoid an oversized vertical canvas on normal desktop windows
+- header/logo text should stay capped at `768px` or `73%` of the content width
+- the ideal content aspect ratio is about `1.618 : 1`
+- onboarding uses the system font stack with a semantic scale centered on `34/40` hero text, `16/24` body copy, and `12/16` progress/meta text
+- onboarding spacing and shapes follow an 8-point grid with `32` outer padding, `24` feature-card padding, `24` outer radius, `16` feature-card radius, and `48–52px` primary CTA height
+- native onboarding windows default to `1280 × 860`, stay resizable, and use `960 × 720` as the minimum size
+
+For the full reference, see [docs/reference/onboarding-design.md](/Users/home/Ryo/Projects/slackclaw/docs/reference/onboarding-design.md).
+
 ## Channel setup
 
 After OpenClaw is deployed, SlackClaw exposes a guided channel setup panel in the UI:
@@ -289,7 +306,8 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 
 - Packaged SlackClaw prefers an existing `openclaw` install if one is already available.
 - If no install is found, SlackClaw deploys `openclaw@latest` into `~/Library/Application Support/SlackClaw/data/openclaw-runtime`.
-- Existing OpenClaw installs are reused as-is by default; explicit version overrides are reserved for compatibility testing and diagnostics.
+- Existing OpenClaw installs are reused when they are compatible, but SlackClaw now still normalizes the OpenClaw gateway baseline before treating that runtime as ready.
+- During install or reuse, SlackClaw forces the OpenClaw gateway config back to SlackClaw's safe local baseline: `gateway.mode=local`, `gateway.bind=loopback`, token auth enabled, existing token preserved when present, and inherited `gateway.remote` overrides removed.
 - Once that managed runtime exists, SlackClaw prefers it over an incompatible system-level OpenClaw.
 - If the user clicks `Deploy OpenClaw locally`, SlackClaw deploys the managed local runtime even when a compatible system OpenClaw already exists.
 - If `npm` is missing but Homebrew is available, SlackClaw now tries to install the needed `node`/`npm` toolchain and `git` through Homebrew before retrying local OpenClaw deployment.

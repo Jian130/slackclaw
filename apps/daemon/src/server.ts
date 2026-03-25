@@ -406,6 +406,11 @@ export function startServer(port = 4545) {
         return;
       }
 
+      if (request.method === "POST" && pathname === "/api/onboarding/reset") {
+        sendJson(response, 200, await onboardingService.reset());
+        return;
+      }
+
       if (request.method === "POST" && pathname === "/api/onboarding/complete") {
         const body = await readJson<CompleteOnboardingRequest>(request);
         sendJson(response, 200, await onboardingService.complete(body));

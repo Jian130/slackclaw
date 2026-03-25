@@ -874,8 +874,8 @@ exit 1
     const result = await adapter.install(false, { forceLocal: true });
 
     assert.equal(result.status, "installed");
-    assert.match(result.actualVersion ?? "", /2026\.3\.13/);
-    assert.match(result.message, /2026\.3\.13/);
+    assert.match(result.actualVersion ?? "", /OpenClaw 20\d{2}\.\d+\.\d+/);
+    assert.match(result.message, /OpenClaw 20\d{2}\.\d+\.\d+/);
   } finally {
     adapter.invalidateReadCaches();
     if (originalPath === undefined) {
@@ -887,6 +887,111 @@ exit 1
       delete process.env.SLACKCLAW_DATA_DIR;
     } else {
       process.env.SLACKCLAW_DATA_DIR = originalDataDir;
+    }
+    await rm(tempDir, { recursive: true, force: true });
+    releaseLock();
+  }
+});
+
+test("install normalizes reused OpenClaw gateway config to SlackClaw's local baseline", async () => {
+  const previousLock = fakeOpenClawLock;
+  let releaseLock = () => {};
+  fakeOpenClawLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await previousLock;
+
+  const tempDir = await mkdtemp(resolve(process.cwd(), "apps/daemon/.data/openclaw-config-normalize-test-"));
+  const dataDir = join(tempDir, "data");
+  const managedBinDir = join(dataDir, "openclaw-runtime", "node_modules", ".bin");
+  const managedBinary = join(managedBinDir, "openclaw");
+  const fakeHome = join(tempDir, "home");
+  const configPath = join(fakeHome, ".openclaw", "openclaw.json");
+  const originalDataDir = process.env.SLACKCLAW_DATA_DIR;
+  const originalHome = process.env.HOME;
+
+  await mkdir(managedBinDir, { recursive: true });
+  await mkdir(join(fakeHome, ".openclaw"), { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify(
+      {
+        gateway: {
+          mode: "remote",
+          bind: "loopback",
+          auth: {
+            mode: "token",
+            token: "existing-token"
+          },
+          remote: {
+            url: "ws://openclaw.local:18789",
+            sshTarget: "home@openclaw.local"
+          }
+        },
+        channels: {
+          telegram: {
+            enabled: true
+          }
+        }
+      },
+      null,
+      2
+    )
+  );
+  await writeFile(
+    managedBinary,
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "2026.3.13"
+elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
+  echo '{"configPath":${JSON.stringify(configPath)},"setup":{"required":false},"gateway":{"reachable":false},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"rpc":{"ok":false,"error":"gateway url override requires explicit credentials"},"service":{"installed":true,"loaded":true}}'
+elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.13"}},"channel":{"label":"stable"}}'
+else
+  echo '{}'
+fi
+`
+  );
+  await chmod(managedBinary, 0o755);
+
+  process.env.SLACKCLAW_DATA_DIR = dataDir;
+  process.env.HOME = fakeHome;
+
+  const adapter = new OpenClawAdapter();
+  adapter.invalidateReadCaches();
+
+  try {
+    const result = await adapter.install(false, { forceLocal: true });
+    const normalized = JSON.parse(await readFile(configPath, "utf8")) as {
+      gateway?: {
+        mode?: string;
+        bind?: string;
+        auth?: { mode?: string; token?: string };
+        remote?: Record<string, unknown>;
+      };
+      channels?: { telegram?: { enabled?: boolean } };
+    };
+
+    assert.equal(result.status, "installed");
+    assert.equal(normalized.gateway?.mode, "local");
+    assert.equal(normalized.gateway?.bind, "loopback");
+    assert.equal(normalized.gateway?.auth?.mode, "token");
+    assert.equal(normalized.gateway?.auth?.token, "existing-token");
+    assert.equal(normalized.gateway?.remote, undefined);
+    assert.equal(normalized.channels?.telegram?.enabled, true);
+  } finally {
+    adapter.invalidateReadCaches();
+    if (originalDataDir === undefined) {
+      delete process.env.SLACKCLAW_DATA_DIR;
+    } else {
+      process.env.SLACKCLAW_DATA_DIR = originalDataDir;
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
     }
     await rm(tempDir, { recursive: true, force: true });
     releaseLock();

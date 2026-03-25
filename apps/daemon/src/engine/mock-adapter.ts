@@ -124,7 +124,7 @@ export class MockAdapter implements EngineAdapter {
       providerId: "openai",
       modelKey: "openai/gpt-4o-mini",
       agentId: "main",
-      authMethodId: "api-key",
+      authMethodId: "openai-api-key",
       authModeLabel: "API key",
       profileLabel: "default",
       isDefault: true,
@@ -138,7 +138,7 @@ export class MockAdapter implements EngineAdapter {
       providerId: "openai",
       modelKey: "openai/gpt-5",
       agentId: "mock-agent-2",
-      authMethodId: "api-key",
+      authMethodId: "openai-api-key",
       authModeLabel: "API key",
       profileLabel: "default",
       isDefault: false,
@@ -149,12 +149,55 @@ export class MockAdapter implements EngineAdapter {
   ];
   private readonly providerCatalog: ModelProviderConfig[] = [
     {
+      id: "minimax",
+      label: "MiniMax",
+      description: "Mock MiniMax provider.",
+      docsUrl: "https://docs.openclaw.ai/providers/docs/minimax",
+      providerRefs: ["minimax/"],
+      authMethods: [
+        {
+          id: "minimax-api-key",
+          label: "API Key",
+          kind: "api-key",
+          description: "Paste a MiniMax API key.",
+          interactive: false,
+          fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }]
+        }
+      ],
+      configured: false,
+      modelCount: 1,
+      sampleModels: ["minimax/MiniMax-M2.5"]
+    },
+    {
+      id: "modelstudio",
+      label: "Model Studio",
+      description: "Mock Alibaba Cloud Model Studio provider.",
+      docsUrl: "https://docs.openclaw.ai/providers/docs/modelstudio",
+      providerRefs: ["modelstudio/"],
+      authMethods: [
+        {
+          id: "modelstudio-api-key-cn",
+          label: "API Key",
+          kind: "api-key",
+          description: "Paste a Model Studio API key.",
+          interactive: false,
+          fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }]
+        }
+      ],
+      configured: false,
+      modelCount: 1,
+      sampleModels: ["modelstudio/qwen3.5-plus"]
+    },
+    {
       id: "openai",
       label: "OpenAI",
       description: "Mock OpenAI provider.",
       docsUrl: "https://docs.openclaw.ai/providers/docs/openai",
-      providerRefs: ["openai/"],
-      authMethods: [{ id: "api-key", label: "API Key", kind: "api-key", description: "Paste an API key.", interactive: false, fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }] }],
+      providerRefs: ["openai/", "openai-codex/"],
+      authMethods: [
+        { id: "openai-api-key", label: "API Key", kind: "api-key", description: "Paste an API key.", interactive: false, fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }] },
+        { id: "openai-codex", label: "OAuth", kind: "oauth", description: "Connect with your OpenAI account.", interactive: true, fields: [] }
+      ],
       configured: true,
       modelCount: 2,
       sampleModels: ["openai/gpt-4o-mini", "openai/gpt-5"]

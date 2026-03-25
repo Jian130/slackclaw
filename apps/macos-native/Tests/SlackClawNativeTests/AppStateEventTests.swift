@@ -155,6 +155,48 @@ struct AppStateEventTests {
 
         #expect(await loadRecorder.events() == ["overview", "overview", "team"])
     }
+
+    @Test
+    func refreshCurrentSectionCancellationDoesNotSurfaceAlert() async {
+        let appState = makeEventDrivenAppState(
+            setupCompleted: true,
+            selectedSection: .deploy,
+            loader: .init(
+                fetchOverview: { makeNativeOverview(setupCompleted: true) },
+                fetchDeploymentTargets: { throw CancellationError() },
+                fetchModelConfig: { emptyNativeModelConfig() },
+                fetchChannelConfig: { emptyNativeChannelConfig() },
+                fetchSkillsConfig: { emptyNativeSkillConfig() },
+                fetchAITeamOverview: { emptyNativeAITeamOverview() }
+            )
+        )
+
+        await appState.refreshCurrentSectionIfNeeded()
+
+        #expect(appState.errorMessage == nil)
+    }
+
+    @Test
+    func applyDaemonEventCancellationDoesNotSurfaceAlert() async {
+        let appState = makeEventDrivenAppState(
+            setupCompleted: true,
+            selectedSection: .deploy,
+            loader: .init(
+                fetchOverview: { makeNativeOverview(setupCompleted: true) },
+                fetchDeploymentTargets: { throw CancellationError() },
+                fetchModelConfig: { emptyNativeModelConfig() },
+                fetchChannelConfig: { emptyNativeChannelConfig() },
+                fetchSkillsConfig: { emptyNativeSkillConfig() },
+                fetchAITeamOverview: { emptyNativeAITeamOverview() }
+            )
+        )
+
+        await appState.applyDaemonEvent(
+            SlackClawEvent.gatewayStatus(reachable: true, pendingGatewayApply: false, summary: "Ready")
+        )
+
+        #expect(appState.errorMessage == nil)
+    }
 }
 
 private actor NativeEventLoadRecorder {

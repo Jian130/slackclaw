@@ -6,13 +6,14 @@ protocol NativeApplicationControlling: AnyObject {
     @discardableResult
     func setActivationPolicy(_ activationPolicy: NSApplication.ActivationPolicy) -> Bool
     func activate(ignoringOtherApps flag: Bool)
-    func makeFirstWindowVisible()
+    func makeFirstWindowVisible(minimumSize: CGSize)
 }
 
 @MainActor
 extension NSApplication: NativeApplicationControlling {
-    func makeFirstWindowVisible() {
+    func makeFirstWindowVisible(minimumSize: CGSize) {
         guard let window = windows.first else { return }
+        window.contentMinSize = minimumSize
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
@@ -23,7 +24,7 @@ struct NativeLaunchCoordinator {
     static func configure(_ app: NativeApplicationControlling) {
         _ = app.setActivationPolicy(.regular)
         app.activate(ignoringOtherApps: true)
-        app.makeFirstWindowVisible()
+        app.makeFirstWindowVisible(minimumSize: nativeOnboardingMinimumWindowSize)
     }
 }
 

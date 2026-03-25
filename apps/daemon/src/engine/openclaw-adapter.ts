@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -402,9 +402,14 @@ interface OpenClawAdapterState {
 
 interface OpenClawConfigFileJson {
   gateway?: {
+    mode?: string;
+    bind?: string;
     auth?: {
+      mode?: string;
       token?: string;
+      password?: string;
     };
+    remote?: Record<string, unknown>;
   };
   channels?: Record<string, unknown>;
   auth?: {
@@ -444,6 +449,9 @@ const FEISHU_BUNDLED_SINCE = "2026.3.7";
 const OPENCLAW_MAIN_AGENT_ID = "main";
 const OPENCLAW_INSTALL_DOCS_URL = "https://docs.openclaw.ai/install";
 const OPENCLAW_MAC_DOCS_URL = "https://docs.openclaw.ai/mac/bun";
+const SLACKCLAW_OPENCLAW_GATEWAY_MODE = "local";
+const SLACKCLAW_OPENCLAW_GATEWAY_BIND = "loopback";
+const SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE = "token";
 const STANDARD_OPENCLAW_REQUIREMENTS = [
   "macOS",
   "Node.js 22 or newer",
@@ -1097,6 +1105,35 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
         onboardAuthChoice: "mistral-api-key",
         onboardFieldFlags: { apiKey: "--mistral-api-key" }
+      }
+    ]
+  },
+  {
+    id: "modelstudio",
+    label: "Model Studio (Qwen)",
+    description: "Alibaba Cloud Model Studio and Qwen-hosted models.",
+    docsUrl: `${PROVIDER_DOCS_BASE}/modelstudio`,
+    providerRefs: ["modelstudio/"],
+    authMethods: [
+      {
+        id: "modelstudio-api-key-cn",
+        label: "Model Studio CN API Key",
+        kind: "api-key",
+        description: "Paste an Alibaba Cloud Model Studio China-region API key.",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
+        onboardAuthChoice: "modelstudio-api-key-cn",
+        onboardFieldFlags: { apiKey: "--modelstudio-api-key-cn" }
+      },
+      {
+        id: "modelstudio-api-key",
+        label: "Model Studio API Key",
+        kind: "api-key",
+        description: "Paste an Alibaba Cloud Model Studio API key.",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
+        onboardAuthChoice: "modelstudio-api-key",
+        onboardFieldFlags: { apiKey: "--modelstudio-api-key" }
       }
     ]
   },
@@ -2923,6 +2960,55 @@ async function writeOpenClawConfigFile(configPath: string, config: OpenClawConfi
   await writeFile(normalizedPath, JSON.stringify(config, null, 2));
 }
 
+function generateSlackClawGatewayToken(): string {
+  return randomBytes(24).toString("hex");
+}
+
+function normalizeOpenClawGatewayConfigForSlackClaw(config: OpenClawConfigFileJson): {
+  changed: boolean;
+  config: OpenClawConfigFileJson;
+} {
+  const currentGateway = config.gateway ?? {};
+  const currentAuth = currentGateway.auth ?? {};
+  const trimmedToken = currentAuth.token?.trim();
+  const nextAuth: NonNullable<OpenClawConfigFileJson["gateway"]>["auth"] = {
+    ...currentAuth,
+    mode: SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE,
+    token: trimmedToken || generateSlackClawGatewayToken()
+  };
+
+  if ("password" in nextAuth) {
+    delete nextAuth.password;
+  }
+
+  const nextGateway: NonNullable<OpenClawConfigFileJson["gateway"]> = {
+    ...currentGateway,
+    mode: SLACKCLAW_OPENCLAW_GATEWAY_MODE,
+    bind: SLACKCLAW_OPENCLAW_GATEWAY_BIND,
+    auth: nextAuth
+  };
+
+  if ("remote" in nextGateway) {
+    delete nextGateway.remote;
+  }
+
+  const changed =
+    currentGateway.mode !== SLACKCLAW_OPENCLAW_GATEWAY_MODE ||
+    currentGateway.bind !== SLACKCLAW_OPENCLAW_GATEWAY_BIND ||
+    currentAuth.mode !== SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE ||
+    currentAuth.token !== nextAuth.token ||
+    Boolean(currentAuth.password) ||
+    currentGateway.remote !== undefined;
+
+  return {
+    changed,
+    config: {
+      ...config,
+      gateway: nextGateway
+    }
+  };
+}
+
 function defaultOpenClawConfigPath(): string {
   return resolve(process.env.HOME ?? "", ".openclaw", "openclaw.json");
 }
@@ -3867,6 +3953,43 @@ export class OpenClawAdapter implements EngineAdapter {
   private async writeOpenClawConfigSnapshot(configPath: string, config: OpenClawConfigFileJson): Promise<void> {
     await writeOpenClawConfigFile(configPath, config);
     invalidateReadCache("models:", "engine:");
+  }
+
+  private async resolveOpenClawConfigPathForInstall(command: string | undefined): Promise<string> {
+    if (!command) {
+      return defaultOpenClawConfigPath();
+    }
+
+    const result = await runCommand(command, ["models", "status", "--json"], { allowFailure: true }).catch(() => ({
+      code: 1,
+      stdout: "",
+      stderr: ""
+    }));
+    const status =
+      safeJsonPayloadParse<OpenClawModelStatusJson>(result.stdout) ??
+      safeJsonPayloadParse<OpenClawModelStatusJson>(result.stderr);
+
+    return status?.configPath ?? defaultOpenClawConfigPath();
+  }
+
+  private async ensureSlackClawGatewayConfigBaseline(command: string | undefined): Promise<boolean> {
+    const configPath = await this.resolveOpenClawConfigPathForInstall(command);
+    const currentConfig = (await readOpenClawConfigFile(configPath)) ?? {};
+    const normalized = normalizeOpenClawGatewayConfigForSlackClaw(currentConfig);
+
+    if (!normalized.changed) {
+      return false;
+    }
+
+    await writeOpenClawConfigFile(configPath, normalized.config);
+    invalidateReadCache("models:", "engine:");
+    await writeInfoLog("Normalized OpenClaw gateway config to SlackClaw's local baseline.", {
+      configPath,
+      gatewayMode: SLACKCLAW_OPENCLAW_GATEWAY_MODE,
+      gatewayBind: SLACKCLAW_OPENCLAW_GATEWAY_BIND,
+      gatewayAuthMode: SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE
+    });
+    return true;
   }
 
   private async mutateOpenClawConfig(
@@ -7519,17 +7642,25 @@ export class OpenClawAdapter implements EngineAdapter {
     const brewCommand = await resolveBrewCommand();
 
     if (isOpenClawVersionCompatible(existingVersion)) {
+      const reusedCommand = usesManagedLocalRuntime
+        ? await resolveManagedOpenClawCommand({ fresh: true })
+        : await resolveSystemOpenClawCommand({ fresh: true });
+      const configChanged = await this.ensureSlackClawGatewayConfigBaseline(reusedCommand);
+      const gatewayNormalizationSuffix = configChanged
+        ? " SlackClaw also reset the OpenClaw gateway to its local baseline on this Mac."
+        : "";
+
       return {
         status: "reused-existing",
-        changed: false,
+        changed: configChanged,
         hadExisting: true,
         existingVersion,
         version: existingVersion,
         message: usesManagedLocalRuntime
-          ? `OpenClaw ${existingVersion} is already available in SlackClaw's managed local runtime.`
+          ? `OpenClaw ${existingVersion} is already available in SlackClaw's managed local runtime.${gatewayNormalizationSuffix}`
           : OPENCLAW_VERSION_OVERRIDE
-            ? `OpenClaw ${existingVersion} is already installed and meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
-            : `OpenClaw ${existingVersion} is already installed and ready for SlackClaw.`
+            ? `OpenClaw ${existingVersion} is already installed and meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.${gatewayNormalizationSuffix}`
+            : `OpenClaw ${existingVersion} is already installed and ready for SlackClaw.${gatewayNormalizationSuffix}`
       };
     }
 
@@ -7581,6 +7712,14 @@ export class OpenClawAdapter implements EngineAdapter {
       );
     }
 
+    const installedCommand = usesManagedLocalRuntime
+      ? await resolveManagedOpenClawCommand({ fresh: true })
+      : await resolveSystemOpenClawCommand({ fresh: true });
+    const configChanged = await this.ensureSlackClawGatewayConfigBaseline(installedCommand);
+    const gatewayNormalizationSuffix = configChanged
+      ? " SlackClaw also reset the OpenClaw gateway to its local baseline on this Mac."
+      : "";
+
     return {
       status: existingVersion || systemVersion ? "reinstalled" : "installed",
       changed: true,
@@ -7589,13 +7728,13 @@ export class OpenClawAdapter implements EngineAdapter {
       version: nextVersion,
       message: usesManagedLocalRuntime
         ? existingVersion
-          ? `SlackClaw refreshed its managed local OpenClaw ${nextVersion} runtime in ${installPath}.`
+          ? `SlackClaw refreshed its managed local OpenClaw ${nextVersion} runtime in ${installPath}.${gatewayNormalizationSuffix}`
           : systemVersion
-            ? `SlackClaw deployed a managed local OpenClaw ${nextVersion} runtime into ${installPath} instead of depending on the system OpenClaw ${systemVersion}.`
-            : `SlackClaw deployed OpenClaw ${nextVersion} locally into ${installPath}.`
+            ? `SlackClaw deployed a managed local OpenClaw ${nextVersion} runtime into ${installPath} instead of depending on the system OpenClaw ${systemVersion}.${gatewayNormalizationSuffix}`
+            : `SlackClaw deployed OpenClaw ${nextVersion} locally into ${installPath}.${gatewayNormalizationSuffix}`
         : existingVersion
-          ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion}.`
-          : `Installed OpenClaw ${nextVersion}.`
+          ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion}.${gatewayNormalizationSuffix}`
+          : `Installed OpenClaw ${nextVersion}.${gatewayNormalizationSuffix}`
     };
   }
 

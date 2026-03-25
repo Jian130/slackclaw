@@ -158,7 +158,7 @@ final class SlackClawAppState {
         do {
             try await refreshOverview()
         } catch {
-            errorMessage = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
         hasBootstrapped = true
         startDaemonEventsIfNeeded()
@@ -179,7 +179,7 @@ final class SlackClawAppState {
             guard !requiresOnboarding else { return }
             try await refreshCurrentSectionData()
         } catch {
-            errorMessage = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
@@ -189,7 +189,7 @@ final class SlackClawAppState {
             try await refreshCurrentSectionData()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
     }
 
@@ -208,6 +208,21 @@ final class SlackClawAppState {
 
     func openFallbackWeb() {
         NSWorkspace.shared.open(configuration.fallbackWebURL)
+    }
+
+    func redoOnboarding() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            _ = try await client.resetOnboarding()
+            selectedSection = .dashboard
+            try await refreshOverview()
+            bannerMessage = "Returning to guided setup."
+            errorMessage = nil
+        } catch {
+            presentErrorUnlessCancelled(error)
+        }
     }
 
     func startDaemonEventsIfNeeded() {
@@ -233,7 +248,7 @@ final class SlackClawAppState {
             do {
                 try await refreshOverview()
             } catch {
-                errorMessage = error.localizedDescription
+                presentErrorUnlessCancelled(error)
             }
         }
 
@@ -244,8 +259,35 @@ final class SlackClawAppState {
             try await refreshCurrentSectionData()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            presentErrorUnlessCancelled(error)
         }
+    }
+
+    func presentErrorUnlessCancelled(_ error: Error) {
+        guard !isCancellation(error) else { return }
+        errorMessage = error.localizedDescription
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        let nsError = error as NSError
+        if (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
+            || nsError.domain == "Swift.CancellationError"
+        {
+            return true
+        }
+
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSURLErrorDomain,
+           underlying.code == NSURLErrorCancelled
+        {
+            return true
+        }
+
+        return false
     }
 
     private func refreshOverview() async throws {

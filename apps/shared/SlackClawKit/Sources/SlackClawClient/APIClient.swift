@@ -61,6 +61,10 @@ public final class SlackClawAPIClient: @unchecked Sendable {
         try await patch("/api/onboarding/state", body: request)
     }
 
+    public func resetOnboarding() async throws -> OnboardingStateResponse {
+        try await post("/api/onboarding/reset", body: EmptyBody())
+    }
+
     public func completeOnboarding(_ request: CompleteOnboardingRequest) async throws -> CompleteOnboardingResponse {
         try await post("/api/onboarding/complete", body: request)
     }

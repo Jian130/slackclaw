@@ -1,10 +1,20 @@
 import {
+  AlertCircle,
   ArrowRight,
-  Bot,
+  Brain,
+  ChevronRight,
+  CheckCircle2,
+  Download,
   ExternalLink,
+  Info,
+  Key,
   LoaderCircle,
+  MessageCircle,
   MessageSquare,
+  PlayCircle,
   Rocket,
+  Server,
+  Send,
   Sparkles,
   Users
 } from "lucide-react";
@@ -12,7 +22,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   AITeamOverview,
-  ChannelCapability,
   ChannelConfigActionResponse,
   ChannelConfigOverview,
   ConfiguredChannelEntry,
@@ -20,7 +29,6 @@ import type {
   ModelAuthSessionResponse,
   ModelConfigActionResponse,
   ModelConfigOverview,
-  ModelProviderConfig,
   OnboardingStateResponse,
   ProductOverview,
   SaveChannelEntryRequest,
@@ -44,93 +52,90 @@ import {
   updateChannelEntry,
   updateOnboardingState
 } from "../../shared/api/client.js";
-import { memberAvatarPresets, resolveMemberAvatarPreset } from "../../shared/avatar-presets.js";
+import { memberAvatarImageSrc, memberAvatarPresets, resolveMemberAvatarPreset } from "../../shared/avatar-presets.js";
 import { settleAfterMutation } from "../../shared/data/settle.js";
 import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent } from "../../shared/ui/Card.js";
-import { FieldLabel, Input, Select, Textarea } from "../../shared/ui/Field.js";
+import { FieldLabel, Input } from "../../shared/ui/Field.js";
+import { Dialog } from "../../shared/ui/Dialog.js";
+import { LanguageSelector } from "../../shared/ui/LanguageSelector.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
-import { ProviderLogo } from "../../shared/ui/ProviderLogo.js";
 import { onboardingCopy } from "./copy.js";
 import {
+  buildExistingInstallAdvanceDraft,
+  buildOnboardingChannelSaveValues,
   buildOnboardingMemberRequest,
   onboardingDestinationPath,
+  resolveOnboardingEmployeePresets,
   onboardingRefreshResourceForEvent,
-  type OnboardingEmployeeDraft
+  resolveOnboardingChannelPresentations,
+  resolveOnboardingChannelSetupVariant,
+  resolveOnboardingInstallViewState,
+  resolveOnboardingModelPickerProviders,
+  resolveOnboardingModelSetupVariant,
+  resolveOnboardingModelViewState,
+  resolveOnboardingProviderId,
+  resolveOnboardingModelProviders,
+  shouldShowOnboardingAuthMethodChooser,
+  type OnboardingEmployeeDraft,
+  type OnboardingInstallProgressSnapshot
 } from "./helpers.js";
 
-const MODEL_KEY_CUSTOM_OPTION = "__custom_model_key__";
-const ONBOARDING_CHANNEL_IDS = new Set(["wechat", "feishu", "telegram"]);
 const ONBOARDING_STEP_ORDER = ["welcome", "install", "model", "channel", "employee", "complete"] as const;
 const ONBOARDING_AVATAR_PRESETS = memberAvatarPresets.filter((preset) => preset.id.startsWith("onboarding-"));
-const ONBOARDING_TRAITS = [
-  "Analytical",
-  "Creative",
-  "Strategic",
-  "Empathetic",
-  "Innovative",
-  "Detail-Oriented",
-  "Collaborative",
-  "Assertive"
-];
 
 function isCurrentOrLaterStep(step: OnboardingStateResponse["draft"]["currentStep"], target: typeof ONBOARDING_STEP_ORDER[number]) {
   return ONBOARDING_STEP_ORDER.indexOf(step) >= ONBOARDING_STEP_ORDER.indexOf(target);
 }
 
 function channelIcon(channelId: string) {
-  const icons: Record<string, string> = {
-    telegram: "TG",
-    feishu: "飞",
-    wechat: "企微"
-  };
-
-  return icons[channelId] ?? channelId.slice(0, 2).toUpperCase();
+  switch (channelId) {
+    case "telegram":
+      return <Send size={28} strokeWidth={2} />;
+    case "feishu":
+    case "wechat":
+    default:
+      return <MessageCircle size={28} strokeWidth={2} />;
+  }
 }
 
-function modelOptions(modelConfig: ModelConfigOverview | undefined, provider: ModelProviderConfig | undefined) {
-  if (!modelConfig || !provider) {
-    return [];
-  }
-
-  const providerModels = modelConfig.models.filter((model) =>
-    provider.providerRefs.some((ref) => model.key.startsWith(`${ref.replace(/\/$/, "")}/`))
-  );
-
-  if (providerModels.length > 0) {
-    return providerModels;
-  }
-
-  return provider.sampleModels.map((modelKey) => ({
-    key: modelKey,
-    name: modelKey.split("/").pop() ?? modelKey,
-    input: "text",
-    contextWindow: 0,
-    local: false,
-    available: false,
-    tags: [],
-    missing: false
-  }));
+function onboardingChannelThemeClass(theme: "wechat" | "feishu" | "telegram") {
+  return `onboarding-channel-theme onboarding-channel-theme--${theme}`;
 }
 
-function modelKeyPlaceholder(provider: ModelProviderConfig | undefined) {
-  if (!provider) {
-    return "provider/model-name";
+function defaultChannelValuesFor(channelId: string): Record<string, string> {
+  switch (channelId) {
+    case "wechat":
+      return { pluginSpec: "@openclaw-china/wecom-app" };
+    case "feishu":
+      return { domain: "feishu", botName: "SlackClaw Assistant" };
+    default:
+      return {};
   }
-
-  return provider.sampleModels[0] ?? `${provider.providerRefs[0]?.replace(/\/?$/, "/") ?? ""}model-name`;
 }
 
-function modelSelectValue(models: Array<{ key: string }>, modelKey: string) {
-  if (!modelKey) {
-    return models[0]?.key ?? MODEL_KEY_CUSTOM_OPTION;
-  }
+function onboardingProviderThemeClass(theme: OnboardingStateResponse["config"]["modelProviders"][number]["theme"]) {
+  return `onboarding-provider-theme onboarding-provider-theme--${theme}`;
+}
 
-  return models.some((item) => item.key === modelKey) ? modelKey : MODEL_KEY_CUSTOM_OPTION;
+function onboardingAuthMethodIcon(method: ModelAuthMethod) {
+  return method.kind === "oauth" ? <Sparkles size={18} /> : <Key size={18} />;
+}
+
+function onboardingAuthMethodLabel(copy: ReturnType<typeof onboardingCopy>, method: ModelAuthMethod) {
+  return method.kind === "oauth" ? copy.authOAuthLabel : copy.authApiKeyLabel;
+}
+
+function onboardingAuthMethodBody(copy: ReturnType<typeof onboardingCopy>, method: ModelAuthMethod) {
+  return method.kind === "oauth" ? copy.authOAuthBody : copy.authApiKeyBody;
+}
+
+function formatOnboardingProgressLabel(template: string, current: number, total: number) {
+  return template.replace("{current}", String(current)).replace("{total}", String(total));
 }
 
 function installDisposition(overview: ProductOverview | undefined, setup: Awaited<ReturnType<typeof runFirstRunSetup>>) {
@@ -203,12 +208,20 @@ function onboardingFieldValue(
   return values[fieldId] ?? fallback ?? "";
 }
 
-function requiredChannelFieldsMissing(capability: ChannelCapability | undefined, values: Record<string, string>) {
-  if (!capability) {
-    return true;
+function requiredChannelSetupFieldsMissing(
+  setupVariant: ReturnType<typeof resolveOnboardingChannelSetupVariant> | undefined,
+  values: Record<string, string>
+) {
+  switch (setupVariant) {
+    case "wechat-guided":
+      return !values.corpId?.trim() || !values.agentId?.trim() || !values.secret?.trim();
+    case "telegram-guided":
+      return !values.token?.trim();
+    case "feishu-guided":
+      return !values.appId?.trim() || !values.appSecret?.trim();
+    default:
+      return true;
   }
-
-  return capability.fieldDefs.some((field) => field.required && !values[field.id]?.trim());
 }
 
 function requiredModelFieldsMissing(method: ModelAuthMethod | undefined, values: Record<string, string>) {
@@ -227,8 +240,14 @@ export default function OnboardingPage() {
   const { overview, refresh, setOverview } = useOverview();
 
   const [onboardingState, setOnboardingState] = useState<OnboardingStateResponse>();
+  const [lastKnownModelPickerProviders, setLastKnownModelPickerProviders] = useState<
+    OnboardingStateResponse["config"]["modelProviders"]
+  >([]);
+  const [lastKnownChannels, setLastKnownChannels] = useState<OnboardingStateResponse["config"]["channels"]>([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string>();
+  const [installBusy, setInstallBusy] = useState(false);
+  const [installProgress, setInstallProgress] = useState<OnboardingInstallProgressSnapshot>();
 
   const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
   const [channelConfig, setChannelConfig] = useState<ChannelConfigOverview>();
@@ -242,18 +261,19 @@ export default function OnboardingPage() {
   const [modelSession, setModelSession] = useState<ModelAuthSessionResponse["session"]>();
   const [modelSessionInput, setModelSessionInput] = useState("");
   const [modelBusy, setModelBusy] = useState<"" | "save" | "input">("");
+  const [modelTutorialOpen, setModelTutorialOpen] = useState(false);
 
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [channelValues, setChannelValues] = useState<Record<string, string>>({});
   const [channelMessage, setChannelMessage] = useState("");
   const [channelBusy, setChannelBusy] = useState(false);
   const [channelRequiresApply, setChannelRequiresApply] = useState(false);
+  const [channelTutorialOpen, setChannelTutorialOpen] = useState(false);
 
   const [employeeName, setEmployeeName] = useState("");
   const [employeeJobTitle, setEmployeeJobTitle] = useState("");
   const [employeeAvatarPresetId, setEmployeeAvatarPresetId] = useState(ONBOARDING_AVATAR_PRESETS[0]?.id ?? memberAvatarPresets[0].id);
-  const [selectedTraits, setSelectedTraits] = useState<string[]>(["Analytical", "Detail-Oriented"]);
-  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [selectedEmployeePresetId, setSelectedEmployeePresetId] = useState("");
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [employeeBusy, setEmployeeBusy] = useState(false);
   const [completionBusy, setCompletionBusy] = useState<"" | "team" | "dashboard" | "chat">("");
@@ -261,18 +281,45 @@ export default function OnboardingPage() {
   const currentDraft = onboardingState?.draft ?? { currentStep: "welcome" as const };
   const currentStep = currentDraft.currentStep;
   const currentStepIndex = ONBOARDING_STEP_ORDER.indexOf(currentStep);
-
-  const selectedProvider = modelConfig?.providers.find((provider) => provider.id === providerId);
-  const selectedMethod = selectedProvider?.authMethods.find((method) => method.id === methodId);
-  const availableModels = modelOptions(modelConfig, selectedProvider);
-  const selectedModelValue = modelSelectValue(availableModels, modelKey);
-  const showCustomModelInput = availableModels.length === 0 || selectedModelValue === MODEL_KEY_CUSTOM_OPTION;
-
-  const visibleChannelCapabilities = useMemo(
-    () => channelConfig?.capabilities.filter((capability) => ONBOARDING_CHANNEL_IDS.has(capability.id)) ?? [],
-    [channelConfig?.capabilities]
+  const progressPercent = Math.round(((currentStepIndex + 1) / ONBOARDING_STEP_ORDER.length) * 100);
+  const installViewState = resolveOnboardingInstallViewState(
+    {
+      overview,
+      install: currentDraft.install,
+      busy: installBusy,
+      progress: installProgress
+    },
+    copy
   );
-  const selectedChannelCapability = visibleChannelCapabilities.find((capability) => capability.id === selectedChannelId);
+
+  const resolvedModelProviders = useMemo(
+    () => resolveOnboardingModelProviders(onboardingState, modelConfig),
+    [modelConfig, onboardingState]
+  );
+  const modelPickerProviders = useMemo(
+    () => {
+      const providers = resolveOnboardingModelPickerProviders(onboardingState);
+      return providers.length > 0 ? providers : lastKnownModelPickerProviders;
+    },
+    [lastKnownModelPickerProviders, onboardingState]
+  );
+  const selectedProviderOption = resolvedModelProviders.find((provider) => provider.id === providerId);
+  const selectedProviderPresentation =
+    selectedProviderOption?.curated ?? modelPickerProviders.find((provider) => provider.id === providerId);
+  const selectedAuthMethods = selectedProviderPresentation?.authMethods ?? [];
+  const selectedMethod = selectedAuthMethods.find((method) => method.id === methodId);
+  const shouldShowAuthMethodChooser = shouldShowOnboardingAuthMethodChooser(selectedAuthMethods);
+  const selectedSetupVariant = resolveOnboardingModelSetupVariant({
+    providerId: selectedProviderPresentation?.id ?? "",
+    methodKind: selectedMethod?.kind
+  });
+
+  const channelPickerChannels = useMemo(() => {
+    const channels = resolveOnboardingChannelPresentations(onboardingState);
+    return channels.length > 0 ? channels : lastKnownChannels;
+  }, [lastKnownChannels, onboardingState]);
+  const selectedChannelPresentation = channelPickerChannels.find((channel) => channel.id === selectedChannelId);
+  const selectedChannelSetupVariant = resolveOnboardingChannelSetupVariant(selectedChannelPresentation?.setupKind);
   const selectedChannelEntry = useMemo(() => {
     if (!channelConfig || !selectedChannelId) {
       return undefined;
@@ -299,13 +346,40 @@ export default function OnboardingPage() {
         : undefined)
     );
   }, [currentDraft.model, modelConfig, onboardingState?.summary.model?.entryId]);
+  const modelViewState = useMemo(
+    () =>
+      resolveOnboardingModelViewState({
+        providerId,
+        methodId,
+        modelKey,
+        providers: resolvedModelProviders,
+        selectedEntry: selectedModelEntry,
+        draftEntryId: currentDraft.model?.entryId,
+        summaryEntryId: onboardingState?.summary.model?.entryId,
+        activeModelAuthSessionId: currentDraft.activeModelAuthSessionId
+      }),
+    [
+      currentDraft.activeModelAuthSessionId,
+      currentDraft.model?.entryId,
+      methodId,
+      modelKey,
+      onboardingState?.summary.model?.entryId,
+      providerId,
+      resolvedModelProviders,
+      selectedModelEntry
+    ]
+  );
 
   const selectedBrainEntryId = selectedModelEntry?.id ?? onboardingState?.summary.model?.entryId;
   const selectedEmployeeAvatar = resolveMemberAvatarPreset(employeeAvatarPresetId);
-  const selectedSkills = useMemo(
-    () => teamOverview?.skillOptions.filter((skill) => selectedSkillIds.includes(skill.id)) ?? [],
-    [selectedSkillIds, teamOverview?.skillOptions]
-  );
+  const employeePresets = useMemo(() => resolveOnboardingEmployeePresets(onboardingState), [onboardingState]);
+  const selectedEmployeePreset = useMemo(() => {
+    if (employeePresets.length === 0) {
+      return undefined;
+    }
+
+    return employeePresets.find((preset) => preset.id === selectedEmployeePresetId) ?? employeePresets[0];
+  }, [employeePresets, selectedEmployeePresetId]);
 
   async function readFreshOverview() {
     const next = await refresh({ fresh: true });
@@ -389,11 +463,18 @@ export default function OnboardingPage() {
   }, [refresh]);
 
   useEffect(() => {
+    const providers = resolveOnboardingModelPickerProviders(onboardingState);
+    if (providers.length > 0) {
+      setLastKnownModelPickerProviders(providers);
+    }
+  }, [onboardingState]);
+
+  useEffect(() => {
     if (!onboardingState) {
       return;
     }
 
-    if (isCurrentOrLaterStep(currentStep, "model") || Boolean(currentDraft.activeModelAuthSessionId) || Boolean(currentDraft.model)) {
+    if (Boolean(currentDraft.activeModelAuthSessionId) || Boolean(currentDraft.model?.entryId)) {
       void readFreshModelConfig().catch(() => undefined);
     }
 
@@ -407,37 +488,54 @@ export default function OnboardingPage() {
   }, [currentDraft.activeModelAuthSessionId, currentDraft.channel, currentDraft.employee, currentDraft.model, currentStep, onboardingState]);
 
   useEffect(() => {
-    if (!modelConfig) {
+    if (currentStep !== "model" || !onboardingState || modelPickerProviders.length > 0) {
       return;
     }
 
-    setProviderId((current) => current || currentDraft.model?.providerId || modelConfig.providers[0]?.id || "");
-  }, [currentDraft.model?.providerId, modelConfig]);
+    void refreshOnboardingState().catch(() => undefined);
+  }, [currentStep, modelPickerProviders.length, onboardingState]);
 
   useEffect(() => {
-    if (!selectedProvider) {
+    if (!modelPickerProviders.length) {
+      setProviderId("");
+      return;
+    }
+
+    setProviderId((current) => resolveOnboardingProviderId(current, currentDraft.model?.providerId, modelPickerProviders));
+  }, [currentDraft.model?.providerId, modelPickerProviders]);
+
+  useEffect(() => {
+    if (!selectedProviderPresentation) {
       return;
     }
 
     setMethodId((current) => {
-      if (current && selectedProvider.authMethods.some((method) => method.id === current)) {
+      if (current && selectedProviderPresentation.authMethods.some((method) => method.id === current)) {
         return current;
       }
 
-      return currentDraft.model?.methodId ?? selectedProvider.authMethods[0]?.id ?? "";
+      return currentDraft.model?.methodId ?? selectedProviderPresentation.authMethods[0]?.id ?? "";
     });
 
     setModelKey((current) => {
-      if (current && availableModels.some((model) => model.key === current)) {
+      if (current && current === selectedProviderPresentation.defaultModelKey) {
         return current;
       }
 
-      return currentDraft.model?.modelKey ?? selectedProvider.sampleModels[0] ?? availableModels[0]?.key ?? "";
+      return currentDraft.model?.modelKey || selectedProviderPresentation.defaultModelKey;
     });
-  }, [availableModels, currentDraft.model?.methodId, currentDraft.model?.modelKey, selectedProvider]);
+  }, [currentDraft.model?.methodId, currentDraft.model?.modelKey, selectedProviderPresentation]);
 
   useEffect(() => {
     return subscribeToDaemonEvents((event) => {
+      if (currentStep === "install" && event.type === "deploy.progress") {
+        setInstallProgress({
+          phase: event.phase,
+          percent: event.percent,
+          message: event.message
+        });
+      }
+
       const resource = onboardingRefreshResourceForEvent(currentStep, event);
       if (!resource) {
         return;
@@ -467,30 +565,39 @@ export default function OnboardingPage() {
   }, [currentStep, refresh]);
 
   useEffect(() => {
-    if (!selectedProvider || !modelKey) {
-      return;
+    const channels = resolveOnboardingChannelPresentations(onboardingState);
+    if (channels.length > 0) {
+      setLastKnownChannels(channels);
     }
-
-    setModelLabel((current) => current || `${selectedProvider.label} ${modelKey.split("/").pop() ?? "model"}`);
-  }, [modelKey, selectedProvider]);
+  }, [onboardingState]);
 
   useEffect(() => {
-    if (!channelConfig) {
+    if (currentStep !== "install") {
+      setInstallProgress(undefined);
+    }
+  }, [currentStep]);
+
+  useEffect(() => {
+    if (!selectedProviderPresentation || !modelKey) {
       return;
     }
 
-    setSelectedChannelId((current) => current || currentDraft.channel?.channelId || visibleChannelCapabilities[0]?.id || "");
-  }, [channelConfig, currentDraft.channel?.channelId, visibleChannelCapabilities]);
+    const providerLabel = selectedProviderPresentation.label;
+    setModelLabel((current) => current || providerLabel);
+  }, [modelKey, selectedProviderPresentation]);
+
+  useEffect(() => {
+    setSelectedChannelId((current) => resolveOnboardingProviderId(current, currentDraft.channel?.channelId, channelPickerChannels));
+  }, [channelPickerChannels, currentDraft.channel?.channelId]);
 
   useEffect(() => {
     if (!selectedChannelId) {
+      setChannelValues({});
       return;
     }
 
     setChannelValues({
-      domain: "feishu",
-      botName: "SlackClaw Assistant",
-      pluginSpec: "@openclaw-china/wecom-app",
+      ...defaultChannelValuesFor(selectedChannelId),
       ...(selectedChannelEntry?.editableValues ?? {})
     });
   }, [selectedChannelEntry?.id, selectedChannelId]);
@@ -504,11 +611,23 @@ export default function OnboardingPage() {
       setEmployeeName((current) => current || currentDraft.employee?.name || "");
       setEmployeeJobTitle((current) => current || currentDraft.employee?.jobTitle || "");
       setEmployeeAvatarPresetId((current) => current || currentDraft.employee?.avatarPresetId || ONBOARDING_AVATAR_PRESETS[0]?.id || memberAvatarPresets[0].id);
-      setSelectedTraits((current) => current.length > 0 ? current : currentDraft.employee?.personalityTraits ?? ["Analytical", "Detail-Oriented"]);
-      setSelectedSkillIds((current) => current.length > 0 ? current : currentDraft.employee?.skillIds ?? []);
-      setMemoryEnabled(currentDraft.employee.memoryEnabled ?? true);
+      setSelectedEmployeePresetId((current) => current || currentDraft.employee?.presetId || employeePresets[0]?.id || "");
+      setMemoryEnabled(currentDraft.employee.memoryEnabled ?? selectedEmployeePreset?.defaultMemoryEnabled ?? true);
     }
-  }, [currentDraft.employee, currentStep]);
+  }, [currentDraft.employee, currentStep, employeePresets, selectedEmployeePreset?.defaultMemoryEnabled]);
+
+  useEffect(() => {
+    if (currentStep !== "employee") {
+      return;
+    }
+
+    if (!selectedEmployeePresetId && employeePresets[0]?.id) {
+      setSelectedEmployeePresetId(employeePresets[0].id);
+      if (currentDraft.employee?.memoryEnabled === undefined && employeePresets[0].defaultMemoryEnabled !== undefined) {
+        setMemoryEnabled(employeePresets[0].defaultMemoryEnabled);
+      }
+    }
+  }, [currentDraft.employee?.memoryEnabled, currentStep, employeePresets, selectedEmployeePresetId]);
 
   useEffect(() => {
     if (!currentDraft.activeModelAuthSessionId) {
@@ -541,55 +660,6 @@ export default function OnboardingPage() {
   }, [currentDraft.activeModelAuthSessionId]);
 
   useEffect(() => {
-    if (currentStep !== "model" || !providerId || !modelKey) {
-      return;
-    }
-
-    const nextModelState = {
-      providerId,
-      modelKey,
-      methodId,
-      entryId: currentDraft.model?.entryId
-    };
-
-    if (JSON.stringify(nextModelState) === JSON.stringify(currentDraft.model ?? {})) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void persistDraft({ model: nextModelState });
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [currentDraft.model, currentStep, methodId, modelKey, providerId]);
-
-  useEffect(() => {
-    if (currentStep !== "channel" || !selectedChannelId) {
-      return;
-    }
-
-    const selectedChannelStateId = visibleChannelCapabilities.find((capability) => capability.id === selectedChannelId)?.id;
-    if (!selectedChannelStateId) {
-      return;
-    }
-
-    const nextChannelState = {
-      channelId: selectedChannelStateId,
-      entryId: currentDraft.channel?.entryId
-    };
-
-    if (JSON.stringify(nextChannelState) === JSON.stringify(currentDraft.channel ?? {})) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void persistDraft({ channel: nextChannelState });
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [currentDraft.channel, currentStep, selectedChannelId, visibleChannelCapabilities]);
-
-  useEffect(() => {
     if (currentStep !== "employee") {
       return;
     }
@@ -599,8 +669,11 @@ export default function OnboardingPage() {
       name: employeeName,
       jobTitle: employeeJobTitle,
       avatarPresetId: employeeAvatarPresetId,
-      personalityTraits: selectedTraits,
-      skillIds: selectedSkillIds,
+      presetId: selectedEmployeePreset?.id,
+      personalityTraits: [],
+      skillIds: selectedEmployeePreset?.skillIds ?? [],
+      knowledgePackIds: selectedEmployeePreset?.knowledgePackIds ?? [],
+      workStyles: selectedEmployeePreset?.workStyles ?? [],
       memoryEnabled
     };
 
@@ -613,7 +686,7 @@ export default function OnboardingPage() {
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [currentDraft.employee, currentStep, employeeAvatarPresetId, employeeJobTitle, employeeName, memoryEnabled, selectedSkillIds, selectedTraits]);
+  }, [currentDraft.employee, currentStep, employeeAvatarPresetId, employeeJobTitle, employeeName, memoryEnabled, selectedEmployeePreset]);
 
   useEffect(() => {
     if (!modelSession?.id) {
@@ -652,7 +725,7 @@ export default function OnboardingPage() {
           );
 
         await persistDraft({
-          currentStep: "channel",
+          currentStep: "model",
           model: {
             providerId: nextEntry?.providerId ?? providerId,
             modelKey: nextEntry?.modelKey ?? modelKey,
@@ -678,9 +751,50 @@ export default function OnboardingPage() {
     await persistDraft({ currentStep: "install" });
   }
 
+  async function handleUseExistingInstall() {
+    setPageError(undefined);
+    await persistDraft(buildExistingInstallAdvanceDraft(overview));
+  }
+
+  async function handleAdvanceToModel() {
+    setPageError(undefined);
+    await persistDraft({ currentStep: "model" });
+  }
+
+  async function handleAdvanceToChannel() {
+    setPageError(undefined);
+    await persistDraft({ currentStep: "channel" });
+  }
+
+  async function handleReturnToModelPicker() {
+    setPageError(undefined);
+    setProviderId("");
+    setMethodId("");
+    setModelKey("");
+    setModelLabel("");
+    setModelValues({});
+    setModelSession(undefined);
+    setModelSessionInput("");
+
+    await persistDraft({
+      currentStep: "model",
+      model: {
+        providerId: "",
+        modelKey: "",
+        methodId: ""
+      },
+      activeModelAuthSessionId: ""
+    });
+  }
+
   async function handleInstall() {
     setPageError(undefined);
-    setPageLoading(true);
+    setInstallBusy(true);
+    setInstallProgress({
+      phase: "detecting",
+      percent: 16,
+      message: copy.installStageDetecting
+    });
     try {
       const result = await settleAfterMutation({
         mutate: () => runFirstRunSetup(),
@@ -699,18 +813,18 @@ export default function OnboardingPage() {
       };
 
       await persistDraft({
-        currentStep: "model",
+        currentStep: "install",
         install: installState
       });
     } catch (actionError) {
       setPageError(actionError instanceof Error ? actionError.message : "SlackClaw could not finish installation.");
     } finally {
-      setPageLoading(false);
+      setInstallBusy(false);
     }
   }
 
   async function handleSaveModel() {
-    if (!selectedProvider || !selectedMethod || !modelKey.trim()) {
+    if (!selectedProviderPresentation || !selectedMethod || !modelKey.trim()) {
       setPageError(copy.chooseProvider);
       return;
     }
@@ -719,7 +833,7 @@ export default function OnboardingPage() {
     setModelBusy("save");
     try {
       const request: SaveModelEntryRequest = {
-        label: modelLabel.trim() || `${selectedProvider.label} ${modelKey.split("/").pop() ?? modelKey}`,
+        label: modelLabel.trim() || selectedProviderPresentation.label,
         providerId,
         methodId,
         modelKey: modelKey.trim(),
@@ -770,7 +884,7 @@ export default function OnboardingPage() {
         result.state.savedEntries.find((entry) => entry.providerId === providerId && entry.modelKey === modelKey.trim());
 
       await persistDraft({
-        currentStep: "channel",
+        currentStep: "model",
         model: {
           providerId,
           modelKey: modelKey.trim(),
@@ -806,7 +920,7 @@ export default function OnboardingPage() {
   }
 
   async function handleSaveChannel() {
-    if (!selectedChannelCapability) {
+    if (!selectedChannelPresentation) {
       setPageError(copy.chooseChannel);
       return;
     }
@@ -815,8 +929,8 @@ export default function OnboardingPage() {
     setChannelBusy(true);
     try {
       const request: SaveChannelEntryRequest = {
-        channelId: selectedChannelCapability.id,
-        values: channelValues,
+        channelId: selectedChannelPresentation.id,
+        values: buildOnboardingChannelSaveValues(selectedChannelPresentation.id, channelValues),
         action: "save"
       };
       const previousEntries = channelConfig?.entries ?? [];
@@ -858,12 +972,12 @@ export default function OnboardingPage() {
       const savedEntry =
         (selectedChannelEntry ? result.state.entries.find((entry) => entry.id === selectedChannelEntry.id) : undefined) ??
         findCreatedChannelEntry(previousEntries, result.state.entries) ??
-        result.state.entries.find((entry) => entry.channelId === selectedChannelCapability.id);
+        result.state.entries.find((entry) => entry.channelId === selectedChannelPresentation.id);
 
       await persistDraft({
         currentStep: "employee",
         channel: {
-          channelId: selectedChannelCapability.id,
+          channelId: selectedChannelPresentation.id,
           entryId: savedEntry?.id
         }
       });
@@ -874,16 +988,29 @@ export default function OnboardingPage() {
     }
   }
 
-  function toggleTrait(trait: string) {
-    setSelectedTraits((current) => (current.includes(trait) ? current.filter((item) => item !== trait) : [...current, trait]));
+  async function handleReturnToChannelPicker() {
+    setSelectedChannelId("");
+    setChannelValues({});
+    setChannelMessage("");
+    setChannelRequiresApply(false);
+    setChannelTutorialOpen(false);
+    await persistDraft({ currentStep: "channel" });
   }
 
-  function toggleSkill(skillId: string) {
-    setSelectedSkillIds((current) => (current.includes(skillId) ? current.filter((item) => item !== skillId) : [...current, skillId]));
+  async function handleBackFromChannelPicker() {
+    await persistDraft({ currentStep: "model" });
+  }
+
+  function selectEmployeePreset(presetId: string) {
+    const preset = employeePresets.find((candidate) => candidate.id === presetId);
+    setSelectedEmployeePresetId(presetId);
+    if (preset?.defaultMemoryEnabled !== undefined) {
+      setMemoryEnabled(preset.defaultMemoryEnabled);
+    }
   }
 
   async function handleCreateEmployee() {
-    if (!selectedBrainEntryId || !employeeName.trim() || !employeeJobTitle.trim()) {
+    if (!selectedBrainEntryId || !selectedEmployeePreset || !employeeName.trim() || !employeeJobTitle.trim()) {
       setPageError("SlackClaw needs a saved model, employee name, and job title before it can create the AI employee.");
       return;
     }
@@ -895,8 +1022,11 @@ export default function OnboardingPage() {
         name: employeeName,
         jobTitle: employeeJobTitle,
         avatarPresetId: employeeAvatarPresetId,
-        personalityTraits: selectedTraits,
-        skillIds: selectedSkillIds,
+        presetId: selectedEmployeePreset.id,
+        personalityTraits: [],
+        skillIds: selectedEmployeePreset.skillIds,
+        knowledgePackIds: selectedEmployeePreset.knowledgePackIds,
+        workStyles: selectedEmployeePreset.workStyles,
         memoryEnabled,
         brainEntryId: selectedBrainEntryId
       };
@@ -928,8 +1058,11 @@ export default function OnboardingPage() {
           name: createdMember?.name ?? draft.name,
           jobTitle: createdMember?.jobTitle ?? draft.jobTitle,
           avatarPresetId: createdMember?.avatar.presetId ?? draft.avatarPresetId,
-          personalityTraits: selectedTraits,
-          skillIds: selectedSkillIds,
+          presetId: draft.presetId,
+          personalityTraits: [],
+          skillIds: draft.skillIds,
+          knowledgePackIds: draft.knowledgePackIds,
+          workStyles: draft.workStyles,
           memoryEnabled
         }
       });
@@ -968,272 +1101,707 @@ export default function OnboardingPage() {
   return (
     <div className="onboarding-screen">
       <div className="onboarding-shell">
-        <div className="onboarding-header">
-          <div className="onboarding-header__copy">
-            <Badge tone="info">
-              <Sparkles size={14} />
-              {copy.brand}
-            </Badge>
-            <h1>{copy.welcomeTitle}</h1>
-            <p>{copy.subtitle}</p>
+        <div className="onboarding-toolbar">
+          <div aria-hidden className="onboarding-toolbar__spacer" />
+          <div className="onboarding-brand">
+            <div className="onboarding-brand__mark">
+              <Sparkles size={28} />
+            </div>
+            <strong>{copy.brand}</strong>
           </div>
-          <div className="onboarding-progress">
-            {ONBOARDING_STEP_ORDER.map((step, index) => {
-              const active = index === currentStepIndex;
-              const complete = index < currentStepIndex;
-              return (
-                <div
-                  className={`onboarding-progress__step${active ? " onboarding-progress__step--active" : ""}${complete ? " onboarding-progress__step--complete" : ""}`}
-                  key={step}
-                >
-                  <span className="onboarding-progress__index">{index + 1}</span>
-                  <strong>{copy.stepLabels[index]}</strong>
-                </div>
-              );
-            })}
+          <div className="onboarding-toolbar__controls">
+            <LanguageSelector />
           </div>
         </div>
 
-        <Card className="onboarding-card">
+        {currentStep === "welcome" || currentStep === "install" || currentStep === "model" ? (
+          <div className="onboarding-header onboarding-header--welcome">
+            <p>{copy.subtitle}</p>
+            <button className="onboarding-skip" onClick={() => void handleComplete("team")} type="button">
+              {copy.skip}
+            </button>
+            <div className="onboarding-progress-bar" role="presentation">
+              <div className="onboarding-progress-bar__meta">
+                <span>{formatOnboardingProgressLabel(copy.progressStep, currentStepIndex + 1, ONBOARDING_STEP_ORDER.length)}</span>
+                <span>{`${progressPercent}% ${copy.progressComplete}`}</span>
+              </div>
+              <div className="onboarding-progress-bar__track">
+                <div className="onboarding-progress-bar__fill" style={{ width: `${progressPercent}%` }} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="onboarding-header">
+            <div className="onboarding-header__copy">
+              <Badge tone="info">
+                <Sparkles size={14} />
+                {copy.brand}
+              </Badge>
+              <h1>{copy.welcomeTitle}</h1>
+              <p>{copy.subtitle}</p>
+            </div>
+            <div className="onboarding-progress">
+              {ONBOARDING_STEP_ORDER.map((step, index) => {
+                const active = index === currentStepIndex;
+                const complete = index < currentStepIndex;
+                return (
+                  <div
+                    className={`onboarding-progress__step${active ? " onboarding-progress__step--active" : ""}${complete ? " onboarding-progress__step--complete" : ""}`}
+                    key={step}
+                  >
+                    <span className="onboarding-progress__index">{index + 1}</span>
+                    <strong>{copy.stepLabels[index]}</strong>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <Card className={`onboarding-card ${currentStep === "welcome" ? "onboarding-card--welcome" : ""}`.trim()}>
           <CardContent className="onboarding-card__content">
             {pageError ? <div className="onboarding-error">{pageError}</div> : null}
 
             {currentStep === "welcome" ? (
-              <div className="onboarding-step onboarding-step--welcome">
-                <div className="onboarding-step__hero">
-                  <Badge tone="success">{copy.welcomeEyebrow}</Badge>
+              <div className="onboarding-step onboarding-step--welcome onboarding-step--welcome-figma">
+                <div className="onboarding-step__intro onboarding-step__intro--welcome">
                   <h2>{copy.welcomeTitle}</h2>
                   <p>{copy.welcomeBody}</p>
-                  <Button size="lg" onClick={() => void handleAdvanceToInstall()}>
-                    {copy.begin}
-                    <ArrowRight size={16} />
-                  </Button>
                 </div>
-                <div className="onboarding-highlight-grid">
-                  {copy.welcomeHighlights.map((highlight) => (
-                    <div className="onboarding-highlight-card" key={highlight.title}>
-                      <div className="onboarding-highlight-card__icon">
-                        <Sparkles size={18} />
+                <div className="onboarding-highlight-stack">
+                  {copy.welcomeHighlights.map((highlight, index) => (
+                    <div
+                      className={`onboarding-highlight-row onboarding-highlight-row--${index === 0 ? "blue" : index === 1 ? "green" : "violet"}`}
+                      key={highlight.title}
+                    >
+                      <div className="onboarding-highlight-row__icon">
+                        {index === 0 ? <Rocket size={20} /> : index === 1 ? <Brain size={20} /> : <Users size={20} />}
                       </div>
-                      <strong>{highlight.title}</strong>
-                      <p>{highlight.body}</p>
+                      <div className="onboarding-highlight-row__copy">
+                        <strong>{highlight.title}</strong>
+                        <p>{highlight.body}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
+                <p className="onboarding-welcome-support">{copy.welcomeSupport}</p>
+                <Button className="onboarding-welcome-cta" fullWidth size="lg" onClick={() => void handleAdvanceToInstall()}>
+                  {copy.begin}
+                </Button>
+                <p className="onboarding-welcome-timing">{copy.welcomeTiming}</p>
               </div>
             ) : null}
 
             {currentStep === "install" ? (
-              <LoadingBlocker
-                active={pageLoading}
-                label={copy.installTitle}
-                description={overview?.engine.installed ? copy.installDetected : copy.installMissing}
-              >
-                <div className="onboarding-step onboarding-step--install">
-                  <div className="onboarding-step__intro">
-                    <Badge tone="info">{copy.installEyebrow}</Badge>
-                    <h2>{copy.installTitle}</h2>
-                    <p>{copy.installBody}</p>
-                  </div>
-                  <div className="onboarding-grid onboarding-grid--two">
-                    <div className="onboarding-panel onboarding-panel--soft">
-                      <div className="onboarding-panel__icon">
-                        <Rocket size={20} />
-                      </div>
-                      <strong>{overview?.engine.installed ? copy.installDetected : copy.installMissing}</strong>
-                      <p>{overview?.engine.summary}</p>
-                      {overview?.engine.version ? <Badge tone="neutral">{overview.engine.version}</Badge> : null}
-                    </div>
-                    <div className="onboarding-panel">
-                      <strong>{copy.installSuccess}</strong>
-                      <p>{currentDraft.install?.version ? `${copy.completionInstall}: ${currentDraft.install.version}` : overview?.engine.version ?? "—"}</p>
-                      <div className="onboarding-actions">
-                        <Button variant="outline" onClick={() => void persistDraft({ currentStep: "welcome" })}>
-                          {common.back}
-                        </Button>
-                        <Button onClick={() => void handleInstall()}>
-                          {overview?.engine.installed ? copy.installContinue : copy.installCta}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
+              <div className="onboarding-step onboarding-step--install onboarding-step--install-figma">
+                <div className="onboarding-step__intro onboarding-step__intro--welcome">
+                  <h2>{copy.installTitle}</h2>
+                  <p>{copy.installBody}</p>
                 </div>
-              </LoadingBlocker>
+
+                {installViewState.kind === "installing" ? (
+                  <div className="onboarding-install-progress">
+                    <div className="onboarding-install-progress__icon">
+                      <Server size={42} />
+                    </div>
+                    <strong>{copy.installInstallingTitle}</strong>
+                    <p>{copy.installInstallingBody}</p>
+                    <div className="onboarding-install-progress__bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installViewState.progressPercent ?? 16)}>
+                      <div
+                        className="onboarding-install-progress__fill"
+                        style={{ width: `${installViewState.progressPercent ?? 16}%` }}
+                      />
+                    </div>
+                    <span className="onboarding-install-progress__stage">{installViewState.stageLabel}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      className={`onboarding-install-status onboarding-install-status--${
+                        installViewState.kind === "missing" ? "warning" : "success"
+                      }`}
+                    >
+                      <div className="onboarding-install-status__icon">
+                        {installViewState.kind === "missing" ? <AlertCircle size={28} /> : <CheckCircle2 size={28} />}
+                      </div>
+                      <div className="onboarding-install-status__copy">
+                        <strong>
+                          {installViewState.kind === "missing"
+                            ? copy.installNotFoundTitle
+                            : installViewState.kind === "found"
+                              ? copy.installFoundTitle
+                              : copy.installCompleteTitle}
+                        </strong>
+                        <p>
+                          {installViewState.kind === "missing"
+                            ? copy.installNotFoundBody
+                            : installViewState.kind === "found"
+                              ? copy.installFoundBody
+                              : copy.installCompleteBody}
+                        </p>
+                        {installViewState.version ? (
+                          <span className="onboarding-install-status__version">
+                            {copy.installVersionLabel}: {installViewState.version}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {installViewState.kind === "missing" ? (
+                      <Button className="onboarding-install-cta" fullWidth size="lg" onClick={() => void handleInstall()}>
+                        <span className="onboarding-install-button__content">
+                          <Download size={18} />
+                          <span>{copy.installCta}</span>
+                        </span>
+                      </Button>
+                    ) : null}
+
+                    {installViewState.kind === "found" ? (
+                      <div className="onboarding-install-actions">
+                        <Button className="onboarding-install-cta" fullWidth size="lg" onClick={() => void handleUseExistingInstall()}>
+                          {copy.installContinue}
+                        </Button>
+                        <button className="onboarding-install-back" onClick={() => void persistDraft({ currentStep: "welcome" })} type="button">
+                          {common.back}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {installViewState.kind === "complete" ? (
+                      <div className="onboarding-install-actions">
+                        <Button className="onboarding-install-next" fullWidth size="lg" onClick={() => void handleAdvanceToModel()}>
+                          {copy.installContinue}
+                        </Button>
+                        <button className="onboarding-install-back" onClick={() => void persistDraft({ currentStep: "welcome" })} type="button">
+                          {common.back}
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
             ) : null}
 
             {currentStep === "model" ? (
               <LoadingBlocker
-                active={!modelConfig || modelBusy !== ""}
+                active={modelBusy !== ""}
                 label={copy.modelTitle}
                 description={copy.modelBody}
               >
-                <div className="onboarding-step onboarding-step--model">
-                  <div className="onboarding-step__intro">
-                    <Badge tone="info">{copy.modelEyebrow}</Badge>
+                <div className="onboarding-step onboarding-step--model onboarding-step--model-figma">
+                  <div className="onboarding-step__intro onboarding-step__intro--welcome onboarding-step__intro--model">
                     <h2>{copy.modelTitle}</h2>
                     <p>{copy.modelBody}</p>
                   </div>
 
-                  {!selectedProvider ? (
-                    <div className="onboarding-provider-grid">
-                      {modelConfig?.providers.map((provider) => (
-                        <button
-                          className="onboarding-select-card"
-                          key={provider.id}
-                          onClick={() => setProviderId(provider.id)}
-                          type="button"
-                        >
-                          <ProviderLogo label={provider.label} providerId={provider.id} />
-                          <div>
-                            <strong>{provider.label}</strong>
-                            <p>{provider.description}</p>
-                          </div>
+                  {modelViewState.kind === "picker" ? (
+                    <div className="onboarding-model-flow onboarding-model-flow--picker">
+                      <div className="onboarding-provider-picker__header">
+                        <p className="onboarding-provider-picker__hint">{copy.providerTitle}</p>
+                      </div>
+                      <div className="onboarding-provider-grid">
+                        {modelPickerProviders.map((providerOption) => (
+                          <button
+                            className={`onboarding-select-card onboarding-select-card--provider onboarding-select-card--provider-figma ${onboardingProviderThemeClass(providerOption.theme)}`}
+                            key={providerOption.id}
+                            onClick={() => {
+                              setProviderId(providerOption.id);
+                              setMethodId(providerOption.authMethods[0]?.id ?? "");
+                              setModelKey(providerOption.defaultModelKey);
+                              setModelLabel(providerOption.label);
+                              setModelValues({});
+                              setModelSession(undefined);
+                              setModelSessionInput("");
+                            }}
+                            type="button"
+                          >
+                            <div className="onboarding-provider-mark onboarding-provider-mark--figma">
+                              <Brain size={22} />
+                            </div>
+                            <div className="onboarding-provider-copy onboarding-provider-copy--figma">
+                              <strong>{providerOption.label}</strong>
+                            </div>
+                            <ArrowRight className="onboarding-provider-arrow" size={18} />
+                          </button>
+                        ))}
+                      </div>
+                      <div className="onboarding-model-actions onboarding-model-actions--picker">
+                        <button className="onboarding-install-back" onClick={() => void persistDraft({ currentStep: "install" })} type="button">
+                          {common.back}
                         </button>
-                      ))}
+                      </div>
+                    </div>
+                  ) : selectedProviderPresentation ? (
+                    <div className={`onboarding-model-flow onboarding-model-flow--${modelViewState.kind}`}>
+                      <div className={`onboarding-model-provider-banner ${onboardingProviderThemeClass(selectedProviderPresentation.theme)}`}>
+                        <div className="onboarding-provider-mark onboarding-provider-mark--figma onboarding-provider-mark--banner">
+                          <Brain size={22} />
+                        </div>
+                        <strong>{selectedProviderPresentation.label}</strong>
+                      </div>
+
+                      {modelViewState.kind === "configure" ? (
+                        <>
+                          {shouldShowAuthMethodChooser ? (
+                            <div className="onboarding-model-connect">
+                              <h3>{copy.authTitle}</h3>
+                              <div
+                                className={`onboarding-auth-method-grid ${
+                                  selectedAuthMethods.length <= 1 ? "onboarding-auth-method-grid--single" : ""
+                                }`}
+                                role="group"
+                                aria-label={copy.authTitle}
+                              >
+                                {selectedAuthMethods.map((method) => (
+                                  <button
+                                    type="button"
+                                    key={method.id}
+                                    className={`onboarding-auth-method-card onboarding-auth-method-card--figma ${
+                                      methodId === method.id ? "onboarding-auth-method-card--active" : ""
+                                    }`}
+                                    onClick={() => {
+                                      setMethodId(method.id);
+                                      setModelSession(undefined);
+                                      setModelSessionInput("");
+                                    }}
+                                  >
+                                    <div className="onboarding-auth-method-card__icon">{onboardingAuthMethodIcon(method)}</div>
+                                    <strong>{onboardingAuthMethodLabel(copy, method)}</strong>
+                                    <p>{onboardingAuthMethodBody(copy, method)}</p>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {selectedSetupVariant === "oauth" ? (
+                            <div className="onboarding-model-form">
+                              {modelSession?.message ? <p className="onboarding-model-input-help">{modelSession.message}</p> : null}
+                              {modelSession?.launchUrl ? (
+                                <Button
+                                  variant="outline"
+                                  fullWidth
+                                  onClick={() => window.open(modelSession.launchUrl, "_blank", "noopener,noreferrer")}
+                                >
+                                  <ExternalLink size={16} />
+                                  {copy.openAuthWindow}
+                                </Button>
+                              ) : null}
+                              {modelSession?.status === "awaiting-input" ? (
+                                <>
+                                  <div className="onboarding-model-field">
+                                    <FieldLabel htmlFor="onboarding-model-session-input">
+                                      {modelSession.inputPrompt ?? copy.submitAuthInput}
+                                    </FieldLabel>
+                                    <Input
+                                      id="onboarding-model-session-input"
+                                      value={modelSessionInput}
+                                      onChange={(event) => setModelSessionInput(event.target.value)}
+                                      placeholder={modelSession.inputPrompt ?? copy.submitAuthInput}
+                                    />
+                                  </div>
+                                  <Button
+                                    fullWidth
+                                    loading={modelBusy === "input"}
+                                    onClick={() => void handleModelSessionInput()}
+                                    disabled={!modelSessionInput.trim()}
+                                  >
+                                    {copy.submitAuthInput}
+                                  </Button>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : selectedSetupVariant === "guided-minimax-api-key" ? (
+                            <div className="onboarding-model-guided">
+                              <div className="onboarding-model-guide-card onboarding-model-guide-card--tutorial">
+                                <div className="onboarding-model-guide-card__header">
+                                  <div className="onboarding-model-guide-step onboarding-model-guide-step--tutorial">1</div>
+                                  <div className="onboarding-model-guide-card__copy">
+                                    <strong>{copy.minimaxTutorialTitle}</strong>
+                                    <p>{copy.minimaxTutorialBody}</p>
+                                  </div>
+                                  <button
+                                    className="onboarding-model-guide-play"
+                                    onClick={() => setModelTutorialOpen(true)}
+                                    type="button"
+                                    aria-label={copy.minimaxTutorialTitle}
+                                  >
+                                    <PlayCircle size={32} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="onboarding-model-guide-card onboarding-model-guide-card--get-key">
+                                <div className="onboarding-model-guide-card__header onboarding-model-guide-card__header--stacked">
+                                  <div className="onboarding-model-guide-step onboarding-model-guide-step--get-key">2</div>
+                                  <div className="onboarding-model-guide-card__copy">
+                                    <strong>{copy.minimaxGetKeyTitle}</strong>
+                                    <p>{copy.minimaxGetKeyBody}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  className="onboarding-model-guide-cta"
+                                  onClick={() => window.open(selectedProviderPresentation.platformUrl, "_blank", "noopener,noreferrer")}
+                                  type="button"
+                                >
+                                  <ExternalLink size={18} />
+                                  {copy.minimaxGetKeyCTA}
+                                  <ArrowRight size={18} />
+                                </button>
+                              </div>
+
+                              <div className="onboarding-model-guide-card onboarding-model-guide-card--input">
+                                <div className="onboarding-model-guide-card__header onboarding-model-guide-card__header--stacked">
+                                  <div className="onboarding-model-guide-step onboarding-model-guide-step--input">3</div>
+                                  <div className="onboarding-model-guide-card__copy">
+                                    <strong>{copy.minimaxEnterKeyTitle}</strong>
+                                    <p>{copy.minimaxEnterKeyBody}</p>
+                                  </div>
+                                </div>
+                                <div className="onboarding-model-field onboarding-model-field--guided">
+                                  {(selectedMethod?.fields ?? []).map((field, index) => (
+                                    <Input
+                                      key={field.id}
+                                      id={index === 0 ? "onboarding-model-api-key" : `onboarding-model-api-key-${field.id}`}
+                                      type={field.secret ? "password" : "text"}
+                                      value={onboardingFieldValue(modelValues, field.id)}
+                                      onChange={(event) =>
+                                        setModelValues((current) => ({
+                                          ...current,
+                                          [field.id]: event.target.value
+                                        }))
+                                      }
+                                      placeholder={field.placeholder ?? copy.modelApiKeyPlaceholder}
+                                    />
+                                  ))}
+                                  <p className="onboarding-model-input-help onboarding-model-input-help--guided">{copy.modelApiKeyHelp}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="onboarding-model-form">
+                              <div className="onboarding-model-field">
+                                <FieldLabel htmlFor="onboarding-model-api-key">{copy.modelApiKeyTitle}</FieldLabel>
+                                {(selectedMethod?.fields ?? []).map((field, index) => (
+                                  <Input
+                                    key={field.id}
+                                    id={index === 0 ? "onboarding-model-api-key" : `onboarding-model-api-key-${field.id}`}
+                                    type={field.secret ? "password" : "text"}
+                                    value={onboardingFieldValue(modelValues, field.id)}
+                                    onChange={(event) =>
+                                      setModelValues((current) => ({
+                                        ...current,
+                                        [field.id]: event.target.value
+                                      }))
+                                    }
+                                    placeholder={field.placeholder ?? copy.modelApiKeyPlaceholder}
+                                  />
+                                ))}
+                                <p className="onboarding-model-input-help">{copy.modelApiKeyHelp}</p>
+                              </div>
+
+                              {selectedProviderPresentation.platformUrl ? (
+                                <Button
+                                  variant="outline"
+                                  fullWidth
+                                  onClick={() => window.open(selectedProviderPresentation.platformUrl, "_blank", "noopener,noreferrer")}
+                                >
+                                  <ExternalLink size={16} />
+                                  {copy.modelGetApiKey}
+                                </Button>
+                              ) : null}
+                            </div>
+                          )}
+
+                          <div className="onboarding-model-actions">
+                              <Button variant="outline" fullWidth onClick={() => void handleReturnToModelPicker()}>
+                                {common.back}
+                              </Button>
+                              <Button
+                                fullWidth
+                                onClick={() => void handleSaveModel()}
+                                disabled={!selectedProviderPresentation || !selectedMethod || !modelKey.trim() || requiredModelFieldsMissing(selectedMethod, modelValues)}
+                                loading={modelBusy === "save"}
+                              >
+                              {copy.modelSave}
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="onboarding-model-success">
+                            <div className="onboarding-model-success__icon">
+                              <CheckCircle2 size={28} />
+                            </div>
+                            <div>
+                              <strong>{copy.modelConnectedTitle}</strong>
+                              <p>{copy.modelConnectedBody.replace("{provider}", selectedProviderPresentation.label)}</p>
+                            </div>
+                          </div>
+                          <div className="onboarding-model-actions onboarding-model-actions--connected">
+                            <Button className="onboarding-install-next" fullWidth size="lg" onClick={() => void handleAdvanceToChannel()}>
+                              {common.next}
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </LoadingBlocker>
+            ) : null}
+
+            {currentStep === "channel" ? (
+              <LoadingBlocker
+                active={!channelConfig}
+                label={copy.channelTitle}
+                description={copy.channelBody}
+              >
+                <div className="onboarding-step onboarding-step--channel onboarding-step--channel-figma">
+                  <div className="onboarding-step__intro onboarding-step__intro--welcome onboarding-step__intro--model">
+                    <h2>{copy.channelTitle}</h2>
+                    <p>{copy.channelBody}</p>
+                  </div>
+
+                  {!selectedChannelPresentation ? (
+                    <div className="onboarding-model-flow onboarding-model-flow--picker">
+                      <div className="onboarding-provider-picker__header">
+                        <p className="onboarding-provider-picker__hint">{copy.channelPickerHint}</p>
+                      </div>
+                      <div className="onboarding-provider-grid">
+                        {channelPickerChannels.map((channel) => (
+                          <button
+                            className={`onboarding-select-card onboarding-select-card--provider onboarding-select-card--provider-figma ${onboardingChannelThemeClass(channel.theme)}`}
+                            key={channel.id}
+                            onClick={() => setSelectedChannelId(channel.id)}
+                            type="button"
+                          >
+                            <div className="onboarding-provider-mark onboarding-provider-mark--figma">
+                              {channelIcon(channel.id)}
+                            </div>
+                            <div className="onboarding-provider-copy onboarding-provider-copy--figma onboarding-provider-copy--channel">
+                              <strong>{channel.label}</strong>
+                              {channel.secondaryLabel ? <span>{channel.secondaryLabel}</span> : null}
+                            </div>
+                            <ChevronRight className="onboarding-provider-arrow" size={18} />
+                          </button>
+                        ))}
+                      </div>
+                      <div className="onboarding-model-actions onboarding-model-actions--picker">
+                        <button className="onboarding-install-back" onClick={() => void handleBackFromChannelPicker()} type="button">
+                          {common.back}
+                        </button>
+                      </div>
                     </div>
                   ) : (
-                    <div className="onboarding-grid onboarding-grid--two">
-                      <div className="onboarding-panel onboarding-panel--soft">
-                        <div className="onboarding-provider-head">
-                          <ProviderLogo label={selectedProvider.label} providerId={selectedProvider.id} />
-                          <div>
-                            <strong>{selectedProvider.label}</strong>
-                            <p>{selectedProvider.description}</p>
-                          </div>
+                    <div className="onboarding-model-flow onboarding-model-flow--configure">
+                      <div className={`onboarding-model-provider-banner ${onboardingChannelThemeClass(selectedChannelPresentation.theme)}`}>
+                        <div className="onboarding-provider-mark onboarding-provider-mark--figma onboarding-provider-mark--banner">
+                          {channelIcon(selectedChannelPresentation.id)}
                         </div>
-                        <div className="field-grid">
-                          <div>
-                            <FieldLabel htmlFor="onboarding-model-label">Display name</FieldLabel>
-                            <Input
-                              id="onboarding-model-label"
-                              value={modelLabel}
-                              onChange={(event) => setModelLabel(event.target.value)}
-                              placeholder={`${selectedProvider.label} ${modelKey.split("/").pop() ?? "model"}`}
-                            />
-                          </div>
-                          <div>
-                            <FieldLabel htmlFor="onboarding-model-method">{copy.authTitle}</FieldLabel>
-                            <Select id="onboarding-model-method" value={methodId} onChange={(event) => setMethodId(event.target.value)}>
-                              {selectedProvider.authMethods.map((method) => (
-                                <option key={method.id} value={method.id}>
-                                  {method.label}
-                                </option>
-                              ))}
-                            </Select>
-                          </div>
-                          <div>
-                            <FieldLabel htmlFor="onboarding-model-select">Model</FieldLabel>
-                            {availableModels.length ? (
-                              <Select
-                                id="onboarding-model-select"
-                                value={selectedModelValue}
-                                onChange={(event) => {
-                                  const nextValue = event.target.value;
-                                  if (nextValue === MODEL_KEY_CUSTOM_OPTION) {
-                                    setModelKey((current) => (availableModels.some((item) => item.key === current) ? "" : current));
-                                    return;
-                                  }
-                                  setModelKey(nextValue);
-                                }}
-                              >
-                                {availableModels.map((model) => (
-                                  <option key={model.key} value={model.key}>
-                                    {model.name} ({model.key})
-                                  </option>
-                                ))}
-                                <option value={MODEL_KEY_CUSTOM_OPTION}>Custom model key…</option>
-                              </Select>
-                            ) : null}
-                            {showCustomModelInput ? (
-                              <Input
-                                value={modelKey}
-                                onChange={(event) => setModelKey(event.target.value)}
-                                placeholder={modelKeyPlaceholder(selectedProvider)}
-                              />
-                            ) : null}
-                          </div>
-                          {selectedMethod?.fields.map((field) => (
-                            <div key={field.id}>
-                              <FieldLabel htmlFor={`field-${field.id}`}>
-                                {field.label}
-                                {field.required ? ` · ${copy.required}` : ""}
-                              </FieldLabel>
-                              <Input
-                                id={`field-${field.id}`}
-                                type={field.secret ? "password" : "text"}
-                                value={onboardingFieldValue(modelValues, field.id)}
-                                onChange={(event) =>
-                                  setModelValues((current) => ({
-                                    ...current,
-                                    [field.id]: event.target.value
-                                  }))
-                                }
-                                placeholder={field.placeholder}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                        <div className="onboarding-actions">
-                          <Button variant="outline" onClick={() => void persistDraft({ currentStep: "install" })}>
-                            {common.back}
-                          </Button>
-                          <Button
-                            onClick={() => void handleSaveModel()}
-                            disabled={!selectedProvider || !selectedMethod || !modelKey.trim() || requiredModelFieldsMissing(selectedMethod, modelValues)}
-                            loading={modelBusy === "save"}
-                          >
-                            {copy.modelSave}
-                          </Button>
+                        <div className="onboarding-provider-copy onboarding-provider-copy--figma onboarding-provider-copy--channel-banner">
+                          <strong>{selectedChannelPresentation.label}</strong>
+                          {selectedChannelPresentation.secondaryLabel ? <span>{selectedChannelPresentation.secondaryLabel}</span> : null}
                         </div>
                       </div>
 
-                      <div className="onboarding-panel">
-                        <strong>{copy.authProgressTitle}</strong>
-                        <p>{selectedMethod?.description}</p>
-                        {selectedProvider.docsUrl ? (
-                          <Button
-                            variant="ghost"
-                            onClick={() => window.open(selectedProvider.docsUrl, "_blank", "noopener,noreferrer")}
-                          >
-                            <ExternalLink size={14} />
-                            Documentation
-                          </Button>
-                        ) : null}
-                        {modelSession ? (
-                          <div className="panel-stack">
-                            <Textarea readOnly rows={10} value={modelSession.logs.join("\n")} />
-                            {modelSession.launchUrl ? (
-                              <Button
-                                variant="outline"
-                                onClick={() => window.open(modelSession.launchUrl, "_blank", "noopener,noreferrer")}
-                              >
-                                <ExternalLink size={14} />
-                                {copy.openAuthWindow}
-                              </Button>
-                            ) : null}
-                            {modelSession.status === "awaiting-input" ? (
-                              <div className="field-grid field-grid--two">
-                                <Input
-                                  value={modelSessionInput}
-                                  onChange={(event) => setModelSessionInput(event.target.value)}
-                                  placeholder={modelSession.inputPrompt ?? "Paste redirect URL or code"}
-                                />
-                                <Button
-                                  loading={modelBusy === "input"}
-                                  onClick={() => void handleModelSessionInput()}
-                                  disabled={!modelSessionInput.trim()}
-                                >
-                                  {copy.submitAuthInput}
-                                </Button>
+                      {selectedChannelSetupVariant === "wechat-guided" ? (
+                        <>
+                          <div className="onboarding-channel-docs-card onboarding-channel-docs-card--wechat">
+                            <div className="onboarding-channel-docs-card__header">
+                              <div className="onboarding-channel-docs-card__icon">
+                                <Info size={22} />
                               </div>
-                            ) : null}
+                              <strong>{copy.channelWechatInstructionsTitle}</strong>
+                            </div>
+                            <ol className="onboarding-channel-docs-card__steps">
+                              {copy.channelWechatInstructionSteps.map((step) => (
+                                <li key={step}>{step}</li>
+                              ))}
+                            </ol>
+                            <button
+                              className="onboarding-channel-docs-card__cta"
+                              onClick={() => window.open(selectedChannelPresentation.docsUrl, "_blank", "noopener,noreferrer")}
+                              type="button"
+                            >
+                              <ExternalLink size={18} />
+                              {copy.channelDocumentationCta}
+                            </button>
                           </div>
-                        ) : (
-                          <div className="onboarding-panel__empty">
-                            <Bot size={22} />
-                            <p>{copy.modelSaved}</p>
+
+                          <div className="onboarding-channel-form-card onboarding-channel-form-card--wechat">
+                            <div className="field-grid">
+                              <div>
+                                <FieldLabel htmlFor="channel-corpId">{copy.channelWechatCorpId}</FieldLabel>
+                                <Input
+                                  id="channel-corpId"
+                                  value={onboardingFieldValue(channelValues, "corpId")}
+                                  onChange={(event) => setChannelValues((current) => ({ ...current, corpId: event.target.value }))}
+                                  placeholder="ww..."
+                                />
+                              </div>
+                              <div>
+                                <FieldLabel htmlFor="channel-agentId">{copy.channelWechatAgentId}</FieldLabel>
+                                <Input
+                                  id="channel-agentId"
+                                  value={onboardingFieldValue(channelValues, "agentId")}
+                                  onChange={(event) => setChannelValues((current) => ({ ...current, agentId: event.target.value }))}
+                                  placeholder="1000002"
+                                />
+                              </div>
+                              <div>
+                                <FieldLabel htmlFor="channel-secret">{copy.channelWechatSecret}</FieldLabel>
+                                <Input
+                                  id="channel-secret"
+                                  type="password"
+                                  value={onboardingFieldValue(channelValues, "secret")}
+                                  onChange={(event) => setChannelValues((current) => ({ ...current, secret: event.target.value }))}
+                                  placeholder="••••••••••••"
+                                />
+                              </div>
+                            </div>
+                            <p className="onboarding-channel-secret-help">{copy.channelSecretHelp}</p>
                           </div>
-                        )}
+                        </>
+                      ) : null}
+
+                      {selectedChannelSetupVariant === "telegram-guided" ? (
+                        <>
+                          <div className="onboarding-channel-docs-card onboarding-channel-docs-card--telegram">
+                            <div className="onboarding-channel-docs-card__header">
+                              <div className="onboarding-channel-docs-card__icon">
+                                <Info size={22} />
+                              </div>
+                              <strong>{copy.channelTelegramInstructionsTitle}</strong>
+                            </div>
+                            <ol className="onboarding-channel-docs-card__steps">
+                              {copy.channelTelegramInstructionSteps.map((step) => (
+                                <li key={step}>{step}</li>
+                              ))}
+                            </ol>
+                            <button
+                              className="onboarding-channel-docs-card__cta"
+                              onClick={() => window.open(selectedChannelPresentation.docsUrl, "_blank", "noopener,noreferrer")}
+                              type="button"
+                            >
+                              <ExternalLink size={18} />
+                              {copy.channelDocumentationCta}
+                            </button>
+                          </div>
+
+                          <div className="onboarding-channel-form-card onboarding-channel-form-card--telegram">
+                            <div className="field-grid">
+                              <div>
+                                <FieldLabel htmlFor="channel-token">{copy.channelTelegramToken}</FieldLabel>
+                                <Input
+                                  id="channel-token"
+                                  type="password"
+                                  value={onboardingFieldValue(channelValues, "token")}
+                                  onChange={(event) => setChannelValues((current) => ({ ...current, token: event.target.value }))}
+                                  placeholder="123456:ABC-DEF..."
+                                />
+                              </div>
+                            </div>
+                            <p className="onboarding-channel-secret-help">{copy.channelSecretHelp}</p>
+                          </div>
+                        </>
+                      ) : null}
+
+                      {selectedChannelSetupVariant === "feishu-guided" ? (
+                        <>
+                          <div className="onboarding-model-guided">
+                            <div className="onboarding-model-guide-card onboarding-model-guide-card--tutorial">
+                              <div className="onboarding-model-guide-card__header">
+                                <div className="onboarding-model-guide-step onboarding-model-guide-step--tutorial">1</div>
+                                <div className="onboarding-model-guide-card__copy">
+                                  <strong>{copy.channelFeishuTutorialTitle}</strong>
+                                  <p>{copy.channelFeishuTutorialBody}</p>
+                                </div>
+                                <button
+                                  className="onboarding-model-guide-play"
+                                  onClick={() => setChannelTutorialOpen(true)}
+                                  type="button"
+                                  aria-label={copy.channelFeishuTutorialTitle}
+                                >
+                                  <PlayCircle size={32} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="onboarding-model-guide-card onboarding-model-guide-card--get-key">
+                              <div className="onboarding-model-guide-card__header onboarding-model-guide-card__header--stacked">
+                                <div className="onboarding-model-guide-step onboarding-model-guide-step--get-key">2</div>
+                                <div className="onboarding-model-guide-card__copy">
+                                  <strong>{copy.channelFeishuPlatformTitle}</strong>
+                                  <p>{copy.channelFeishuPlatformBody}</p>
+                                </div>
+                              </div>
+                              <button
+                                className="onboarding-model-guide-cta"
+                                onClick={() => window.open(selectedChannelPresentation.platformUrl, "_blank", "noopener,noreferrer")}
+                                type="button"
+                              >
+                                <ExternalLink size={18} />
+                                {copy.channelPlatformCta}
+                                <ArrowRight size={18} />
+                              </button>
+                            </div>
+
+                            <div className="onboarding-model-guide-card onboarding-model-guide-card--input">
+                              <div className="onboarding-model-guide-card__header onboarding-model-guide-card__header--stacked">
+                                <div className="onboarding-model-guide-step onboarding-model-guide-step--input">3</div>
+                                <div className="onboarding-model-guide-card__copy">
+                                  <strong>{copy.channelFeishuCredentialsTitle}</strong>
+                                  <p>{copy.channelFeishuCredentialsBody}</p>
+                                </div>
+                              </div>
+                              <div className="field-grid">
+                                <div>
+                                  <FieldLabel htmlFor="channel-appId">{copy.channelFeishuAppId}</FieldLabel>
+                                  <Input
+                                    id="channel-appId"
+                                    value={onboardingFieldValue(channelValues, "appId")}
+                                    onChange={(event) => setChannelValues((current) => ({ ...current, appId: event.target.value }))}
+                                    placeholder="cli_..."
+                                  />
+                                </div>
+                                <div>
+                                  <FieldLabel htmlFor="channel-appSecret">{copy.channelFeishuAppSecret}</FieldLabel>
+                                  <Input
+                                    id="channel-appSecret"
+                                    type="password"
+                                    value={onboardingFieldValue(channelValues, "appSecret")}
+                                    onChange={(event) => setChannelValues((current) => ({ ...current, appSecret: event.target.value }))}
+                                    placeholder="••••••••••••"
+                                  />
+                                </div>
+                              </div>
+                              <p className="onboarding-channel-secret-help">{copy.channelSecretHelp}</p>
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+
+                      {channelMessage ? <div className="onboarding-inline-note">{channelMessage}</div> : null}
+                      {channelRequiresApply ? (
+                        <div className="onboarding-inline-note onboarding-inline-note--warning">
+                          <strong>{copy.pendingApplyTitle}</strong>
+                          <span>{copy.channelApplyHint}</span>
+                        </div>
+                      ) : null}
+
+                      <div className="onboarding-model-actions">
+                        <Button variant="outline" fullWidth onClick={() => void handleReturnToChannelPicker()}>
+                          {common.back}
+                        </Button>
+                        <Button
+                          fullWidth
+                          onClick={() => void handleSaveChannel()}
+                          disabled={requiredChannelSetupFieldsMissing(selectedChannelSetupVariant, channelValues)}
+                          loading={channelBusy}
+                        >
+                          {copy.channelSaveContinue}
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -1241,134 +1809,9 @@ export default function OnboardingPage() {
               </LoadingBlocker>
             ) : null}
 
-            {currentStep === "channel" ? (
-              <LoadingBlocker
-                active={!channelConfig || channelBusy}
-                label={copy.channelTitle}
-                description={copy.channelBody}
-              >
-                <div className="onboarding-step onboarding-step--channel">
-                  <div className="onboarding-step__intro">
-                    <Badge tone="info">{copy.channelEyebrow}</Badge>
-                    <h2>{copy.channelTitle}</h2>
-                    <p>{copy.channelBody}</p>
-                  </div>
-
-                  <div className="onboarding-grid onboarding-grid--two">
-                    <div className="onboarding-panel onboarding-panel--soft">
-                      <strong>{copy.chooseChannel}</strong>
-                      <div className="onboarding-channel-grid">
-                        {visibleChannelCapabilities.map((capability) => (
-                          <button
-                            className={`onboarding-select-card${selectedChannelId === capability.id ? " onboarding-select-card--active" : ""}`}
-                            key={capability.id}
-                            onClick={() => setSelectedChannelId(capability.id)}
-                            type="button"
-                          >
-                            <div className="onboarding-channel-glyph">{channelIcon(capability.id)}</div>
-                            <div>
-                              <strong>{capability.label}</strong>
-                              <p>{capability.description}</p>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="onboarding-panel">
-                      {selectedChannelCapability ? (
-                        <>
-                          <div className="onboarding-provider-head">
-                            <div className="onboarding-channel-glyph">{channelIcon(selectedChannelCapability.id)}</div>
-                            <div>
-                              <strong>{selectedChannelCapability.label}</strong>
-                              <p>{selectedChannelCapability.description}</p>
-                            </div>
-                          </div>
-                          <div className="field-grid">
-                            {selectedChannelCapability.fieldDefs.map((field) => (
-                              <div key={field.id}>
-                                <FieldLabel htmlFor={`channel-${field.id}`}>
-                                  {field.label}
-                                  {field.required ? ` · ${copy.required}` : ""}
-                                </FieldLabel>
-                                {field.kind === "textarea" ? (
-                                  <Textarea
-                                    id={`channel-${field.id}`}
-                                    rows={4}
-                                    value={onboardingFieldValue(channelValues, field.id)}
-                                    onChange={(event) =>
-                                      setChannelValues((current) => ({
-                                        ...current,
-                                        [field.id]: event.target.value
-                                      }))
-                                    }
-                                    placeholder={field.placeholder}
-                                  />
-                                ) : field.kind === "select" ? (
-                                  <Select
-                                    id={`channel-${field.id}`}
-                                    value={onboardingFieldValue(channelValues, field.id, field.options?.[0]?.value)}
-                                    onChange={(event) =>
-                                      setChannelValues((current) => ({
-                                        ...current,
-                                        [field.id]: event.target.value
-                                      }))
-                                    }
-                                  >
-                                    {field.options?.map((option) => (
-                                      <option key={option.value} value={option.value}>
-                                        {option.label}
-                                      </option>
-                                    ))}
-                                  </Select>
-                                ) : (
-                                  <Input
-                                    id={`channel-${field.id}`}
-                                    type={field.secret ? "password" : "text"}
-                                    value={onboardingFieldValue(channelValues, field.id)}
-                                    onChange={(event) =>
-                                      setChannelValues((current) => ({
-                                        ...current,
-                                        [field.id]: event.target.value
-                                      }))
-                                    }
-                                    placeholder={field.placeholder}
-                                  />
-                                )}
-                                {field.helpText ? <p className="card__description">{field.helpText}</p> : null}
-                              </div>
-                            ))}
-                          </div>
-                          {channelMessage ? <div className="onboarding-inline-note">{channelMessage}</div> : null}
-                          {channelRequiresApply ? (
-                            <div className="onboarding-inline-note onboarding-inline-note--warning">
-                              <strong>{copy.pendingApplyTitle}</strong>
-                              <span>{copy.channelApplyHint}</span>
-                            </div>
-                          ) : null}
-                          <div className="onboarding-actions">
-                            <Button variant="outline" onClick={() => void persistDraft({ currentStep: "model" })}>
-                              {common.back}
-                            </Button>
-                            <Button
-                              onClick={() => void handleSaveChannel()}
-                              disabled={requiredChannelFieldsMissing(selectedChannelCapability, channelValues)}
-                            >
-                              {copy.channelSave}
-                            </Button>
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </LoadingBlocker>
-            ) : null}
-
             {currentStep === "employee" ? (
               <LoadingBlocker
-                active={!teamOverview || employeeBusy}
+                active={!teamOverview}
                 label={copy.employeeTitle}
                 description={copy.employeeBody}
               >
@@ -1383,26 +1826,27 @@ export default function OnboardingPage() {
                     <div className="onboarding-panel onboarding-panel--soft">
                       <strong>{copy.chooseAvatar}</strong>
                       <div className="onboarding-avatar-grid">
-                        {ONBOARDING_AVATAR_PRESETS.map((preset) => (
-                          <button
-                            className={`onboarding-avatar-card${employeeAvatarPresetId === preset.id ? " onboarding-avatar-card--active" : ""}`}
-                            key={preset.id}
-                            onClick={() => setEmployeeAvatarPresetId(preset.id)}
-                            type="button"
-                          >
-                            <MemberAvatar
-                              avatar={{
-                                presetId: preset.id,
-                                accent: preset.accent,
-                                emoji: preset.emoji,
-                                theme: preset.theme
-                              }}
-                              className="onboarding-avatar-card__avatar"
-                              name={preset.label}
-                            />
-                            <span>{preset.label}</span>
-                          </button>
-                        ))}
+                        {ONBOARDING_AVATAR_PRESETS.map((preset) => {
+                          const imageSrc = memberAvatarImageSrc({ presetId: preset.id });
+
+                          return (
+                            <button
+                              className={`onboarding-avatar-card${employeeAvatarPresetId === preset.id ? " onboarding-avatar-card--active" : ""}`}
+                              key={preset.id}
+                              onClick={() => setEmployeeAvatarPresetId(preset.id)}
+                              type="button"
+                            >
+                              <div className="onboarding-avatar-card__avatar" aria-label={preset.label}>
+                                {imageSrc ? (
+                                  <img alt={preset.label} className="member-avatar-image" src={imageSrc} />
+                                ) : (
+                                  <span className="member-avatar-fallback">{preset.emoji}</span>
+                                )}
+                              </div>
+                              <span>{preset.label}</span>
+                            </button>
+                          );
+                        })}
                       </div>
 
                       <div className="field-grid">
@@ -1417,16 +1861,34 @@ export default function OnboardingPage() {
                       </div>
 
                       <div className="panel-stack">
-                        <strong>{copy.personalityTitle}</strong>
-                        <div className="skill-chip-grid">
-                          {ONBOARDING_TRAITS.map((trait) => (
+                        <strong>{copy.skillsTitle}</strong>
+                        <div className="onboarding-employee-preset-grid">
+                          {employeePresets.map((preset) => (
                             <button
-                              className={`badge ${selectedTraits.includes(trait) ? "badge--info" : "badge--neutral"}`}
-                              key={trait}
-                              onClick={() => toggleTrait(trait)}
+                              className={`onboarding-select-card onboarding-select-card--employee-preset ${selectedEmployeePreset?.id === preset.id ? "onboarding-select-card--active" : ""} onboarding-employee-preset onboarding-employee-preset--${preset.theme}`}
+                              key={preset.id}
+                              onClick={() => selectEmployeePreset(preset.id)}
                               type="button"
                             >
-                              {trait}
+                              <div className="onboarding-employee-preset__head">
+                                <div className="onboarding-provider-mark onboarding-provider-mark--employee-preset">
+                                  {preset.theme === "analyst" ? <Brain size={24} strokeWidth={2.2} /> : null}
+                                  {preset.theme === "support" ? <Users size={24} strokeWidth={2.2} /> : null}
+                                  {preset.theme === "operator" ? <Rocket size={24} strokeWidth={2.2} /> : null}
+                                </div>
+                                <div className="onboarding-provider-copy onboarding-provider-copy--employee-preset">
+                                  <strong>{preset.label}</strong>
+                                  <span>{preset.description}</span>
+                                </div>
+                              </div>
+                              <div className="actions-row onboarding-employee-preset__chips">
+                                {preset.starterSkillLabels.slice(0, 1).map((label) => (
+                                  <Badge key={label} tone="success">{label}</Badge>
+                                ))}
+                                {preset.toolLabels.slice(0, 1).map((label) => (
+                                  <Badge key={label} tone="neutral">{label}</Badge>
+                                ))}
+                              </div>
                             </button>
                           ))}
                         </div>
@@ -1434,22 +1896,6 @@ export default function OnboardingPage() {
                     </div>
 
                     <div className="onboarding-panel">
-                      <div className="panel-stack">
-                        <strong>{copy.skillsTitle}</strong>
-                        <div className="skill-chip-grid">
-                          {teamOverview?.skillOptions.map((skill) => (
-                            <button
-                              className={`badge ${selectedSkillIds.includes(skill.id) ? "badge--success" : "badge--neutral"}`}
-                              key={skill.id}
-                              onClick={() => toggleSkill(skill.id)}
-                              type="button"
-                            >
-                              {skill.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
                       <div className="onboarding-memory-toggle">
                         <div>
                           <strong>{memoryEnabled ? copy.memoryOn : copy.memoryOff}</strong>
@@ -1466,27 +1912,37 @@ export default function OnboardingPage() {
 
                       <div className="onboarding-preview-card">
                         <div className="onboarding-preview-card__top">
-                          <MemberAvatar
-                            avatar={{
-                              presetId: selectedEmployeeAvatar.id,
-                              accent: selectedEmployeeAvatar.accent,
-                              emoji: selectedEmployeeAvatar.emoji,
-                              theme: selectedEmployeeAvatar.theme
-                            }}
-                            className="onboarding-preview-card__avatar"
-                            name={employeeName || selectedEmployeeAvatar.label}
-                          />
+                          {memberAvatarImageSrc({ presetId: selectedEmployeeAvatar.id }) ? (
+                            <div className="onboarding-preview-card__avatar">
+                              <img
+                                alt={employeeName || selectedEmployeeAvatar.label}
+                                className="member-avatar-image"
+                                src={memberAvatarImageSrc({ presetId: selectedEmployeeAvatar.id })}
+                              />
+                            </div>
+                          ) : (
+                            <MemberAvatar
+                              avatar={{
+                                presetId: selectedEmployeeAvatar.id,
+                                accent: selectedEmployeeAvatar.accent,
+                                emoji: selectedEmployeeAvatar.emoji,
+                                theme: selectedEmployeeAvatar.theme
+                              }}
+                              className="onboarding-preview-card__avatar"
+                              name={employeeName || selectedEmployeeAvatar.label}
+                            />
+                          )}
                           <div>
                             <strong>{employeeName || "Alex Morgan"}</strong>
                             <p>{employeeJobTitle || "Senior Research Analyst"}</p>
                           </div>
                         </div>
                         <div className="actions-row" style={{ flexWrap: "wrap" }}>
-                          {selectedTraits.slice(0, 3).map((trait) => (
-                            <Badge key={trait} tone="info">{trait}</Badge>
+                          {selectedEmployeePreset?.starterSkillLabels.slice(0, 2).map((label) => (
+                            <Badge key={label} tone="success">{label}</Badge>
                           ))}
-                          {selectedSkills.slice(0, 2).map((skill) => (
-                            <Badge key={skill.id} tone="neutral">{skill.label}</Badge>
+                          {selectedEmployeePreset?.toolLabels.slice(0, 2).map((label) => (
+                            <Badge key={label} tone="neutral">{label}</Badge>
                           ))}
                         </div>
                         <p className="card__description">
@@ -1500,7 +1956,7 @@ export default function OnboardingPage() {
                         </Button>
                         <Button
                           onClick={() => void handleCreateEmployee()}
-                          disabled={!selectedBrainEntryId || !employeeName.trim() || !employeeJobTitle.trim()}
+                          disabled={!selectedBrainEntryId || !selectedEmployeePreset || !employeeName.trim() || !employeeJobTitle.trim()}
                           loading={employeeBusy}
                         >
                           {copy.createEmployee}
@@ -1572,6 +2028,67 @@ export default function OnboardingPage() {
             ) : null}
           </CardContent>
         </Card>
+
+        <Dialog
+          open={modelTutorialOpen}
+          onClose={() => setModelTutorialOpen(false)}
+          title={copy.minimaxTutorialModalTitle}
+          description={copy.minimaxTutorialModalBody}
+          wide
+        >
+          <div className="onboarding-tutorial-modal">
+            <div className="onboarding-tutorial-modal__frame">
+              {selectedProviderPresentation?.tutorialVideoUrl ? (
+                <iframe
+                  className="onboarding-tutorial-modal__iframe"
+                  src={selectedProviderPresentation.tutorialVideoUrl}
+                  title={copy.minimaxTutorialModalTitle}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="onboarding-tutorial-modal__fallback">
+                  <PlayCircle size={88} strokeWidth={1.5} />
+                  <strong>{copy.minimaxTutorialFallbackTitle}</strong>
+                  <p>{copy.minimaxTutorialFallbackBody}</p>
+                </div>
+              )}
+            </div>
+            <Button fullWidth onClick={() => setModelTutorialOpen(false)}>
+              {copy.minimaxTutorialClose}
+            </Button>
+          </div>
+        </Dialog>
+        <Dialog
+          open={channelTutorialOpen}
+          onClose={() => setChannelTutorialOpen(false)}
+          title={copy.channelTutorialModalTitle}
+          description={copy.channelTutorialModalBody}
+          wide
+        >
+          <div className="onboarding-tutorial-modal">
+            <div className="onboarding-tutorial-modal__frame">
+              {selectedChannelPresentation?.tutorialVideoUrl ? (
+                <iframe
+                  className="onboarding-tutorial-modal__iframe"
+                  src={selectedChannelPresentation.tutorialVideoUrl}
+                  title={copy.channelTutorialModalTitle}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
+                <div className="onboarding-tutorial-modal__fallback">
+                  <PlayCircle size={88} strokeWidth={1.5} />
+                  <strong>{copy.channelTutorialFallbackTitle}</strong>
+                  <p>{copy.channelTutorialFallbackBody}</p>
+                </div>
+              )}
+            </div>
+            <Button fullWidth onClick={() => setChannelTutorialOpen(false)}>
+              {copy.channelTutorialClose}
+            </Button>
+          </div>
+        </Dialog>
       </div>
     </div>
   );

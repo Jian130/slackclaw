@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createAIMember, fetchAITeamOverview, fetchOverview, resetClientReadStateForTests } from "./client.js";
+import { createAIMember, fetchAITeamOverview, fetchOverview, redoOnboarding, resetClientReadStateForTests } from "./client.js";
 
 afterEach(() => {
   resetClientReadStateForTests();
@@ -86,5 +86,20 @@ describe("API client GET dedupe", () => {
     await fetchAITeamOverview();
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("posts to the onboarding reset endpoint", async () => {
+    const fetchMock = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<{ ok: true; json: () => Promise<{ draft: { currentStep: string } }> }>
+    >(async () => ({
+      ok: true,
+      json: async () => ({ draft: { currentStep: "welcome" } })
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await redoOnboarding();
+
+    expect(String(fetchMock.mock.calls[0]?.[0] ?? "")).toContain("/onboarding/reset");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
   });
 });
