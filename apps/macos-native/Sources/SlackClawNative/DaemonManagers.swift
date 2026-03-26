@@ -20,13 +20,13 @@ actor DaemonEndpointStore {
     ) {
         self.configuration = configuration
         self.ping = ping
-        self.state = .unavailable("SlackClaw daemon has not been checked yet.")
+        self.state = .unavailable("ChillClaw daemon has not been checked yet.")
     }
 
     func refresh() async {
         do {
             let ok = try await ping()
-            state = ok ? .ready(configuration.daemonURL) : .unavailable("SlackClaw daemon is not reachable.")
+            state = ok ? .ready(configuration.daemonURL) : .unavailable("ChillClaw daemon is not reachable.")
         } catch {
             state = .unavailable(error.localizedDescription)
         }
@@ -154,7 +154,7 @@ actor LaunchAgentManager: LaunchAgentControlling {
 
     private func appRootPath() throws -> String {
         guard let resourceURL = Bundle.main.resourceURL else {
-            throw NativeClientError.runtime("SlackClaw app resources are unavailable.")
+            throw NativeClientError.runtime("ChillClaw app resources are unavailable.")
         }
         return resourceURL.path
     }
@@ -229,7 +229,7 @@ final class DaemonProcessManager {
     func ensureRunning() async {
         do {
             if try await ping() {
-                status = .attachedExisting(details: "Using existing SlackClaw daemon")
+                status = .attachedExisting(details: "Using existing ChillClaw daemon")
                 return
             }
 
@@ -242,7 +242,7 @@ final class DaemonProcessManager {
                     return
                 }
             }
-            status = .failed("SlackClaw daemon did not become reachable in time.")
+            status = .failed("ChillClaw daemon did not become reachable in time.")
         } catch {
             status = .failed(error.localizedDescription)
         }
@@ -259,7 +259,7 @@ final class DaemonProcessManager {
                     return
                 }
             }
-            status = .failed("SlackClaw daemon did not come back after restart.")
+            status = .failed("ChillClaw daemon did not come back after restart.")
         } catch {
             status = .failed(error.localizedDescription)
         }

@@ -9,7 +9,7 @@ struct SlackClawNativeApp: App {
     @State private var appState = SlackClawAppState()
 
     var body: some Scene {
-        WindowGroup("SlackClaw") {
+        WindowGroup("ChillClaw") {
             RootView(appState: appState)
                 .task {
                     await appState.bootstrap()
@@ -39,7 +39,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if !appState.hasBootstrapped && appState.overview == nil {
-                ProgressView()
+                LoadingState(title: "Starting ChillClaw", description: "Connecting to the local daemon and reading workspace state.")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if appState.requiresOnboarding {
                 NativeOnboardingHostView(appState: appState)
@@ -69,22 +69,13 @@ struct RootView: View {
                 }
             }
         }
-        .alert("SlackClaw", isPresented: Binding(
+        .alert("ChillClaw", isPresented: Binding(
             get: { appState.errorMessage != nil },
             set: { if !$0 { appState.errorMessage = nil } }
         )) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(appState.errorMessage ?? "")
-        }
-    }
-
-    private var statusText: String {
-        switch appState.endpointStatus {
-        case let .ready(url):
-            return "Daemon ready at \(url.absoluteString)"
-        case let .unavailable(reason):
-            return reason
         }
     }
 
@@ -124,14 +115,7 @@ struct RootView: View {
     }
 
     private var nativeShellBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.95, green: 0.97, blue: 1.0),
-                Color(red: 0.99, green: 0.99, blue: 1.0)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        nativeShellBackgroundStyle()
     }
 }
 
@@ -185,24 +169,13 @@ private struct NativeSidebar: View {
                     }
                 )
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(copy.sidebarStatusTitle)
-                        .font(.system(size: 17, weight: .semibold))
+                SurfaceCard(title: copy.sidebarStatusTitle, tone: .accent, padding: 18, spacing: 10) {
+                    StatusBadge(sidebarStatusLabel(copy: copy), tone: sidebarStatusTone)
                     Text(sidebarStatusSummary(copy: copy))
                         .font(.system(size: 15))
                         .foregroundStyle(Color(red: 0.34, green: 0.41, blue: 0.54))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color.blue.opacity(0.08))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.blue.opacity(0.14), lineWidth: 1)
-                )
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
@@ -229,7 +202,7 @@ private struct NativeSidebar: View {
             .frame(width: 72, height: 72)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("SlackClaw")
+                Text("ChillClaw")
                     .font(.system(size: 26, weight: .bold))
                 Text(copy.brandSubtitle)
                     .font(.system(size: 15))
@@ -247,6 +220,24 @@ private struct NativeSidebar: View {
             return copy.sidebarStatusReadySummary
         case let .unavailable(reason):
             return reason
+        }
+    }
+
+    private func sidebarStatusLabel(copy: NativeDashboardCopy) -> String {
+        switch appState.endpointStatus {
+        case .ready:
+            return copy.workspaceActive
+        case .unavailable:
+            return "Attention needed"
+        }
+    }
+
+    private var sidebarStatusTone: NativeStatusTone {
+        switch appState.endpointStatus {
+        case .ready:
+            return .success
+        case .unavailable:
+            return .warning
         }
     }
 }

@@ -56,7 +56,7 @@ import { memberAvatarImageSrc, memberAvatarPresets, resolveMemberAvatarPreset } 
 import { settleAfterMutation } from "../../shared/data/settle.js";
 import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 import { t } from "../../shared/i18n/messages.js";
-import { Badge } from "../../shared/ui/Badge.js";
+import { Badge, TagBadge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent } from "../../shared/ui/Card.js";
 import { FieldLabel, Input } from "../../shared/ui/Field.js";
@@ -64,6 +64,8 @@ import { Dialog } from "../../shared/ui/Dialog.js";
 import { LanguageSelector } from "../../shared/ui/LanguageSelector.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
+import { Progress } from "../../shared/ui/Progress.js";
+import { GuidedFlowScaffold } from "../../shared/ui/Scaffold.js";
 import { onboardingCopy } from "./copy.js";
 import {
   buildExistingInstallAdvanceDraft,
@@ -112,7 +114,7 @@ function defaultChannelValuesFor(channelId: string): Record<string, string> {
     case "wechat":
       return { pluginSpec: "@openclaw-china/wecom-app" };
     case "feishu":
-      return { domain: "feishu", botName: "SlackClaw Assistant" };
+      return { domain: "feishu", botName: "ChillClaw Assistant" };
     default:
       return {};
   }
@@ -384,7 +386,7 @@ export default function OnboardingPage() {
   async function readFreshOverview() {
     const next = await refresh({ fresh: true });
     if (!next) {
-      throw new Error("SlackClaw could not refresh the latest overview.");
+      throw new Error("ChillClaw could not refresh the latest overview.");
     }
     return next;
   }
@@ -446,7 +448,7 @@ export default function OnboardingPage() {
         setOnboardingState(nextState);
       } catch (loadError) {
         if (!cancelled) {
-          setPageError(loadError instanceof Error ? loadError.message : "SlackClaw could not load onboarding.");
+          setPageError(loadError instanceof Error ? loadError.message : "ChillClaw could not load onboarding.");
         }
       } finally {
         if (!cancelled) {
@@ -822,7 +824,7 @@ export default function OnboardingPage() {
         install: installState
       });
     } catch (actionError) {
-      setPageError(actionError instanceof Error ? actionError.message : "SlackClaw could not finish installation.");
+      setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not finish installation.");
     } finally {
       setInstallBusy(false);
     }
@@ -899,7 +901,7 @@ export default function OnboardingPage() {
         activeModelAuthSessionId: ""
       });
     } catch (actionError) {
-      setPageError(actionError instanceof Error ? actionError.message : "SlackClaw could not save this model.");
+      setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not save this model.");
     } finally {
       setModelBusy("");
     }
@@ -918,7 +920,7 @@ export default function OnboardingPage() {
       setModelSessionInput("");
       await refreshOnboardingState();
     } catch (actionError) {
-      setPageError(actionError instanceof Error ? actionError.message : "SlackClaw could not finish model authentication.");
+      setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not finish model authentication.");
     } finally {
       setModelBusy("");
     }
@@ -987,7 +989,7 @@ export default function OnboardingPage() {
         }
       });
     } catch (actionError) {
-      setPageError(actionError instanceof Error ? actionError.message : "SlackClaw could not save this channel.");
+      setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not save this channel.");
     } finally {
       setChannelBusy(false);
     }
@@ -1016,7 +1018,7 @@ export default function OnboardingPage() {
 
   async function handleCreateEmployee() {
     if (!selectedBrainEntryId || !selectedEmployeePreset || !employeeName.trim() || !employeeJobTitle.trim()) {
-      setPageError("SlackClaw needs a saved model, employee name, and job title before it can create the AI employee.");
+      setPageError("ChillClaw needs a saved model, employee name, and job title before it can create the AI employee.");
       return;
     }
 
@@ -1072,7 +1074,7 @@ export default function OnboardingPage() {
         }
       });
     } catch (actionError) {
-      setPageError(actionError instanceof Error ? actionError.message : "SlackClaw could not create this AI employee.");
+      setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not create this AI employee.");
     } finally {
       setEmployeeBusy(false);
     }
@@ -1086,7 +1088,7 @@ export default function OnboardingPage() {
       setOverview(result.overview);
       navigate(onboardingDestinationPath(destination), { replace: true });
     } catch (actionError) {
-      setPageError(actionError instanceof Error ? actionError.message : "SlackClaw could not complete onboarding.");
+      setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not complete onboarding.");
     } finally {
       setCompletionBusy("");
     }
@@ -1105,19 +1107,23 @@ export default function OnboardingPage() {
 
   return (
     <div className="onboarding-screen">
-      <div className="onboarding-shell">
-        <div className="onboarding-toolbar">
-          <div aria-hidden className="onboarding-toolbar__spacer" />
-          <div className="onboarding-brand">
-            <div className="onboarding-brand__mark">
-              <Sparkles size={28} />
+      <GuidedFlowScaffold
+        className="onboarding-shell"
+        header={
+          <div className="onboarding-toolbar">
+            <div aria-hidden className="onboarding-toolbar__spacer" />
+            <div className="onboarding-brand">
+              <div className="onboarding-brand__mark">
+                <Sparkles size={28} />
+              </div>
+              <strong>{copy.brand}</strong>
             </div>
-            <strong>{copy.brand}</strong>
+            <div className="onboarding-toolbar__controls">
+              <LanguageSelector />
+            </div>
           </div>
-          <div className="onboarding-toolbar__controls">
-            <LanguageSelector />
-          </div>
-        </div>
+        }
+      >
 
         {currentStep === "welcome" || currentStep === "install" || currentStep === "permissions" || currentStep === "model" ? (
           <div className="onboarding-header onboarding-header--welcome">
@@ -1130,18 +1136,16 @@ export default function OnboardingPage() {
                 <span>{formatOnboardingProgressLabel(copy.progressStep, currentStepIndex + 1, ONBOARDING_STEP_ORDER.length)}</span>
                 <span>{`${progressPercent}% ${copy.progressComplete}`}</span>
               </div>
-              <div className="onboarding-progress-bar__track">
-                <div className="onboarding-progress-bar__fill" style={{ width: `${progressPercent}%` }} />
-              </div>
+              <Progress value={progressPercent} />
             </div>
           </div>
         ) : (
           <div className="onboarding-header">
             <div className="onboarding-header__copy">
-              <Badge tone="info">
+              <TagBadge tone="info">
                 <Sparkles size={14} />
                 {copy.brand}
-              </Badge>
+              </TagBadge>
               <h1>{copy.welcomeTitle}</h1>
               <p>{copy.subtitle}</p>
             </div>
@@ -1212,10 +1216,7 @@ export default function OnboardingPage() {
                     <strong>{copy.installInstallingTitle}</strong>
                     <p>{copy.installInstallingBody}</p>
                     <div className="onboarding-install-progress__bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(installViewState.progressPercent ?? 16)}>
-                      <div
-                        className="onboarding-install-progress__fill"
-                        style={{ width: `${installViewState.progressPercent ?? 16}%` }}
-                      />
+                      <Progress value={installViewState.progressPercent ?? 16} />
                     </div>
                     <span className="onboarding-install-progress__stage">{installViewState.stageLabel}</span>
                   </div>
@@ -2122,7 +2123,7 @@ export default function OnboardingPage() {
             </Button>
           </div>
         </Dialog>
-      </div>
+      </GuidedFlowScaffold>
     </div>
   );
 }

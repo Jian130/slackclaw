@@ -19,10 +19,10 @@ import { t } from "../../shared/i18n/messages.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../../shared/ui/Card.js";
 import { FieldLabel, Input, Select } from "../../shared/ui/Field.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 import { Switch } from "../../shared/ui/Switch.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.js";
-import { Badge } from "../../shared/ui/Badge.js";
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -57,8 +57,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="panel-stack">
-      <PageHeader title={copy.title} subtitle={copy.subtitle} />
+    <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
       {message ? <p className="card__description">{message}</p> : null}
 
       <Tabs defaultValue="general">
@@ -107,8 +106,8 @@ export default function SettingsPage() {
                     value={state.settings.general.instanceName}
                   />
                 </div>
-                <div className="check-row"><div className="check-row__meta"><strong>Auto-start on boot</strong><p>Stored locally for the current SlackClaw workspace.</p></div><Switch checked={state.settings.general.autoStart} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, autoStart: checked } } }))} /></div>
-                <div className="check-row"><div className="check-row__meta"><strong>Check for updates</strong><p>Keep SlackClaw aware of product updates.</p></div><Switch checked={state.settings.general.checkUpdates} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, checkUpdates: checked } } }))} /></div>
+                <div className="check-row"><div className="check-row__meta"><strong>Auto-start on boot</strong><p>Stored locally for the current ChillClaw workspace.</p></div><Switch checked={state.settings.general.autoStart} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, autoStart: checked } } }))} /></div>
+                <div className="check-row"><div className="check-row__meta"><strong>Check for updates</strong><p>Keep ChillClaw aware of product updates.</p></div><Switch checked={state.settings.general.checkUpdates} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, checkUpdates: checked } } }))} /></div>
                 <div className="check-row"><div className="check-row__meta"><strong>Send telemetry</strong><p>Frontend-local preference only until a daemon-backed setting exists.</p></div><Switch checked={state.settings.general.telemetry} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, telemetry: checked } } }))} /></div>
               </CardContent>
             </Card>
@@ -123,9 +122,9 @@ export default function SettingsPage() {
                   <strong>App service</strong>
                   <p className="card__description">{overview?.appService.summary}</p>
                 </div>
-                <Badge tone={overview?.appService.running ? "success" : "warning"}>
+                <StatusBadge tone={overview?.appService.running ? "success" : "warning"}>
                   {overview?.appService.running ? "Running" : "Stopped"}
-                </Badge>
+                </StatusBadge>
               </CardContent>
             </Card>
             <Card>
@@ -224,6 +223,6 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
       </Tabs>
-    </div>
+    </WorkspaceScaffold>
   );
 }

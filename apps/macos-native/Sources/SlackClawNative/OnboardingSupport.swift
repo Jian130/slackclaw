@@ -49,6 +49,19 @@ let nativeOnboardingFeatureRadius: CGFloat = 16
 let nativeOnboardingIconTileRadius: CGFloat = 12
 let nativeOnboardingCTAHeight: CGFloat = 50
 
+enum NativeOnboardingActionButtonVariant: Sendable {
+    case accent
+    case primary
+    case secondary
+}
+
+struct NativeOnboardingActionButtonLayout: Sendable, Equatable {
+    let expandsToContainer: Bool
+    let minHeight: CGFloat
+    let usesFullHitShape: Bool
+    let cornerRadius: CGFloat
+}
+
 enum NativeOnboardingGuideTone {
     case tutorial
     case getKey
@@ -114,8 +127,25 @@ func nativeOnboardingUsesCompactProgressLayout(for contentWidth: CGFloat) -> Boo
     contentWidth < nativeOnboardingCompactProgressThreshold
 }
 
+func nativeOnboardingUsesInlineProgressHeader(step: OnboardingStep, contentWidth: CGFloat) -> Bool {
+    _ = step
+    return nativeOnboardingUsesCompactProgressLayout(for: contentWidth)
+}
+
 func nativeOnboardingUsesCompactEmployeeLayout(for contentWidth: CGFloat) -> Bool {
     contentWidth < nativeOnboardingCompactEmployeeThreshold
+}
+
+func nativeOnboardingActionButtonLayout(
+    variant: NativeOnboardingActionButtonVariant
+) -> NativeOnboardingActionButtonLayout {
+    _ = variant
+    return .init(
+        expandsToContainer: true,
+        minHeight: nativeOnboardingCTAHeight,
+        usesFullHitShape: true,
+        cornerRadius: nativeOnboardingFeatureRadius
+    )
 }
 
 func nativeOnboardingChannelPresentationTheme(_ theme: String) -> LinearGradient {
@@ -951,17 +981,17 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
     switch locale {
     case .zh:
         return .init(
-            brand: "SlackClaw",
+            brand: "ChillClaw",
             subtitle: "几分钟内搭建你的 OpenClaw 数字员工工作区",
             skip: "跳过引导",
             progressStep: "第 {current} / {total} 步",
             progressComplete: "已完成",
             stepLabels: ["欢迎", "安装", "权限", "模型", "渠道", "AI 员工", "完成"],
             welcomeEyebrow: "开始使用",
-            welcomeTitle: "欢迎来到 SlackClaw",
+            welcomeTitle: "欢迎来到 ChillClaw",
             welcomeBody: "几分钟内搭建你的 OpenClaw 数字员工工作区",
             welcomeHighlights: [
-                .init(title: "一键完成设置", body: "无需终端命令或复杂技术配置，几分钟内启动 SlackClaw。"),
+                .init(title: "一键完成设置", body: "无需终端命令或复杂技术配置，几分钟内启动 ChillClaw。"),
                 .init(title: "个人 AI 工作区", body: "选择合适模型、整理技能，并为你的数字员工准备工作区。"),
                 .init(title: "创建第一位数字员工", body: "创建一个具备名字、角色和技能的 AI 搭档，支持你的日常工作。"),
             ],
@@ -970,20 +1000,20 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             begin: "开始准备我的工作区",
             installTitle: "安装 OpenClaw",
             installBody: "我们会检查 OpenClaw 是否已安装，并为你完成设置",
-            installDetected: "SlackClaw 已在这台 Mac 上发现兼容的 OpenClaw 运行时。",
-            installMissing: "SlackClaw 还未发现 OpenClaw 运行时，将为当前用户安装最新可用版本。",
+            installDetected: "ChillClaw 已在这台 Mac 上发现兼容的 OpenClaw 运行时。",
+            installMissing: "ChillClaw 还未发现 OpenClaw 运行时，将为当前用户安装最新可用版本。",
             installCta: "安装 OpenClaw",
             installUseExisting: "使用现有 OpenClaw",
             installContinue: "下一步",
             installSuccess: "OpenClaw 已就绪，继续配置模型。",
             installFoundTitle: "已检测到兼容的 OpenClaw",
-            installFoundBody: "这台 Mac 已经准备好 OpenClaw，SlackClaw 可以直接继续使用它。",
+            installFoundBody: "这台 Mac 已经准备好 OpenClaw，ChillClaw 可以直接继续使用它。",
             installNotFoundTitle: "未找到 OpenClaw",
             installNotFoundBody: "别担心！我们只需几次点击就能帮你安装完成。",
             installInstallingTitle: "正在安装 OpenClaw...",
             installInstallingBody: "这大约需要 2–3 分钟。请不要关闭此窗口。",
             installUpdatingTitle: "正在更新 OpenClaw...",
-            installUpdatingBody: "SlackClaw 正在下载并应用最新可用版本。请不要关闭此窗口。",
+            installUpdatingBody: "ChillClaw 正在下载并应用最新可用版本。请不要关闭此窗口。",
             installCompleteTitle: "安装完成！",
             installCompleteBody: "OpenClaw 现在已经可以使用",
             installVersionLabel: "版本",
@@ -1072,7 +1102,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             channelSecretHelp: "你的凭证会被加密并存储在本地",
             chooseChannel: "请先选择渠道",
             employeeTitle: "创建第一个 AI 员工",
-            employeeBody: "选择头像、角色和预设技能。SlackClaw 会在后台创建真实的 OpenClaw agent 工作区。",
+            employeeBody: "选择头像、角色和预设技能。ChillClaw 会在后台创建真实的 OpenClaw agent 工作区。",
             employeeName: "员工名称",
             employeeRole: "职位名称",
             employeePreview: "员工预览",
@@ -1084,7 +1114,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             memoryOn: "已启用记忆",
             memoryOff: "已关闭记忆",
             completeTitle: "你的工作区已准备完成",
-            completeBody: "SlackClaw 已完成引导设置。选择你接下来想去的页面。",
+            completeBody: "ChillClaw 已完成引导设置。选择你接下来想去的页面。",
             completionInstall: "OpenClaw",
             completionModel: "模型",
             completionChannel: "渠道",
@@ -1099,17 +1129,17 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
         )
     case .ja:
         return .init(
-            brand: "SlackClaw",
+            brand: "ChillClaw",
             subtitle: "数分で OpenClaw ベースのデジタル従業員ワークスペースを構築します",
             skip: "オンボーディングをスキップ",
             progressStep: "ステップ {current} / {total}",
             progressComplete: "完了",
             stepLabels: ["開始", "インストール", "権限", "モデル", "チャネル", "AI 社員", "完了"],
             welcomeEyebrow: "スタート",
-            welcomeTitle: "SlackClaw へようこそ",
+            welcomeTitle: "ChillClaw へようこそ",
             welcomeBody: "数分で OpenClaw ベースのデジタル従業員ワークスペースを構築します",
             welcomeHighlights: [
-                .init(title: "ワンクリックでセットアップ", body: "ターミナル操作や高度な技術設定なしで、数分で SlackClaw を開始できます。"),
+                .init(title: "ワンクリックでセットアップ", body: "ターミナル操作や高度な技術設定なしで、数分で ChillClaw を開始できます。"),
                 .init(title: "個人用 AI ワークスペース", body: "最適なモデルを選び、スキルを整理し、デジタル従業員用のワークスペースを整えます。"),
                 .init(title: "最初のデジタル従業員を作成", body: "名前、役割、スキルを持つ AI チームメイトを作り、日々の仕事を支援させます。"),
             ],
@@ -1125,13 +1155,13 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             installContinue: "次へ",
             installSuccess: "OpenClaw の準備ができました。モデル設定へ進みます。",
             installFoundTitle: "互換性のある OpenClaw を検出しました",
-            installFoundBody: "この Mac には OpenClaw がすでに用意されています。SlackClaw はそのまま使い続けられます。",
+            installFoundBody: "この Mac には OpenClaw がすでに用意されています。ChillClaw はそのまま使い続けられます。",
             installNotFoundTitle: "OpenClaw が見つかりません",
             installNotFoundBody: "ご安心ください。数回のクリックでインストールできます。",
             installInstallingTitle: "OpenClaw をインストールしています...",
             installInstallingBody: "2〜3 分ほどかかります。このウィンドウは閉じないでください。",
             installUpdatingTitle: "OpenClaw を更新しています...",
-            installUpdatingBody: "SlackClaw が最新の利用可能バージョンをダウンロードして適用しています。このウィンドウは閉じないでください。",
+            installUpdatingBody: "ChillClaw が最新の利用可能バージョンをダウンロードして適用しています。このウィンドウは閉じないでください。",
             installCompleteTitle: "インストール完了！",
             installCompleteBody: "OpenClaw を使用する準備ができました",
             installVersionLabel: "バージョン",
@@ -1220,7 +1250,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             channelSecretHelp: "資格情報は暗号化されてローカルに保存されます",
             chooseChannel: "先にチャネルを選択してください",
             employeeTitle: "最初の AI 社員を作成",
-            employeeBody: "アバター、役割、プリセットスキルを選択します。SlackClaw が実際の OpenClaw エージェントを作成します。",
+            employeeBody: "アバター、役割、プリセットスキルを選択します。ChillClaw が実際の OpenClaw エージェントを作成します。",
             employeeName: "社員名",
             employeeRole: "役職",
             employeePreview: "社員プレビュー",
@@ -1232,7 +1262,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             memoryOn: "記憶を有効",
             memoryOff: "記憶を無効",
             completeTitle: "ワークスペースの準備ができました",
-            completeBody: "SlackClaw のガイド設定が完了しました。次に進む先を選んでください。",
+            completeBody: "ChillClaw のガイド設定が完了しました。次に進む先を選んでください。",
             completionInstall: "OpenClaw",
             completionModel: "モデル",
             completionChannel: "チャネル",
@@ -1247,17 +1277,17 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
         )
     case .ko:
         return .init(
-            brand: "SlackClaw",
+            brand: "ChillClaw",
             subtitle: "몇 분 안에 OpenClaw 기반 디지털 직원 작업 공간을 만드세요",
             skip: "온보딩 건너뛰기",
             progressStep: "{current}/{total}단계",
             progressComplete: "완료",
             stepLabels: ["시작", "설치", "권한", "모델", "채널", "AI 직원", "완료"],
             welcomeEyebrow: "시작하기",
-            welcomeTitle: "SlackClaw에 오신 것을 환영합니다",
+            welcomeTitle: "ChillClaw에 오신 것을 환영합니다",
             welcomeBody: "몇 분 안에 OpenClaw 기반 디지털 직원 작업 공간을 만드세요",
             welcomeHighlights: [
-                .init(title: "원클릭 설정", body: "터미널 명령이나 복잡한 기술 설정 없이 몇 분 안에 SlackClaw를 시작합니다."),
+                .init(title: "원클릭 설정", body: "터미널 명령이나 복잡한 기술 설정 없이 몇 분 안에 ChillClaw를 시작합니다."),
                 .init(title: "개인 AI 작업 공간", body: "적절한 모델을 선택하고, 스킬을 정리하고, 디지털 직원용 작업 공간을 준비하세요."),
                 .init(title: "첫 디지털 직원 만들기", body: "이름, 역할, 스킬을 갖춘 AI 팀원을 만들어 일상 업무를 지원하게 하세요."),
             ],
@@ -1273,13 +1303,13 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             installContinue: "다음",
             installSuccess: "OpenClaw가 준비되었습니다. 모델 설정으로 계속합니다.",
             installFoundTitle: "호환되는 OpenClaw를 찾았습니다",
-            installFoundBody: "이 Mac에는 이미 OpenClaw가 준비되어 있습니다. SlackClaw가 그대로 사용할 수 있습니다.",
+            installFoundBody: "이 Mac에는 이미 OpenClaw가 준비되어 있습니다. ChillClaw가 그대로 사용할 수 있습니다.",
             installNotFoundTitle: "OpenClaw를 찾을 수 없습니다",
             installNotFoundBody: "걱정하지 마세요. 몇 번의 클릭만으로 설치해 드립니다.",
             installInstallingTitle: "OpenClaw 설치 중...",
             installInstallingBody: "2~3분 정도 걸립니다. 이 창을 닫지 마세요.",
             installUpdatingTitle: "OpenClaw 업데이트 중...",
-            installUpdatingBody: "SlackClaw가 최신 사용 가능 버전을 내려받아 적용하고 있습니다. 이 창을 닫지 마세요.",
+            installUpdatingBody: "ChillClaw가 최신 사용 가능 버전을 내려받아 적용하고 있습니다. 이 창을 닫지 마세요.",
             installCompleteTitle: "설치 완료!",
             installCompleteBody: "이제 OpenClaw를 사용할 수 있습니다",
             installVersionLabel: "버전",
@@ -1368,7 +1398,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             channelSecretHelp: "자격 증명은 암호화되어 로컬에 저장됩니다",
             chooseChannel: "먼저 채널을 선택하세요",
             employeeTitle: "첫 AI 직원 만들기",
-            employeeBody: "아바타, 역할, 프리셋 스킬을 선택합니다. SlackClaw가 실제 OpenClaw 에이전트를 생성합니다.",
+            employeeBody: "아바타, 역할, 프리셋 스킬을 선택합니다. ChillClaw가 실제 OpenClaw 에이전트를 생성합니다.",
             employeeName: "직원 이름",
             employeeRole: "직무명",
             employeePreview: "직원 미리보기",
@@ -1380,7 +1410,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             memoryOn: "메모리 활성화",
             memoryOff: "메모리 비활성화",
             completeTitle: "작업공간이 준비되었습니다",
-            completeBody: "SlackClaw 가이드 설정이 완료되었습니다. 다음에 갈 곳을 선택하세요.",
+            completeBody: "ChillClaw 가이드 설정이 완료되었습니다. 다음에 갈 곳을 선택하세요.",
             completionInstall: "OpenClaw",
             completionModel: "모델",
             completionChannel: "채널",
@@ -1395,17 +1425,17 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
         )
     case .es:
         return .init(
-            brand: "SlackClaw",
+            brand: "ChillClaw",
             subtitle: "Construye en minutos tu espacio de trabajo de empleados digitales impulsado por OpenClaw",
             skip: "Omitir onboarding",
             progressStep: "Paso {current} de {total}",
             progressComplete: "Completado",
             stepLabels: ["Inicio", "Instalar", "Permisos", "Modelo", "Canal", "Empleado IA", "Completo"],
             welcomeEyebrow: "Comenzar",
-            welcomeTitle: "Bienvenido a SlackClaw",
+            welcomeTitle: "Bienvenido a ChillClaw",
             welcomeBody: "Construye en minutos tu espacio de trabajo de empleados digitales impulsado por OpenClaw",
             welcomeHighlights: [
-                .init(title: "Configuración con un clic", body: "Inicia SlackClaw en minutos sin comandos de terminal ni configuración técnica compleja."),
+                .init(title: "Configuración con un clic", body: "Inicia ChillClaw en minutos sin comandos de terminal ni configuración técnica compleja."),
                 .init(title: "Espacio de trabajo personal con IA", body: "Elige el modelo adecuado, organiza habilidades y prepara un espacio para tus empleados digitales."),
                 .init(title: "Crea tu primer empleado digital", body: "Crea un compañero de IA con nombre, rol y habilidades para apoyar tu trabajo diario."),
             ],
@@ -1414,20 +1444,20 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             begin: "Preparar mi espacio de trabajo",
             installTitle: "Instalar OpenClaw",
             installBody: "Comprobaremos si OpenClaw ya está instalado y lo configuraremos por ti",
-            installDetected: "SlackClaw ya encontró un runtime compatible de OpenClaw en este Mac.",
-            installMissing: "SlackClaw aún no encontró un runtime de OpenClaw. Instalará la versión más reciente disponible para este usuario.",
+            installDetected: "ChillClaw ya encontró un runtime compatible de OpenClaw en este Mac.",
+            installMissing: "ChillClaw aún no encontró un runtime de OpenClaw. Instalará la versión más reciente disponible para este usuario.",
             installCta: "Instalar OpenClaw",
             installUseExisting: "Usar OpenClaw existente",
             installContinue: "Siguiente",
             installSuccess: "OpenClaw está listo. Continúa con la configuración del modelo.",
             installFoundTitle: "Se detectó un OpenClaw compatible",
-            installFoundBody: "Este Mac ya tiene OpenClaw listo. SlackClaw puede seguir usándolo.",
+            installFoundBody: "Este Mac ya tiene OpenClaw listo. ChillClaw puede seguir usándolo.",
             installNotFoundTitle: "OpenClaw no encontrado",
             installNotFoundBody: "No te preocupes. Lo instalaremos por ti en solo unos clics.",
             installInstallingTitle: "Instalando OpenClaw...",
             installInstallingBody: "Esto tardará 2–3 minutos. No cierres esta ventana.",
             installUpdatingTitle: "Actualizando OpenClaw...",
-            installUpdatingBody: "SlackClaw está descargando y aplicando la última versión disponible. No cierres esta ventana.",
+            installUpdatingBody: "ChillClaw está descargando y aplicando la última versión disponible. No cierres esta ventana.",
             installCompleteTitle: "¡Instalación completa!",
             installCompleteBody: "OpenClaw ya está listo para usarse",
             installVersionLabel: "Versión",
@@ -1516,7 +1546,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             channelSecretHelp: "Tus credenciales se cifran y se guardan localmente",
             chooseChannel: "Primero elige un canal",
             employeeTitle: "Crea tu primer empleado IA",
-            employeeBody: "Elige un avatar, rol y habilidades predeterminadas. SlackClaw crea un espacio real de agente OpenClaw detrás de este empleado.",
+            employeeBody: "Elige un avatar, rol y habilidades predeterminadas. ChillClaw crea un espacio real de agente OpenClaw detrás de este empleado.",
             employeeName: "Nombre del empleado",
             employeeRole: "Puesto",
             employeePreview: "Vista previa del empleado",
@@ -1528,7 +1558,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             memoryOn: "Memoria activada",
             memoryOff: "Memoria desactivada",
             completeTitle: "Tu espacio de trabajo está listo",
-            completeBody: "SlackClaw terminó la configuración guiada. Elige a dónde quieres ir ahora.",
+            completeBody: "ChillClaw terminó la configuración guiada. Elige a dónde quieres ir ahora.",
             completionInstall: "OpenClaw",
             completionModel: "Modelo",
             completionChannel: "Canal",
@@ -1543,17 +1573,17 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
         )
     case .en:
         return .init(
-            brand: "SlackClaw",
+            brand: "ChillClaw",
             subtitle: "Build your OpenClaw-powered digital employee workspace in minutes",
             skip: "Skip onboarding",
             progressStep: "Step {current} of {total}",
             progressComplete: "Complete",
             stepLabels: ["Welcome", "Install", "Permissions", "Model", "Channel", "AI Employee", "Complete"],
             welcomeEyebrow: "Get started",
-            welcomeTitle: "Welcome to SlackClaw",
+            welcomeTitle: "Welcome to ChillClaw",
             welcomeBody: "Build your OpenClaw-powered digital employee workspace in minutes",
             welcomeHighlights: [
-                .init(title: "One-Click Setup", body: "Start SlackClaw in minutes with no terminal commands or technical configuration."),
+                .init(title: "One-Click Setup", body: "Start ChillClaw in minutes with no terminal commands or technical configuration."),
                 .init(title: "Personal AI Workspace", body: "Choose the right model, organize skills, and prepare a workspace for your digital employees."),
                 .init(title: "Build Your First Digital Employee", body: "Create an AI teammate with a name, role, and skills to support your daily work."),
             ],
@@ -1562,20 +1592,20 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             begin: "Get My Workspace Ready",
             installTitle: "Install OpenClaw",
             installBody: "We'll check if OpenClaw is installed and set it up for you",
-            installDetected: "SlackClaw already found a compatible OpenClaw runtime on this Mac.",
-            installMissing: "SlackClaw did not find an OpenClaw runtime yet. It will install the latest available version for this user.",
+            installDetected: "ChillClaw already found a compatible OpenClaw runtime on this Mac.",
+            installMissing: "ChillClaw did not find an OpenClaw runtime yet. It will install the latest available version for this user.",
             installCta: "Install OpenClaw",
             installUseExisting: "Use existing OpenClaw",
             installContinue: "Next",
             installSuccess: "OpenClaw is ready. Continue to model setup.",
             installFoundTitle: "Compatible OpenClaw detected",
-            installFoundBody: "This Mac already has OpenClaw ready. SlackClaw can keep using it.",
+            installFoundBody: "This Mac already has OpenClaw ready. ChillClaw can keep using it.",
             installNotFoundTitle: "OpenClaw Not Found",
             installNotFoundBody: "Don't worry! We'll install it for you in just a few clicks.",
             installInstallingTitle: "Installing OpenClaw...",
             installInstallingBody: "This will take 2–3 minutes. Please don't close this window.",
             installUpdatingTitle: "Updating OpenClaw...",
-            installUpdatingBody: "SlackClaw is downloading and applying the latest available version. Please keep this window open.",
+            installUpdatingBody: "ChillClaw is downloading and applying the latest available version. Please keep this window open.",
             installCompleteTitle: "Installation Complete!",
             installCompleteBody: "OpenClaw is now ready to use",
             installVersionLabel: "Version",
@@ -1664,7 +1694,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             channelSecretHelp: "Your credentials are encrypted and stored locally",
             chooseChannel: "Choose a channel first",
             employeeTitle: "Create your first AI employee",
-            employeeBody: "Choose an avatar, role, and preset skills. SlackClaw creates a real OpenClaw agent workspace behind this employee.",
+            employeeBody: "Choose an avatar, role, and preset skills. ChillClaw creates a real OpenClaw agent workspace behind this employee.",
             employeeName: "Employee name",
             employeeRole: "Job title",
             employeePreview: "Employee preview",
@@ -1676,7 +1706,7 @@ func nativeOnboardingCopy(localeIdentifier: String = resolveNativeOnboardingLoca
             memoryOn: "Memory enabled",
             memoryOff: "Memory disabled",
             completeTitle: "Your workspace is ready",
-            completeBody: "SlackClaw finished the guided setup. Choose where you want to go next.",
+            completeBody: "ChillClaw finished the guided setup. Choose where you want to go next.",
             completionInstall: "OpenClaw",
             completionModel: "Model",
             completionChannel: "Channel",

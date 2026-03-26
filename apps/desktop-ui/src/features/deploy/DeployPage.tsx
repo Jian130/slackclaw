@@ -19,9 +19,12 @@ import { settleAfterMutation } from "../../shared/data/settle.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../shared/ui/Card.js";
-import { Badge } from "../../shared/ui/Badge.js";
+import { TagBadge } from "../../shared/ui/Badge.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
+import { InfoBanner } from "../../shared/ui/InfoBanner.js";
 import { Progress } from "../../shared/ui/Progress.js";
+import { OperationsScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 
 type VariantMeta = {
   icon: string;
@@ -67,7 +70,7 @@ const variantMeta: Record<DeploymentTargetId, VariantMeta> = {
       "Reuses compatible OpenClaw installs",
       "Keeps existing OpenClaw settings",
       "Fastest path to first deploy",
-      "Uses the real SlackClaw setup flow"
+      "Uses the real ChillClaw setup flow"
     ]
   },
   "managed-local": {
@@ -76,10 +79,10 @@ const variantMeta: Record<DeploymentTargetId, VariantMeta> = {
     hoverBorderClass: "deploy-variant--green-hover",
     iconClass: "deploy-variant__icon--green",
     features: [
-      "Keeps engine files inside SlackClaw data",
+      "Keeps engine files inside ChillClaw data",
       "Cleaner isolation for desktop installs",
-      "Pinned SlackClaw-managed version",
-      "Uses the real SlackClaw setup flow"
+      "Pinned ChillClaw-managed version",
+      "Uses the real ChillClaw setup flow"
     ]
   },
   zeroclaw: {
@@ -366,7 +369,7 @@ export default function DeployPage() {
       const result = await fetchDeploymentTargets(options);
       applyTargetsResult(result);
     } catch (error) {
-      setTargetsError(error instanceof Error ? error.message : "SlackClaw could not load deployment targets.");
+      setTargetsError(error instanceof Error ? error.message : "ChillClaw could not load deployment targets.");
     } finally {
       setTargetsLoading(false);
     }
@@ -598,25 +601,25 @@ export default function DeployPage() {
             </div>
             <div className="deploy-variant-card__badges">
               {target.installed ? (
-                <Badge className="deploy-badge deploy-badge--installed" tone="success">
+                <StatusBadge className="deploy-badge deploy-badge--installed" tone="success">
                   {copy.installedBadge}
-                </Badge>
+                </StatusBadge>
               ) : null}
               {target.active ? (
-                <Badge className="deploy-badge deploy-badge--current" tone="info">
+                <StatusBadge className="deploy-badge deploy-badge--current" tone="info">
                   {copy.currentBadge}
-                </Badge>
+                </StatusBadge>
               ) : null}
               {target.updateAvailable ? (
-                <Badge className="deploy-badge deploy-badge--update" tone="warning">
+                <StatusBadge className="deploy-badge deploy-badge--update" tone="warning">
                   {copy.updateBadge}
-                </Badge>
+                </StatusBadge>
               ) : null}
               {target.recommended && !target.installed ? (
-                <Badge className="deploy-badge deploy-badge--recommended">{copy.recommendedBadge}</Badge>
+                <TagBadge className="deploy-badge deploy-badge--recommended" tone="success">{copy.recommendedBadge}</TagBadge>
               ) : null}
               {target.planned ? (
-                <Badge className="deploy-badge deploy-badge--planned">{common.comingSoon}</Badge>
+                <TagBadge className="deploy-badge deploy-badge--planned" tone="neutral">{common.comingSoon}</TagBadge>
               ) : null}
             </div>
           </div>
@@ -745,102 +748,97 @@ export default function DeployPage() {
   }
 
   return (
-    <div className="deploy-page">
-      <div className="deploy-header">
-        <h1>{copy.title}</h1>
-        <p>{copy.subtitle}</p>
-      </div>
-
-      {activity ? (
-        <Card
-          className={[
-            "deploy-progress-card",
-            activity.status === "failed" ? "deploy-progress-card--failed" : ""
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <CardContent className="deploy-progress-card__content">
-            <div className="deploy-progress-card__row">
-              {activity.status === "running" ? (
-                <Loader2 className="deploy-progress-card__spinner" size={24} />
-              ) : (
-                <Rocket className="deploy-progress-card__icon" size={24} />
-              )}
-              <div className="deploy-progress-card__meta">
-                <h3>{activity.title}</h3>
-                <p>{activity.summary}</p>
-              </div>
-              <span className="deploy-progress-card__value">{activity.progress}%</span>
-            </div>
-            <Progress value={activity.progress} />
-            <div className="deploy-progress-steps">
-              {activity.steps.map((step) => (
-                <div className="deploy-progress-step" key={step.label}>
-                  <span
-                    className={[
-                      "deploy-progress-step__indicator",
-                      `deploy-progress-step__indicator--${step.state}`
-                    ].join(" ")}
-                  />
-                  <span className="deploy-progress-step__label">{step.label}</span>
+    <OperationsScaffold
+      className="deploy-page"
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <>
+          <Button disabled={actionBusy} onClick={() => void loadTargets({ fresh: true })} size="sm" variant="outline">
+            <RefreshCw size={16} />
+            {targetsLoading ? copy.detectingTargets : common.refresh}
+          </Button>
+          <Button
+            disabled={actionBusy || installedTargets.length === 0}
+            onClick={() => void handleRestartGateway()}
+            size="sm"
+            variant="outline"
+          >
+            {restartingGateway ? (
+              <>
+                <Loader2 className="deploy-cta-button__spinner" size={16} />
+                {copy.restartingGatewayLabel}
+              </>
+            ) : (
+              <>
+                <Zap size={16} />
+                {copy.restartGatewayButton}
+              </>
+            )}
+          </Button>
+        </>
+      }
+      activity={
+        activity ? (
+          <Card
+            className={[
+              "deploy-progress-card",
+              activity.status === "failed" ? "deploy-progress-card--failed" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <CardContent className="deploy-progress-card__content">
+              <div className="deploy-progress-card__row">
+                {activity.status === "running" ? (
+                  <Loader2 className="deploy-progress-card__spinner" size={24} />
+                ) : (
+                  <Rocket className="deploy-progress-card__icon" size={24} />
+                )}
+                <div className="deploy-progress-card__meta">
+                  <h3>{activity.title}</h3>
+                  <p>{activity.summary}</p>
                 </div>
-              ))}
+                <span className="deploy-progress-card__value">{activity.progress}%</span>
+              </div>
+              <Progress value={activity.progress} />
+              <div className="deploy-progress-steps">
+                {activity.steps.map((step) => (
+                  <div className="deploy-progress-step" key={step.label}>
+                    <span
+                      className={[
+                        "deploy-progress-step__indicator",
+                        `deploy-progress-step__indicator--${step.state}`
+                      ].join(" ")}
+                    />
+                    <span className="deploy-progress-step__label">{step.label}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null
+      }
+      hero={
+        <InfoBanner icon={<Rocket size={24} />} title={copy.infoTitle} description={copy.infoBody} accent="blue">
+          <div className="deploy-info-card__checks">
+            <div>
+              <CheckCircle2 size={16} />
+              <span>{copy.detectInstalled}</span>
             </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card className="deploy-info-card">
-        <CardContent className="deploy-info-card__content">
-          <div className="deploy-info-card__icon">
-            <Rocket size={24} />
-          </div>
-          <div className="deploy-info-card__copy">
-            <h3>{copy.infoTitle}</h3>
-            <p>{copy.infoBody}</p>
-            <div className="deploy-info-card__checks">
-              <div>
-                <CheckCircle2 size={16} />
-                <span>{copy.detectInstalled}</span>
-              </div>
-              <div>
-                <CheckCircle2 size={16} />
-                <span>{copy.showVersions}</span>
-              </div>
-              <div>
-                <CheckCircle2 size={16} />
-                <span>{copy.checkUpdates}</span>
-              </div>
+            <div>
+              <CheckCircle2 size={16} />
+              <span>{copy.showVersions}</span>
+            </div>
+            <div>
+              <CheckCircle2 size={16} />
+              <span>{copy.checkUpdates}</span>
             </div>
           </div>
-          <div className="deploy-info-card__actions">
-            <Button disabled={actionBusy} onClick={() => void loadTargets({ fresh: true })} size="sm" variant="outline">
-              <RefreshCw size={16} />
-              {targetsLoading ? copy.detectingTargets : common.refresh}
-            </Button>
-            <Button
-              disabled={actionBusy || installedTargets.length === 0}
-              onClick={() => void handleRestartGateway()}
-              size="sm"
-              variant="outline"
-            >
-              {restartingGateway ? (
-                <>
-                  <Loader2 className="deploy-cta-button__spinner" size={16} />
-                  {copy.restartingGatewayLabel}
-                </>
-              ) : (
-                <>
-                  <Zap size={16} />
-                  {copy.restartGatewayButton}
-                </>
-              )}
-            </Button>
-            {checkedAt ? <p>{copy.lastChecked.replace("{time}", formatCheckedAt(checkedAt) ?? checkedAt)}</p> : null}
-          </div>
-        </CardContent>
-      </Card>
+          {checkedAt ? <p>{copy.lastChecked.replace("{time}", formatCheckedAt(checkedAt) ?? checkedAt)}</p> : null}
+        </InfoBanner>
+      }
+    >
 
       {targetsError ? (
         <Card className="deploy-section-card">
@@ -956,6 +954,6 @@ export default function DeployPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </OperationsScaffold>
   );
 }

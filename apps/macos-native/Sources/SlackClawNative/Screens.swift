@@ -4,207 +4,13 @@ import SlackClawClient
 import SlackClawProtocol
 import SlackClawChatUI
 
-private struct SectionCard<Content: View>: View {
-    let title: String
-    let subtitle: String?
-    @ViewBuilder let content: Content
-
-    init(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.subtitle = subtitle
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.title3)
-                .fontWeight(.semibold)
-            if let subtitle {
-                Text(subtitle)
-                    .foregroundStyle(.secondary)
-            }
-            content
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 24, x: 0, y: 14)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color(red: 0.87, green: 0.9, blue: 0.96), lineWidth: 1)
-        )
-    }
-}
-
-private struct NativeMetricCard: View {
-    let title: String
-    let value: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 32, weight: .bold))
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, minHeight: nativeDashboardMetricCardMinHeight, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.white)
-                .shadow(color: Color.black.opacity(0.04), radius: 16, x: 0, y: 10)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color(red: 0.9, green: 0.93, blue: 0.97), lineWidth: 1)
-        )
-    }
-}
-
-private struct NativeBadge: View {
-    let label: String
-    let systemImage: String
-    let tone: NativeDashboardTone
-
-    var body: some View {
-        Label(label, systemImage: systemImage)
-            .font(.system(size: 12, weight: .semibold))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(backgroundColor, in: Capsule())
-            .foregroundStyle(foregroundColor)
-    }
-
-    private var backgroundColor: Color {
-        switch tone {
-        case .success:
-            return Color.green.opacity(0.14)
-        case .warning:
-            return Color.orange.opacity(0.16)
-        case .info:
-            return Color.blue.opacity(0.14)
-        case .neutral:
-            return Color.primary.opacity(0.08)
-        }
-    }
-
-    private var foregroundColor: Color {
-        switch tone {
-        case .success:
-            return .green
-        case .warning:
-            return .orange
-        case .info:
-            return .blue
-        case .neutral:
-            return .primary
-        }
-    }
-}
-
-private struct DashboardStatusPill: View {
-    let status: String
-    let tone: NativeDashboardTone
-
-    var body: some View {
-        Text(status)
-            .font(.system(size: 12, weight: .semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(backgroundColor, in: Capsule())
-            .foregroundStyle(foregroundColor)
-    }
-
-    private var backgroundColor: Color {
-        switch tone {
-        case .success:
-            return Color.green.opacity(0.14)
-        case .warning:
-            return Color.orange.opacity(0.16)
-        case .info:
-            return Color.blue.opacity(0.14)
-        case .neutral:
-            return Color.primary.opacity(0.08)
-        }
-    }
-
-    private var foregroundColor: Color {
-        switch tone {
-        case .success:
-            return .green
-        case .warning:
-            return .orange
-        case .info:
-            return .blue
-        case .neutral:
-            return .primary
-        }
-    }
-}
-
-private struct NativeDashboardMemberAvatar: View {
-    let avatar: MemberAvatar
-    let name: String
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(accentColor.opacity(0.14))
-
-            if let image = onboardingAssetImage(avatar.presetId) {
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: size, height: size)
-                    .clipShape(Circle())
-            } else {
-                Text(String(name.prefix(1)).uppercased())
-                    .font(.system(size: size * 0.42, weight: .bold))
-                    .foregroundStyle(accentColor)
-            }
-        }
-        .frame(width: size, height: size)
-        .overlay(
-            Circle()
-                .stroke(accentColor.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private var accentColor: Color {
-        colorFromHex(avatar.accent) ?? .blue
-    }
-}
-
-private func colorFromHex(_ hex: String) -> Color? {
-    var sanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-    sanitized = sanitized.replacingOccurrences(of: "#", with: "")
-
-    guard sanitized.count == 6, let value = Int(sanitized, radix: 16) else {
-        return nil
-    }
-
-    let red = Double((value >> 16) & 0xFF) / 255.0
-    let green = Double((value >> 8) & 0xFF) / 255.0
-    let blue = Double(value & 0xFF) / 255.0
-    return Color(red: red, green: green, blue: blue)
-}
-
 private struct DashboardEmployeeCard: View {
     let row: NativeDashboardEmployeeRow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        SurfaceCard(tone: .muted, padding: 18, spacing: 12) {
             HStack(alignment: .center, spacing: 16) {
-                NativeDashboardMemberAvatar(avatar: row.avatar, name: row.name, size: 72)
+                AvatarView(avatar: row.avatar, name: row.name, size: 72)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(row.name)
@@ -214,9 +20,9 @@ private struct DashboardEmployeeCard: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 8) {
-                        DashboardStatusPill(status: row.status, tone: row.statusTone)
+                        StatusBadge(row.status, tone: nativeStatusTone(from: row.statusTone))
                         if row.activeTaskCount > 0 {
-                            DashboardStatusPill(status: row.activeTaskLabel, tone: .neutral)
+                            StatusBadge(row.activeTaskLabel, tone: .neutral)
                         }
                     }
                 }
@@ -229,8 +35,6 @@ private struct DashboardEmployeeCard: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -287,7 +91,7 @@ private struct DashboardHealthRow: View {
             Text(item.title)
                 .fontWeight(.semibold)
             Spacer()
-            DashboardStatusPill(status: item.status, tone: item.tone)
+            StatusBadge(item.status, tone: nativeStatusTone(from: item.tone))
         }
         .padding(.vertical, 2)
     }
@@ -299,27 +103,27 @@ struct DashboardScreen: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
-                if let overview = appState.overview {
-                    let localeIdentifier = resolveNativeOnboardingLocaleIdentifier(selectedLocaleIdentifier)
-                    let presentation = makeDashboardPresentation(
-                        overview: overview,
-                        modelConfig: appState.modelConfig,
-                        aiTeamOverview: appState.aiTeamOverview,
-                        localeIdentifier: localeIdentifier
-                    )
+            if let overview = appState.overview {
+                let localeIdentifier = resolveNativeOnboardingLocaleIdentifier(selectedLocaleIdentifier)
+                let presentation = makeDashboardPresentation(
+                    overview: overview,
+                    modelConfig: appState.modelConfig,
+                    aiTeamOverview: appState.aiTeamOverview,
+                    localeIdentifier: localeIdentifier
+                )
 
-                    dashboardContent(
-                        overview: overview,
-                        presentation: presentation,
-                        availableWidth: geometry.size.width,
-                        localeIdentifier: localeIdentifier
-                    )
-                    .padding(24)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(24)
+                dashboardContent(
+                    overview: overview,
+                    presentation: presentation,
+                    availableWidth: geometry.size.width,
+                    localeIdentifier: localeIdentifier
+                )
+            } else {
+                WorkspaceScaffold(
+                    title: nativeDashboardCopy(localeIdentifier: resolveNativeOnboardingLocaleIdentifier(selectedLocaleIdentifier)).dashboardTitle,
+                    subtitle: nativeDashboardCopy(localeIdentifier: resolveNativeOnboardingLocaleIdentifier(selectedLocaleIdentifier)).dashboardSubtitle
+                ) {
+                    LoadingState(title: "Loading dashboard", description: "ChillClaw is gathering runtime, model, and team health data.")
                 }
             }
         }
@@ -333,68 +137,42 @@ struct DashboardScreen: View {
         localeIdentifier: String
     ) -> some View {
         let isCompact = availableWidth < 1120
-        let metricColumns = dashboardMetricColumns(for: availableWidth)
+        let metricColumns = nativeWorkspaceMetricColumns(for: availableWidth)
         let copy = nativeDashboardCopy(localeIdentifier: localeIdentifier)
 
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(copy.dashboardTitle)
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Text(copy.dashboardSubtitle)
-                        .font(.title3)
+        WorkspaceScaffold(title: copy.dashboardTitle, subtitle: copy.dashboardSubtitle) {
+            HStack(spacing: 12) {
+                ActionButton(copy.createEmployee, variant: .primary) {
+                    appState.selectedSection = .members
+                }
+
+                ActionButton(copy.openTeam, variant: .outline) {
+                    appState.selectedSection = .team
+                }
+            }
+        } content: {
+            SurfaceCard(tone: .accent, spacing: 14) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        TagBadge(copy.poweredByOpenClaw, tone: .info, systemImage: "sparkles")
+                        StatusBadge(copy.workspaceActive, tone: .success, systemImage: "checkmark.circle.fill")
+                        TagBadge(presentation.heroVersion, tone: .neutral, systemImage: "brain.head.profile")
+                    }
+
+                    Text(copy.heroTitle)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+
+                    Text(copy.heroBody)
+                        .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-
-                Spacer()
-
-                HStack(spacing: 12) {
-                    Button(copy.createEmployee) {
-                        appState.selectedSection = .members
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button(copy.openTeam) {
-                        appState.selectedSection = .team
-                    }
-                    .buttonStyle(.bordered)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    NativeBadge(label: copy.poweredByOpenClaw, systemImage: "sparkles", tone: .info)
-                    NativeBadge(label: copy.workspaceActive, systemImage: "checkmark.circle.fill", tone: .success)
-                    NativeBadge(label: presentation.heroVersion, systemImage: "brain.head.profile", tone: .neutral)
-                }
-
-                Text(copy.heroTitle)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                Text(copy.heroBody)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color.blue.opacity(0.18),
-                        Color.green.opacity(0.10),
-                        Color.purple.opacity(0.12)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-            )
 
             LazyVGrid(columns: metricColumns, spacing: 16) {
                 ForEach(presentation.metrics, id: \.title) { metric in
-                    NativeMetricCard(title: metric.title, value: metric.value, detail: metric.detail)
+                    MetricCard(title: metric.title, value: metric.value, detail: metric.detail)
                 }
             }
 
@@ -417,38 +195,21 @@ struct DashboardScreen: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func dashboardMetricColumns(for width: CGFloat) -> [GridItem] {
-        if width >= 1340 {
-            return Array(repeating: GridItem(.flexible(minimum: 160), spacing: 16), count: 5)
-        }
-        if width >= 1100 {
-            return Array(repeating: GridItem(.flexible(minimum: 180), spacing: 16), count: 3)
-        }
-        if width >= 760 {
-            return Array(repeating: GridItem(.flexible(minimum: 200), spacing: 16), count: 2)
-        }
-        return [GridItem(.flexible(minimum: 220), spacing: 16)]
     }
 
     private func employeeStatusSection(presentation: NativeDashboardPresentation, localeIdentifier: String) -> some View {
         let copy = nativeDashboardCopy(localeIdentifier: localeIdentifier)
 
-        return SectionCard(title: copy.employeeStatusTitle) {
+        return SurfaceCard(title: copy.employeeStatusTitle) {
             HStack {
                 Spacer()
-                Button(copy.viewAll) {
+                ActionButton(copy.viewAll, variant: .ghost) {
                     appState.selectedSection = .team
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
             }
 
             if presentation.employeeRows.isEmpty {
-                Text(copy.noMembersYet)
-                    .foregroundStyle(.secondary)
+                EmptyState(title: copy.employeeStatusTitle, description: copy.noMembersYet, symbol: "person.2.slash")
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(presentation.employeeRows) { row in
@@ -462,10 +223,9 @@ struct DashboardScreen: View {
     private func recentActivitySection(presentation: NativeDashboardPresentation, localeIdentifier: String) -> some View {
         let copy = nativeDashboardCopy(localeIdentifier: localeIdentifier)
 
-        return SectionCard(title: copy.recentActivityTitle) {
+        return SurfaceCard(title: copy.recentActivityTitle) {
             if presentation.activityRows.isEmpty {
-                Text(copy.noRecentActivity)
-                    .foregroundStyle(.secondary)
+                EmptyState(title: copy.recentActivityTitle, description: copy.noRecentActivity, symbol: "clock.arrow.circlepath")
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(presentation.activityRows) { row in
@@ -479,7 +239,7 @@ struct DashboardScreen: View {
     private func workspaceHealthSection(presentation: NativeDashboardPresentation, localeIdentifier: String) -> some View {
         let copy = nativeDashboardCopy(localeIdentifier: localeIdentifier)
 
-        return SectionCard(title: copy.workspaceHealthTitle) {
+        return SurfaceCard(title: copy.workspaceHealthTitle) {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(presentation.healthItems, id: \.title) { item in
                     DashboardHealthRow(item: item)
@@ -500,91 +260,65 @@ struct DeployScreen: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
-                let presentation = makeDeployPresentation(
-                    overview: appState.overview,
-                    targets: appState.deploymentTargets
-                )
+            let presentation = makeDeployPresentation(
+                overview: appState.overview,
+                targets: appState.deploymentTargets
+            )
 
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Deploy OpenClaw")
-                                .font(.system(size: 46, weight: .bold))
-                                .fontWeight(.bold)
-                            Text("Choose a variant and deploy with one click")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        HStack(spacing: 12) {
-                            Button {
-                                Task { await appState.refreshCurrentSectionIfNeeded() }
-                            } label: {
-                                Label("Refresh", systemImage: "arrow.clockwise")
-                            }
-                            .buttonStyle(.bordered)
-
-                            Button {
-                                Task { await runGatewayRestart() }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    if restartingGateway {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                    } else {
-                                        Image(systemName: "bolt.fill")
-                                    }
-                                    Text(restartingGateway ? "Restarting…" : "Restart Gateway")
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(actionBusy || presentation.installedTargets.isEmpty)
-                        }
+            OperationsScaffold(title: "Deploy OpenClaw", subtitle: "Choose a variant and deploy with one click") {
+                HStack(spacing: 12) {
+                    ActionButton("Refresh", systemImage: "arrow.clockwise", variant: .outline) {
+                        Task { await appState.refreshCurrentSectionIfNeeded() }
                     }
 
-                    if actionBusy {
-                        deployActivityCard
-                    }
-
-                    deployHeroCard(lastCheckedAt: presentation.lastCheckedAt)
-
-                    deploySection(
-                        title: "Installed variants",
-                        subtitle: "OpenClaw variants already ready on this Mac.",
-                        targets: presentation.installedTargets,
-                        emptyTitle: "Nothing installed yet",
-                        emptyBody: "Pick an available variant below to deploy OpenClaw."
-                    )
-
-                    deploySection(
-                        title: "Available variants",
-                        subtitle: "Ready-to-deploy options supported by SlackClaw today.",
-                        targets: presentation.availableTargets,
-                        emptyTitle: "No available variants",
-                        emptyBody: "SlackClaw could not find a deployable target right now."
-                    )
-
-                    if !presentation.plannedTargets.isEmpty {
-                        deploySection(
-                            title: "Planned variants",
-                            subtitle: "Future engine adapters reserved in the product architecture.",
-                            targets: presentation.plannedTargets,
-                            emptyTitle: "",
-                            emptyBody: ""
-                        )
-                    }
-
-                    LazyVGrid(columns: deploySummaryColumns(for: geometry.size.width), alignment: .leading, spacing: 16) {
-                        ForEach(presentation.summaryCards) { card in
-                            deploySummaryCard(card)
-                        }
+                    ActionButton(
+                        restartingGateway ? "Restarting…" : "Restart Gateway",
+                        systemImage: restartingGateway ? nil : "bolt.fill",
+                        variant: .primary,
+                        isBusy: restartingGateway,
+                        isDisabled: actionBusy || presentation.installedTargets.isEmpty
+                    ) {
+                        Task { await runGatewayRestart() }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(24)
+            } activity: {
+                if actionBusy {
+                    LoadingState(title: activityTitle, description: activitySummary)
+                }
+            } hero: {
+                deployHeroCard(lastCheckedAt: presentation.lastCheckedAt)
+            } content: {
+                deploySection(
+                    title: "Installed variants",
+                    subtitle: "OpenClaw variants already ready on this Mac.",
+                    targets: presentation.installedTargets,
+                    emptyTitle: "Nothing installed yet",
+                    emptyBody: "Pick an available variant below to deploy OpenClaw."
+                )
+
+                deploySection(
+                    title: "Available variants",
+                    subtitle: "Ready-to-deploy options supported by ChillClaw today.",
+                    targets: presentation.availableTargets,
+                    emptyTitle: "No available variants",
+                    emptyBody: "ChillClaw could not find a deployable target right now."
+                )
+
+                if !presentation.plannedTargets.isEmpty {
+                    deploySection(
+                        title: "Planned variants",
+                        subtitle: "Future engine adapters reserved in the product architecture.",
+                        targets: presentation.plannedTargets,
+                        emptyTitle: "",
+                        emptyBody: ""
+                    )
+                }
+
+                LazyVGrid(columns: nativeOperationsSummaryColumns(for: geometry.size.width), alignment: .leading, spacing: 16) {
+                    ForEach(presentation.summaryCards) { card in
+                        deploySummaryCard(card)
+                    }
+                }
             }
         }
     }
@@ -592,7 +326,7 @@ struct DeployScreen: View {
     private func runInstall(_ targetId: String) async {
         installingTargetId = targetId
         activityTitle = "Installing OpenClaw"
-        activitySummary = "Preparing the selected runtime and configuring SlackClaw."
+        activitySummary = "Preparing the selected runtime and configuring ChillClaw."
         do {
             let response = try await appState.client.installTarget(targetId)
             appState.applyBanner(response.message)
@@ -653,47 +387,14 @@ struct DeployScreen: View {
         !installingTargetId.isEmpty || !updatingTargetId.isEmpty || !uninstallingTargetId.isEmpty || restartingGateway
     }
 
-    private var deployActivityCard: some View {
-        HStack(spacing: 16) {
-            ProgressView()
-            VStack(alignment: .leading, spacing: 6) {
-                Text(activityTitle)
-                    .font(.headline)
-                Text(activitySummary)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.04), radius: 20, x: 0, y: 12)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
-        )
-    }
-
     private func deployHeroCard(lastCheckedAt: String?) -> some View {
-        HStack(alignment: .top, spacing: 18) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.blue.opacity(0.12))
-                Image(systemName: "rocket")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.blue)
-            }
-            .frame(width: 96, height: 132)
-
+        InfoBanner(
+            title: "One-Click Deployment",
+            description: "Select your preferred OpenClaw variant and deploy instantly. No terminal commands or manual configuration required.",
+            icon: "rocket",
+            accent: .blue
+        ) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("One-Click Deployment")
-                    .font(.system(size: 24, weight: .bold))
-                Text("Select your preferred OpenClaw variant and deploy instantly. No terminal commands or manual configuration required.")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.secondary)
                 HStack(spacing: 24) {
                     deployHeroCheck("Automatic setup")
                     deployHeroCheck("Docker containerized")
@@ -705,18 +406,7 @@ struct DeployScreen: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Spacer(minLength: 0)
         }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color.blue.opacity(0.08))
-                .shadow(color: Color.blue.opacity(0.08), radius: 22, x: 0, y: 14)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(Color.blue.opacity(0.18), lineWidth: 1)
-        )
     }
 
     private func deployHeroCheck(_ text: String) -> some View {
@@ -735,17 +425,10 @@ struct DeployScreen: View {
         emptyTitle: String,
         emptyBody: String
     ) -> some View {
-        SectionCard(title: title, subtitle: subtitle) {
+        SurfaceCard(title: title, subtitle: subtitle) {
             if targets.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    if !emptyTitle.isEmpty {
-                        Text(emptyTitle)
-                            .font(.headline)
-                    }
-                    if !emptyBody.isEmpty {
-                        Text(emptyBody)
-                            .foregroundStyle(.secondary)
-                    }
+                if !emptyTitle.isEmpty || !emptyBody.isEmpty {
+                    EmptyState(title: emptyTitle, description: emptyBody, symbol: "shippingbox")
                 }
             } else {
                 VStack(alignment: .leading, spacing: 16) {
@@ -758,11 +441,11 @@ struct DeployScreen: View {
     }
 
     private func deployTargetCard(_ target: NativeDeployTargetPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        SurfaceCard(padding: 22, spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(deployAccentColor(target.accent).opacity(0.14))
+                        .fill(nativeAccentColor(target.accent).opacity(0.14))
                     Text(target.icon)
                         .font(.system(size: 32))
                 }
@@ -843,21 +526,18 @@ struct DeployScreen: View {
                 }
             }
         }
-        .padding(22)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 22, x: 0, y: 14)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(Color(red: 0.86, green: 0.9, blue: 0.96), lineWidth: 1)
-        )
     }
 
     private func deployActionButton(_ action: NativeDeployActionKind, targetId: String, prominent: Bool) -> some View {
         let isBusy = isActionBusy(action, targetId: targetId)
-        return Button {
+        return ActionButton(
+            buttonTitle(for: action, busy: isBusy),
+            systemImage: isBusy ? nil : iconName(for: action),
+            variant: deployButtonVariant(for: action, prominent: prominent),
+            isBusy: isBusy,
+            isDisabled: actionBusy,
+            fullWidth: true
+        ) {
             Task {
                 switch action {
                 case .install:
@@ -868,95 +548,66 @@ struct DeployScreen: View {
                     await runUninstall(targetId)
                 }
             }
-        } label: {
-            HStack(spacing: 8) {
-                if isBusy {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: iconName(for: action))
-                }
-                Text(buttonTitle(for: action, busy: isBusy))
-            }
-            .frame(maxWidth: .infinity)
         }
-        .modifier(NativeDeployButtonStyleModifier(prominent: prominent))
-        .disabled(actionBusy)
     }
 
     private func deploySummaryCard(_ card: NativeDeploySummaryCard) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: card.symbol)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(deployAccentColor(card.accent))
-                .frame(width: 36, height: 36)
-                .background(deployAccentColor(card.accent).opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            VStack(alignment: .leading, spacing: 6) {
-                Text(card.title)
-                    .font(.headline)
-                Text(card.body)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+        SurfaceCard(tone: .muted, padding: 18, spacing: 0) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: card.symbol)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(nativeAccentColor(card.accent))
+                    .frame(width: 36, height: 36)
+                    .background(nativeAccentColor(card.accent).opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(card.title)
+                        .font(.headline)
+                    Text(card.body)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.white)
-                .shadow(color: Color.black.opacity(0.04), radius: 18, x: 0, y: 12)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color(red: 0.9, green: 0.93, blue: 0.97), lineWidth: 1)
-        )
     }
 
     private func deployBadge(_ badge: NativeDeployBadge) -> some View {
-        let palette = deployBadgePalette(badge)
-        return Text(palette.label)
-            .font(.system(size: 12, weight: .semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(palette.background, in: Capsule())
-            .foregroundStyle(palette.foreground)
+        let label = deployBadgeLabel(badge)
+        let semantic = nativeDeployBadgeSemantic(badge)
+
+        return Group {
+            switch semantic {
+            case let .status(tone):
+                StatusBadge(label, tone: tone)
+            case let .tag(tone):
+                TagBadge(label, tone: tone)
+            }
+        }
     }
 
-    private func deployBadgePalette(_ badge: NativeDeployBadge) -> (label: String, background: Color, foreground: Color) {
+    private func deployBadgeLabel(_ badge: NativeDeployBadge) -> String {
         switch badge {
         case .installed:
-            return ("Installed", Color.green.opacity(0.14), .green)
+            return "Installed"
         case .current:
-            return ("Current", Color.blue.opacity(0.14), .blue)
+            return "Current"
         case .updateAvailable:
-            return ("Update available", Color.orange.opacity(0.18), .orange)
+            return "Update available"
         case .recommended:
-            return ("Recommended", .green, .white)
+            return "Recommended"
         case .comingSoon:
-            return ("Coming soon", Color.purple.opacity(0.16), .purple)
+            return "Coming soon"
         }
     }
 
-    private func deploySummaryColumns(for width: CGFloat) -> [GridItem] {
-        if width >= 1260 {
-            return Array(repeating: GridItem(.flexible(minimum: 220), spacing: 16), count: 3)
-        }
-        if width >= 860 {
-            return Array(repeating: GridItem(.flexible(minimum: 220), spacing: 16), count: 2)
-        }
-        return [GridItem(.flexible(minimum: 240), spacing: 16)]
-    }
-
-    private func deployAccentColor(_ accent: NativeDeployAccent) -> Color {
-        switch accent {
-        case .blue:
-            return .blue
-        case .green:
-            return .green
-        case .purple:
-            return .purple
-        case .orange:
-            return .orange
+    private func deployButtonVariant(for action: NativeDeployActionKind, prominent: Bool) -> ActionButtonVariant {
+        switch (action, prominent) {
+        case (.uninstall, _):
+            return .destructive
+        case (_, true):
+            return .primary
+        default:
+            return .outline
         }
     }
 
@@ -1005,18 +656,6 @@ struct DeployScreen: View {
     }
 }
 
-private struct NativeDeployButtonStyleModifier: ViewModifier {
-    let prominent: Bool
-
-    func body(content: Content) -> some View {
-        if prominent {
-            content.buttonStyle(.borderedProminent)
-        } else {
-            content.buttonStyle(.bordered)
-        }
-    }
-}
-
 struct ConfigurationScreen: View {
     @Bindable var appState: SlackClawAppState
     @State private var selectedTab = 0
@@ -1026,20 +665,14 @@ struct ConfigurationScreen: View {
     @State private var channelSheetAction: NativeConfigurationChannelSheetAction = .save
 
     var body: some View {
-        ScrollView {
+        WorkspaceScaffold(title: "Configuration", subtitle: "Manage models, channels, and pairing flows.") {
+            if selectedTab == 0 {
+                ActionButton("Add Model", systemImage: "plus", variant: .primary) { showModelSheet = true }
+            } else {
+                ActionButton("Add Channel", systemImage: "plus", variant: .primary) { presentAddChannelSheet() }
+            }
+        } content: {
             VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Text("Configuration")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    if selectedTab == 0 {
-                        Button("Add Model") { showModelSheet = true }
-                    } else {
-                        Button("Add Channel") { presentAddChannelSheet() }
-                    }
-                }
-
                 Picker("Config", selection: $selectedTab) {
                     Text("Models").tag(0)
                     Text("Channels").tag(1)
@@ -1052,7 +685,6 @@ struct ConfigurationScreen: View {
                     channelsView
                 }
             }
-            .padding(24)
         }
         .sheet(isPresented: $showModelSheet) {
             ModelEntrySheet(appState: appState, existingEntry: nil)
@@ -1069,26 +701,23 @@ struct ConfigurationScreen: View {
     private var modelsView: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(appState.modelConfig?.savedEntries ?? []) { entry in
-                SectionCard(title: entry.label, subtitle: entry.modelKey) {
+                SurfaceCard(title: entry.label, subtitle: entry.modelKey) {
                     HStack {
                         Text(entry.providerId)
                             .foregroundStyle(.secondary)
                         Spacer()
                         if entry.isDefault {
-                            Text("Default")
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(Color.green.opacity(0.16), in: Capsule())
+                            TagBadge("Default", tone: .success)
                         }
-                        Button("Edit") {
+                        ActionButton("Edit", variant: .outline) {
                             showModelSheet = true
                         }
                         .disabled(true)
-                        Button("Set Default") {
+                        ActionButton("Set Default", variant: .secondary) {
                             Task { await setDefaultModel(entry.id) }
                         }
                         .disabled(entry.isDefault)
-                        Button("Remove", role: .destructive) {
+                        ActionButton("Remove", variant: .destructive) {
                             Task { await removeModel(entry.id) }
                         }
                     }
@@ -1103,49 +732,46 @@ struct ConfigurationScreen: View {
                 let capability = appState.channelConfig?.capabilities.first(where: { $0.id == entry.channelId })
                 let actionState = configurationChannelActionState(entry: entry, capability: capability)
 
-                SectionCard(title: entry.label, subtitle: entry.channelId.capitalized) {
+                SurfaceCard(title: entry.label, subtitle: entry.channelId.capitalized) {
                     HStack {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(entry.summary)
                                 .foregroundStyle(.secondary)
                             if entry.pairingRequired {
-                                Text("Pairing required")
-                                    .font(.caption)
-                                    .fontWeight(.semibold)
-                                    .foregroundStyle(.blue)
+                                TagBadge("Pairing required", tone: .info)
                             }
                         }
                         Spacer()
                         if actionState.showApproveAction {
-                            Button("Approve Pairing") {
+                            ActionButton("Approve Pairing", variant: .secondary) {
                                 presentChannelSheet(for: entry, action: .approvePairing)
                             }
                         }
-                        Button(actionState.primaryAction == .continueSetup ? "Continue Setup" : "Edit") {
+                        ActionButton(actionState.primaryAction == .continueSetup ? "Continue Setup" : "Edit", variant: .outline) {
                             presentChannelSheet(for: entry, action: .save)
                         }
-                        Button("Remove", role: .destructive) {
+                        ActionButton("Remove", variant: .destructive) {
                             Task {
                                 await removeChannel(entry)
                             }
                         }
                     }
                 }
-            }
+        }
 
-            if let activeSession = appState.channelConfig?.activeSession {
-                SectionCard(title: "Active Channel Session", subtitle: activeSession.message) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let prompt = activeSession.inputPrompt {
-                            Text(prompt)
-                        }
-                        if let launchUrl = activeSession.launchUrl, let url = URL(string: launchUrl) {
-                            Button("Open Session Link") {
-                                NSWorkspace.shared.open(url)
-                            }
+        if let activeSession = appState.channelConfig?.activeSession {
+            SurfaceCard(title: "Active Channel Session", subtitle: activeSession.message) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let prompt = activeSession.inputPrompt {
+                        Text(prompt)
+                    }
+                    if let launchUrl = activeSession.launchUrl, let url = URL(string: launchUrl) {
+                        ActionButton("Open Session Link", systemImage: "link", variant: .outline) {
+                            NSWorkspace.shared.open(url)
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1201,51 +827,50 @@ struct SkillsScreen: View {
     @State private var showCustomSkillSheet = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Text("Skills Management")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    Button("New Custom Skill") {
-                        showCustomSkillSheet = true
-                    }
-                }
-
-                SectionCard(title: "Installed Skills") {
-                    ForEach(appState.skillConfig?.installedSkills ?? []) { skill in
+        WorkspaceScaffold(title: "Skills Management", subtitle: "Install, audit, and maintain curated skills.") {
+            ActionButton("New Custom Skill", systemImage: "plus", variant: .primary) {
+                showCustomSkillSheet = true
+            }
+        } content: {
+            SurfaceCard(title: "Installed Skills") {
+                if let installedSkills = appState.skillConfig?.installedSkills, !installedSkills.isEmpty {
+                    ForEach(installedSkills) { skill in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(skill.name).fontWeight(.semibold)
                                 Text(skill.description).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Button("Remove", role: .destructive) {
+                            ActionButton("Remove", variant: .destructive) {
                                 Task { await removeSkill(skill.id) }
                             }
                         }
                         .padding(.vertical, 4)
                     }
+                } else {
+                    EmptyState(title: "No installed skills", description: "Install a curated skill or add a custom one to extend ChillClaw.", symbol: "bolt.slash")
                 }
+            }
 
-                SectionCard(title: "Marketplace Preview") {
-                    ForEach(appState.skillConfig?.marketplacePreview ?? []) { skill in
+            SurfaceCard(title: "Marketplace Preview") {
+                if let marketplacePreview = appState.skillConfig?.marketplacePreview, !marketplacePreview.isEmpty {
+                    ForEach(marketplacePreview) { skill in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(skill.name).fontWeight(.semibold)
                                 Text(skill.summary).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Button(skill.installed ? "Reinstall" : "Install") {
+                            ActionButton(skill.installed ? "Reinstall" : "Install", variant: .outline) {
                                 Task { await installSkill(skill.slug) }
                             }
                         }
                         .padding(.vertical, 4)
                     }
+                } else {
+                    EmptyState(title: "Marketplace unavailable", description: "ChillClaw could not load the curated skill catalog right now.", symbol: "shippingbox")
                 }
             }
-            .padding(24)
         }
         .sheet(isPresented: $showCustomSkillSheet) {
             CustomSkillSheet(appState: appState)
@@ -1280,40 +905,37 @@ struct MembersScreen: View {
     @State private var showMemberSheet = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Text("AI Members")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    Button("Create AI Member") {
-                        showMemberSheet = true
-                    }
-                }
-
-                ForEach(appState.aiTeamOverview?.members ?? []) { member in
-                    SectionCard(title: member.name, subtitle: member.jobTitle) {
+        WorkspaceScaffold(title: "AI Members", subtitle: "Create and manage the roster behind your workspace.") {
+            ActionButton("Create AI Member", systemImage: "plus", variant: .primary) {
+                showMemberSheet = true
+            }
+        } content: {
+            if let members = appState.aiTeamOverview?.members, !members.isEmpty {
+                ForEach(members) { member in
+                    SurfaceCard(title: member.name, subtitle: member.jobTitle) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(member.currentStatus)
                                 .foregroundStyle(.secondary)
                             if let brain = member.brain {
-                                Text("Brain: \(brain.label)")
+                                SettingRow(title: "Brain") {
+                                    TagBadge(brain.label, tone: .neutral)
+                                }
                             }
                             if !member.bindings.isEmpty {
                                 Text("Bindings: \(member.bindings.map { $0.target }.joined(separator: ", "))")
                                     .foregroundStyle(.secondary)
                             }
                             HStack {
-                                Button("Delete", role: .destructive) {
+                                ActionButton("Delete", variant: .destructive) {
                                     Task { await deleteMember(member.id) }
                                 }
                             }
                         }
                     }
                 }
+            } else {
+                EmptyState(title: "No AI members yet", description: "Create a member so ChillClaw can provision a dedicated OpenClaw workspace behind the scenes.", symbol: "person.badge.plus")
             }
-            .padding(24)
         }
         .sheet(isPresented: $showMemberSheet) {
             MemberSheet(appState: appState)
@@ -1336,13 +958,16 @@ struct ChatScreen: View {
     @Bindable var appState: SlackClawAppState
 
     var body: some View {
-        HSplitView {
-            VStack(alignment: .leading, spacing: 12) {
+        SplitContentScaffold(title: "Conversations", subtitle: "Talk to ChillClaw employees and inspect thread history.") {
+            ActionButton("New Chat", systemImage: "plus.bubble", variant: .primary) {
+                Task {
+                    guard let memberId = appState.selectedMemberForChat ?? appState.aiTeamOverview?.members.first?.id else { return }
+                    await appState.chatViewModel.createThread(memberId: memberId)
+                }
+            }
+        } sidebar: {
+            SurfaceCard(title: "Conversations", subtitle: "Browse threads or start a new one.") {
                 HStack {
-                    Text("Conversations")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    Spacer()
                     Picker("AI Member", selection: Binding(
                         get: { appState.selectedMemberForChat ?? "" },
                         set: { appState.selectedMemberForChat = $0.isEmpty ? nil : $0 }
@@ -1353,12 +978,6 @@ struct ChatScreen: View {
                         }
                     }
                     .frame(width: 220)
-                    Button("New Chat") {
-                        Task {
-                            guard let memberId = appState.selectedMemberForChat ?? appState.aiTeamOverview?.members.first?.id else { return }
-                            await appState.chatViewModel.createThread(memberId: memberId)
-                        }
-                    }
                 }
 
                 List(appState.chatViewModel.overview.threads) { thread in
@@ -1376,9 +995,8 @@ struct ChatScreen: View {
                 }
                 .frame(minWidth: 300)
             }
-            .padding(20)
-
-            VStack(alignment: .leading, spacing: 12) {
+        } detail: {
+            SurfaceCard(tone: .muted, padding: 20, spacing: 12) {
                 if let thread = appState.chatViewModel.selectedThread {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
@@ -1390,7 +1008,7 @@ struct ChatScreen: View {
                         }
                         Spacer()
                         if thread.composerState.canAbort {
-                            Button("Stop") {
+                            ActionButton("Stop", variant: .destructive) {
                                 Task { await appState.chatViewModel.abortCurrentRun() }
                             }
                         }
@@ -1399,16 +1017,15 @@ struct ChatScreen: View {
                     HStack {
                         TextField("Message", text: $appState.chatViewModel.draftMessage, axis: .vertical)
                             .textFieldStyle(.roundedBorder)
-                        Button("Send") {
+                        ActionButton("Send", systemImage: "paperplane.fill", variant: .primary) {
                             Task { await appState.chatViewModel.sendCurrentMessage() }
                         }
                         .disabled(!thread.composerState.canSend)
                     }
                 } else {
-                    ContentUnavailableView("Choose a chat", systemImage: "bubble.left.and.bubble.right", description: Text("Create a new chat or select an existing conversation."))
+                    EmptyState(title: "Choose a chat", description: "Create a new chat or select an existing conversation.", symbol: "bubble.left.and.bubble.right")
                 }
             }
-            .padding(20)
         }
     }
 }
@@ -1418,32 +1035,26 @@ struct TeamScreen: View {
     @State private var showTeamSheet = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Text("AI Team")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    Button("Create Team") {
-                        showTeamSheet = true
-                    }
-                }
-
-                ForEach(appState.aiTeamOverview?.teams ?? []) { team in
-                    SectionCard(title: team.name, subtitle: team.purpose) {
+        WorkspaceScaffold(title: "AI Team", subtitle: "Group members into focused teams.") {
+            ActionButton("Create Team", systemImage: "plus", variant: .primary) {
+                showTeamSheet = true
+            }
+        } content: {
+            if let teams = appState.aiTeamOverview?.teams, !teams.isEmpty {
+                ForEach(teams) { team in
+                    SurfaceCard(title: team.name, subtitle: team.purpose) {
                         HStack {
-                            Text("\(team.memberCount) members")
-                                .foregroundStyle(.secondary)
+                            TagBadge("\(team.memberCount) members", tone: .neutral)
                             Spacer()
-                            Button("Delete", role: .destructive) {
+                            ActionButton("Delete", variant: .destructive) {
                                 Task { await deleteTeam(team.id) }
                             }
                         }
                     }
                 }
+            } else {
+                EmptyState(title: "No teams yet", description: "Create a team to group members by purpose, workflow, or channel.", symbol: "person.3.sequence")
             }
-            .padding(24)
         }
         .sheet(isPresented: $showTeamSheet) {
             TeamSheet(appState: appState)
@@ -1467,60 +1078,57 @@ struct SettingsScreen: View {
     @State private var isRedoingOnboarding = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Settings")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                SectionCard(title: "Daemon") {
-                    Text(String(describing: appState.processManager.status))
-                    HStack {
-                        Button("Refresh State") {
-                            Task { await appState.refreshDaemonState() }
-                        }
-                        Button("Restart Daemon") {
-                            Task {
-                                await appState.processManager.restart()
-                                await appState.refreshAll()
-                            }
-                        }
-                        Button("Stop Daemon", role: .destructive) {
-                            Task {
-                                await appState.processManager.stop()
-                                await appState.refreshDaemonState()
-                            }
-                        }
+        WorkspaceScaffold(title: "Settings", subtitle: "Inspect the daemon, permissions, and recovery controls.") {
+            EmptyView()
+        } content: {
+            SurfaceCard(title: "Daemon") {
+                SettingRow(title: "Current state", subtitle: String(describing: appState.processManager.status)) {
+                    EmptyView()
+                }
+                HStack {
+                    ActionButton("Refresh State", variant: .outline) {
+                        Task { await appState.refreshDaemonState() }
                     }
-                }
-
-                SectionCard(title: "Fallback") {
-                    Text("Open the existing React UI in your browser if you need parity with the current web surface.")
-                    Button("Open Web Fallback") {
-                        appState.openFallbackWeb()
-                    }
-                }
-
-                SectionCard(
-                    title: nativePermissionsCopy().settingsTitle,
-                    subtitle: nativePermissionsCopy().settingsBody
-                ) {
-                    NativePermissionsList(localeIdentifier: resolveNativeOnboardingLocaleIdentifier())
-                }
-
-                SectionCard(title: "Guided Setup") {
-                    Text("Run the guided setup again without uninstalling SlackClaw.")
-                    Button(isRedoingOnboarding ? "Resetting..." : "Redo onboarding") {
+                    ActionButton("Restart Daemon", variant: .secondary) {
                         Task {
-                            isRedoingOnboarding = true
-                            defer { isRedoingOnboarding = false }
-                            await appState.redoOnboarding()
+                            await appState.processManager.restart()
+                            await appState.refreshAll()
                         }
                     }
-                    .disabled(isRedoingOnboarding)
+                    ActionButton("Stop Daemon", variant: .destructive) {
+                        Task {
+                            await appState.processManager.stop()
+                            await appState.refreshDaemonState()
+                        }
+                    }
                 }
             }
-            .padding(24)
+
+            SurfaceCard(title: "Fallback") {
+                Text("Open the existing React UI in your browser if you need parity with the current web surface.")
+                ActionButton("Open Web Fallback", systemImage: "globe", variant: .outline) {
+                    appState.openFallbackWeb()
+                }
+            }
+
+            SurfaceCard(
+                title: nativePermissionsCopy().settingsTitle,
+                subtitle: nativePermissionsCopy().settingsBody
+            ) {
+                NativePermissionsList(localeIdentifier: resolveNativeOnboardingLocaleIdentifier())
+            }
+
+            SurfaceCard(title: "Guided Setup") {
+                Text("Run the guided setup again without uninstalling ChillClaw.")
+                ActionButton(isRedoingOnboarding ? "Resetting..." : "Redo onboarding", variant: .secondary, isBusy: isRedoingOnboarding) {
+                    Task {
+                        isRedoingOnboarding = true
+                        defer { isRedoingOnboarding = false }
+                        await appState.redoOnboarding()
+                    }
+                }
+                .disabled(isRedoingOnboarding)
+            }
         }
     }
 }
@@ -1704,7 +1312,7 @@ private struct ChannelEntrySheet: View {
     private var defaultChannelValues: [String: String] {
         [
             "domain": "feishu",
-            "botName": "SlackClaw Assistant",
+            "botName": "ChillClaw Assistant",
             "pluginSpec": "@openclaw-china/wecom-app"
         ]
     }

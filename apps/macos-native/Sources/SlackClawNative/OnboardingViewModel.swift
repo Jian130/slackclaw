@@ -65,7 +65,7 @@ final class NativeOnboardingViewModel {
     var selectedChannelId = ""
     var channelValues: [String: String] = [
         "domain": "feishu",
-        "botName": "SlackClaw Assistant",
+        "botName": "ChillClaw Assistant",
         "pluginSpec": "@openclaw-china/wecom-app",
     ]
 
@@ -565,7 +565,7 @@ final class NativeOnboardingViewModel {
             !employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             !employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
-            pageError = "SlackClaw needs a saved model, employee name, and job title before it can create the AI employee."
+            pageError = "ChillClaw needs a saved model, employee name, and job title before it can create the AI employee."
             return
         }
 
@@ -684,7 +684,7 @@ final class NativeOnboardingViewModel {
         selectedChannelId = ""
         channelValues = [
             "domain": "feishu",
-            "botName": "SlackClaw Assistant",
+            "botName": "ChillClaw Assistant",
             "pluginSpec": "@openclaw-china/wecom-app",
         ]
         channelMessage = nil
@@ -706,7 +706,7 @@ final class NativeOnboardingViewModel {
         channelRequiresApply = false
         if channelID == "feishu" {
             channelValues["domain"] = channelValues["domain"] ?? "feishu"
-            channelValues["botName"] = channelValues["botName"] ?? "SlackClaw Assistant"
+            channelValues["botName"] = channelValues["botName"] ?? "ChillClaw Assistant"
         }
     }
 
@@ -774,7 +774,7 @@ final class NativeOnboardingViewModel {
         case "wechat":
             return ["pluginSpec": "@openclaw-china/wecom-app"]
         case "feishu":
-            return ["domain": "feishu", "botName": "SlackClaw Assistant"]
+            return ["domain": "feishu", "botName": "ChillClaw Assistant"]
         default:
             return [:]
         }
@@ -1082,7 +1082,7 @@ final class NativeOnboardingViewModel {
         }
 
         guard let latestState else {
-            throw NativeClientError.runtime("SlackClaw could not verify the latest state after this action.")
+            throw NativeClientError.runtime("ChillClaw could not verify the latest state after this action.")
         }
 
         return .init(mutation: mutation, state: latestState, settled: false)

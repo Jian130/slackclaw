@@ -38,8 +38,8 @@ struct NativePermissionsList: View {
             } label: {
                 Label(copy.refreshButton, systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(NativeActionButtonStyle(variant: .outline))
+            .controlSize(compact ? .small : .regular)
             .font(.footnote)
             .padding(.top, 2)
         }
@@ -109,18 +109,14 @@ struct NativePermissionRow: View {
 
             VStack(alignment: .trailing, spacing: 4) {
                 if status {
-                    Label(copy.grantedLabel, systemImage: "checkmark.circle.fill")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.green)
-                        .font(.title3)
+                    StatusBadge(copy.grantedLabel, tone: .success, systemImage: "checkmark.circle.fill")
                         .help(copy.grantedLabel)
                 } else if isPending {
                     ProgressView()
                         .controlSize(.small)
                         .frame(width: compact ? 68 : 78)
                 } else {
-                    Button(copy.grantButton) { action() }
-                        .buttonStyle(.bordered)
+                    ActionButton(copy.grantButton, variant: .outline, action: action)
                         .controlSize(compact ? .small : .regular)
                         .frame(minWidth: compact ? 68 : 78, alignment: .trailing)
                 }

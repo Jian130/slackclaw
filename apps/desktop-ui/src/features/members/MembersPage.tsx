@@ -38,7 +38,7 @@ import { FieldLabel, Input, Select, Textarea } from "../../shared/ui/Field.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { MemberAvatar, memberInitials } from "../../shared/ui/MemberAvatar.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 
 const workStyleOptions = ["Methodical", "Fast-paced", "Data-driven", "Adaptive", "Warm", "Structured"];
@@ -78,7 +78,7 @@ export function memberOriginTone(member: Pick<AIMemberDetail, "source" | "hasMan
 
 export function memberOriginLabel(member: Pick<AIMemberDetail, "source" | "hasManagedMetadata">): string {
   if (member.source === "slackclaw" && member.hasManagedMetadata) {
-    return "Managed by SlackClaw";
+    return "Managed by ChillClaw";
   }
 
   return "Detected from OpenClaw";
@@ -313,7 +313,7 @@ function MemberDialog(props: {
       await saveMember(props.member?.id, request);
       props.onClose();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "SlackClaw could not save this AI member.");
+      setError(saveError instanceof Error ? saveError.message : "ChillClaw could not save this AI member.");
     } finally {
       setBusy(false);
     }
@@ -327,7 +327,7 @@ function MemberDialog(props: {
       description="Define identity, Brain, work style, and knowledge for this OpenClaw-backed member."
       wide
     >
-      <LoadingBlocker active={busy} label="Saving AI member" description="SlackClaw is creating the member and syncing the OpenClaw agent workspace.">
+      <LoadingBlocker active={busy} label="Saving AI member" description="ChillClaw is creating the member and syncing the OpenClaw agent workspace.">
         <div className="panel-stack">
           {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
           {!props.member ? (
@@ -499,7 +499,7 @@ function RemoveMemberDialog(props: {
       await props.onConfirm({ deleteMode });
       props.onClose();
     } catch (removeError) {
-      setError(removeError instanceof Error ? removeError.message : "SlackClaw could not remove this AI member.");
+      setError(removeError instanceof Error ? removeError.message : "ChillClaw could not remove this AI member.");
       setBusyMode(undefined);
     }
   }
@@ -515,7 +515,7 @@ function RemoveMemberDialog(props: {
       title={`Remove ${props.member.name}?`}
       description="Choose whether to fully delete the member or keep the workspace and history in place."
     >
-      <LoadingBlocker active={Boolean(busyMode)} label="Removing AI member" description="SlackClaw is updating OpenClaw and the team roster.">
+      <LoadingBlocker active={Boolean(busyMode)} label="Removing AI member" description="ChillClaw is updating OpenClaw and the team roster.">
         <div className="panel-stack">
           {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
           <p className="card__description">{memberDeleteSummary(props.member)}</p>
@@ -657,17 +657,16 @@ export default function MembersPage() {
 
   if (loading && !overview) {
     return (
-      <div className="panel-stack">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} />
-        <LoadingPanel title="Loading AI members" description="SlackClaw is reading the live OpenClaw agent roster and member metadata." />
-      </div>
+      <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
+        <LoadingPanel title="Loading AI members" description="ChillClaw is reading the live OpenClaw agent roster and member metadata." />
+      </WorkspaceScaffold>
     );
   }
 
   if (error && !overview) {
     return (
       <EmptyState
-        title="SlackClaw could not load AI members"
+        title="ChillClaw could not load AI members"
         description={error}
         actionLabel="Retry"
         onAction={() => window.location.reload()}
@@ -676,17 +675,17 @@ export default function MembersPage() {
   }
 
   return (
-    <div className="members-studio panel-stack">
-      <section className="members-studio__header">
-        <div>
-          <h1>{copy.title}</h1>
-          <p>{copy.subtitle}</p>
-        </div>
+    <WorkspaceScaffold
+      className="members-studio"
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
         <div className="members-studio__brand">
-          <strong>SlackClaw</strong>
+          <strong>ChillClaw</strong>
           <span>Powered by OpenClaw</span>
         </div>
-      </section>
+      }
+    >
 
       <Card className="members-vision-card">
         <CardContent className="members-vision-card__content">
@@ -1151,6 +1150,6 @@ export default function MembersPage() {
           </aside>
         </div>
       ) : null}
-    </div>
+    </WorkspaceScaffold>
   );
 }

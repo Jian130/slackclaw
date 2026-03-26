@@ -79,6 +79,16 @@ This file defines the operating rules for agents working in this repository.
 - Treat the local web interface as another view of the same daemon truth, not as a separate product model.
 - All web UI changes must remain responsive across desktop and narrow-screen layouts.
 
+## UI system rules
+
+- New UI work must start from the shared primitive families before adding page-specific visuals: `SurfaceCard`, `StatusBadge`, `TagBadge`, `MetricCard`, `InfoBanner`, `ProgressBar`, `ActionButton`, `SettingRow`, `AvatarView`, `LoadingState`, `EmptyState`, and `ErrorState`.
+- New top-level screens must start from an approved scaffold: `WorkspaceScaffold`, `SplitContentScaffold`, `GuidedFlowScaffold`, or `OperationsScaffold`.
+- SwiftUI and React implementations may differ technically, but the primitive names, status vocabulary, tone semantics, spacing scale, and scaffold taxonomy must stay aligned across clients.
+- Status UI must use the shared `StatusBadge` path. Do not add page-local status chips, ad hoc colored status text, or duplicate status helpers.
+- Onboarding and deploy may keep specialized layouts, but they must still be built from shared primitives and the approved flow or operations scaffolds.
+- Web semantic tokens are the source of truth for shared web styling. If a shared visual value changes, update `apps/desktop-ui/src/shared/styles/tokens.css` first instead of hardcoding a new value in page or component CSS.
+- Reuse shared components and scaffolds before adding new ones. If a page appears to need a one-off primitive, first check whether the existing shared family should be extended instead.
+
 ## OpenClaw integration rules
 
 - ChillClaw owns a managed OpenClaw runtime. Do not depend on whatever happens to be on the user’s `PATH`.
@@ -161,6 +171,7 @@ This file defines the operating rules for agents working in this repository.
 ## Documentation and decision records
 
 - Update `README.md` when install, runtime, packaging, or architecture behavior changes.
+- Every new `CHANGELOG.md` batch entry must include a timestamp in `YYYY-MM-DD HH:MM TZ` format.
 - Keep ADRs aligned when a core architectural rule changes.
 - Preserve future engine-swappability assumptions.
 - Packaging and release steps should be reproducible from scripts, not only from IDE or manual steps.

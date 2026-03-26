@@ -39,7 +39,8 @@ import { FieldLabel, Select, Textarea } from "../../shared/ui/Field.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { SplitContentScaffold, WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 
 function detailFromSummary(summary: ChatThreadSummary): ChatThreadDetail {
   return {
@@ -379,7 +380,7 @@ function NewChatDialog(props: {
       title={props.title}
       description={props.description}
     >
-      <LoadingBlocker active={props.busy} label="Creating chat" description="SlackClaw is opening a new OpenClaw-backed conversation.">
+      <LoadingBlocker active={props.busy} label="Creating chat" description="ChillClaw is opening a new OpenClaw-backed conversation.">
         <div className="panel-stack">
           <div>
             <FieldLabel htmlFor="chat-member-select">{props.chooseMemberLabel}</FieldLabel>
@@ -491,7 +492,7 @@ export default function ChatPage() {
         setSelectedThreadId((current) => current ?? searchParams.get("threadId") ?? next.threads[0]?.id);
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "SlackClaw could not load chats.");
+          setError(loadError instanceof Error ? loadError.message : "ChillClaw could not load chats.");
         }
       } finally {
         if (!cancelled) {
@@ -524,7 +525,7 @@ export default function ChatPage() {
       })
       .catch((threadError) => {
         if (!cancelled) {
-          setError(threadError instanceof Error ? threadError.message : "SlackClaw could not load this conversation.");
+          setError(threadError instanceof Error ? threadError.message : "ChillClaw could not load this conversation.");
         }
       })
       .finally(() => {
@@ -723,7 +724,7 @@ export default function ChatPage() {
       }
       setNewChatOpen(false);
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "SlackClaw could not create a chat.");
+      setError(createError instanceof Error ? createError.message : "ChillClaw could not create a chat.");
     } finally {
       setNewChatBusy(false);
     }
@@ -805,7 +806,7 @@ export default function ChatPage() {
       }
     } catch (sendError) {
       setDraft(message);
-      setError(sendError instanceof Error ? sendError.message : "SlackClaw could not send this message.");
+      setError(sendError instanceof Error ? sendError.message : "ChillClaw could not send this message.");
     }
   }
 
@@ -836,7 +837,7 @@ export default function ChatPage() {
         }));
       }
     } catch (abortError) {
-      setError(abortError instanceof Error ? abortError.message : "SlackClaw could not stop the current reply.");
+      setError(abortError instanceof Error ? abortError.message : "ChillClaw could not stop the current reply.");
     }
   }
 
@@ -882,35 +883,24 @@ export default function ChatPage() {
 
   if (loading && !overview) {
     return (
-      <div className="panel-stack">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} />
-        <LoadingPanel title="Loading conversations" description="SlackClaw is connecting to OpenClaw and loading chat threads." />
-      </div>
+      <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
+        <LoadingPanel title="Loading conversations" description="ChillClaw is connecting to OpenClaw and loading chat threads." />
+      </WorkspaceScaffold>
     );
   }
 
   return (
-    <div className={`panel-stack chat-page chat-page--${chatLayoutMode}`}>
-      <PageHeader
-        title={copy.title}
-        subtitle={copy.subtitle}
-        actions={
-          <Button onClick={handleNewChatAction} disabled={members.length === 0} loading={membersLoading}>
-            <Plus size={14} />
-            {copy.newChat}
-          </Button>
-        }
-      />
-
-      {error ? (
-        <Card>
-          <CardContent>
-            <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <div className={`chat-layout chat-layout--telegram chat-layout--${chatLayoutMode}`}>
+    <SplitContentScaffold
+      className={`chat-page chat-page--${chatLayoutMode}`}
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <Button onClick={handleNewChatAction} disabled={members.length === 0} loading={membersLoading}>
+          <Plus size={14} />
+          {copy.newChat}
+        </Button>
+      }
+      sidebar={
         <Card className="chat-sidebar chat-sidebar--telegram">
           <CardContent className="panel-stack">
             <div className="actions-row" style={{ justifyContent: "space-between" }}>
@@ -968,9 +958,9 @@ export default function ChatPage() {
                       <div className="chat-thread-card__bottom">
                         <p className="card__description chat-thread-card__preview">{thread.lastPreview ?? copy.emptyBody}</p>
                         {thread.activeRunState ? (
-                          <Badge tone={activityTone(thread.activeRunState)}>
+                          <StatusBadge tone={activityTone(thread.activeRunState)}>
                             {thread.composerState.activityLabel ?? thread.activeRunState}
-                          </Badge>
+                          </StatusBadge>
                         ) : null}
                       </div>
                     </button>
@@ -987,7 +977,8 @@ export default function ChatPage() {
             )}
           </CardContent>
         </Card>
-
+      }
+      detail={
         <Card className="chat-main chat-main--telegram">
           <CardContent className="chat-main__content chat-main__content--telegram">
             {selectedThread ? (
@@ -1030,7 +1021,7 @@ export default function ChatPage() {
                     <div className="chat-transcript-shell">
                       <div className="chat-transcript chat-transcript--telegram" ref={transcriptRef} onScroll={handleTranscriptScroll}>
                         {threadLoadingId === selectedThread.id ? (
-                          <LoadingPanel compact title={copy.loadingThread} description="SlackClaw is syncing the latest messages from OpenClaw." />
+                          <LoadingPanel compact title={copy.loadingThread} description="ChillClaw is syncing the latest messages from OpenClaw." />
                         ) : selectedThread.messages.length > 0 ? (
                           selectedThread.messages.map((message, index) => {
                             const previous = selectedThread.messages[index - 1];
@@ -1133,8 +1124,15 @@ export default function ChatPage() {
             )}
           </CardContent>
         </Card>
-      </div>
-
+      }
+    >
+      {error ? (
+        <Card>
+          <CardContent>
+            <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p>
+          </CardContent>
+        </Card>
+      ) : null}
       <NewChatDialog
         open={newChatOpen}
         members={members}
@@ -1147,6 +1145,6 @@ export default function ChatPage() {
         onClose={() => setNewChatOpen(false)}
         onCreate={(memberId) => handleCreateThread(memberId)}
       />
-    </div>
+    </SplitContentScaffold>
   );
 }

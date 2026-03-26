@@ -125,6 +125,58 @@ test("onboarding service reuses install summary for step-only updates instead of
   assert.equal(statusCalls, 1);
 });
 
+test("onboarding service reuses summary when clients send an unchanged draft snapshot for a step transition", async () => {
+  const { adapter, service } = createService("onboarding-service-unchanged-draft-summary");
+  let statusCalls = 0;
+  let modelConfigCalls = 0;
+  const originalStatus = adapter.instances.status.bind(adapter.instances);
+  const originalModelConfig = adapter.config.getModelConfig.bind(adapter.config);
+  adapter.instances.status = async () => {
+    statusCalls += 1;
+    return originalStatus();
+  };
+  adapter.config.getModelConfig = async () => {
+    modelConfigCalls += 1;
+    return originalModelConfig();
+  };
+
+  await service.updateState({
+    currentStep: "model",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "reused-existing"
+    },
+    model: {
+      providerId: "openai",
+      modelKey: "openai/gpt-5",
+      entryId: "entry-openai"
+    }
+  });
+
+  assert.equal(statusCalls, 1);
+  assert.equal(modelConfigCalls, 1);
+
+  const updated = await service.updateState({
+    currentStep: "channel",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "reused-existing"
+    },
+    model: {
+      providerId: "openai",
+      modelKey: "openai/gpt-5",
+      entryId: "entry-openai"
+    }
+  });
+
+  assert.equal(updated.draft.currentStep, "channel");
+  assert.equal(updated.summary.model?.entryId, "entry-openai");
+  assert.equal(statusCalls, 1);
+  assert.equal(modelConfigCalls, 1);
+});
+
 test("redo onboarding clears completion state and resets the draft without wiping workspace data", async () => {
   const { service, store } = createService("onboarding-service-reset");
 

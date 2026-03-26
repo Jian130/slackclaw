@@ -163,6 +163,28 @@ struct OnboardingTests {
     }
 
     @Test
+    func nativeOnboardingUsesOneProgressHeaderStylePerWidthClassAcrossEveryStep() {
+        for step in nativeOnboardingStepOrder {
+            #expect(nativeOnboardingUsesInlineProgressHeader(step: step, contentWidth: 860) == true)
+            #expect(nativeOnboardingUsesInlineProgressHeader(step: step, contentWidth: 1000) == false)
+        }
+    }
+
+    @Test
+    func nativeOnboardingActionButtonsReserveFullWidthHitTargets() {
+        let primary = nativeOnboardingActionButtonLayout(variant: .primary)
+        let secondary = nativeOnboardingActionButtonLayout(variant: .secondary)
+
+        #expect(primary.expandsToContainer == true)
+        #expect(primary.minHeight == nativeOnboardingCTAHeight)
+        #expect(primary.usesFullHitShape == true)
+
+        #expect(secondary.expandsToContainer == true)
+        #expect(secondary.minHeight == nativeOnboardingCTAHeight)
+        #expect(secondary.usesFullHitShape == true)
+    }
+
+    @Test
     func installStepUsesFigmaMissingInstallingFoundAndCompleteStates() {
         let copy = nativeOnboardingCopy(localeIdentifier: "en")
 

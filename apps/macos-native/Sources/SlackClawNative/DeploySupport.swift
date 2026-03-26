@@ -78,7 +78,7 @@ private let nativeDeployVariantMeta: [String: NativeDeployVariantMeta] = [
         icon: "🚀",
         accent: .green,
         features: [
-            "SlackClaw-managed runtime",
+            "ChillClaw-managed runtime",
             "Local isolation under app data",
             "Pinned version lifecycle",
             "Fast guided recovery"
@@ -122,7 +122,7 @@ func makeDeployPresentation(
             .init(
                 id: "local",
                 title: "Local-first runtime",
-                body: "OpenClaw stays on your Mac and SlackClaw manages the setup flow for you.",
+                body: "OpenClaw stays on your Mac and ChillClaw manages the setup flow for you.",
                 symbol: "externaldrive.badge.checkmark",
                 accent: .blue
             ),
@@ -137,8 +137,8 @@ func makeDeployPresentation(
                 id: "safe",
                 title: "Recovery ready",
                 body: overview?.engine.pendingGatewayApply == true
-                    ? "SlackClaw tracks staged changes and tells you when the gateway needs an apply."
-                    : "SlackClaw checks versions, runtime health, and gateway status before reporting ready.",
+                    ? "ChillClaw tracks staged changes and tells you when the gateway needs an apply."
+                    : "ChillClaw checks versions, runtime health, and gateway status before reporting ready.",
                 symbol: "shield.lefthalf.filled",
                 accent: .purple
             )

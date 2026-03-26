@@ -15,7 +15,7 @@ import { FieldLabel, Input, Textarea } from "../../shared/ui/Field.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 
 function TeamDialog(props: {
@@ -58,7 +58,7 @@ function TeamDialog(props: {
       await saveTeam(props.team?.id, request);
       props.onClose();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "SlackClaw could not save this AI team.");
+      setError(saveError instanceof Error ? saveError.message : "ChillClaw could not save this AI team.");
     } finally {
       setBusy(false);
     }
@@ -72,7 +72,7 @@ function TeamDialog(props: {
       description="Group AI members into reusable teams for routing and oversight."
       wide
     >
-      <LoadingBlocker active={busy} label="Saving AI team" description="SlackClaw is saving the team configuration.">
+      <LoadingBlocker active={busy} label="Saving AI team" description="ChillClaw is saving the team configuration.">
         <div className="panel-stack">
           {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
           <div className="field-grid">
@@ -167,7 +167,7 @@ export default function TeamPage() {
         ...current,
         {
           role: "assistant",
-          content: taskError instanceof Error ? taskError.message : "SlackClaw could not reach the selected AI member."
+          content: taskError instanceof Error ? taskError.message : "ChillClaw could not reach the selected AI member."
         }
       ]);
     } finally {
@@ -177,17 +177,16 @@ export default function TeamPage() {
 
   if (loading && !overview) {
     return (
-      <div className="panel-stack">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} />
-        <LoadingPanel title="Loading AI teams" description="SlackClaw is reading team rosters and AI member assignments." />
-      </div>
+      <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
+        <LoadingPanel title="Loading AI teams" description="ChillClaw is reading team rosters and AI member assignments." />
+      </WorkspaceScaffold>
     );
   }
 
   if (error && !overview) {
     return (
       <EmptyState
-        title="SlackClaw could not load AI teams"
+        title="ChillClaw could not load AI teams"
         description={error}
         actionLabel="Retry"
         onAction={() => window.location.reload()}
@@ -196,22 +195,21 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="panel-stack">
-      <PageHeader
-        title={copy.title}
-        subtitle={copy.subtitle}
-        actions={
-          <Button
-            onClick={() => {
-              setEditingTeam(undefined);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus size={14} />
-            Create AI Team
-          </Button>
-        }
-      />
+    <WorkspaceScaffold
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <Button
+          onClick={() => {
+            setEditingTeam(undefined);
+            setDialogOpen(true);
+          }}
+        >
+          <Plus size={14} />
+          Create AI Team
+        </Button>
+      }
+    >
 
       <Card>
         <CardContent className="actions-row" style={{ justifyContent: "space-between" }}>
@@ -329,7 +327,7 @@ export default function TeamPage() {
                           {message.content}
                         </div>
                       )) : (
-                        <p className="card__description">Send a task to a selected team member. SlackClaw will route it through that member’s OpenClaw agent.</p>
+                        <p className="card__description">Send a task to a selected team member. ChillClaw will route it through that member’s OpenClaw agent.</p>
                       )}
                     </div>
                     <div className="actions-row">
@@ -354,6 +352,6 @@ export default function TeamPage() {
       </div>
 
       <TeamDialog open={dialogOpen} team={editingTeam} onClose={() => setDialogOpen(false)} />
-    </div>
+    </WorkspaceScaffold>
   );
 }

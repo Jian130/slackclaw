@@ -104,6 +104,7 @@ private struct OnboardingSelectCard<Content: View>: View {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
+                .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(selected ? Color(red: 0.95, green: 0.97, blue: 1.0) : Color.white.opacity(0.78))
@@ -114,6 +115,81 @@ private struct OnboardingSelectCard<Content: View>: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct NativeOnboardingActionButton<Label: View>: View {
+    let variant: NativeOnboardingActionButtonVariant
+    let disabled: Bool
+    let action: () -> Void
+    @ViewBuilder let label: Label
+
+    init(
+        variant: NativeOnboardingActionButtonVariant,
+        disabled: Bool = false,
+        action: @escaping () -> Void,
+        @ViewBuilder label: () -> Label
+    ) {
+        self.variant = variant
+        self.disabled = disabled
+        self.action = action
+        self.label = label()
+    }
+
+    private var layout: NativeOnboardingActionButtonLayout {
+        nativeOnboardingActionButtonLayout(variant: variant)
+    }
+
+    private var foregroundColor: Color {
+        switch variant {
+        case .secondary:
+            return nativeOnboardingTextPrimary
+        case .accent, .primary:
+            return .white
+        }
+    }
+
+    private var backgroundStyle: AnyShapeStyle {
+        switch variant {
+        case .accent:
+            return AnyShapeStyle(
+                LinearGradient(
+                    colors: [Color(red: 0.15, green: 0.34, blue: 0.95), Color(red: 0.35, green: 0.22, blue: 0.95)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+        case .primary:
+            return AnyShapeStyle(Color(red: 0.03, green: 0.02, blue: 0.07))
+        case .secondary:
+            return AnyShapeStyle(Color.white.opacity(0.82))
+        }
+    }
+
+    private var strokeColor: Color? {
+        variant == .secondary ? Color.black.opacity(0.08) : nil
+    }
+
+    var body: some View {
+        Button(action: action) {
+            label
+                .frame(maxWidth: layout.expandsToContainer ? .infinity : nil)
+                .frame(minHeight: layout.minHeight)
+                .padding(.horizontal, 16)
+                .contentShape(RoundedRectangle(cornerRadius: layout.cornerRadius, style: .continuous))
+                .background(
+                    RoundedRectangle(cornerRadius: layout.cornerRadius, style: .continuous)
+                        .fill(backgroundStyle)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: layout.cornerRadius, style: .continuous)
+                                .strokeBorder(strokeColor ?? .clear, lineWidth: strokeColor == nil ? 0 : 1)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(foregroundColor)
+        .disabled(disabled)
+        .opacity(disabled ? 0.55 : 1)
     }
 }
 
@@ -193,37 +269,23 @@ struct NativeOnboardingView: View {
             let compactEmployeeLayout = nativeOnboardingUsesCompactEmployeeLayout(for: contentWidth)
 
             ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.94, green: 0.97, blue: 1.00),
-                        Color(red: 0.95, green: 0.96, blue: 1.00),
-                        Color(red: 0.97, green: 0.95, blue: 1.00),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                nativeShellBackgroundStyle()
+                    .ignoresSafeArea()
 
                 if viewModel.pageLoading && viewModel.onboardingState == nil {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                        Text(viewModel.copy.loading)
-                            .font(.headline)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    LoadingState(title: viewModel.copy.loading, description: "ChillClaw is preparing your guided setup.")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView {
+                    GuidedFlowScaffold {
                         VStack(spacing: nativeOnboardingSectionGap) {
                             header(headerWidth: headerWidth)
                             progressHeader(contentWidth: contentWidth, compactLayout: compactProgressLayout)
-                            mainCard(contentWidth: contentWidth, welcomeMinHeight: welcomeMinHeight, compactEmployeeLayout: compactEmployeeLayout)
                         }
                         .frame(maxWidth: contentWidth)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, nativeOnboardingOuterPanelPadding)
-                        .frame(maxWidth: .infinity)
+                    } content: {
+                        mainCard(contentWidth: contentWidth, welcomeMinHeight: welcomeMinHeight, compactEmployeeLayout: compactEmployeeLayout)
+                            .frame(maxWidth: contentWidth, alignment: .leading)
                     }
-                    .scrollIndicators(.never)
                 }
             }
         }
@@ -232,7 +294,7 @@ struct NativeOnboardingView: View {
         .onChange(of: viewModel.employeeAvatarPresetId) { _, _ in viewModel.persistEmployeeDraft() }
         .onChange(of: viewModel.selectedEmployeePresetId) { _, _ in viewModel.persistEmployeeDraft() }
         .onChange(of: viewModel.memoryEnabled) { _, _ in viewModel.persistEmployeeDraft() }
-        .alert("SlackClaw", isPresented: Binding(
+        .alert("ChillClaw", isPresented: Binding(
             get: { viewModel.pageError != nil },
             set: { if !$0 { viewModel.pageError = nil } }
         )) {
@@ -322,7 +384,7 @@ struct NativeOnboardingView: View {
         let progressValue = Double(viewModel.currentStepIndex + 1)
         let progressPercent = Int((progressValue / Double(nativeOnboardingStepOrder.count)) * 100)
 
-        if compactLayout || viewModel.currentStep == .welcome || viewModel.currentStep == .install || viewModel.currentStep == .model {
+        if nativeOnboardingUsesInlineProgressHeader(step: viewModel.currentStep, contentWidth: contentWidth) {
             return AnyView(
                 VStack(spacing: 8) {
                     HStack(spacing: 10) {
@@ -445,26 +507,12 @@ struct NativeOnboardingView: View {
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
 
-            Button {
+            NativeOnboardingActionButton(variant: .accent) {
                 Task { await viewModel.markWelcomeStarted() }
             } label: {
                 Text(viewModel.copy.begin)
                     .font(.system(size: 15, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: nativeOnboardingCTAHeight)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .background(
-                RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(red: 0.15, green: 0.34, blue: 0.95), Color(red: 0.35, green: 0.22, blue: 0.95)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            )
 
             Text(viewModel.copy.welcomeTiming)
                 .font(.system(size: 12, weight: .medium))
@@ -633,7 +681,7 @@ struct NativeOnboardingView: View {
                     )
 
                     if installViewState.kind == .missing {
-                        Button {
+                        NativeOnboardingActionButton(variant: .accent) {
                             Task { await viewModel.runInstall() }
                         } label: {
                             HStack(spacing: 10) {
@@ -642,21 +690,7 @@ struct NativeOnboardingView: View {
                                 Text(viewModel.copy.installCta)
                                     .font(.system(size: 15, weight: .semibold))
                             }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: nativeOnboardingCTAHeight)
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .background(
-                            RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [Color(red: 0.15, green: 0.34, blue: 0.95), Color(red: 0.35, green: 0.22, blue: 0.95)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                        )
                     } else {
                         VStack(spacing: 16) {
                             if installViewState.kind == .found, let installTarget, installTarget.updateAvailable {
@@ -673,7 +707,7 @@ struct NativeOnboardingView: View {
                                     .foregroundStyle(nativeOnboardingTextPrimary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                                    Button {
+                                    NativeOnboardingActionButton(variant: .secondary) {
                                         Task { await viewModel.updateExistingInstall() }
                                     } label: {
                                         HStack(spacing: 10) {
@@ -682,19 +716,7 @@ struct NativeOnboardingView: View {
                                             Text(viewModel.copy.installUpdateCta)
                                                 .font(.system(size: 15, weight: .semibold))
                                         }
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: nativeOnboardingCTAHeight)
                                     }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(nativeOnboardingTextPrimary)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                            .fill(Color.white.opacity(0.82))
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                                    .strokeBorder(Color.black.opacity(0.08))
-                                            )
-                                    )
                                 }
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 18)
@@ -708,7 +730,7 @@ struct NativeOnboardingView: View {
                                 )
                             }
 
-                            Button {
+                            NativeOnboardingActionButton(variant: .primary) {
                                 Task {
                                     if installViewState.kind == .found {
                                         await viewModel.useExistingInstall()
@@ -719,22 +741,14 @@ struct NativeOnboardingView: View {
                             } label: {
                                 Text(viewModel.copy.installContinue)
                                     .font(.system(size: 15, weight: .semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: nativeOnboardingCTAHeight)
                             }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.white)
-                            .background(
-                                RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                    .fill(Color(red: 0.03, green: 0.02, blue: 0.07))
-                            )
 
-                            Button(viewModel.copy.back) {
+                            NativeOnboardingActionButton(variant: .secondary) {
                                 Task { await viewModel.persistDraftSafely(.init(currentStep: .welcome)) }
+                            } label: {
+                                Text(viewModel.copy.back)
+                                    .font(.system(size: 15, weight: .semibold))
                             }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(nativeOnboardingTextPrimary)
                         }
                     }
                 }
@@ -785,12 +799,12 @@ struct NativeOnboardingView: View {
                         }
                     }
 
-                    Button(viewModel.copy.back) {
+                    NativeOnboardingActionButton(variant: .secondary) {
                         Task { await viewModel.persistDraftSafely(.init(currentStep: .install)) }
+                    } label: {
+                        Text(viewModel.copy.back)
+                            .font(.system(size: 15, weight: .semibold))
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(nativeOnboardingTextPrimary)
                     .frame(maxWidth: .infinity)
                 }
 
@@ -887,24 +901,12 @@ struct NativeOnboardingView: View {
                                     }
 
                                     if !curatedProvider.platformUrl.isEmpty {
-                                        Button {
+                                        NativeOnboardingActionButton(variant: .secondary) {
                                             viewModel.openModelDocs()
                                         } label: {
                                             Label(viewModel.copy.modelGetApiKey, systemImage: "arrow.up.right.square")
                                                 .font(.system(size: 15, weight: .semibold))
-                                                .frame(maxWidth: .infinity)
-                                                .frame(height: nativeOnboardingCTAHeight)
                                         }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(nativeOnboardingTextPrimary)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                                .fill(Color.white.opacity(0.82))
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                                        .strokeBorder(Color.black.opacity(0.08))
-                                                )
-                                        )
                                     }
 
                                     if viewModel.modelSession?.launchUrl != nil {
@@ -966,7 +968,7 @@ struct NativeOnboardingView: View {
                                         body: viewModel.copy.minimaxGetKeyBody,
                                         trailing: { EmptyView() }
                                     ) {
-                                        Button {
+                                        NativeOnboardingActionButton(variant: .accent) {
                                             viewModel.openModelDocs()
                                         } label: {
                                             HStack(spacing: 10) {
@@ -977,21 +979,7 @@ struct NativeOnboardingView: View {
                                                 Image(systemName: "arrow.right")
                                                     .font(.system(size: 14, weight: .semibold))
                                             }
-                                            .frame(maxWidth: .infinity)
-                                            .frame(height: nativeOnboardingCTAHeight)
                                         }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(.white)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                .fill(
-                                                    LinearGradient(
-                                                        colors: [Color(red: 0.58, green: 0.2, blue: 0.92), Color(red: 0.93, green: 0.02, blue: 0.45)],
-                                                        startPoint: .leading,
-                                                        endPoint: .trailing
-                                                    )
-                                                )
-                                        )
                                     }
 
                                     NativeOnboardingGuideCard(
@@ -1079,67 +1067,38 @@ struct NativeOnboardingView: View {
                                         .foregroundStyle(nativeOnboardingTextSecondary)
 
                                     if !curatedProvider.platformUrl.isEmpty {
-                                        Button {
+                                        NativeOnboardingActionButton(variant: .secondary) {
                                             viewModel.openModelDocs()
                                         } label: {
                                             Label(viewModel.copy.modelGetApiKey, systemImage: "arrow.up.right.square")
                                                 .font(.system(size: 15, weight: .semibold))
-                                                .frame(maxWidth: .infinity)
-                                                .frame(height: nativeOnboardingCTAHeight)
                                         }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(nativeOnboardingTextPrimary)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                                .fill(Color.white.opacity(0.82))
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                                        .strokeBorder(Color.black.opacity(0.08))
-                                                )
-                                        )
                                     }
                                 }
                             }
 
                             HStack(spacing: 16) {
-                                Button(viewModel.copy.back) {
+                                NativeOnboardingActionButton(variant: .secondary) {
                                     Task { await viewModel.returnToModelPicker() }
+                                } label: {
+                                    Text(viewModel.copy.back)
+                                        .font(.system(size: 15, weight: .semibold))
                                 }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(nativeOnboardingTextPrimary)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: nativeOnboardingCTAHeight)
-                                .background(
-                                    RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                        .fill(Color.white.opacity(0.82))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                                .strokeBorder(Color.black.opacity(0.08))
-                                        )
-                                )
 
-                                Button {
+                                NativeOnboardingActionButton(
+                                    variant: .primary,
+                                    disabled: requiredModelFieldsMissing(viewModel.selectedMethod, values: viewModel.modelValues)
+                                ) {
                                     Task { await viewModel.saveModel() }
                                 } label: {
                                     if viewModel.modelBusy == "save" {
                                         ProgressView().controlSize(.small)
-                                            .frame(maxWidth: .infinity)
-                                            .frame(height: nativeOnboardingCTAHeight)
                                     } else {
                                         Text(viewModel.copy.modelSave)
                                             .font(.system(size: 15, weight: .semibold))
-                                            .frame(maxWidth: .infinity)
-                                            .frame(height: nativeOnboardingCTAHeight)
                                     }
                                 }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.white)
-                                .background(
-                                    RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                        .fill(Color.black.opacity(requiredModelFieldsMissing(viewModel.selectedMethod, values: viewModel.modelValues) ? 0.42 : 0.94))
-                                )
-                                .disabled(requiredModelFieldsMissing(viewModel.selectedMethod, values: viewModel.modelValues))
                             }
                         } else {
                             VStack(alignment: .leading, spacing: 20) {
@@ -1176,20 +1135,12 @@ struct NativeOnboardingView: View {
                                         )
                                 )
 
-                                Button {
+                                NativeOnboardingActionButton(variant: .primary) {
                                     Task { await viewModel.advancePastModel() }
                                 } label: {
                                     Text(viewModel.copy.next)
                                         .font(.system(size: 15, weight: .semibold))
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: nativeOnboardingCTAHeight)
                                 }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.white)
-                                .background(
-                                    RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                        .fill(Color(red: 0.03, green: 0.02, blue: 0.07))
-                                )
                             }
                         }
                     }
@@ -1209,17 +1160,14 @@ struct NativeOnboardingView: View {
             }
 
             HStack(spacing: 16) {
-                Button(viewModel.copy.back) {
+                NativeOnboardingActionButton(variant: .secondary, disabled: viewModel.permissionsNextBusy) {
                     Task { await viewModel.persistDraftSafely(.init(currentStep: .install)) }
+                } label: {
+                    Text(viewModel.copy.back)
+                        .font(.system(size: 15, weight: .semibold))
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(nativeOnboardingTextPrimary)
-                .disabled(viewModel.permissionsNextBusy)
 
-                Spacer(minLength: 0)
-
-                Button {
+                NativeOnboardingActionButton(variant: .primary, disabled: viewModel.permissionsNextBusy) {
                     Task { await viewModel.advancePastPermissions() }
                 } label: {
                     HStack(spacing: 10) {
@@ -1232,16 +1180,7 @@ struct NativeOnboardingView: View {
                         Text(viewModel.copy.next)
                             .font(.system(size: 15, weight: .semibold))
                     }
-                        .frame(minWidth: 180)
-                        .frame(height: nativeOnboardingCTAHeight)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(
-                    RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                        .fill(Color(red: 0.03, green: 0.02, blue: 0.07))
-                )
-                .disabled(viewModel.permissionsNextBusy)
             }
         }
     }
@@ -1372,32 +1311,18 @@ struct NativeOnboardingView: View {
                                     body: viewModel.copy.channelFeishuPlatformBody,
                                     trailing: { EmptyView() }
                                 ) {
-                                    Button {
+                                    NativeOnboardingActionButton(variant: .accent) {
                                         viewModel.openChannelPlatform()
                                     } label: {
                                         HStack(spacing: 10) {
                                             Image(systemName: "arrow.up.right.square")
                                                 .font(.system(size: 16, weight: .semibold))
-                                            Text(viewModel.copy.channelPlatformCta)
-                                                .font(.system(size: 15, weight: .semibold))
+                                                Text(viewModel.copy.channelPlatformCta)
+                                                    .font(.system(size: 15, weight: .semibold))
                                             Image(systemName: "arrow.right")
                                                 .font(.system(size: 14, weight: .semibold))
                                         }
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: nativeOnboardingCTAHeight)
                                     }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.white)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .fill(
-                                                LinearGradient(
-                                                    colors: [Color(red: 0.58, green: 0.2, blue: 0.92), Color(red: 0.93, green: 0.02, blue: 0.45)],
-                                                    startPoint: .leading,
-                                                    endPoint: .trailing
-                                                )
-                                            )
-                                    )
                                 }
 
                                 nativeChannelCredentialCard(
@@ -1440,26 +1365,17 @@ struct NativeOnboardingView: View {
                         }
 
                         HStack(spacing: 16) {
-                            Button {
+                            NativeOnboardingActionButton(variant: .secondary) {
                                 Task { await viewModel.returnToChannelPicker() }
                             } label: {
                                 Text(viewModel.copy.back)
                                     .font(.system(size: 15, weight: .semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: nativeOnboardingCTAHeight)
                             }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(nativeOnboardingTextPrimary)
-                            .background(
-                                RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                    .fill(Color.white.opacity(0.86))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                            .strokeBorder(Color.black.opacity(0.08))
-                                    )
-                            )
 
-                            Button {
+                            NativeOnboardingActionButton(
+                                variant: .primary,
+                                disabled: viewModel.isSelectedChannelMissingRequiredValues()
+                            ) {
                                 Task { await viewModel.saveAndContinueChannel() }
                             } label: {
                                 HStack(spacing: 10) {
@@ -1472,17 +1388,7 @@ struct NativeOnboardingView: View {
                                     Text(viewModel.copy.channelSaveContinue)
                                         .font(.system(size: 15, weight: .semibold))
                                 }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: nativeOnboardingCTAHeight)
                             }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.white)
-                            .background(
-                                RoundedRectangle(cornerRadius: nativeOnboardingFeatureRadius, style: .continuous)
-                                    .fill(Color(red: 0.03, green: 0.02, blue: 0.07))
-                            )
-                            .disabled(viewModel.isSelectedChannelMissingRequiredValues())
-                            .opacity(viewModel.isSelectedChannelMissingRequiredValues() ? 0.55 : 1)
                         }
                     }
                 } else {
@@ -1527,6 +1433,7 @@ struct NativeOnboardingView: View {
                                     }
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 24)
+                                    .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                                     .background(
                                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                                             .fill(nativeOnboardingChannelPresentationTheme(channel.theme))
@@ -1540,12 +1447,12 @@ struct NativeOnboardingView: View {
                             }
                         }
 
-                        Button(viewModel.copy.back) {
+                        NativeOnboardingActionButton(variant: .secondary) {
                             Task { await viewModel.goBackFromChannelPicker() }
+                        } label: {
+                            Text(viewModel.copy.back)
+                                .font(.system(size: 15, weight: .semibold))
                         }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(nativeOnboardingTextPrimary)
                         .frame(maxWidth: .infinity)
                     }
                 }
@@ -1584,6 +1491,8 @@ struct NativeOnboardingView: View {
                                 viewModel.employeeAvatarPresetId = preset.id
                             } label: {
                                 AvatarPresetView(presetId: preset.id, size: 70)
+                                    .padding(6)
+                                    .contentShape(Circle())
                                     .overlay(
                                         Circle()
                                             .strokeBorder(viewModel.employeeAvatarPresetId == preset.id ? Color(red: 0.24, green: 0.41, blue: 0.95) : Color.clear, lineWidth: 4)
@@ -1662,6 +1571,7 @@ struct NativeOnboardingView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(14)
+                                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                                 .background(
                                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                                         .fill(Color.white.opacity(0.92))
@@ -1747,25 +1657,28 @@ struct NativeOnboardingView: View {
     }
 
     private var backButtonToChannel: some View {
-        Button(viewModel.copy.back) {
+        NativeOnboardingActionButton(variant: .secondary) {
             Task { await viewModel.persistDraftSafely(.init(currentStep: .channel)) }
+        } label: {
+            Text(viewModel.copy.back)
+                .font(.system(size: 15, weight: .semibold))
         }
-        .buttonStyle(.bordered)
     }
 
     private var createEmployeeButton: some View {
-        Button {
+        NativeOnboardingActionButton(
+            variant: .primary,
+            disabled: viewModel.selectedEmployeePreset == nil || viewModel.selectedBrainEntryId == nil || viewModel.employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ) {
             Task { await viewModel.createEmployee() }
         } label: {
             if viewModel.employeeBusy {
                 ProgressView().controlSize(.small)
             } else {
                 Text(viewModel.copy.createEmployee)
+                    .font(.system(size: 15, weight: .semibold))
             }
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(viewModel.selectedEmployeePreset == nil || viewModel.selectedBrainEntryId == nil || viewModel.employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     private var completeStep: some View {
@@ -1825,6 +1738,7 @@ struct NativeOnboardingView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 170, alignment: .leading)
             .padding(22)
+            .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
             .background(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .fill(Color.white.opacity(0.78))
@@ -1981,26 +1895,14 @@ private func nativeChannelInstructionCard(title: String, steps: [String], ctaLab
             }
         }
 
-        Button(action: ctaAction) {
+        NativeOnboardingActionButton(variant: .secondary, action: ctaAction) {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.up.right.square")
                     .font(.system(size: 16, weight: .semibold))
                 Text(ctaLabel)
                     .font(.system(size: 15, weight: .semibold))
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: nativeOnboardingCTAHeight)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(nativeOnboardingTextPrimary)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.94))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.black.opacity(0.08))
-                )
-        )
     }
     .padding(22)
     .background(
@@ -2123,6 +2025,7 @@ private struct NativeOnboardingTutorialSheet: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                         .background(Circle().fill(Color.white.opacity(0.18)))
                 }
                 .buttonStyle(.plain)
@@ -2163,22 +2066,10 @@ private struct NativeOnboardingTutorialSheet: View {
                         .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
                 )
 
-                Button(closeLabel, action: onClose)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(red: 0.18, green: 0.39, blue: 0.96), Color(red: 0.34, green: 0.22, blue: 0.95)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                    )
+                NativeOnboardingActionButton(variant: .accent, action: onClose) {
+                    Text(closeLabel)
+                        .font(.system(size: 17, weight: .semibold))
+                }
             }
             .padding(32)
             .background(Color.white)

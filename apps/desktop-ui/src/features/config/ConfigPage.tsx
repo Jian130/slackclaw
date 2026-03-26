@@ -35,7 +35,7 @@ import { FieldLabel, Input, Select, Textarea } from "../../shared/ui/Field.js";
 import { InfoBanner } from "../../shared/ui/InfoBanner.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 import { ProviderLogo, providerFallbackGlyph } from "../../shared/ui/ProviderLogo.js";
@@ -68,12 +68,12 @@ const feishuScopes = `{
 
 export const feishuGuideSteps = [
   "Open Feishu Open Platform and create an enterprise app for this workspace.",
-  "Copy the App ID and App Secret, then paste them into SlackClaw.",
+  "Copy the App ID and App Secret, then paste them into ChillClaw.",
   "Batch-import the required scopes and confirm the bot capability is enabled for the app.",
-  "Use Prepare in SlackClaw first so OpenClaw can verify the Feishu plugin is ready.",
+  "Use Prepare in ChillClaw first so OpenClaw can verify the Feishu plugin is ready.",
   "In Feishu event subscriptions, switch delivery to long connection and enable the message receive event OpenClaw expects.",
   "Publish the app after permissions and event settings are finished.",
-  "Save the credentials here, send the bot a direct message, then approve the pairing code in SlackClaw.",
+  "Save the credentials here, send the bot a direct message, then approve the pairing code in ChillClaw.",
   "If your tenant uses Lark instead of Feishu, change the Domain field to lark before saving."
 ] as const;
 
@@ -620,7 +620,7 @@ function ModelDialog(props: {
         <LoadingBlocker
           active={busy === "save" || busy === "input"}
           label={busy === "input" ? "Finishing model authentication" : "Saving AI model"}
-          description="SlackClaw is syncing the model entry with OpenClaw."
+          description="ChillClaw is syncing the model entry with OpenClaw."
         >
           <div className="panel-stack">
           <div className="info-banner">
@@ -794,7 +794,7 @@ function ChannelDialog(props: {
     setMessage("");
     setValues({
       domain: "feishu",
-      botName: "SlackClaw Assistant",
+      botName: "ChillClaw Assistant",
       pluginSpec: "@openclaw-china/wecom-app",
       ...props.initialEntry?.editableValues
     });
@@ -862,7 +862,7 @@ function ChannelDialog(props: {
 
   return (
     <Dialog
-      description="Choose a communication channel, review the setup guidance, and save the account through SlackClaw."
+      description="Choose a communication channel, review the setup guidance, and save the account through ChillClaw."
       onClose={props.onClose}
       open={props.open}
       title={isEdit ? "Edit Channel" : "Add Channel"}
@@ -884,7 +884,7 @@ function ChannelDialog(props: {
         <LoadingBlocker
           active={Boolean(busy)}
           label="Saving channel configuration"
-          description="SlackClaw is sending the channel action to OpenClaw."
+          description="ChillClaw is sending the channel action to OpenClaw."
         >
           <div className="panel-stack">
           <div className="info-banner">
@@ -933,7 +933,7 @@ function ChannelDialog(props: {
               <CardContent className="panel-stack">
                 <strong>Feishu setup guidance</strong>
                 <p className="card__description">
-                  Follow the official Feishu channel guide step by step, then return here to save credentials and finish pairing in SlackClaw.
+                  Follow the official Feishu channel guide step by step, then return here to save credentials and finish pairing in ChillClaw.
                 </p>
                 <div className="actions-row" style={{ flexWrap: "wrap" }}>
                   {feishuDirectLinks.map((link) => (
@@ -981,7 +981,7 @@ function ChannelDialog(props: {
             <Card>
               <CardContent className="panel-stack">
                 <strong>WeChat workaround guidance</strong>
-                <p className="card__description">SlackClaw uses the workaround plugin path for WeChat. Confirm the plugin package, then save the Corp ID, Agent ID, webhook token, and AES key.</p>
+                <p className="card__description">ChillClaw uses the workaround plugin path for WeChat. Confirm the plugin package, then save the Corp ID, Agent ID, webhook token, and AES key.</p>
                 <Textarea readOnly value={"openclaw plugins install @openclaw-china/wecom-app"} />
               </CardContent>
             </Card>
@@ -1236,7 +1236,7 @@ export default function ConfigPage() {
   }
 
   async function handleRemoveModelEntry(entry: SavedModelEntry) {
-    if (!window.confirm(`Remove ${entry.label} from SlackClaw?`)) {
+    if (!window.confirm(`Remove ${entry.label} from ChillClaw?`)) {
       return;
     }
 
@@ -1253,7 +1253,7 @@ export default function ConfigPage() {
       });
       setModelConfig(result.state);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "SlackClaw could not remove this configured model.");
+      window.alert(error instanceof Error ? error.message : "ChillClaw could not remove this configured model.");
     } finally {
       setBusy("");
     }
@@ -1270,25 +1270,24 @@ export default function ConfigPage() {
   const modelBusy = busy.startsWith("models:");
 
   return (
-    <div className="panel-stack">
-      <PageHeader
-        title={copy.title}
-        subtitle={copy.subtitle}
-        actions={
-          <Button
-            onClick={() =>
-              void (activeTab === "channels"
-                ? reloadChannelConfig({ fresh: true })
-                : reloadModelConfig({ fresh: true }))
-            }
-            variant="outline"
-            loading={activeTab === "channels" ? channelsLoading : modelsLoading}
-          >
-            <RefreshCw size={14} />
-            {copy.refreshProviders}
-          </Button>
-        }
-      />
+    <WorkspaceScaffold
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <Button
+          onClick={() =>
+            void (activeTab === "channels"
+              ? reloadChannelConfig({ fresh: true })
+              : reloadModelConfig({ fresh: true }))
+          }
+          variant="outline"
+          loading={activeTab === "channels" ? channelsLoading : modelsLoading}
+        >
+          <RefreshCw size={14} />
+          {copy.refreshProviders}
+        </Button>
+      }
+    >
 
       <Tabs defaultValue="models" value={activeTab} onValueChange={(value) => setActiveTab(value as "models" | "channels")}>
         <TabsList>
@@ -1298,7 +1297,7 @@ export default function ConfigPage() {
 
         <TabsContent value="models" className="panel-stack">
           {modelsLoading && !modelConfig ? (
-            <LoadingPanel title="Loading AI models" description="SlackClaw is reading configured models from OpenClaw." />
+            <LoadingPanel title="Loading AI models" description="ChillClaw is reading configured models from OpenClaw." />
           ) : null}
 
           {!modelsLoading && modelConfig ? (
@@ -1309,7 +1308,7 @@ export default function ConfigPage() {
               <div>
                 <strong>Current model configuration</strong>
                 <p className="card__description">
-                  {"SlackClaw manages saved model entries and shows the live OpenClaw runtime model chain."}
+                  {"ChillClaw manages saved model entries and shows the live OpenClaw runtime model chain."}
                 </p>
               </div>
               <Button
@@ -1530,7 +1529,7 @@ export default function ConfigPage() {
 
         <TabsContent value="channels" className="panel-stack">
           {channelsLoading && !channelConfig ? (
-            <LoadingPanel title="Loading channels" description="SlackClaw is reading channel accounts and live channel status from OpenClaw." />
+            <LoadingPanel title="Loading channels" description="ChillClaw is reading channel accounts and live channel status from OpenClaw." />
           ) : null}
 
           {!channelsLoading && channelConfig ? (
@@ -1541,7 +1540,7 @@ export default function ConfigPage() {
               <div>
                 <strong>Current channel configuration</strong>
                 <p className="card__description">
-                  {channelMessage || channelConfig?.gatewaySummary || "SlackClaw manages configured channels through the installed OpenClaw runtime."}
+                  {channelMessage || channelConfig?.gatewaySummary || "ChillClaw manages configured channels through the installed OpenClaw runtime."}
                 </p>
               </div>
               <Button onClick={openAddChannelDialog}>
@@ -1616,7 +1615,7 @@ export default function ConfigPage() {
           ) : (
             <EmptyState
               title="No channels are configured yet"
-              description="Add Telegram, WhatsApp, Feishu, or WeChat through the dialog to start managing communication channels in SlackClaw."
+              description="Add Telegram, WhatsApp, Feishu, or WeChat through the dialog to start managing communication channels in ChillClaw."
             />
           )}
             </>
@@ -1649,6 +1648,6 @@ export default function ConfigPage() {
         open={channelDialogOpen}
         reloadChannelConfig={reloadChannelConfig}
       />
-    </div>
+    </WorkspaceScaffold>
   );
 }

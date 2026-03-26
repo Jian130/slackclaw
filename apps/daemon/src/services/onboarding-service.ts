@@ -44,6 +44,7 @@ export class OnboardingService {
   }
 
   async updateState(request: UpdateOnboardingStateRequest): Promise<OnboardingStateResponse> {
+    let reuseDraftSummary = false;
     const nextState = await this.store.update((current) => {
       const existingDraft = current.onboarding?.draft ?? defaultOnboardingDraftState();
       const nextDraft = {
@@ -60,6 +61,7 @@ export class OnboardingService {
           ? { activeChannelSessionId: request.activeChannelSessionId || undefined }
           : {})
       };
+      reuseDraftSummary = this.shouldReuseDraftSummary(existingDraft, nextDraft);
 
       return {
         ...current,
@@ -70,7 +72,7 @@ export class OnboardingService {
     });
 
     const draft = nextState.onboarding?.draft ?? defaultOnboardingDraftState();
-    const summary = this.shouldReuseDraftSummary(request) ? this.buildDraftSummary(draft) : await this.buildSummary(draft);
+    const summary = reuseDraftSummary ? this.buildDraftSummary(draft) : await this.buildSummary(draft);
 
     return {
       firstRun: {
@@ -127,8 +129,20 @@ export class OnboardingService {
     };
   }
 
-  private shouldReuseDraftSummary(request: UpdateOnboardingStateRequest): boolean {
-    return !request.install && !request.model && !request.channel && !request.employee;
+  private shouldReuseDraftSummary(
+    previousDraft: ReturnType<typeof defaultOnboardingDraftState>,
+    nextDraft: ReturnType<typeof defaultOnboardingDraftState>
+  ): boolean {
+    return JSON.stringify(this.summaryInputs(previousDraft)) === JSON.stringify(this.summaryInputs(nextDraft));
+  }
+
+  private summaryInputs(draft: ReturnType<typeof defaultOnboardingDraftState>) {
+    return {
+      install: draft.install,
+      model: draft.model,
+      channel: draft.channel,
+      employee: draft.employee
+    };
   }
 
   private buildDraftSummary(draft: ReturnType<typeof defaultOnboardingDraftState>): OnboardingCompletionSummary {

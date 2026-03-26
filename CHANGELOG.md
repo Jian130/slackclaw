@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-03-27 00:51 CST
+
+- refactored the macOS and React clients around shared UI primitives and approved page scaffolds so dashboard, deploy, settings, onboarding, chat, team, members, skills, and configuration now reuse the same design-system contract
+- added a native shared UI layer under `apps/macos-native/Sources/SlackClawNative/UI` and migrated the native shell, onboarding, permissions, and main product screens onto shared surfaces, badges, buttons, metrics, and scaffold layouts
+- added shared React `StatusBadge` and scaffold components, removed the broken `StatusPill` path, and moved the shared web styling layer to semantic token-driven variants instead of page-local status and scaffold drift
+- added shared UI contract coverage for native badge/scaffold semantics and React status rendering, and normalized touched product-facing UI copy to `ChillClaw`
+- documented shared UI reuse rules in `AGENTS.md` and now require timestamped changelog updates for future changelog entries
+
 ### Native macOS client
 
 - added a new daemon-backed native macOS client under `apps/macos-native`

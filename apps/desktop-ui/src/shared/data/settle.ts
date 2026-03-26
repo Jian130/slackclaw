@@ -52,7 +52,7 @@ export async function settleAfterMutation<TMutation, TState>(
   }
 
   if (latestState === undefined) {
-    throw new Error("SlackClaw could not verify the latest state after this action.");
+    throw new Error("ChillClaw could not verify the latest state after this action.");
   }
 
   return {
