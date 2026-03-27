@@ -115,8 +115,6 @@ function onboardingChannelThemeClass(theme: "wechat" | "feishu" | "telegram") {
 
 function defaultChannelValuesFor(channelId: string): Record<string, string> {
   switch (channelId) {
-    case "wechat":
-      return { pluginSpec: "@openclaw-china/wecom-app" };
     case "feishu":
       return { domain: "feishu", botName: "ChillClaw Assistant" };
     default:

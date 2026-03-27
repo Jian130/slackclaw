@@ -65,6 +65,7 @@ struct DashboardSupportTests {
         #expect(copy.sidebarStatusReadySummary == "所有系统运行正常")
         #expect(nativeSectionTitle(.settings, localeIdentifier: "zh") == "设置")
         #expect(nativeSectionTitle(.configuration, localeIdentifier: "zh") == "配置")
+        #expect(nativeSectionTitle(.plugins, localeIdentifier: "zh") == "插件")
     }
 
     @Test

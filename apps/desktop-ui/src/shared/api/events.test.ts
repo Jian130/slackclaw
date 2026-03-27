@@ -150,6 +150,32 @@ describe("daemon event client", () => {
     unsubscribe();
   });
 
+  it("tracks plugin-config revisions from retained daemon snapshots", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const events = await loadEventsModule();
+    const unsubscribe = events.subscribeToDaemonEvents(() => undefined);
+
+    FakeWebSocket.instances[0]?.emitMessage(
+      JSON.stringify({
+        type: "plugin-config.updated",
+        snapshot: {
+          epoch: "epoch-plugin",
+          revision: 2,
+          data: {
+            entries: []
+          }
+        }
+      })
+    );
+
+    expect(events.getDaemonResourceRevision("plugin-config")).toEqual({
+      epoch: "epoch-plugin",
+      revision: 2
+    });
+
+    unsubscribe();
+  });
+
   it("reconnects after the socket closes while listeners remain", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", FakeWebSocket);

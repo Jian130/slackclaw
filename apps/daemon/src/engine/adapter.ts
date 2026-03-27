@@ -12,6 +12,7 @@ import type {
   MemberAvatar,
   MemberBindingSummary,
   MemberCapabilitySettings,
+  PluginConfigOverview,
   SendChatMessageRequest,
   ChannelSessionInputRequest,
   ChannelSession,
@@ -88,7 +89,7 @@ export type EngineChatLiveEvent =
       toolActivity: ChatToolActivity;
     };
 
-export type EngineReadCacheResource = "engine" | "models" | "channels" | "skills" | "ai-members";
+export type EngineReadCacheResource = "engine" | "models" | "channels" | "plugins" | "skills" | "ai-members";
 
 export interface ManagedSkillInstallRequest {
   slug: string;
@@ -252,6 +253,14 @@ export interface GatewayManager {
   startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }>;
 }
 
+export interface PluginManager {
+  getConfigOverview(): Promise<PluginConfigOverview>;
+  ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview>;
+  installPlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
+  updatePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
+  removePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
+}
+
 export interface EngineAdapter {
   readonly installSpec: EngineInstallSpec;
   readonly capabilities: EngineCapabilities;
@@ -259,6 +268,7 @@ export interface EngineAdapter {
   readonly config: ConfigManager;
   readonly aiEmployees: AIEmployeeManager;
   readonly gateway: GatewayManager;
+  readonly plugins: PluginManager;
 
   invalidateReadCaches(resources?: EngineReadCacheResource[]): void;
 }

@@ -146,3 +146,41 @@ test("event bus replays the latest retained snapshot events to new subscribers",
   assert.equal(replayed[0]?.type, "overview.updated");
   assert.equal(replayed[0]?.snapshot.revision, 1);
 });
+
+test("event publisher emits retained plugin snapshot events", () => {
+  const bus = new EventBusService();
+  const publisher = new EventPublisher(bus);
+  let publishedRevision = 0;
+
+  bus.subscribe((event) => {
+    if (event.type === "plugin-config.updated") {
+      publishedRevision = event.snapshot.revision;
+    }
+  });
+
+  const sync = publisher.publishPluginConfigUpdated({
+    entries: [
+      {
+        id: "wecom",
+        label: "WeCom Plugin",
+        packageSpec: "@wecom/wecom-openclaw-plugin",
+        runtimePluginId: "wecom-openclaw-plugin",
+        configKey: "wecom-openclaw-plugin",
+        status: "ready",
+        summary: "Plugin is ready.",
+        detail: "Managed by ChillClaw.",
+        enabled: true,
+        installed: true,
+        hasUpdate: false,
+        hasError: false,
+        activeDependentCount: 0,
+        dependencies: []
+      }
+    ]
+  });
+
+  const replayed = bus.getRetainedEvents();
+
+  assert.equal(sync.revision, publishedRevision);
+  assert.equal(replayed.some((event) => event.type === "plugin-config.updated"), true);
+});

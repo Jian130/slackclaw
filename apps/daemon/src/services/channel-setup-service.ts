@@ -15,6 +15,7 @@ import type {
 import { createDefaultProductOverview } from "@slackclaw/contracts";
 
 import type { EngineAdapter } from "../engine/adapter.js";
+import { managedFeatureIdForChannel } from "../config/managed-plugins.js";
 import { channelSecretName, NoopSecretsAdapter, type SecretsAdapter } from "../platform/secrets-adapter.js";
 import type { AppState } from "./state-store.js";
 import { EventPublisher } from "./event-publisher.js";
@@ -92,12 +93,11 @@ const CHANNEL_CAPABILITIES: ChannelCapability[] = [
   {
     id: "wechat",
     label: "WeChat workaround",
-    description: "Use the workaround plugin path, then save the app credentials into OpenClaw.",
+    description: "ChillClaw manages the required WeChat plugin and saves the app credentials into OpenClaw.",
     officialSupport: false,
     iconKey: "WX",
     docsUrl: "https://docs.openclaw.ai/cli/config",
     fieldDefs: [
-      { id: "pluginSpec", label: "Plugin package", required: false, placeholder: "@openclaw-china/wecom-app" },
       { id: "corpId", label: "Corp ID", required: true },
       { id: "agentId", label: "Agent ID", required: true },
       { id: "secret", label: "Secret", required: true, secret: true },
@@ -181,7 +181,6 @@ function editableValuesFor(channelId: SupportedChannelId, values: Record<string,
       };
     case "wechat":
       return {
-        ...(values.pluginSpec?.trim() ? { pluginSpec: values.pluginSpec.trim() } : { pluginSpec: "@openclaw-china/wecom-app" }),
         ...(values.corpId?.trim() ? { corpId: values.corpId.trim() } : {}),
         ...(values.agentId?.trim() ? { agentId: values.agentId.trim() } : {})
       };
@@ -225,7 +224,6 @@ function maskedSummaryFor(channelId: SupportedChannelId, values: Record<string, 
       ];
     case "wechat":
       return [
-        ...(values.pluginSpec?.trim() ? [{ label: "Plugin", value: values.pluginSpec.trim() }] : [{ label: "Plugin", value: "@openclaw-china/wecom-app" }]),
         ...(values.corpId?.trim() ? [{ label: "Corp ID", value: values.corpId.trim() }] : []),
         ...(values.agentId?.trim() ? [{ label: "Agent ID", value: values.agentId.trim() }] : []),
         ...(values.secret?.trim() ? [{ label: "Secret", value: maskValue(values.secret) }] : []),
@@ -373,6 +371,12 @@ export class ChannelSetupService {
   }
 
   async saveEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
+    const managedFeatureId = managedFeatureIdForChannel(request.channelId);
+    if (managedFeatureId) {
+      const pluginConfig = await this.adapter.plugins.ensureFeatureRequirements(managedFeatureId);
+      this.eventPublisher?.publishPluginConfigUpdated(pluginConfig);
+    }
+
     const result = await this.adapter.config.saveChannelEntry({ ...request, entryId });
     const channelId = request.channelId;
     const now = new Date().toISOString();

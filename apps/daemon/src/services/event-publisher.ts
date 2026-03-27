@@ -7,6 +7,7 @@ import type {
   EngineStatus,
   ModelConfigOverview,
   MutationSyncMeta,
+  PluginConfigOverview,
   PresetSkillSyncOverview,
   ProductOverview,
   RevisionedSnapshot,
@@ -100,6 +101,13 @@ export class EventPublisher {
   publishChannelConfigUpdated(channelConfig: ChannelConfigOverview): MutationSyncMeta {
     return this.publishSnapshot("channel-config", channelConfig, (snapshot) => ({
       type: "channel-config.updated",
+      snapshot
+    }));
+  }
+
+  publishPluginConfigUpdated(pluginConfig: PluginConfigOverview): MutationSyncMeta {
+    return this.publishSnapshot("plugin-config", pluginConfig, (snapshot) => ({
+      type: "plugin-config.updated",
       snapshot
     }));
   }

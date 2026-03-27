@@ -275,6 +275,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -330,6 +331,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -513,7 +515,6 @@ struct OnboardingTests {
         #expect(values["corpId"] == "ww123")
         #expect(values["agentId"] == "1000002")
         #expect(values["secret"] == "wechat-secret")
-        #expect(values["pluginSpec"] == "@openclaw-china/wecom-app")
         #expect((values["token"] ?? "").count > 10)
         #expect((values["encodingAesKey"] ?? "").count == 43)
     }
@@ -830,6 +831,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -878,6 +880,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -1028,6 +1031,10 @@ struct OnboardingTests {
                     await loadRecorder.record("channels")
                     return emptyChannelConfig()
                 },
+                fetchPluginConfig: {
+                    await loadRecorder.record("plugins")
+                    return emptyPluginConfig()
+                },
                 fetchSkillsConfig: {
                     await loadRecorder.record("skills")
                     return emptySkillConfig()
@@ -1069,6 +1076,10 @@ struct OnboardingTests {
                 fetchChannelConfig: {
                     await loadRecorder.record("channels")
                     return emptyChannelConfig()
+                },
+                fetchPluginConfig: {
+                    await loadRecorder.record("plugins")
+                    return emptyPluginConfig()
                 },
                 fetchSkillsConfig: {
                     await loadRecorder.record("skills")
@@ -1127,6 +1138,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -1206,6 +1218,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { makeDeploymentTargetsResponse(targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -1324,6 +1337,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { initialTargets },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -1449,6 +1463,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -1525,6 +1540,7 @@ struct OnboardingTests {
                 fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
                 fetchModelConfig: { emptyModelConfig() },
                 fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
                 fetchSkillsConfig: { emptySkillConfig() },
                 fetchAITeamOverview: { emptyAITeamOverview() }
             )
@@ -1625,6 +1641,10 @@ private func emptyChannelConfig() -> ChannelConfigOverview {
         activeSession: nil,
         gatewaySummary: "Gateway ready"
     )
+}
+
+private func emptyPluginConfig() -> PluginConfigOverview {
+    .init(entries: [])
 }
 
 private func emptySkillConfig() -> SkillCatalogOverview {

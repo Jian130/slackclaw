@@ -300,6 +300,9 @@ async function withFakeOpenClaw(
     failTelegramChannelsAdd?: boolean;
     failFeishuConfigSet?: boolean;
     failWechatConfigSet?: boolean;
+    pluginInstalled?: boolean;
+    pluginEnabled?: boolean;
+    pluginUpdateAvailable?: boolean;
   }
 ): Promise<void> {
   const previousLock = fakeOpenClawLock;
@@ -314,6 +317,9 @@ async function withFakeOpenClaw(
   const configPath = join(tempDir, "openclaw.json");
   const versionPath = join(tempDir, "version.txt");
   const updateMarkerPath = join(tempDir, "update-marker.txt");
+  const pluginInstalledMarkerPath = join(tempDir, "plugin-installed.txt");
+  const pluginEnabledMarkerPath = join(tempDir, "plugin-enabled.txt");
+  const pluginUpdateMarkerPath = join(tempDir, "plugin-update-marker.txt");
   const agentDirPath = join(tempDir, "main-agent");
   const dataDir = join(tempDir, "data");
   const binaryPath = join(dataDir, "openclaw-runtime", "node_modules", ".bin", "openclaw");
@@ -322,6 +328,9 @@ async function withFakeOpenClaw(
   const originalLogPath = process.env.OPENCLAW_TEST_LOG;
   const originalVersionPath = process.env.OPENCLAW_TEST_VERSION_FILE;
   const originalUpdateMarkerPath = process.env.OPENCLAW_TEST_UPDATE_MARKER;
+  const originalPluginInstalledMarkerPath = process.env.OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER;
+  const originalPluginEnabledMarkerPath = process.env.OPENCLAW_TEST_PLUGIN_ENABLED_MARKER;
+  const originalPluginUpdateMarkerPath = process.env.OPENCLAW_TEST_PLUGIN_UPDATE_MARKER;
   const updateNoChange = options?.updateNoChange === true;
   const updatePackageManager = options?.updatePackageManager ?? "npm";
   const agentsListJsonOnStderr = options?.agentsListJsonOnStderr === true;
@@ -329,12 +338,24 @@ async function withFakeOpenClaw(
   const failTelegramChannelsAdd = options?.failTelegramChannelsAdd === true;
   const failFeishuConfigSet = options?.failFeishuConfigSet === true;
   const failWechatConfigSet = options?.failWechatConfigSet === true;
+  const pluginInstalled = options?.pluginInstalled === true;
+  const pluginEnabled = options?.pluginEnabled === true;
+  const pluginUpdateAvailable = options?.pluginUpdateAvailable === true;
   const chatHistoryPayload =
     options?.chatHistoryPayload ??
     '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
 
   await writeFile(configPath, JSON.stringify({}));
   await writeFile(versionPath, "2026.3.7\n");
+  if (pluginInstalled) {
+    await writeFile(pluginInstalledMarkerPath, "1\n");
+  }
+  if (pluginEnabled) {
+    await writeFile(pluginEnabledMarkerPath, "1\n");
+  }
+  if (pluginUpdateAvailable) {
+    await writeFile(pluginUpdateMarkerPath, "1\n");
+  }
   await mkdir(agentDirPath, { recursive: true });
   await mkdir(join(dataDir, "openclaw-runtime", "node_modules", ".bin"), { recursive: true });
   await writeFile(
@@ -385,13 +406,44 @@ elif [ "$1" = "channels" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   echo '{"chat":{"telegram":["default"]}}'
 elif [ "$1" = "channels" ] && [ "$2" = "status" ] && [ "$3" = "--json" ] && [ "$4" = "--probe" ]; then
   echo '{"channels":{"telegram":{"configured":true,"running":true,"linked":true}},"channelAccounts":{"telegram":[{"accountId":"default","configured":true,"linked":true,"probe":{"bot":{"username":"support_bot"}}}]}}'
+elif [ "$1" = "plugins" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  if [ -f "$OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER" ]; then
+    plugin_status="ready"
+    if [ -f "$OPENCLAW_TEST_PLUGIN_UPDATE_MARKER" ]; then
+      plugin_status="update-available"
+    fi
+    plugin_enabled="false"
+    if [ -f "$OPENCLAW_TEST_PLUGIN_ENABLED_MARKER" ]; then
+      plugin_enabled="true"
+    fi
+    cat <<EOF
+{"plugins":[{"id":"wecom-openclaw-plugin","name":"WeCom Plugin","source":"@wecom/wecom-openclaw-plugin","origin":"npm","enabled":\${plugin_enabled},"status":"\${plugin_status}"}],"diagnostics":[]}
+EOF
+  else
+    echo '{"plugins":[],"diagnostics":[]}'
+  fi
+elif [ "$1" = "plugins" ] && [ "$2" = "install" ] && [ "$3" = "@wecom/wecom-openclaw-plugin" ]; then
+  touch "$OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER"
+  echo '{"status":"installed"}'
+elif [ "$1" = "plugins" ] && [ "$2" = "update" ] && [ "$3" = "wecom-openclaw-plugin" ] && [ "$4" = "--yes" ]; then
+  rm -f "$OPENCLAW_TEST_PLUGIN_UPDATE_MARKER"
+  echo 'Plugin updated'
+elif [ "$1" = "plugins" ] && [ "$2" = "enable" ] && [ "$3" = "wecom-openclaw-plugin" ]; then
+  touch "$OPENCLAW_TEST_PLUGIN_ENABLED_MARKER"
+  echo 'Plugin enabled'
+elif [ "$1" = "plugins" ] && [ "$2" = "disable" ] && [ "$3" = "wecom-openclaw-plugin" ]; then
+  rm -f "$OPENCLAW_TEST_PLUGIN_ENABLED_MARKER"
+  echo 'Plugin disabled'
+elif [ "$1" = "plugins" ] && [ "$2" = "uninstall" ] && [ "$3" = "wecom-openclaw-plugin" ]; then
+  rm -f "$OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER" "$OPENCLAW_TEST_PLUGIN_ENABLED_MARKER" "$OPENCLAW_TEST_PLUGIN_UPDATE_MARKER"
+  echo 'Plugin removed'
 elif [ "$1" = "channels" ] && [ "$2" = "add" ] && [ "$3" = "--channel" ] && [ "$4" = "telegram" ] && [ "${failTelegramChannelsAdd ? "1" : "0"}" = "1" ]; then
   >&2 echo 'Unknown channel: telegram'
   exit 1
 elif [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "--strict-json" ] && [ "$4" = "channels.feishu" ] && [ "${failFeishuConfigSet ? "1" : "0"}" = "1" ]; then
   >&2 echo 'unknown option --strict-json'
   exit 1
-elif [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "--strict-json" ] && [ "$4" = "channels.wecom-app" ] && [ "${failWechatConfigSet ? "1" : "0"}" = "1" ]; then
+elif [ "$1" = "config" ] && [ "$2" = "set" ] && [ "$3" = "--strict-json" ] && [ "$4" = "channels.wecom-openclaw-plugin" ] && [ "${failWechatConfigSet ? "1" : "0"}" = "1" ]; then
   >&2 echo 'unknown option --strict-json'
   exit 1
 elif [ "$1" = "skills" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
@@ -430,6 +482,9 @@ fi
   process.env.OPENCLAW_TEST_LOG = logPath;
   process.env.OPENCLAW_TEST_VERSION_FILE = versionPath;
   process.env.OPENCLAW_TEST_UPDATE_MARKER = updateMarkerPath;
+  process.env.OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER = pluginInstalledMarkerPath;
+  process.env.OPENCLAW_TEST_PLUGIN_ENABLED_MARKER = pluginEnabledMarkerPath;
+  process.env.OPENCLAW_TEST_PLUGIN_UPDATE_MARKER = pluginUpdateMarkerPath;
 
   const adapter = new OpenClawAdapter();
   adapter.invalidateReadCaches();
@@ -462,6 +517,21 @@ fi
       delete process.env.OPENCLAW_TEST_UPDATE_MARKER;
     } else {
       process.env.OPENCLAW_TEST_UPDATE_MARKER = originalUpdateMarkerPath;
+    }
+    if (originalPluginInstalledMarkerPath === undefined) {
+      delete process.env.OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER;
+    } else {
+      process.env.OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER = originalPluginInstalledMarkerPath;
+    }
+    if (originalPluginEnabledMarkerPath === undefined) {
+      delete process.env.OPENCLAW_TEST_PLUGIN_ENABLED_MARKER;
+    } else {
+      process.env.OPENCLAW_TEST_PLUGIN_ENABLED_MARKER = originalPluginEnabledMarkerPath;
+    }
+    if (originalPluginUpdateMarkerPath === undefined) {
+      delete process.env.OPENCLAW_TEST_PLUGIN_UPDATE_MARKER;
+    } else {
+      process.env.OPENCLAW_TEST_PLUGIN_UPDATE_MARKER = originalPluginUpdateMarkerPath;
     }
     await rm(tempDir, { recursive: true, force: true });
     releaseLock();
@@ -742,7 +812,6 @@ test("configureWechatWorkaround falls back to direct config writes when config s
       channelId: "wechat",
       action: "save",
       values: {
-        pluginSpec: "@openclaw-china/wecom-app",
         corpId: "corp-id",
         agentId: "1000001",
         secret: "corp-secret",
@@ -754,7 +823,7 @@ test("configureWechatWorkaround falls back to direct config writes when config s
     const config = JSON.parse(await readFile(configPath, "utf8")) as {
       channels?: Record<string, Record<string, unknown>>;
     };
-    const saved = config.channels?.["wecom-app"];
+    const saved = config.channels?.["wecom-openclaw-plugin"];
 
     assert.equal(result.requiresGatewayApply, true);
     assert.match(result.message, /apply pending/i);
@@ -764,6 +833,65 @@ test("configureWechatWorkaround falls back to direct config writes when config s
     assert.equal(saved?.agentId, 1000001);
   }, {
     failWechatConfigSet: true
+  });
+});
+
+test("plugin manager installs and enables the managed WeChat plugin", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const result = await adapter.plugins.installPlugin("wecom");
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.pluginConfig.entries[0]?.installed, true);
+    assert.equal(result.pluginConfig.entries[0]?.enabled, true);
+    assert.equal(countCommands(commands, "plugins install @wecom/wecom-openclaw-plugin"), 1);
+    assert.equal(countCommands(commands, "plugins enable wecom-openclaw-plugin"), 1);
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+  });
+});
+
+test("plugin manager blocks removal while the managed WeChat channel is still configured", async () => {
+  await withFakeOpenClaw(async ({ adapter }) => {
+    await adapter.config.saveChannelEntry({
+      channelId: "wechat",
+      action: "save",
+      values: {
+        corpId: "corp-id",
+        agentId: "1000001",
+        secret: "corp-secret",
+        token: "verify-token",
+        encodingAesKey: "aes-key"
+      }
+    });
+
+    await assert.rejects(
+      () => adapter.plugins.removePlugin("wecom"),
+      /still required by an active managed feature/i
+    );
+  }, {
+    failWechatConfigSet: true,
+    pluginInstalled: true,
+    pluginEnabled: true
+  });
+});
+
+test("plugin manager surfaces update availability and clears it after update", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const before = await adapter.plugins.getConfigOverview();
+    assert.equal(before.entries[0]?.status, "update-available");
+    assert.equal(before.entries[0]?.hasUpdate, true);
+
+    const result = await adapter.plugins.updatePlugin("wecom");
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.pluginConfig.entries[0]?.hasUpdate, false);
+    assert.equal(result.pluginConfig.entries[0]?.status, "ready");
+    assert.equal(countCommands(commands, "plugins update wecom-openclaw-plugin --yes"), 1);
+    assert.equal(countCommands(commands, "plugins enable wecom-openclaw-plugin"), 1);
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+  }, {
+    pluginInstalled: true,
+    pluginEnabled: true,
+    pluginUpdateAvailable: true
   });
 });
 

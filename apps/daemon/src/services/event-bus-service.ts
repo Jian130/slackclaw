@@ -39,6 +39,7 @@ function retainedEventKey(event: SlackClawEvent): string | undefined {
     case "ai-team.updated":
     case "model-config.updated":
     case "channel-config.updated":
+    case "plugin-config.updated":
     case "skill-catalog.updated":
     case "preset-skill-sync.updated":
       return event.type;

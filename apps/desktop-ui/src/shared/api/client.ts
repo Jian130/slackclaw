@@ -32,6 +32,8 @@ import type {
   ModelConfigOverview,
   MemberBindingsResponse,
   PairingApprovalRequest,
+  PluginActionResponse,
+  PluginConfigOverview,
   ProductOverview,
   OnboardingStateResponse,
   RemoveSkillRequest,
@@ -83,6 +85,7 @@ function getGetCacheMs(path: string): number | undefined {
     path.startsWith("/deploy/targets") ||
     path.startsWith("/models/config") ||
     path.startsWith("/channels/config") ||
+    path.startsWith("/plugins/config") ||
     path.startsWith("/skills/config") ||
     path.startsWith("/ai-team/overview") ||
     path.startsWith("/chat/overview")
@@ -344,6 +347,10 @@ export function fetchChannelConfig(options?: { fresh?: boolean }): Promise<Chann
   return readJson<ChannelConfigOverview>("/channels/config", options);
 }
 
+export function fetchPluginConfig(options?: { fresh?: boolean }): Promise<PluginConfigOverview> {
+  return readJson<PluginConfigOverview>("/plugins/config", options);
+}
+
 export function fetchSkillConfig(options?: { fresh?: boolean }): Promise<SkillCatalogOverview> {
   return readJson<SkillCatalogOverview>("/skills/config", options);
 }
@@ -508,6 +515,24 @@ export function removeChannelEntry(entryId: string, request: RemoveChannelEntryR
   return readJson<ChannelConfigActionResponse>(`/channels/entries/${entryId}`, {
     method: "DELETE",
     body: JSON.stringify(request)
+  });
+}
+
+export function installPlugin(pluginId: string): Promise<PluginActionResponse> {
+  return readJson<PluginActionResponse>(`/plugins/${encodeURIComponent(pluginId)}/install`, {
+    method: "POST"
+  });
+}
+
+export function updatePlugin(pluginId: string): Promise<PluginActionResponse> {
+  return readJson<PluginActionResponse>(`/plugins/${encodeURIComponent(pluginId)}/update`, {
+    method: "POST"
+  });
+}
+
+export function removePlugin(pluginId: string): Promise<PluginActionResponse> {
+  return readJson<PluginActionResponse>(`/plugins/${encodeURIComponent(pluginId)}`, {
+    method: "DELETE"
   });
 }
 

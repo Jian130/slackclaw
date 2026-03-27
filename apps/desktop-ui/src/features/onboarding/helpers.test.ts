@@ -506,7 +506,6 @@ describe("onboarding helpers", () => {
     expect(values.corpId).toBe("ww123");
     expect(values.agentId).toBe("1000002");
     expect(values.secret).toBe("wechat-secret");
-    expect(values.pluginSpec).toBe("@openclaw-china/wecom-app");
     expect(values.token?.length).toBeGreaterThan(10);
     expect(values.encodingAesKey?.length).toBe(43);
   });

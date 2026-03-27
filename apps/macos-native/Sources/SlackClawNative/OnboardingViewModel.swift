@@ -66,7 +66,6 @@ final class NativeOnboardingViewModel {
     var channelValues: [String: String] = [
         "domain": "feishu",
         "botName": "ChillClaw Assistant",
-        "pluginSpec": "@openclaw-china/wecom-app",
     ]
 
     var employeeName = ""
@@ -701,7 +700,6 @@ final class NativeOnboardingViewModel {
         channelValues = [
             "domain": "feishu",
             "botName": "ChillClaw Assistant",
-            "pluginSpec": "@openclaw-china/wecom-app",
         ]
         channelMessage = nil
         channelRequiresApply = false
@@ -787,8 +785,6 @@ final class NativeOnboardingViewModel {
 
     private func defaultChannelValues(for channelID: String) -> [String: String] {
         switch channelID {
-        case "wechat":
-            return ["pluginSpec": "@openclaw-china/wecom-app"]
         case "feishu":
             return ["domain": "feishu", "botName": "ChillClaw Assistant"]
         default:
@@ -1033,7 +1029,7 @@ final class NativeOnboardingViewModel {
                     presetSkillSync: snapshot.data
                 )
             }
-        case .skillCatalogUpdated, .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .channelSessionUpdated, .configApplied:
+        case .skillCatalogUpdated, .pluginConfigUpdated, .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .channelSessionUpdated, .configApplied:
             break
         }
 

@@ -19,6 +19,7 @@ type TranslationTree = {
   chatPage: Record<string, string>;
   team: Record<string, string>;
   skills: Record<string, string>;
+  plugins: Record<string, string>;
   settings: Record<string, string>;
 };
 
@@ -42,6 +43,7 @@ const en: TranslationTree = {
     onboarding: "Onboarding",
     deploy: "Deploy",
     config: "Configuration",
+    plugins: "Plugins",
     skills: "Skills Management",
     members: "AI Members",
     chat: "Chat",
@@ -342,6 +344,19 @@ const en: TranslationTree = {
     noOnlineMatchesTitle: "No new online skills found",
     noOnlineMatchesBody: "ChillClaw did not find any additional ClawHub skills for this search."
   },
+  plugins: {
+    title: "Plugins",
+    subtitle: "Manage daemon-owned OpenClaw plugins and the features that depend on them.",
+    total: "Managed Plugins",
+    ready: "Ready",
+    active: "In Use",
+    updates: "Updates",
+    refresh: "Refresh",
+    loadingTitle: "Checking managed plugins",
+    loadingBody: "ChillClaw is reading the OpenClaw plugin inventory, diagnostics, and active feature dependencies.",
+    emptyTitle: "No managed plugins yet",
+    emptyBody: "ChillClaw has not registered any daemon-owned OpenClaw plugins in this build."
+  },
   settings: {
     title: "Settings",
     subtitle: "General preferences, deployment controls, logging, and advanced actions.",
@@ -388,6 +403,7 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       onboarding: "引导",
       deploy: "部署",
       config: "配置",
+      plugins: "插件",
       skills: "技能管理",
       members: "AI 成员",
       chat: "聊天",
@@ -466,6 +482,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       removeChannel: "移除",
       removingChannel: "正在移除..."
     },
+    plugins: {
+      title: "插件",
+      subtitle: "统一管理由守护进程托管的 OpenClaw 插件，以及依赖它们的功能。",
+      total: "托管插件",
+      ready: "就绪",
+      active: "使用中",
+      updates: "可更新",
+      refresh: "刷新",
+      loadingTitle: "正在检查托管插件",
+      loadingBody: "ChillClaw 正在读取 OpenClaw 插件清单、诊断信息和当前功能依赖。",
+      emptyTitle: "还没有托管插件",
+      emptyBody: "当前构建中，ChillClaw 还没有注册任何由守护进程托管的 OpenClaw 插件。"
+    },
     settings: {
       permissionsTitle: "权限",
       permissionsBody: "查看 ChillClaw 可能需要的 macOS 权限，包括自动化、通知、辅助功能、屏幕录制、麦克风、语音识别、相机和定位。",
@@ -497,6 +526,7 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       onboarding: "オンボーディング",
       deploy: "デプロイ",
       config: "設定",
+      plugins: "プラグイン",
       skills: "スキル管理",
       members: "AI メンバー",
       chat: "チャット",
@@ -575,6 +605,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       removeChannel: "削除",
       removingChannel: "削除中..."
     },
+    plugins: {
+      title: "プラグイン",
+      subtitle: "デーモン管理の OpenClaw プラグインと、それに依存する機能を一元管理します。",
+      total: "管理対象プラグイン",
+      ready: "準備完了",
+      active: "使用中",
+      updates: "更新あり",
+      refresh: "更新",
+      loadingTitle: "管理対象プラグインを確認中",
+      loadingBody: "ChillClaw は OpenClaw のプラグイン一覧、診断、依存機能を読み取っています。",
+      emptyTitle: "管理対象プラグインはまだありません",
+      emptyBody: "このビルドでは、ChillClaw に登録されたデーモン管理プラグインはまだありません。"
+    },
     settings: {
       permissionsTitle: "権限",
       permissionsBody: "ChillClaw が必要とする可能性のある macOS 権限を確認します。対象はオートメーション、通知、アクセシビリティ、画面収録、マイク、音声認識、カメラ、位置情報です。",
@@ -606,6 +649,7 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       onboarding: "온보딩",
       deploy: "배포",
       config: "구성",
+      plugins: "플러그인",
       skills: "스킬 관리",
       members: "AI 멤버",
       chat: "채팅",
@@ -684,6 +728,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       removeChannel: "제거",
       removingChannel: "제거하는 중..."
     },
+    plugins: {
+      title: "플러그인",
+      subtitle: "데몬이 관리하는 OpenClaw 플러그인과 이를 사용하는 기능을 한 곳에서 관리합니다.",
+      total: "관리 플러그인",
+      ready: "준비 완료",
+      active: "사용 중",
+      updates: "업데이트",
+      refresh: "새로고침",
+      loadingTitle: "관리 플러그인 확인 중",
+      loadingBody: "ChillClaw가 OpenClaw 플러그인 목록, 진단, 활성 기능 의존성을 읽고 있습니다.",
+      emptyTitle: "관리 플러그인이 없습니다",
+      emptyBody: "이 빌드에는 ChillClaw가 등록한 데몬 관리 OpenClaw 플러그인이 아직 없습니다."
+    },
     settings: {
       permissionsTitle: "권한",
       permissionsBody: "자동화, 알림, 손쉬운 사용, 화면 기록, 마이크, 음성 인식, 카메라, 위치에 대해 ChillClaw가 필요로 할 수 있는 macOS 권한을 확인합니다.",
@@ -715,6 +772,7 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       onboarding: "Onboarding",
       deploy: "Despliegue",
       config: "Configuración",
+      plugins: "Plugins",
       skills: "Habilidades",
       members: "Miembros AI",
       chat: "Chat",
@@ -793,6 +851,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       removeChannel: "Eliminar",
       removingChannel: "Eliminando..."
     },
+    plugins: {
+      title: "Plugins",
+      subtitle: "Gestiona los plugins de OpenClaw controlados por el daemon y las funciones que dependen de ellos.",
+      total: "Plugins gestionados",
+      ready: "Listos",
+      active: "En uso",
+      updates: "Actualizaciones",
+      refresh: "Actualizar",
+      loadingTitle: "Comprobando plugins gestionados",
+      loadingBody: "ChillClaw está leyendo el inventario de plugins de OpenClaw, los diagnósticos y las dependencias activas.",
+      emptyTitle: "Todavía no hay plugins gestionados",
+      emptyBody: "ChillClaw no ha registrado ningún plugin de OpenClaw gestionado por el daemon en esta versión."
+    },
     settings: {
       permissionsTitle: "Permisos",
       permissionsBody: "Revisa los permisos de macOS que ChillClaw puede necesitar para Automatización, Notificaciones, Accesibilidad, Grabación de pantalla, Micrófono, Reconocimiento de voz, Cámara y Ubicación.",
@@ -820,6 +891,7 @@ function merge(locale: Locale): TranslationTree {
     chatPage: { ...en.chatPage, ...(patch?.chatPage ?? {}) },
     team: { ...en.team, ...(patch?.team ?? {}) },
     skills: { ...en.skills, ...(patch?.skills ?? {}) },
+    plugins: { ...en.plugins, ...(patch?.plugins ?? {}) },
     settings: { ...en.settings, ...(patch?.settings ?? {}) }
   };
 }

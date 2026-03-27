@@ -74,6 +74,18 @@ struct AppStateEventTests {
         )
         #expect(
             shouldRefreshNativeSectionForEvent(
+                SlackClawEvent.pluginConfigUpdated(
+                    snapshot: .init(
+                        epoch: "epoch-1",
+                        revision: 4,
+                        data: emptyNativePluginConfig()
+                    )
+                ),
+                selectedSection: .plugins
+            ) == false
+        )
+        #expect(
+            shouldRefreshNativeSectionForEvent(
                 SlackClawEvent.deployCompleted(
                     correlationId: "deploy-1",
                     targetId: "managed-local",
@@ -108,6 +120,10 @@ struct AppStateEventTests {
                 fetchChannelConfig: {
                     await loadRecorder.record("channels")
                     return emptyNativeChannelConfig()
+                },
+                fetchPluginConfig: {
+                    await loadRecorder.record("plugins")
+                    return emptyNativePluginConfig()
                 },
                 fetchSkillsConfig: {
                     await loadRecorder.record("skills")
@@ -151,6 +167,10 @@ struct AppStateEventTests {
                     await loadRecorder.record("channels")
                     return emptyNativeChannelConfig()
                 },
+                fetchPluginConfig: {
+                    await loadRecorder.record("plugins")
+                    return emptyNativePluginConfig()
+                },
                 fetchSkillsConfig: {
                     await loadRecorder.record("skills")
                     return emptyNativeSkillConfig()
@@ -187,6 +207,7 @@ struct AppStateEventTests {
                 fetchDeploymentTargets: { throw CancellationError() },
                 fetchModelConfig: { emptyNativeModelConfig() },
                 fetchChannelConfig: { emptyNativeChannelConfig() },
+                fetchPluginConfig: { emptyNativePluginConfig() },
                 fetchSkillsConfig: { emptyNativeSkillConfig() },
                 fetchAITeamOverview: { emptyNativeAITeamOverview() }
             )
@@ -207,6 +228,7 @@ struct AppStateEventTests {
                 fetchDeploymentTargets: { throw CancellationError() },
                 fetchModelConfig: { emptyNativeModelConfig() },
                 fetchChannelConfig: { emptyNativeChannelConfig() },
+                fetchPluginConfig: { emptyNativePluginConfig() },
                 fetchSkillsConfig: { emptyNativeSkillConfig() },
                 fetchAITeamOverview: { emptyNativeAITeamOverview() }
             )
@@ -309,6 +331,10 @@ private func emptyNativeChannelConfig() -> ChannelConfigOverview {
         activeSession: nil,
         gatewaySummary: "Ready"
     )
+}
+
+private func emptyNativePluginConfig() -> PluginConfigOverview {
+    .init(entries: [])
 }
 
 private func emptyNativeSkillConfig() -> SkillCatalogOverview {

@@ -526,7 +526,6 @@ func buildOnboardingChannelSaveValues(
     }
 
     return [
-        "pluginSpec": nonEmptyTrimmed(values["pluginSpec"]) ?? "@openclaw-china/wecom-app",
         "corpId": values["corpId"] ?? "",
         "agentId": values["agentId"] ?? "",
         "secret": values["secret"] ?? "",
@@ -646,7 +645,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: SlackCla
         switch event {
         case .deployCompleted, .gatewayStatus:
             return .installContext
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated,
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated,
              .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .taskProgress:
             return nil
         }
@@ -654,7 +653,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: SlackCla
         return nil
     case .model:
         switch event {
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated,
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated,
              .chatStream, .channelSessionUpdated, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress:
             return nil
         }
@@ -662,7 +661,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: SlackCla
         switch event {
         case .channelSessionUpdated:
             return .channel
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated,
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated,
              .chatStream, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress:
             return nil
         }
@@ -670,7 +669,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: SlackCla
         switch event {
         case .presetSkillSyncUpdated:
             return .onboarding
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated,
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated,
              .chatStream, .channelSessionUpdated, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress:
             return nil
         }

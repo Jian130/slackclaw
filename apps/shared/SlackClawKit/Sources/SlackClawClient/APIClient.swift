@@ -81,6 +81,7 @@ public final class SlackClawAPIClient: @unchecked Sendable {
     public func fetchDeploymentTargets() async throws -> DeploymentTargetsResponse { try await get("/api/deploy/targets?fresh=1") }
     public func fetchModelConfig() async throws -> ModelConfigOverview { try await get("/api/models/config?fresh=1") }
     public func fetchChannelConfig() async throws -> ChannelConfigOverview { try await get("/api/channels/config?fresh=1") }
+    public func fetchPluginConfig() async throws -> PluginConfigOverview { try await get("/api/plugins/config?fresh=1") }
     public func fetchSkillsConfig() async throws -> SkillCatalogOverview { try await get("/api/skills/config?fresh=1") }
     public func fetchAITeamOverview() async throws -> AITeamOverview { try await get("/api/ai-team/overview?fresh=1") }
     public func fetchChatOverview() async throws -> ChatOverview { try await get("/api/chat/overview?fresh=1") }
@@ -142,6 +143,18 @@ public final class SlackClawAPIClient: @unchecked Sendable {
 
     public func deleteChannelEntry(request: RemoveChannelEntryRequest) async throws -> ChannelConfigActionResponse {
         try await delete("/api/channels/entries/\(request.entryId)", body: request)
+    }
+
+    public func installPlugin(_ pluginId: String) async throws -> PluginActionResponse {
+        try await post("/api/plugins/\(pluginId)/install", body: EmptyBody(), timeout: RequestTimeout.longRunning)
+    }
+
+    public func updatePlugin(_ pluginId: String) async throws -> PluginActionResponse {
+        try await post("/api/plugins/\(pluginId)/update", body: EmptyBody(), timeout: RequestTimeout.longRunning)
+    }
+
+    public func removePlugin(_ pluginId: String) async throws -> PluginActionResponse {
+        try await delete("/api/plugins/\(pluginId)", body: EmptyBody())
     }
 
     public func submitChannelSessionInput(sessionId: String, value: String) async throws -> ChannelSessionResponse {

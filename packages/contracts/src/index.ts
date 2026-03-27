@@ -460,6 +460,46 @@ export interface ChannelConfigOverview {
   gatewaySummary: string;
 }
 
+export type ManagedPluginStatus =
+  | "missing"
+  | "installing"
+  | "updating"
+  | "ready"
+  | "update-available"
+  | "blocked"
+  | "error";
+
+export type ManagedPluginAction = "install" | "update" | "remove";
+
+export interface ManagedPluginDependency {
+  id: string;
+  label: string;
+  kind: "channel" | "model" | "skill" | "feature";
+  active: boolean;
+  summary: string;
+}
+
+export interface ManagedPluginEntry {
+  id: string;
+  label: string;
+  packageSpec: string;
+  runtimePluginId: string;
+  configKey: string;
+  status: ManagedPluginStatus;
+  summary: string;
+  detail: string;
+  enabled: boolean;
+  installed: boolean;
+  hasUpdate: boolean;
+  hasError: boolean;
+  activeDependentCount: number;
+  dependencies: ManagedPluginDependency[];
+}
+
+export interface PluginConfigOverview {
+  entries: ManagedPluginEntry[];
+}
+
 export interface BrainAssignment {
   entryId: string;
   label: string;
@@ -867,6 +907,10 @@ export type SlackClawEvent =
       snapshot: RevisionedSnapshot<ChannelConfigOverview>;
     }
   | {
+      type: "plugin-config.updated";
+      snapshot: RevisionedSnapshot<PluginConfigOverview>;
+    }
+  | {
       type: "skill-catalog.updated";
       snapshot: RevisionedSnapshot<SkillCatalogOverview>;
     }
@@ -1063,7 +1107,6 @@ export interface PairingApprovalRequest {
 }
 
 export interface WechatSetupRequest {
-  pluginSpec?: string;
   corpId: string;
   agentId: string;
   secret: string;
@@ -1106,6 +1149,12 @@ export interface ChannelConfigActionResponse extends MutationSyncMeta {
 export interface ChannelSessionResponse {
   session: ChannelSession;
   channelConfig: ChannelConfigOverview;
+}
+
+export interface PluginActionResponse extends MutationSyncMeta {
+  status: "completed" | "failed";
+  message: string;
+  pluginConfig: PluginConfigOverview;
 }
 
 export interface SaveAIMemberRequest {

@@ -570,4 +570,80 @@ struct SlackClawProtocolTests {
         #expect(snapshot.revision == 3)
         #expect(snapshot.data.entries.first?.presetSkillId == "research-brief")
     }
+
+    @Test
+    func pluginConfigOverviewAndEventsDecodeManagedPlugins() throws {
+        let overviewData = """
+        {
+          "entries": [
+            {
+              "id": "wecom",
+              "label": "WeCom Plugin",
+              "packageSpec": "@wecom/wecom-openclaw-plugin",
+              "runtimePluginId": "wecom-openclaw-plugin",
+              "configKey": "wecom-openclaw-plugin",
+              "status": "update-available",
+              "summary": "A newer managed plugin version is available.",
+              "detail": "WeChat depends on this plugin.",
+              "enabled": true,
+              "installed": true,
+              "hasUpdate": true,
+              "hasError": false,
+              "activeDependentCount": 1,
+              "dependencies": [
+                {
+                  "id": "channel:wechat",
+                  "label": "WeChat Work",
+                  "kind": "channel",
+                  "active": true,
+                  "summary": "Configured through ChillClaw."
+                }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let overview = try JSONDecoder.slackClaw.decode(PluginConfigOverview.self, from: overviewData)
+        #expect(overview.entries.first?.packageSpec == "@wecom/wecom-openclaw-plugin")
+        #expect(overview.entries.first?.dependencies.first?.id == "channel:wechat")
+
+        let eventData = """
+        {
+          "type": "plugin-config.updated",
+          "snapshot": {
+            "epoch": "plugins-epoch",
+            "revision": 2,
+            "data": {
+              "entries": [
+                {
+                  "id": "wecom",
+                  "label": "WeCom Plugin",
+                  "packageSpec": "@wecom/wecom-openclaw-plugin",
+                  "runtimePluginId": "wecom-openclaw-plugin",
+                  "configKey": "wecom-openclaw-plugin",
+                  "status": "ready",
+                  "summary": "Plugin is ready.",
+                  "detail": "Managed by ChillClaw.",
+                  "enabled": true,
+                  "installed": true,
+                  "hasUpdate": false,
+                  "hasError": false,
+                  "activeDependentCount": 0,
+                  "dependencies": []
+                }
+              ]
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let event = try JSONDecoder.slackClaw.decode(SlackClawEvent.self, from: eventData)
+        guard case let .pluginConfigUpdated(snapshot) = event else {
+            Issue.record("Expected pluginConfigUpdated event")
+            return
+        }
+        #expect(snapshot.epoch == "plugins-epoch")
+        #expect(snapshot.data.entries.first?.runtimePluginId == "wecom-openclaw-plugin")
+    }
 }

@@ -31,6 +31,7 @@ public enum SlackClawEvent: Codable, Sendable {
     case aiTeamUpdated(snapshot: RevisionedSnapshot<AITeamOverview>)
     case modelConfigUpdated(snapshot: RevisionedSnapshot<ModelConfigOverview>)
     case channelConfigUpdated(snapshot: RevisionedSnapshot<ChannelConfigOverview>)
+    case pluginConfigUpdated(snapshot: RevisionedSnapshot<PluginConfigOverview>)
     case skillCatalogUpdated(snapshot: RevisionedSnapshot<SkillCatalogOverview>)
     case presetSkillSyncUpdated(snapshot: RevisionedSnapshot<PresetSkillSyncOverview>)
     case deployProgress(correlationId: String, targetId: String, phase: SlackClawDeployPhase, percent: Int?, message: String)
@@ -76,6 +77,8 @@ public enum SlackClawEvent: Codable, Sendable {
             self = .modelConfigUpdated(snapshot: try container.decode(RevisionedSnapshot<ModelConfigOverview>.self, forKey: .snapshot))
         case "channel-config.updated":
             self = .channelConfigUpdated(snapshot: try container.decode(RevisionedSnapshot<ChannelConfigOverview>.self, forKey: .snapshot))
+        case "plugin-config.updated":
+            self = .pluginConfigUpdated(snapshot: try container.decode(RevisionedSnapshot<PluginConfigOverview>.self, forKey: .snapshot))
         case "skill-catalog.updated":
             self = .skillCatalogUpdated(snapshot: try container.decode(RevisionedSnapshot<SkillCatalogOverview>.self, forKey: .snapshot))
         case "preset-skill-sync.updated":
@@ -148,6 +151,9 @@ public enum SlackClawEvent: Codable, Sendable {
             try container.encode(snapshot, forKey: .snapshot)
         case let .channelConfigUpdated(snapshot):
             try container.encode("channel-config.updated", forKey: .type)
+            try container.encode(snapshot, forKey: .snapshot)
+        case let .pluginConfigUpdated(snapshot):
+            try container.encode("plugin-config.updated", forKey: .type)
             try container.encode(snapshot, forKey: .snapshot)
         case let .skillCatalogUpdated(snapshot):
             try container.encode("skill-catalog.updated", forKey: .type)

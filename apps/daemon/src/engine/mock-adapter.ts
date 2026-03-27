@@ -13,6 +13,7 @@ import type {
   MemberAvatar,
   MemberBindingSummary,
   MemberCapabilitySettings,
+  PluginConfigOverview,
   SendChatMessageRequest,
   ChannelSession,
   ChannelSessionInputRequest,
@@ -58,7 +59,9 @@ import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
 import { OpenClawConfigManager } from "./openclaw-config-manager.js";
 import { OpenClawGatewayManager } from "./openclaw-gateway-manager.js";
 import { OpenClawInstanceManager } from "./openclaw-instance-manager.js";
+import { OpenClawPluginManager } from "./openclaw-plugin-manager.js";
 import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
+import { listManagedPluginDefinitions, managedPluginDefinitionById, managedPluginDefinitionForFeature } from "../config/managed-plugins.js";
 
 import type { EngineAdapter } from "./adapter.js";
 import type {
@@ -70,6 +73,7 @@ import type {
   EngineReadCacheResource,
   GatewayManager,
   InstanceManager,
+  PluginManager,
   ManagedSkillInstallRequest,
   ManagedSkillInstallResult,
   ConfigManager,
@@ -95,6 +99,7 @@ export class MockAdapter implements EngineAdapter {
   readonly config: ConfigManager;
   readonly aiEmployees: AIEmployeeManager;
   readonly gateway: GatewayManager;
+  readonly plugins: PluginManager;
   readonly installSpec: EngineInstallSpec = {
     engine: "openclaw",
     desiredVersion: "latest",
@@ -241,6 +246,18 @@ export class MockAdapter implements EngineAdapter {
     }
   };
   private activeChannelSession?: ChannelSession;
+  private readonly managedPlugins = new Map(
+    listManagedPluginDefinitions().map((definition) => [
+      definition.id,
+      {
+        installed: false,
+        enabled: false,
+        hasUpdate: false,
+        hasError: false,
+        detail: "Plugin is not installed yet."
+      }
+    ])
+  );
   private skillRuntimeCatalog: SkillRuntimeCatalog = {
     workspaceDir: "/mock/openclaw/workspace",
     managedSkillsDir: "/mock/openclaw/workspace/skills",
@@ -417,6 +434,13 @@ export class MockAdapter implements EngineAdapter {
       approvePairing: (channelId, request) => this.approvePairing(channelId, request),
       prepareFeishu: () => this.prepareFeishu(),
       startGatewayAfterChannels: () => this.startGatewayAfterChannels()
+    });
+    this.plugins = new OpenClawPluginManager({
+      getConfigOverview: () => this.getPluginConfigOverview(),
+      ensureFeatureRequirements: (featureId) => this.ensureFeatureRequirements(featureId),
+      installPlugin: (pluginId) => this.installPlugin(pluginId),
+      updatePlugin: (pluginId) => this.updatePlugin(pluginId),
+      removePlugin: (pluginId) => this.removePlugin(pluginId)
     });
   }
 
@@ -1192,7 +1216,6 @@ export class MockAdapter implements EngineAdapter {
         });
       case "wechat":
         return this.configureWechatWorkaround({
-          pluginSpec: request.values.pluginSpec,
           corpId: request.values.corpId ?? "",
           agentId: request.values.agentId ?? "",
           secret: request.values.secret ?? "",
@@ -1433,6 +1456,145 @@ export class MockAdapter implements EngineAdapter {
       type: "assistant-aborted",
       sessionKey: request.sessionKey
     });
+  }
+
+  async getPluginConfigOverview(): Promise<PluginConfigOverview> {
+    return {
+      entries: listManagedPluginDefinitions().map((definition) => {
+        const state = this.managedPlugins.get(definition.id) ?? {
+          installed: false,
+          enabled: false,
+          hasUpdate: false,
+          hasError: false,
+          detail: "Plugin is not installed yet."
+        };
+        const dependencies = definition.dependencies.map((dependency) => ({
+          ...dependency,
+          active: dependency.id === "channel:wechat" ? this.channels.wechat.status !== "not-started" : false
+        }));
+        const activeDependentCount = dependencies.filter((dependency) => dependency.active).length;
+
+        return {
+          id: definition.id,
+          label: definition.label,
+          packageSpec: definition.packageSpec,
+          runtimePluginId: definition.runtimePluginId,
+          configKey: definition.configKey,
+          status: state.hasError
+            ? "error"
+            : !state.installed
+              ? "missing"
+              : state.hasUpdate
+                ? "update-available"
+                : state.enabled
+                  ? "ready"
+                  : "blocked",
+          summary: state.hasError
+            ? "Plugin is in an error state."
+            : !state.installed
+              ? "Plugin is not installed."
+              : state.hasUpdate
+                ? "A managed plugin update is available."
+                : state.enabled
+                  ? "Plugin is ready."
+                  : "Plugin is installed but disabled.",
+          detail: state.detail,
+          enabled: state.enabled,
+          installed: state.installed,
+          hasUpdate: state.hasUpdate,
+          hasError: state.hasError,
+          activeDependentCount,
+          dependencies
+        };
+      })
+    };
+  }
+
+  async ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview> {
+    const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat");
+    if (!definition) {
+      return this.getPluginConfigOverview();
+    }
+
+    const state = this.managedPlugins.get(definition.id);
+    if (state) {
+      state.installed = true;
+      state.enabled = true;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = `Mock mode ensured ${definition.label} is installed and enabled.`;
+    }
+
+    return this.getPluginConfigOverview();
+  }
+
+  async installPlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const state = this.managedPlugins.get(pluginId);
+    if (state) {
+      state.installed = true;
+      state.enabled = true;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = `Mock mode installed ${definition.packageSpec}.`;
+    }
+
+    return {
+      message: `Mock installed ${definition.label}.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
+  async updatePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const state = this.managedPlugins.get(pluginId);
+    if (state) {
+      state.installed = true;
+      state.enabled = true;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = `Mock mode updated ${definition.packageSpec}.`;
+    }
+
+    return {
+      message: `Mock updated ${definition.label}.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
+  async removePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const overview = await this.getPluginConfigOverview();
+    const entry = overview.entries.find((item) => item.id === pluginId);
+    if ((entry?.activeDependentCount ?? 0) > 0) {
+      throw new Error(`${definition.label} is still required by an active managed feature.`);
+    }
+
+    const state = this.managedPlugins.get(pluginId);
+    if (state) {
+      state.installed = false;
+      state.enabled = false;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = "Plugin is not installed yet.";
+    }
+
+    return {
+      message: `Mock removed ${definition.label}.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
   }
 
   private emitChatEvent(event: EngineChatLiveEvent): void {

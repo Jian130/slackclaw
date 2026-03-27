@@ -304,7 +304,6 @@ export function buildOnboardingChannelSaveValues(
   }
 
   return {
-    pluginSpec: values.pluginSpec?.trim() || "@openclaw-china/wecom-app",
     corpId: values.corpId ?? "",
     agentId: values.agentId ?? "",
     secret: values.secret ?? "",

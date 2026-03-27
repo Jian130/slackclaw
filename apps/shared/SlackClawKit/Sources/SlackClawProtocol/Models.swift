@@ -738,6 +738,35 @@ public struct ChannelConfigOverview: Codable, Sendable {
     public var gatewaySummary: String
 }
 
+public struct ManagedPluginDependency: Codable, Sendable, Identifiable {
+    public var id: String
+    public var label: String
+    public var kind: String
+    public var active: Bool
+    public var summary: String
+}
+
+public struct ManagedPluginEntry: Codable, Sendable, Identifiable {
+    public var id: String
+    public var label: String
+    public var packageSpec: String
+    public var runtimePluginId: String
+    public var configKey: String
+    public var status: String
+    public var summary: String
+    public var detail: String
+    public var enabled: Bool
+    public var installed: Bool
+    public var hasUpdate: Bool
+    public var hasError: Bool
+    public var activeDependentCount: Int
+    public var dependencies: [ManagedPluginDependency]
+}
+
+public struct PluginConfigOverview: Codable, Sendable {
+    public var entries: [ManagedPluginEntry]
+}
+
 public struct ChannelConfigActionResponse: Codable, Sendable {
     public var status: String
     public var message: String
@@ -749,6 +778,12 @@ public struct ChannelConfigActionResponse: Codable, Sendable {
 public struct ChannelSessionResponse: Codable, Sendable {
     public var session: ChannelSession
     public var channelConfig: ChannelConfigOverview
+}
+
+public struct PluginActionResponse: Codable, Sendable {
+    public var status: String
+    public var message: String
+    public var pluginConfig: PluginConfigOverview
 }
 
 public struct SkillRequirementSummary: Codable, Sendable {

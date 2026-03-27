@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createAIMember, fetchAITeamOverview, fetchOverview, redoOnboarding, resetClientReadStateForTests } from "./client.js";
+import {
+  createAIMember,
+  fetchAITeamOverview,
+  fetchPluginConfig,
+  fetchOverview,
+  redoOnboarding,
+  resetClientReadStateForTests,
+  updatePlugin
+} from "./client.js";
 
 afterEach(() => {
   resetClientReadStateForTests();
@@ -100,6 +108,36 @@ describe("API client GET dedupe", () => {
     await redoOnboarding();
 
     expect(String(fetchMock.mock.calls[0]?.[0] ?? "")).toContain("/onboarding/reset");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+  });
+
+  it("treats plugin config like the other cached daemon snapshots", async () => {
+    const fetchMock = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<{ ok: true; json: () => Promise<{ entries: never[] }> }>
+    >(async () => ({
+      ok: true,
+      json: async () => ({ entries: [] })
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchPluginConfig();
+    await fetchPluginConfig();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("posts plugin update mutations to the dedicated plugin endpoint", async () => {
+    const fetchMock = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<{ ok: true; json: () => Promise<{ message: string; pluginConfig: { entries: never[] } }> }>
+    >(async () => ({
+      ok: true,
+      json: async () => ({ message: "Updated", pluginConfig: { entries: [] } })
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updatePlugin("wecom");
+
+    expect(String(fetchMock.mock.calls[0]?.[0] ?? "")).toContain("/plugins/wecom/update");
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
   });
 });

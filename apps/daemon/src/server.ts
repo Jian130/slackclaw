@@ -44,6 +44,7 @@ import { errorToLogDetails, writeErrorLog, writeInfoLog } from "./services/logge
 import { EventPublisher } from "./services/event-publisher.js";
 import { OnboardingService } from "./services/onboarding-service.js";
 import { OverviewService } from "./services/overview-service.js";
+import { PluginService } from "./services/plugin-service.js";
 import { PresetSkillService } from "./services/preset-skill-service.js";
 import { SetupService } from "./services/setup-service.js";
 import { SkillService } from "./services/skill-service.js";
@@ -137,6 +138,8 @@ export function resolveFreshReadInvalidationTargets(method: string, pathname: st
       return ["models"];
     case "/api/channels/config":
       return ["channels", "engine"];
+    case "/api/plugins/config":
+      return ["plugins", "channels"];
     case "/api/skills/config":
       return ["skills"];
     case "/api/ai-team/overview":
@@ -176,6 +179,7 @@ export function startServer(port = 4545) {
   const eventPublisher = new EventPublisher(eventBus);
   const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
   const channelSetupService = new ChannelSetupService(adapter, store, eventPublisher, secrets);
+  const pluginService = new PluginService(adapter, eventPublisher);
   const aiTeamService = new AITeamService(adapter, store, eventPublisher, presetSkillService);
   const chatService = new ChatService(adapter, store, aiTeamService, eventPublisher);
   const skillService = new SkillService(adapter, store, eventPublisher, presetSkillService);
@@ -495,6 +499,13 @@ export function startServer(port = 4545) {
         return;
       }
 
+      if (request.method === "GET" && pathname === "/api/plugins/config") {
+        const pluginConfig = await pluginService.getConfigOverview();
+        eventPublisher.publishPluginConfigUpdated(pluginConfig);
+        sendJson(response, 200, pluginConfig);
+        return;
+      }
+
       if (request.method === "GET" && pathname === "/api/skills/config") {
         const skillConfig = await skillService.getConfigOverview();
         eventPublisher.publishSkillCatalogUpdated(skillConfig);
@@ -669,6 +680,24 @@ export function startServer(port = 4545) {
         const entryId = request.url.slice("/api/channels/entries/".length);
         const body = await readJson<RemoveChannelEntryRequest>(request);
         sendJson(response, 200, await channelSetupService.removeEntry({ ...body, entryId }));
+        return;
+      }
+
+      if (request.method === "POST" && pathname.startsWith("/api/plugins/") && pathname.endsWith("/install")) {
+        const pluginId = decodeURIComponent(pathname.slice("/api/plugins/".length, -"/install".length));
+        sendJson(response, 200, await pluginService.installPlugin(pluginId));
+        return;
+      }
+
+      if (request.method === "POST" && pathname.startsWith("/api/plugins/") && pathname.endsWith("/update")) {
+        const pluginId = decodeURIComponent(pathname.slice("/api/plugins/".length, -"/update".length));
+        sendJson(response, 200, await pluginService.updatePlugin(pluginId));
+        return;
+      }
+
+      if (request.method === "DELETE" && pathname.startsWith("/api/plugins/")) {
+        const pluginId = decodeURIComponent(pathname.slice("/api/plugins/".length));
+        sendJson(response, 200, await pluginService.removePlugin(pluginId));
         return;
       }
 

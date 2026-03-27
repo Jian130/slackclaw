@@ -7,6 +7,7 @@ export type RevisionedResource =
   | "ai-team"
   | "model-config"
   | "channel-config"
+  | "plugin-config"
   | "skill-catalog"
   | "preset-skill-sync";
 

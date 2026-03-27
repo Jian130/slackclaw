@@ -16,6 +16,10 @@ test("fresh AI team reads invalidate model, skill, and member caches", () => {
   assert.deepEqual(resolveFreshReadInvalidationTargets("GET", "/api/ai-team/overview"), ["models", "skills", "ai-members"]);
 });
 
+test("fresh plugin reads invalidate plugin and channel caches", () => {
+  assert.deepEqual(resolveFreshReadInvalidationTargets("GET", "/api/plugins/config"), ["plugins", "channels"]);
+});
+
 test("chat thread reads do not invalidate daemon read caches", () => {
   assert.deepEqual(resolveFreshReadInvalidationTargets("GET", "/api/chat/threads/thread-1"), []);
 });

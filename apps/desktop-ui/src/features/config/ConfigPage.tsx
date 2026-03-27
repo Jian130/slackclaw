@@ -683,7 +683,6 @@ function ChannelDialog(props: {
     setValues({
       domain: "feishu",
       botName: "ChillClaw Assistant",
-      pluginSpec: "@openclaw-china/wecom-app",
       ...props.initialEntry?.editableValues
     });
   }, [props.initialChannelId, props.initialEntry, props.open]);
@@ -826,8 +825,10 @@ function ChannelDialog(props: {
             <Card>
               <CardContent className="panel-stack">
                 <strong>WeChat workaround guidance</strong>
-                <p className="card__description">ChillClaw uses the workaround plugin path for WeChat. Confirm the plugin package, then save the Corp ID, Agent ID, webhook token, and AES key.</p>
-                <Textarea readOnly value={"openclaw plugins install @openclaw-china/wecom-app"} />
+                <p className="card__description">
+                  ChillClaw manages the required WeCom plugin automatically. Save the Corp ID, Agent ID, webhook token,
+                  and AES key here, and the daemon will install or update the plugin before it writes the WeChat channel config.
+                </p>
               </CardContent>
             </Card>
           ) : null}

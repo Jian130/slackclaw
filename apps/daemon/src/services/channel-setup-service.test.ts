@@ -151,6 +151,30 @@ test("channel setup removes a configured entry through the generic path", async 
   assert.equal(state.channelOnboarding?.channels.telegram.status, "not-started");
 });
 
+test("wechat setup auto-installs the managed plugin without persisting a raw plugin package", async () => {
+  const adapter = new MockAdapter();
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/channel-setup-wechat-managed-${randomUUID()}.json`);
+  const service = new ChannelSetupService(adapter, new StateStore(filePath));
+
+  const result = await service.saveEntry(undefined, {
+    channelId: "wechat",
+    action: "save",
+    values: {
+      corpId: "corp-id",
+      agentId: "1000001",
+      secret: "secret-value",
+      token: "token-value",
+      encodingAesKey: "encoding-aes-key"
+    }
+  });
+  const pluginConfig = await adapter.plugins.getConfigOverview();
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.channelConfig.entries[0]?.editableValues.pluginSpec, undefined);
+  assert.equal(pluginConfig.entries[0]?.installed, true);
+  assert.equal(pluginConfig.entries[0]?.activeDependentCount, 1);
+});
+
 test("channel setup publishes snapshot and session events for save and input flows", async () => {
   class InteractiveMockAdapter extends MockAdapter {
     override async submitChannelSessionInput(sessionId: string) {

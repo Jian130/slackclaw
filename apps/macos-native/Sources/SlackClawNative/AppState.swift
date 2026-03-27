@@ -10,6 +10,7 @@ struct SlackClawAppDataLoader {
     var fetchDeploymentTargets: @Sendable () async throws -> DeploymentTargetsResponse
     var fetchModelConfig: @Sendable () async throws -> ModelConfigOverview
     var fetchChannelConfig: @Sendable () async throws -> ChannelConfigOverview
+    var fetchPluginConfig: @Sendable () async throws -> PluginConfigOverview
     var fetchSkillsConfig: @Sendable () async throws -> SkillCatalogOverview
     var fetchAITeamOverview: @Sendable () async throws -> AITeamOverview
 
@@ -19,6 +20,7 @@ struct SlackClawAppDataLoader {
             fetchDeploymentTargets: { try await client.fetchDeploymentTargets() },
             fetchModelConfig: { try await client.fetchModelConfig() },
             fetchChannelConfig: { try await client.fetchChannelConfig() },
+            fetchPluginConfig: { try await client.fetchPluginConfig() },
             fetchSkillsConfig: { try await client.fetchSkillsConfig() },
             fetchAITeamOverview: { try await client.fetchAITeamOverview() }
         )
@@ -29,7 +31,7 @@ func shouldRefreshNativeOverviewForEvent(_ event: SlackClawEvent) -> Bool {
     switch event {
     case .overviewUpdated:
         return false
-    case .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+    case .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
         return false
     case .deployCompleted, .gatewayStatus:
         return true
@@ -46,7 +48,7 @@ func shouldRefreshNativeSectionForEvent(_ event: SlackClawEvent, selectedSection
         switch event {
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated:
             return false
-        case .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
             return false
         case .deployCompleted, .gatewayStatus:
             return true
@@ -57,7 +59,7 @@ func shouldRefreshNativeSectionForEvent(_ event: SlackClawEvent, selectedSection
         }
     case .deploy:
         switch event {
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
             return false
         case .deployCompleted, .gatewayStatus:
             return true
@@ -68,11 +70,20 @@ func shouldRefreshNativeSectionForEvent(_ event: SlackClawEvent, selectedSection
         switch event {
         case .modelConfigUpdated, .channelConfigUpdated:
             return false
-        case .overviewUpdated, .aiTeamUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .aiTeamUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
             return false
         case .channelSessionUpdated:
             return true
         case .configApplied, .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress:
+            return false
+        }
+    case .plugins:
+        switch event {
+        case .pluginConfigUpdated:
+            return false
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+            return false
+        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .configApplied:
             return false
         }
     case .skills:
@@ -81,7 +92,7 @@ func shouldRefreshNativeSectionForEvent(_ event: SlackClawEvent, selectedSection
             return false
         case .configApplied:
             return false
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .presetSkillSyncUpdated:
             return false
         case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated:
             return false
@@ -92,7 +103,7 @@ func shouldRefreshNativeSectionForEvent(_ event: SlackClawEvent, selectedSection
             return false
         case .configApplied:
             return false
-        case .overviewUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
             return false
         case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated:
             return false
@@ -106,6 +117,7 @@ enum NativeSection: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case deploy = "Deploy"
     case configuration = "Configuration"
+    case plugins = "Plugins"
     case skills = "Skills Management"
     case members = "AI Members"
     case chat = "Chat"
@@ -145,6 +157,7 @@ final class SlackClawAppState {
     var deploymentTargets: DeploymentTargetsResponse?
     var modelConfig: ModelConfigOverview?
     var channelConfig: ChannelConfigOverview?
+    var pluginConfig: PluginConfigOverview?
     var skillConfig: SkillCatalogOverview?
     var aiTeamOverview: AITeamOverview?
     var selectedMemberForChat: String?
@@ -278,6 +291,8 @@ final class SlackClawAppState {
             modelConfig = snapshot.data
         case let .channelConfigUpdated(snapshot):
             channelConfig = snapshot.data
+        case let .pluginConfigUpdated(snapshot):
+            pluginConfig = snapshot.data
         case let .skillCatalogUpdated(snapshot):
             skillConfig = snapshot.data
         case .presetSkillSyncUpdated:
@@ -352,6 +367,8 @@ final class SlackClawAppState {
             async let channelTask = loader.fetchChannelConfig()
             self.modelConfig = try await modelTask
             self.channelConfig = try await channelTask
+        case .plugins:
+            self.pluginConfig = try await loader.fetchPluginConfig()
         case .skills:
             self.skillConfig = try await loader.fetchSkillsConfig()
         case .members, .team:

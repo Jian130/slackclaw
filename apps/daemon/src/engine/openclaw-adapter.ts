@@ -40,6 +40,7 @@ import type {
   ModelConfigActionResponse,
   ModelConfigOverview,
   ModelProviderConfig,
+  PluginConfigOverview,
   ReplaceFallbackModelEntriesRequest,
   SaveModelEntryRequest,
   SavedModelEntry,
@@ -66,11 +67,13 @@ import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
 import { OpenClawConfigManager } from "./openclaw-config-manager.js";
 import { OpenClawGatewayManager } from "./openclaw-gateway-manager.js";
 import { OpenClawInstanceManager } from "./openclaw-instance-manager.js";
+import { OpenClawPluginManager } from "./openclaw-plugin-manager.js";
 import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
 import { type CommandResult, probeCommand as probeExternalCommand, resolveCommandFromPath as resolveCommandFromShellPath, runCommand as runExternalCommand } from "../platform/cli-runner.js";
 import { createDefaultSecretsAdapter } from "../platform/macos-keychain-secrets-adapter.js";
 import { OpenClawGatewaySocketAdapter, normalizeGatewaySocketUrl, readGatewayChatText } from "../platform/openclaw-gateway-socket-adapter.js";
 import type { SecretsAdapter } from "../platform/secrets-adapter.js";
+import { managedPluginDefinitionById, managedPluginDefinitionForFeature, listManagedPluginDefinitions } from "../config/managed-plugins.js";
 
 import type {
   AIEmployeeManager,
@@ -84,6 +87,7 @@ import type {
   AIMemberRuntimeCandidate,
   AIMemberRuntimeRequest,
   AIMemberRuntimeState,
+  PluginManager,
   SkillRuntimeCatalog,
   SkillRuntimeEntry
 } from "./adapter.js";
@@ -412,6 +416,9 @@ interface OpenClawConfigFileJson {
     remote?: Record<string, unknown>;
   };
   channels?: Record<string, unknown>;
+  plugins?: {
+    entries?: Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+  };
   auth?: {
     profiles?: Record<string, { provider?: string; mode?: string; email?: string }>;
     order?: Record<string, string[]>;
@@ -3603,8 +3610,17 @@ function collectSupplementalModelRefs(status?: OpenClawModelStatusJson, config?:
 }
 
 async function readPluginInventory(): Promise<OpenClawPluginListJson | undefined> {
-  const result = await runOpenClaw(["plugins", "list", "--json"], { allowFailure: true });
-  return safeJsonPayloadParse<OpenClawPluginListJson>(result.stdout) ?? safeJsonPayloadParse<OpenClawPluginListJson>(result.stderr);
+  return readThroughCache(
+    "plugins:list",
+    READ_CACHE_TTL_MS.channels,
+    async () => {
+      const result = await runOpenClaw(["plugins", "list", "--json"], { allowFailure: true });
+      return (
+        safeJsonPayloadParse<OpenClawPluginListJson>(result.stdout) ??
+        safeJsonPayloadParse<OpenClawPluginListJson>(result.stderr)
+      );
+    }
+  );
 }
 
 async function readChannelsList(options?: { fresh?: boolean }): Promise<OpenClawChannelsListJson | undefined> {
@@ -3938,6 +3954,7 @@ export class OpenClawAdapter implements EngineAdapter {
   readonly config: ConfigManager;
   readonly aiEmployees: AIEmployeeManager;
   readonly gateway: GatewayManager;
+  readonly plugins: PluginManager;
 
   constructor(private readonly secrets: SecretsAdapter = createDefaultSecretsAdapter()) {
     this.instances = new OpenClawInstanceManager(this);
@@ -3999,6 +4016,13 @@ export class OpenClawAdapter implements EngineAdapter {
       prepareFeishu: () => this.prepareFeishu(),
       startGatewayAfterChannels: () => this.startGatewayAfterChannels()
     });
+    this.plugins = new OpenClawPluginManager({
+      getConfigOverview: () => this.getPluginConfigOverview(),
+      ensureFeatureRequirements: (featureId) => this.ensureFeatureRequirements(featureId),
+      installPlugin: (pluginId) => this.installPlugin(pluginId),
+      updatePlugin: (pluginId) => this.updatePlugin(pluginId),
+      removePlugin: (pluginId) => this.removePlugin(pluginId)
+    });
   }
 
   invalidateReadCaches(resources?: import("./adapter.js").EngineReadCacheResource[]): void {
@@ -4022,6 +4046,9 @@ export class OpenClawAdapter implements EngineAdapter {
       }
       if (resource === "channels") {
         cachePrefixes.add("channels:");
+      }
+      if (resource === "plugins") {
+        cachePrefixes.add("plugins:");
       }
       if (resource === "skills") {
         cachePrefixes.add("skills:");
@@ -4197,6 +4224,22 @@ export class OpenClawAdapter implements EngineAdapter {
         dmPolicy: "pairing",
         groupPolicy: "open"
       };
+    });
+  }
+
+  private async removeManagedPluginConfigEntry(pluginId: string): Promise<void> {
+    await this.mutateOpenClawConfig(({ config }) => {
+      if (!config.plugins?.entries || !(pluginId in config.plugins.entries)) {
+        return;
+      }
+
+      delete config.plugins.entries[pluginId];
+      if (Object.keys(config.plugins.entries).length === 0) {
+        delete config.plugins.entries;
+      }
+      if (config.plugins && Object.keys(config.plugins).length === 0) {
+        delete config.plugins;
+      }
     });
   }
 
@@ -7035,6 +7078,198 @@ export class OpenClawAdapter implements EngineAdapter {
     return buildLiveChannelEntries(snapshot.list, snapshot.status);
   }
 
+  async getPluginConfigOverview(): Promise<PluginConfigOverview> {
+    const channelEntries = await this.getConfiguredChannelEntries();
+    const configSnapshot = await this.readOpenClawConfigSnapshot();
+
+    return {
+      entries: await Promise.all(
+        listManagedPluginDefinitions().map(async (definition) => {
+          const inspected = await inspectPlugin(definition.runtimePluginId);
+          const channelConfiguredInFile = Boolean(configSnapshot.config.channels?.[definition.configKey]);
+          const dependencyStates = definition.dependencies.map((dependency) => ({
+            ...dependency,
+            active:
+              dependency.id === "channel:wechat"
+                ? channelConfiguredInFile || channelEntries.some((entry) => entry.channelId === "wechat")
+                : false
+          }));
+          const activeDependentCount = dependencyStates.filter((dependency) => dependency.active).length;
+          const enabled = inspected.entries.some((entry) => entry.enabled !== false);
+          const installed = inspected.entries.length > 0;
+          const hasError = Boolean(inspected.loadError || inspected.duplicate);
+          const hasUpdate =
+            inspected.entries.some((entry) => (entry.status ?? "").toLowerCase().includes("update")) ||
+            inspected.diagnostics.some((diagnostic) => /update available/i.test(diagnostic.message ?? ""));
+
+          return {
+            id: definition.id,
+            label: definition.label,
+            packageSpec: definition.packageSpec,
+            runtimePluginId: definition.runtimePluginId,
+            configKey: definition.configKey,
+            status:
+              hasError
+                ? "error"
+                : !installed
+                  ? "missing"
+                  : hasUpdate
+                    ? "update-available"
+                    : enabled
+                      ? "ready"
+                      : "blocked",
+            summary: hasError
+              ? `${definition.label} has a plugin load problem.`
+              : !installed
+                ? `${definition.label} is not installed.`
+                : hasUpdate
+                  ? `${definition.label} has an update available.`
+                : enabled
+                  ? `${definition.label} is ready.`
+                  : `${definition.label} is installed but disabled.`,
+            detail: hasError
+              ? inspected.loadError ?? "OpenClaw reported duplicate or invalid plugin state."
+              : activeDependentCount > 0
+                ? `${definition.dependencies[0]?.label ?? "A managed feature"} currently depends on this plugin.`
+                : "Plugin is managed by ChillClaw and ready for feature use.",
+            enabled,
+            installed,
+            hasUpdate,
+            hasError,
+            activeDependentCount,
+            dependencies: dependencyStates
+          };
+        })
+      )
+    };
+  }
+
+  async ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview> {
+    const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat");
+    if (!definition) {
+      return this.getPluginConfigOverview();
+    }
+
+    const inspected = await inspectPlugin(definition.runtimePluginId);
+    if (inspected.loadError) {
+      throw new Error(
+        `${definition.label} failed to load: ${inspected.loadError}. Repair the installed plugin first, then retry the feature setup.`
+      );
+    }
+
+    let changed = false;
+    if (inspected.entries.length === 0) {
+      const install = await runOpenClaw(["plugins", "install", definition.packageSpec], { allowFailure: true });
+      if (install.code !== 0) {
+        throw new Error(install.stderr || install.stdout || `ChillClaw could not install ${definition.packageSpec}.`);
+      }
+      changed = true;
+    } else {
+      const update = await runOpenClaw(["plugins", "update", definition.runtimePluginId, "--yes"], { allowFailure: true });
+      if (update.code === 0) {
+        const output = `${update.stdout}\n${update.stderr}`.toLowerCase();
+        if (!/already up[- ]to[- ]date|no updates|already current/.test(output)) {
+          changed = true;
+        }
+      }
+    }
+
+    const enable = await runOpenClaw(["plugins", "enable", definition.runtimePluginId], { allowFailure: true });
+    if (enable.code === 0) {
+      const output = `${enable.stdout}\n${enable.stderr}`.toLowerCase();
+      if (!/already enabled/.test(output)) {
+        changed = true;
+      }
+    } else {
+      throw new Error(enable.stderr || enable.stdout || `ChillClaw could not enable ${definition.label}.`);
+    }
+
+    if (changed) {
+      await this.restartGatewayAndRequireHealthy(`${definition.label} preparation`);
+    }
+
+    this.invalidateReadCaches(["plugins", "channels"]);
+    return this.getPluginConfigOverview();
+  }
+
+  async installPlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const install = await runOpenClaw(["plugins", "install", definition.packageSpec], { allowFailure: true });
+    if (install.code !== 0) {
+      throw new Error(install.stderr || install.stdout || `ChillClaw could not install ${definition.packageSpec}.`);
+    }
+
+    const enable = await runOpenClaw(["plugins", "enable", definition.runtimePluginId], { allowFailure: true });
+    if (enable.code !== 0) {
+      throw new Error(enable.stderr || enable.stdout || `ChillClaw could not enable ${definition.label}.`);
+    }
+
+    await this.restartGatewayAndRequireHealthy(`${definition.label} installation`);
+
+    this.invalidateReadCaches(["plugins", "channels"]);
+    return {
+      message: `ChillClaw installed ${definition.label} and verified the gateway restart.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
+  async updatePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const update = await runOpenClaw(["plugins", "update", definition.runtimePluginId, "--yes"], { allowFailure: true });
+    if (update.code !== 0) {
+      throw new Error(update.stderr || update.stdout || `ChillClaw could not update ${definition.label}.`);
+    }
+
+    const enable = await runOpenClaw(["plugins", "enable", definition.runtimePluginId], { allowFailure: true });
+    if (enable.code !== 0) {
+      throw new Error(enable.stderr || enable.stdout || `ChillClaw could not re-enable ${definition.label}.`);
+    }
+
+    await this.restartGatewayAndRequireHealthy(`${definition.label} update`);
+
+    this.invalidateReadCaches(["plugins", "channels"]);
+    return {
+      message: `ChillClaw updated ${definition.label} and verified the gateway restart.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
+  async removePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const overview = await this.getPluginConfigOverview();
+    const entry = overview.entries.find((item) => item.id === pluginId);
+    if ((entry?.activeDependentCount ?? 0) > 0) {
+      throw new Error(`${definition.label} is still required by an active managed feature.`);
+    }
+
+    const uninstall = await runOpenClaw(["plugins", "uninstall", definition.runtimePluginId], { allowFailure: true });
+    if (uninstall.code !== 0) {
+      throw new Error(uninstall.stderr || uninstall.stdout || `ChillClaw could not remove ${definition.label}.`);
+    }
+
+    await this.removeManagedPluginConfigEntry(definition.runtimePluginId);
+    await this.removeChannelConfig(definition.configKey);
+    await this.restartGatewayAndRequireHealthy(`${definition.label} removal`);
+
+    this.invalidateReadCaches(["plugins", "channels"]);
+    return {
+      message: `ChillClaw removed ${definition.label} and cleaned its managed config.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
   async getActiveChannelSession(): Promise<ChannelSession | undefined> {
     return activeWhatsappSession();
   }
@@ -7107,7 +7342,6 @@ export class OpenClawAdapter implements EngineAdapter {
         });
       case "wechat":
         return this.configureWechatWorkaround({
-          pluginSpec: request.values.pluginSpec,
           corpId: request.values.corpId ?? "",
           agentId: request.values.agentId ?? "",
           secret: request.values.secret ?? "",
@@ -7159,18 +7393,20 @@ export class OpenClawAdapter implements EngineAdapter {
         throw new Error(remove.result.stderr || remove.result.stdout || "SlackClaw could not remove the Feishu configuration.");
       }
     } else {
-      const pluginSpec = request.values?.pluginSpec?.trim() || "@openclaw-china/wecom-app";
-      const pluginId = pluginSpec.split("/").pop() ?? pluginSpec;
+      const wechatPlugin = managedPluginDefinitionForFeature("channel:wechat");
+      if (!wechatPlugin) {
+        throw new Error("Managed WeChat plugin definition is missing.");
+      }
       const remove = await this.runMutationWithConfigFallback({
-        commandArgs: ["config", "unset", `channels.${pluginId}`],
-        fallbackDescription: `channels.${pluginId} remove`,
+        commandArgs: ["config", "unset", `channels.${wechatPlugin.configKey}`],
+        fallbackDescription: `channels.${wechatPlugin.configKey} remove`,
         applyFallback: async () => {
-          await this.removeChannelConfig(pluginId);
+          await this.removeChannelConfig(wechatPlugin.configKey);
         }
       });
 
       if (!remove.usedFallback && remove.result.code !== 0) {
-        throw new Error(remove.result.stderr || remove.result.stdout || "SlackClaw could not remove the WeChat workaround configuration.");
+        throw new Error(remove.result.stderr || remove.result.stdout || "SlackClaw could not remove the WeChat configuration.");
       }
     }
 
@@ -7650,23 +7886,15 @@ export class OpenClawAdapter implements EngineAdapter {
   private async configureWechatWorkaround(
     request: WechatSetupRequest
   ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
-    const pluginSpec = request.pluginSpec?.trim() || "@openclaw-china/wecom-app";
-    const pluginId = pluginSpec.split("/").pop() ?? pluginSpec;
-    const install = await runOpenClaw(["plugins", "install", pluginSpec], { allowFailure: true });
-
-    if (install.code !== 0) {
-      throw new Error(install.stderr || install.stdout || `SlackClaw could not install the WeChat workaround plugin ${pluginSpec}.`);
+    const wechatPlugin = managedPluginDefinitionForFeature("channel:wechat");
+    if (!wechatPlugin) {
+      throw new Error("Managed WeChat plugin definition is missing.");
     }
 
-    const enableById = await runOpenClaw(["plugins", "enable", pluginId], { allowFailure: true });
-
-    if (enableById.code !== 0) {
-      await runOpenClaw(["plugins", "enable", pluginSpec], { allowFailure: true });
-    }
     const configSave = await this.runMutationWithConfigFallback({
-      commandArgs: ["config", "set", "--strict-json", `channels.${pluginId}`, JSON.stringify({
+      commandArgs: ["config", "set", "--strict-json", `channels.${wechatPlugin.configKey}`, JSON.stringify({
         enabled: true,
-        webhookPath: `/${pluginId}`,
+        webhookPath: `/${wechatPlugin.configKey}`,
         token: request.token,
         encodingAESKey: request.encodingAesKey,
         corpId: request.corpId,
@@ -7675,18 +7903,18 @@ export class OpenClawAdapter implements EngineAdapter {
         dmPolicy: "pairing",
         groupPolicy: "open"
       })],
-      fallbackDescription: `channels.${pluginId} config write`,
+      fallbackDescription: `channels.${wechatPlugin.configKey} config write`,
       applyFallback: async () => {
-        await this.writeWechatChannelConfig(pluginId, request);
+        await this.writeWechatChannelConfig(wechatPlugin.configKey, request);
       }
     });
     if (!configSave.usedFallback && configSave.result.code !== 0) {
-      throw new Error(configSave.result.stderr || configSave.result.stdout || `SlackClaw could not save the WeChat workaround configuration ${pluginSpec}.`);
+      throw new Error(configSave.result.stderr || configSave.result.stdout || "SlackClaw could not save the WeChat configuration.");
     }
     await this.markGatewayApplyPending();
 
     return {
-      message: `SlackClaw installed the experimental ${pluginSpec} workaround and saved its configuration. Apply pending changes from Gateway Manager to make it live.`,
+      message: "ChillClaw saved the managed WeChat plugin configuration. Apply pending changes from Gateway Manager to make it live.",
       channel: createChannelState("wechat", {
         status: "completed",
         summary: "WeChat workaround configured.",
@@ -7712,7 +7940,7 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(restart.stderr || restart.stdout || `SlackClaw could not restart the OpenClaw gateway after ${reason}.`);
     }
 
-    invalidateReadCache("engine:", "models:", "channels:", "skills:", "agents:", "command:version:", "command:update:");
+    invalidateReadCache("engine:", "models:", "channels:", "plugins:", "skills:", "agents:", "command:version:", "command:update:");
     const status = await this.waitForGatewayReachable(reason);
     await this.clearGatewayApplyPending();
     return {

@@ -88,6 +88,8 @@ struct RootView: View {
             DeployScreen(appState: appState)
         case .configuration:
             ConfigurationScreen(appState: appState)
+        case .plugins:
+            PluginsScreen(appState: appState)
         case .skills:
             SkillsScreen(appState: appState)
         case .members:
@@ -106,6 +108,7 @@ struct RootView: View {
         case .dashboard: return "square.grid.2x2"
         case .deploy: return "shippingbox"
         case .configuration: return "slider.horizontal.3"
+        case .plugins: return "puzzlepiece.extension"
         case .skills: return "bolt"
         case .members: return "person.2"
         case .chat: return "bubble.left.and.bubble.right"

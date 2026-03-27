@@ -8,6 +8,7 @@ import {
   type ChatActionResponse,
   type ChatBridgeState,
   type ChatToolActivity,
+  type PluginConfigOverview,
   type SlackClawEvent,
   type ChatOverview,
   type ChannelConfigOverview,
@@ -181,6 +182,44 @@ test("generic channel config shapes serialize with masked summaries and capabili
   assert.equal(parsed.entries[0].pairingRequired, true);
 });
 
+test("plugin config overview serializes managed plugin entries and dependencies", () => {
+  const overview: PluginConfigOverview = {
+    entries: [
+      {
+        id: "wecom",
+        label: "WeCom Plugin",
+        packageSpec: "@wecom/wecom-openclaw-plugin",
+        runtimePluginId: "wecom-openclaw-plugin",
+        configKey: "wecom-openclaw-plugin",
+        status: "update-available",
+        summary: "A newer managed plugin version is available.",
+        detail: "WeChat depends on this plugin.",
+        enabled: true,
+        installed: true,
+        hasUpdate: true,
+        hasError: false,
+        activeDependentCount: 1,
+        dependencies: [
+          {
+            id: "channel:wechat",
+            label: "WeChat Work",
+            kind: "channel",
+            active: true,
+            summary: "Configured through ChillClaw."
+          }
+        ]
+      }
+    ]
+  };
+
+  const parsed = JSON.parse(JSON.stringify(overview)) as PluginConfigOverview;
+
+  assert.equal(parsed.entries[0]?.id, "wecom");
+  assert.equal(parsed.entries[0]?.packageSpec, "@wecom/wecom-openclaw-plugin");
+  assert.equal(parsed.entries[0]?.dependencies[0]?.id, "channel:wechat");
+  assert.equal(parsed.entries[0]?.activeDependentCount, 1);
+});
+
 test("revisioned snapshot events serialize authoritative resource updates", () => {
   const snapshot: RevisionedSnapshot<ModelConfigOverview> = {
     epoch: "daemon-epoch-1",
@@ -204,6 +243,43 @@ test("revisioned snapshot events serialize authoritative resource updates", () =
   assert.equal(parsed.snapshot.epoch, "daemon-epoch-1");
   assert.equal(parsed.snapshot.revision, 4);
   assert.deepEqual(parsed.snapshot.data.savedEntries, []);
+});
+
+test("plugin config events serialize authoritative plugin resource updates", () => {
+  const snapshot: RevisionedSnapshot<PluginConfigOverview> = {
+    epoch: "daemon-epoch-plugins",
+    revision: 2,
+    data: {
+      entries: [
+        {
+          id: "wecom",
+          label: "WeCom Plugin",
+          packageSpec: "@wecom/wecom-openclaw-plugin",
+          runtimePluginId: "wecom-openclaw-plugin",
+          configKey: "wecom-openclaw-plugin",
+          status: "ready",
+          summary: "Plugin is ready.",
+          detail: "Managed by ChillClaw.",
+          enabled: true,
+          installed: true,
+          hasUpdate: false,
+          hasError: false,
+          activeDependentCount: 0,
+          dependencies: []
+        }
+      ]
+    }
+  };
+  const event: SlackClawEvent = {
+    type: "plugin-config.updated",
+    snapshot
+  };
+
+  const parsed = JSON.parse(JSON.stringify(event)) as SlackClawEvent;
+
+  assert.equal(parsed.type, "plugin-config.updated");
+  assert.equal(parsed.snapshot.data.entries[0]?.runtimePluginId, "wecom-openclaw-plugin");
+  assert.equal(parsed.snapshot.data.entries[0]?.status, "ready");
 });
 
 test("AI team overview serializes brain assignments and team membership", () => {

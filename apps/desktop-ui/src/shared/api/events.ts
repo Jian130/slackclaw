@@ -74,6 +74,9 @@ function updateResourceRevision(event: SlackClawEvent) {
     case "skill-catalog.updated":
       lastSeenByResource.set("skill-catalog", { epoch: event.snapshot.epoch, revision: event.snapshot.revision });
       break;
+    case "plugin-config.updated":
+      lastSeenByResource.set("plugin-config", { epoch: event.snapshot.epoch, revision: event.snapshot.revision });
+      break;
     case "preset-skill-sync.updated":
       lastSeenByResource.set("preset-skill-sync", { epoch: event.snapshot.epoch, revision: event.snapshot.revision });
       break;

@@ -823,6 +823,263 @@ struct ConfigurationScreen: View {
     }
 }
 
+private enum NativeManagedPluginAction {
+    case install
+    case update
+    case remove
+}
+
+private func nativeManagedPluginStatusTone(_ status: String) -> NativeStatusTone {
+    switch status {
+    case "ready":
+        return .success
+    case "update-available":
+        return .info
+    case "blocked", "error":
+        return .warning
+    case "missing":
+        return .neutral
+    default:
+        return .neutral
+    }
+}
+
+private func nativeManagedPluginStatusLabel(_ status: String) -> String {
+    switch status {
+    case "ready":
+        return "Ready"
+    case "update-available":
+        return "Update Available"
+    case "blocked":
+        return "Blocked"
+    case "error":
+        return "Needs Repair"
+    case "missing":
+        return "Missing"
+    default:
+        return "Unknown"
+    }
+}
+
+private func nativeManagedPluginPrimaryAction(_ entry: ManagedPluginEntry) -> NativeManagedPluginAction? {
+    if !entry.installed {
+        return .install
+    }
+    if entry.hasUpdate {
+        return .update
+    }
+    if entry.activeDependentCount == 0 {
+        return .remove
+    }
+    return nil
+}
+
+private func nativeManagedPluginActionTitle(_ action: NativeManagedPluginAction, busy: Bool) -> String {
+    switch action {
+    case .install:
+        return busy ? "Installing..." : "Install"
+    case .update:
+        return busy ? "Updating..." : "Update"
+    case .remove:
+        return busy ? "Removing..." : "Remove"
+    }
+}
+
+private func nativeManagedPluginActionIcon(_ action: NativeManagedPluginAction) -> String {
+    switch action {
+    case .install:
+        return "square.and.arrow.down"
+    case .update:
+        return "arrow.clockwise"
+    case .remove:
+        return "trash"
+    }
+}
+
+private func nativeManagedPluginActionVariant(_ action: NativeManagedPluginAction) -> ActionButtonVariant {
+    switch action {
+    case .install:
+        return .primary
+    case .update:
+        return .secondary
+    case .remove:
+        return .destructive
+    }
+}
+
+struct PluginsScreen: View {
+    @Bindable var appState: SlackClawAppState
+    @State private var busyKey = ""
+    @State private var actionError: String?
+
+    var body: some View {
+        WorkspaceScaffold(title: "Plugins", subtitle: "Manage daemon-owned OpenClaw plugins and the features that depend on them.") {
+            ActionButton("Refresh", systemImage: "arrow.clockwise", variant: .outline) {
+                Task {
+                    await appState.refreshCurrentSectionIfNeeded()
+                }
+            }
+        } content: {
+            VStack(alignment: .leading, spacing: 16) {
+                if let overview = appState.pluginConfig {
+                    pluginContent(overview)
+                } else {
+                    LoadingState(
+                        title: "Checking managed plugins",
+                        description: "ChillClaw is reading the OpenClaw plugin inventory and active feature dependencies."
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pluginContent(_ overview: PluginConfigOverview) -> some View {
+        InfoBanner(
+            title: "Daemon-owned plugin lifecycle",
+            description: "ChillClaw installs, updates, and removes managed OpenClaw plugins itself. Features such as WeChat depend on these plugin records, so removal is blocked while a live feature still needs the plugin.",
+            icon: "puzzlepiece.extension",
+            accent: .blue
+        )
+
+        if let actionError {
+            ErrorState(title: "Plugin action failed", description: actionError)
+        }
+
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(minimum: 160), spacing: 16), count: 4),
+            alignment: .leading,
+            spacing: 16
+        ) {
+            MetricCard(title: "Managed Plugins", value: "\(overview.entries.count)", detail: "Daemon-owned plugin records")
+            MetricCard(title: "Ready", value: "\(overview.entries.filter { $0.status == "ready" }.count)", detail: "Healthy and enabled")
+            MetricCard(title: "In Use", value: "\(overview.entries.reduce(0) { $0 + $1.activeDependentCount })", detail: "Active dependent features")
+            MetricCard(title: "Updates", value: "\(overview.entries.filter(\.hasUpdate).count)", detail: "Plugins with pending updates")
+        }
+
+        if overview.entries.isEmpty {
+            EmptyState(
+                title: "No managed plugins yet",
+                description: "ChillClaw has not registered any daemon-owned OpenClaw plugins in this build.",
+                symbol: "puzzlepiece.extension"
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(overview.entries) { entry in
+                    pluginCard(entry)
+                }
+            }
+        }
+    }
+
+    private func pluginCard(_ entry: ManagedPluginEntry) -> some View {
+        let primaryAction = nativeManagedPluginPrimaryAction(entry)
+        let isBusy = primaryAction.map { busyKey == "\(entry.id):\($0)" } ?? false
+
+        return SurfaceCard(title: entry.label, subtitle: entry.summary) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        StatusBadge(nativeManagedPluginStatusLabel(entry.status), tone: nativeManagedPluginStatusTone(entry.status))
+                        TagBadge(entry.enabled ? "Enabled" : "Disabled", tone: entry.enabled ? .success : .neutral)
+                        if entry.hasUpdate {
+                            TagBadge("Update available", tone: .info)
+                        }
+                        if entry.hasError {
+                            TagBadge("Load error", tone: .warning)
+                        }
+                    }
+                    Text(entry.detail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Package")
+                        .font(.headline)
+                    Text(entry.packageSpec)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("Runtime ID")
+                        .font(.headline)
+                        .padding(.top, 8)
+                    Text(entry.runtimePluginId)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Config key")
+                        .font(.headline)
+                    Text(entry.configKey)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Text("Dependent features")
+                        .font(.headline)
+                        .padding(.top, 8)
+                    Text(entry.dependencies.map(\.label).joined(separator: ", "))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if entry.activeDependentCount > 0 {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Remove the active dependent feature before uninstalling this plugin. ChillClaw keeps the plugin installed while the feature remains configured.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack {
+                Spacer()
+                if let primaryAction {
+                    ActionButton(
+                        nativeManagedPluginActionTitle(primaryAction, busy: isBusy),
+                        systemImage: isBusy ? nil : nativeManagedPluginActionIcon(primaryAction),
+                        variant: nativeManagedPluginActionVariant(primaryAction),
+                        isBusy: isBusy
+                    ) {
+                        Task { await runAction(primaryAction, entry: entry) }
+                    }
+                } else {
+                    ActionButton("Managed by active features", variant: .outline, isDisabled: true) {}
+                }
+            }
+        }
+    }
+
+    private func runAction(_ action: NativeManagedPluginAction, entry: ManagedPluginEntry) async {
+        let key = "\(entry.id):\(action)"
+        busyKey = key
+        defer { busyKey = "" }
+
+        do {
+            let response: PluginActionResponse
+            switch action {
+            case .install:
+                response = try await appState.client.installPlugin(entry.id)
+            case .update:
+                response = try await appState.client.updatePlugin(entry.id)
+            case .remove:
+                response = try await appState.client.removePlugin(entry.id)
+            }
+
+            appState.pluginConfig = response.pluginConfig
+            appState.applyBanner(response.message)
+            actionError = nil
+        } catch {
+            actionError = error.localizedDescription
+            appState.presentErrorUnlessCancelled(error)
+        }
+    }
+}
+
 struct SkillsScreen: View {
     @Bindable var appState: SlackClawAppState
     @State private var showCustomSkillSheet = false
@@ -1652,8 +1909,7 @@ private struct ChannelEntrySheet: View {
     private var defaultChannelValues: [String: String] {
         [
             "domain": "feishu",
-            "botName": "ChillClaw Assistant",
-            "pluginSpec": "@openclaw-china/wecom-app"
+            "botName": "ChillClaw Assistant"
         ]
     }
 
