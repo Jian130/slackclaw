@@ -1857,6 +1857,14 @@ private struct ChannelEntrySheet: View {
                         .font(.headline)
                     Text(activeSession.message)
                         .foregroundStyle(.secondary)
+                    if !activeSession.logs.isEmpty {
+                        ScrollView {
+                            Text(activeSession.logs.joined(separator: "\n"))
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(minHeight: 100, maxHeight: 160)
+                    }
                     if let prompt = activeSession.inputPrompt {
                         Text(prompt)
                             .font(.footnote)
@@ -1875,7 +1883,7 @@ private struct ChannelEntrySheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
-                Button(existingEntry == nil ? "Save Channel" : "Save Changes") {
+                Button(currentCapability?.id == .wechat ? (activeSession == nil ? "Start Login" : "Restart Login") : (existingEntry == nil ? "Save Channel" : "Save Changes")) {
                     Task { await runAction(.save) }
                 }
                 .disabled(false)

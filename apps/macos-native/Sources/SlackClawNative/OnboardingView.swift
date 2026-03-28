@@ -1103,7 +1103,7 @@ struct NativeOnboardingView: View {
                         )
 
                         switch viewModel.selectedChannelSetupVariant {
-                        case .wechatGuided?:
+                        case .wechatWorkGuided?:
                             nativeChannelInstructionCard(
                                 title: viewModel.copy.channelWechatInstructionsTitle,
                                 steps: viewModel.copy.channelWechatInstructionSteps,
@@ -1129,6 +1129,38 @@ struct NativeOnboardingView: View {
                                 }
 
                                 nativeChannelSecretHelp(viewModel.copy.channelSecretHelp)
+                            }
+
+                        case .wechatGuided?:
+                            nativeChannelCredentialCard(
+                                title: "Personal WeChat login",
+                                body: "ChillClaw will run the QR-first WeChat installer and keep the session log here while you scan and confirm the login."
+                            ) {
+                                if let activeSession = viewModel.activeChannelSession {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        Text(activeSession.message)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(nativeOnboardingTextSecondary)
+
+                                        ScrollView {
+                                            Text(activeSession.logs.joined(separator: "\n"))
+                                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                                .foregroundStyle(nativeOnboardingTextPrimary)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        .frame(minHeight: 120, maxHeight: 180)
+
+                                        if let prompt = activeSession.inputPrompt {
+                                            nativeChannelField(title: prompt) {
+                                                TextField("Paste the follow-up input from the installer", text: Binding(
+                                                    get: { viewModel.channelSessionInput },
+                                                    set: { viewModel.channelSessionInput = $0 }
+                                                ))
+                                                .textFieldStyle(.plain)
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                         case .telegramGuided?:
@@ -1243,9 +1275,17 @@ struct NativeOnboardingView: View {
 
                             NativeOnboardingActionButton(
                                 variant: .primary,
-                                disabled: viewModel.isSelectedChannelMissingRequiredValues()
+                                disabled: viewModel.activeChannelSession?.inputPrompt != nil
+                                    ? viewModel.channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    : viewModel.isSelectedChannelMissingRequiredValues()
                             ) {
-                                Task { await viewModel.saveAndContinueChannel() }
+                                Task {
+                                    if viewModel.activeChannelSession?.inputPrompt != nil {
+                                        await viewModel.submitChannelSessionInput()
+                                    } else {
+                                        await viewModel.saveAndContinueChannel()
+                                    }
+                                }
                             } label: {
                                 HStack(spacing: 10) {
                                     if viewModel.channelBusy {
@@ -1254,7 +1294,13 @@ struct NativeOnboardingView: View {
                                             .tint(.white)
                                     }
 
-                                    Text(viewModel.copy.channelSaveContinue)
+                                    Text(
+                                        viewModel.activeChannelSession?.inputPrompt != nil
+                                            ? "Submit Session Input"
+                                            : viewModel.selectedChannelSetupVariant == .wechatGuided
+                                                ? (viewModel.activeChannelSession == nil ? "Start WeChat Login" : "Restart WeChat Login")
+                                                : viewModel.copy.channelSaveContinue
+                                    )
                                         .font(.system(size: 15, weight: .semibold))
                                 }
                             }

@@ -497,12 +497,12 @@ struct OnboardingTests {
         )
         viewModel.onboardingState = makeOnboardingStateResponse(step: .channel)
 
-        #expect(viewModel.curatedChannels.map(\.id) == [.wechatWork, .feishu, .telegram])
-        #expect(viewModel.curatedChannels.map(\.label) == ["WeChat Work", "Feishu", "Telegram"])
+        #expect(viewModel.curatedChannels.map(\.id) == [.wechatWork, .wechat, .feishu, .telegram])
+        #expect(viewModel.curatedChannels.map(\.label) == ["WeChat Work (WeCom)", "WeChat", "Feishu", "Telegram"])
     }
 
     @Test
-    func buildingOnboardingWechatSaveValuesAddsHiddenDefaults() {
+    func buildingOnboardingWechatSaveValuesKeepsWeChatWorkCredentialOnly() {
         let values = buildOnboardingChannelSaveValues(
             channelID: .wechatWork,
             values: [
@@ -515,6 +515,16 @@ struct OnboardingTests {
         #expect(values["secret"] == "wechat-secret")
         #expect(values["token"] == nil)
         #expect(values["encodingAesKey"] == nil)
+    }
+
+    @Test
+    func buildingOnboardingPersonalWechatSaveValuesStaysQRFirst() {
+        let values = buildOnboardingChannelSaveValues(
+            channelID: .wechat,
+            values: [:]
+        )
+
+        #expect(values.isEmpty)
     }
 
     @Test
@@ -1721,12 +1731,21 @@ private func makeOnboardingStateResponse(step: OnboardingStep) -> OnboardingStat
             channels: [
                 .init(
                     id: .wechatWork,
-                    label: "WeChat Work",
+                    label: "WeChat Work (WeCom)",
                     secondaryLabel: "企业微信",
                     description: "Configure WeChat Work.",
                     theme: .wechatWork,
                     setupKind: .wechatWorkGuided,
                     docsUrl: "https://work.weixin.qq.com/"
+                ),
+                .init(
+                    id: .wechat,
+                    label: "WeChat",
+                    secondaryLabel: "微信",
+                    description: "Configure personal WeChat.",
+                    theme: .wechat,
+                    setupKind: .wechatGuided,
+                    docsUrl: nil
                 ),
                 .init(
                     id: .feishu,

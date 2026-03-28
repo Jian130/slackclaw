@@ -21,7 +21,7 @@ func configurationChannelActionState(
     capability: ChannelCapability?
 ) -> NativeConfigurationChannelActionState {
     NativeConfigurationChannelActionState(
-        primaryAction: entry.pairingRequired ? .continueSetup : .edit,
+        primaryAction: (entry.pairingRequired || (capability?.supportsLogin == true && entry.status != "completed")) ? .continueSetup : .edit,
         showApproveAction: capability?.supportsPairing == true
     )
 }

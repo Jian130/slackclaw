@@ -22,7 +22,7 @@ let nativeOnboardingAvatarPresets: [NativeOnboardingAvatarPreset] = [
     .init(id: "onboarding-visionary", label: "Onboarding Visionary", emoji: "🚀", accent: "#afc6f0", theme: "onboarding", resourceName: "onboarding-visionary"),
 ]
 
-let nativeOnboardingChannelIDs: Set<SupportedChannelId> = [.wechatWork, .feishu, .telegram]
+let nativeOnboardingChannelIDs: Set<SupportedChannelId> = [.wechatWork, .wechat, .feishu, .telegram]
 let nativeOnboardingStepOrder: [OnboardingStep] = [.welcome, .install, .permissions, .model, .channel, .employee, .complete]
 let nativeOnboardingPreferredColorScheme: ColorScheme = .light
 let nativeOnboardingTextPrimary = Color(red: 0.09, green: 0.12, blue: 0.18)
@@ -300,6 +300,7 @@ struct NativeResolvedOnboardingModelProvider: Identifiable, Sendable {
 }
 
 enum NativeOnboardingChannelSetupVariant: String, Sendable {
+    case wechatWorkGuided = "wechat-work-guided"
     case wechatGuided = "wechat-guided"
     case feishuGuided = "feishu-guided"
     case telegramGuided = "telegram-guided"
@@ -507,7 +508,9 @@ func buildOnboardingMemberRequest(_ draft: NativeOnboardingEmployeeDraft) -> Sav
 
 func resolveOnboardingChannelSetupVariant(_ setupKind: OnboardingChannelSetupKind?) -> NativeOnboardingChannelSetupVariant {
     switch setupKind {
-    case .wechatWorkGuided, .wechatGuided:
+    case .wechatWorkGuided:
+        return .wechatWorkGuided
+    case .wechatGuided:
         return .wechatGuided
     case .telegramGuided:
         return .telegramGuided

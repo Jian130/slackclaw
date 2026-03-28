@@ -49,6 +49,7 @@ final class NativeOnboardingViewModel {
     var completionBusy: OnboardingDestination?
     var channelMessage: String?
     var channelRequiresApply = false
+    var channelSessionInput = ""
 
     var providerId = ""
     var methodId = ""
@@ -153,6 +154,15 @@ final class NativeOnboardingViewModel {
         }
         guard let selectedChannelId else { return nil }
         return appState.channelConfig?.entries.first(where: { $0.channelId == selectedChannelId })
+    }
+
+    var activeChannelSession: ChannelSession? {
+        guard let selectedChannelId else { return nil }
+        guard let activeSession = appState.channelConfig?.activeSession, activeSession.channelId == selectedChannelId else {
+            return nil
+        }
+
+        return activeSession
     }
 
     var selectedChannelSetupVariant: NativeOnboardingChannelSetupVariant? {
@@ -550,12 +560,48 @@ final class NativeOnboardingViewModel {
 
             channelMessage = result.mutation.message
             channelRequiresApply = result.mutation.requiresGatewayApply ?? false
+            if result.mutation.session != nil {
+                channelSessionInput = ""
+            }
             let savedEntry =
                 (selectedChannelEntry.flatMap { selected in result.state.entries.first(where: { $0.id == selected.id }) }) ??
                 findCreatedChannelEntry(previousEntries: previousEntries, nextEntries: result.state.entries) ??
                 result.state.entries.first(where: { $0.channelId == selectedChannelPresentation.id })
 
+            if result.mutation.session != nil {
+                onboardingState = try await persistDraft(.init(
+                    currentStep: .channel,
+                    channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id)
+                ))
+                return
+            }
+
             onboardingState = try await persistDraft(.init(currentStep: .employee, channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id)))
+        } catch {
+            presentErrorUnlessCancelled(error)
+        }
+    }
+
+    func submitChannelSessionInput() async {
+        guard let sessionID = activeChannelSession?.id, !channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        channelBusy = true
+        defer { channelBusy = false }
+
+        do {
+            let next = try await appState.client.submitChannelSessionInput(
+                sessionId: sessionID,
+                value: channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            if var channelConfig = appState.channelConfig {
+                channelConfig.activeSession = next.session
+                appState.channelConfig = channelConfig
+            }
+            channelSessionInput = ""
+            _ = try await readFreshChannelConfig()
+            onboardingState = try await appState.client.fetchOnboardingState()
         } catch {
             presentErrorUnlessCancelled(error)
         }
@@ -705,6 +751,7 @@ final class NativeOnboardingViewModel {
         ]
         channelMessage = nil
         channelRequiresApply = false
+        channelSessionInput = ""
         await persistDraftSafely(.init(currentStep: .channel))
     }
 
@@ -720,6 +767,7 @@ final class NativeOnboardingViewModel {
         selectedChannelId = channelID
         channelMessage = nil
         channelRequiresApply = false
+        channelSessionInput = ""
         if channelID == .feishu {
             channelValues["domain"] = channelValues["domain"] ?? "feishu"
             channelValues["botName"] = channelValues["botName"] ?? "ChillClaw Assistant"
@@ -728,9 +776,11 @@ final class NativeOnboardingViewModel {
 
     func isSelectedChannelMissingRequiredValues() -> Bool {
         switch selectedChannelSetupVariant {
-        case .wechatGuided?:
-            return (channelValues["botId"] ?? channelValues["agentId"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .wechatWorkGuided?:
+            return (channelValues["botId"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || (channelValues["secret"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .wechatGuided?:
+            return false
         case .feishuGuided?:
             return (channelValues["appId"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || (channelValues["appSecret"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1016,6 +1066,11 @@ final class NativeOnboardingViewModel {
             appState.modelConfig = snapshot.data
         case let .channelConfigUpdated(snapshot):
             appState.channelConfig = snapshot.data
+        case let .channelSessionUpdated(channelID, session):
+            if var channelConfig = appState.channelConfig, channelConfig.activeSession?.channelId == channelID {
+                channelConfig.activeSession = session
+                appState.channelConfig = channelConfig
+            }
         case let .aiTeamUpdated(snapshot):
             appState.aiTeamOverview = snapshot.data
         case let .presetSkillSyncUpdated(snapshot):
@@ -1028,7 +1083,7 @@ final class NativeOnboardingViewModel {
                     presetSkillSync: snapshot.data
                 )
             }
-        case .skillCatalogUpdated, .pluginConfigUpdated, .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .channelSessionUpdated, .configApplied:
+        case .skillCatalogUpdated, .pluginConfigUpdated, .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .configApplied:
             break
         }
 
