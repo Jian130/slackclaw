@@ -57,7 +57,7 @@ test("plugin service excludes non-plugin-backed managed features from the overvi
           {
             id: "wechat-personal",
             label: "WeChat Personal Installer",
-            packageSpec: "npx -y @tencent-weixin/openclaw-weixin-cli@latest install",
+            packageSpec: "npm install @tencent-weixin/openclaw-weixin-cli@latest",
             runtimePluginId: "wechat-personal-installer",
             configKey: "wechat-personal-installer",
             status: "ready" as const,

@@ -1146,13 +1146,15 @@ struct NativeOnboardingView: View {
                                             .font(.system(size: 14, weight: .medium))
                                             .foregroundStyle(nativeOnboardingTextSecondary)
 
-                                        ScrollView {
-                                            Text(activeSession.logs.joined(separator: "\n"))
+                                        ScrollView([.horizontal, .vertical]) {
+                                            Text(verbatim: viewModel.displayedChannelSessionLogText)
                                                 .font(.system(size: 12, weight: .regular, design: .monospaced))
                                                 .foregroundStyle(nativeOnboardingTextPrimary)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .fixedSize(horizontal: true, vertical: true)
+                                                .textSelection(.enabled)
+                                                .frame(alignment: .topLeading)
                                         }
-                                        .frame(minHeight: 120, maxHeight: 180)
+                                        .frame(minHeight: 180, maxHeight: 360)
 
                                         if let prompt = activeSession.inputPrompt {
                                             nativeChannelField(title: prompt) {
@@ -1279,7 +1281,7 @@ struct NativeOnboardingView: View {
 
                             NativeOnboardingActionButton(
                                 variant: .primary,
-                                disabled: viewModel.channelBusy || (viewModel.activeChannelSession?.inputPrompt != nil
+                                disabled: viewModel.channelPrimaryActionBusy || (viewModel.activeChannelSession?.inputPrompt != nil
                                     ? viewModel.channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                     : viewModel.isSelectedChannelMissingRequiredValues())
                             ) {
@@ -1292,19 +1294,13 @@ struct NativeOnboardingView: View {
                                 }
                             } label: {
                                 HStack(spacing: 10) {
-                                    if viewModel.channelBusy {
+                                    if viewModel.channelPrimaryActionBusy {
                                         ProgressView()
                                             .controlSize(.small)
                                             .tint(.white)
                                     }
 
-                                    Text(
-                                        viewModel.activeChannelSession?.inputPrompt != nil
-                                            ? "Submit Session Input"
-                                            : viewModel.selectedChannelSetupVariant == .wechatGuided
-                                                ? (viewModel.activeChannelSession == nil ? "Start WeChat Login" : "Restart WeChat Login")
-                                                : viewModel.copy.channelSaveContinue
-                                    )
+                                    Text(viewModel.channelPrimaryActionLabel)
                                         .font(.system(size: 15, weight: .semibold))
                                 }
                             }

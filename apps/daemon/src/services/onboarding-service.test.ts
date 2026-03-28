@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { OnboardingStateResponse } from "@slackclaw/contracts";
 
+import type { SkillRuntimeEntry } from "../engine/adapter.js";
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
 import { ChannelSetupService } from "./channel-setup-service.js";
@@ -12,6 +14,30 @@ import { OnboardingService } from "./onboarding-service.js";
 import { OverviewService } from "./overview-service.js";
 import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore } from "./state-store.js";
+
+function createRuntimeSkill(slug: string, version = "1.0.0"): SkillRuntimeEntry {
+  return {
+    id: `${slug}-runtime`,
+    slug,
+    name: slug,
+    description: `${slug} skill.`,
+    source: "openclaw-workspace",
+    bundled: false,
+    eligible: true,
+    disabled: false,
+    blockedByAllowlist: false,
+    missing: {
+      bins: [],
+      anyBins: [],
+      env: [],
+      config: [],
+      os: []
+    },
+    version,
+    filePath: `/mock/skills/${slug}/SKILL.md`,
+    baseDir: `/mock/skills/${slug}`
+  };
+}
 
 function createService(testName: string) {
   const filePath = resolve(process.cwd(), `apps/daemon/.data/${testName}-${randomUUID()}.json`);
@@ -425,5 +451,92 @@ test("onboarding service does not re-run preset skill reconciliation when only e
   });
 
   assert.equal(reconcileCalls, 1);
-  assert.equal(updated.presetSkillSync?.summary, "2 preset skills verified on the reused-install runtime.");
+  assert.equal(updated.presetSkillSync?.targetMode, "reused-install");
+  assert.equal(updated.presetSkillSync?.summary.includes("reused-install runtime"), true);
+});
+
+test("onboarding service returns pending preset skill sync immediately while reconciliation continues in the background", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-background-preset-sync-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const presetSkillService = new PresetSkillService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store, undefined, presetSkillService);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, presetSkillService);
+  const installed = new Map<string, SkillRuntimeEntry>();
+  let waitForFirstVerify = true;
+  let releaseFirstVerify: (() => void) | undefined;
+  const firstVerifyGate = new Promise<void>((resolve) => {
+    releaseFirstVerify = resolve;
+  });
+
+  Object.assign(adapter.config, {
+    installManagedSkill: async (request: { slug: string; version?: string }) => {
+      const runtimeSkill = createRuntimeSkill(request.slug, request.version ?? "1.0.0");
+      installed.set(request.slug, runtimeSkill);
+      return {
+        runtimeSkillId: runtimeSkill.id,
+        version: runtimeSkill.version,
+        requiresGatewayApply: true
+      };
+    },
+    verifyManagedSkill: async (slug: string) => {
+      if (!installed.has(slug) && waitForFirstVerify) {
+        waitForFirstVerify = false;
+        await firstVerifyGate;
+      }
+
+      return installed.get(slug);
+    }
+  });
+
+  const updatePromise = service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "reused-existing"
+    },
+    employee: {
+      name: "Ryo-AI",
+      jobTitle: "Research Analyst",
+      avatarPresetId: "onboarding-analyst",
+      presetId: "research-analyst",
+      presetSkillIds: ["research-brief", "status-writer"]
+    }
+  });
+
+  const raced = await Promise.race([
+    updatePromise.then((value) => ({ kind: "resolved" as const, value })),
+    delay(100).then(() => ({ kind: "timed-out" as const }))
+  ]);
+
+  releaseFirstVerify?.();
+  if (raced.kind !== "resolved") {
+    await updatePromise;
+  }
+
+  assert.equal(raced.kind, "resolved");
+  if (raced.kind !== "resolved") {
+    return;
+  }
+
+  assert.equal(raced.value.presetSkillSync?.summary, "2 preset skills are syncing on the reused-install runtime.");
+  assert.deepEqual(
+    raced.value.presetSkillSync?.entries.map((entry) => entry.status),
+    ["pending", "pending"]
+  );
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const persisted = await store.read();
+    if (persisted.presetSkills?.syncOverview?.entries.every((entry) => entry.status === "verified")) {
+      assert.equal(persisted.presetSkills.syncOverview.summary, "2 preset skills verified on the reused-install runtime.");
+      return;
+    }
+
+    await delay(10);
+  }
+
+  assert.fail("Expected preset skill reconciliation to finish after the onboarding request returned.");
 });

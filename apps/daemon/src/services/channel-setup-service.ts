@@ -100,11 +100,12 @@ const CHANNEL_CAPABILITIES: ChannelCapability[] = [
     docsUrl: "https://docs.openclaw.ai/cli/config",
     fieldDefs: [
       { id: "botId", label: "Bot ID", required: true },
-      { id: "secret", label: "Secret", required: true, secret: true }
+      { id: "secret", label: "Secret", required: true, secret: true },
+      { id: "code", label: "Pairing code", required: false, placeholder: "Paste pairing code when prompted" }
     ],
     supportsEdit: true,
     supportsRemove: true,
-    supportsPairing: false,
+    supportsPairing: true,
     supportsLogin: false,
     guidedSetupKind: "wechat-work"
   },
@@ -404,7 +405,8 @@ export class ChannelSetupService {
   }
 
   async saveEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
-    const workflowPreparation = await this.featureWorkflowService.prepareChannel(request.channelId);
+    const workflowPreparation =
+      request.action === "approve-pairing" ? undefined : await this.featureWorkflowService.prepareChannel(request.channelId);
     if (workflowPreparation?.pluginConfig) {
       this.eventPublisher?.publishPluginConfigUpdated(workflowPreparation.pluginConfig);
     }

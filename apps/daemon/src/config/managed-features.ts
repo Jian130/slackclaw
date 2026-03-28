@@ -51,7 +51,7 @@ const managedFeatureDefinitions = [
         type: "external-installer",
         installerId: "@tencent-weixin/openclaw-weixin-cli",
         displayName: "Personal WeChat installer",
-        command: ["npx", "-y", "@tencent-weixin/openclaw-weixin-cli@latest", "install"]
+        command: ["npm", "install", "@tencent-weixin/openclaw-weixin-cli@latest"]
       }
     ]
   }

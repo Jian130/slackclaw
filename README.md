@@ -1,6 +1,6 @@
-# SlackClaw
+# ChillClaw
 
-SlackClaw is a macOS-first, local-first desktop product that makes OpenClaw usable for non-technical users. This repository currently contains:
+ChillClaw is a macOS-first, local-first desktop product that makes OpenClaw usable for non-technical users. This repository currently contains:
 
 - a React + TypeScript desktop UI for deploy, configuration, task routing, health, and recovery
 - a local TypeScript daemon with an engine adapter seam
@@ -39,10 +39,11 @@ The desktop shell is implemented as a web UI + local daemon boundary so a Tauri 
   - supports Telegram, WhatsApp, Feishu, and a WeChat workaround path
   - keeps command-first setup behavior, with config-backed recovery for known safe command drift cases
 - Onboarding:
-  - uses a seven-step full-screen onboarding flow at `/onboarding`
+  - uses a daemon-backed full-screen onboarding flow at `/onboarding`
   - persists draft onboarding progress through the daemon so refreshes resume the current step
-  - wires install, permissions, model setup, channel setup, and AI employee creation to the real SlackClaw daemon flows instead of mock state
-  - uses a daemon-owned onboarding UI config so step 4 can curate the three guided model providers independently from the full Configuration-page provider catalog
+  - wires install, permissions, model setup, channel setup, and AI employee creation to the real ChillClaw daemon flows instead of mock state
+  - uses daemon-owned onboarding UI config so the curated model and channel choices stay aligned across clients
+  - documents both the current seven-step implementation and the target six-step onboarding contract in [docs/reference/onboarding-design.md](/Users/home/Ryo/Projects/slackclaw/docs/reference/onboarding-design.md)
 - Chat page:
   - supports real multi-thread chat with AI members backed by OpenClaw agents
   - creates or reuses chat threads per AI member
@@ -216,11 +217,11 @@ Notes:
 - Task execution is skipped unless you set `SLACKCLAW_COMPAT_RUN_TASK=1` and provide real credentials the candidate runtime can use.
 - Compatibility fixtures for parser drift live under `apps/daemon/src/engine/__fixtures__/openclaw/`.
 
-## First-run app flow
+## Current first-run app flow
 
-When a user installs and opens SlackClaw for the first time:
+When a user installs and opens ChillClaw for the first time today:
 
-1. SlackClaw opens a seven-step onboarding flow at `/onboarding`.
+1. ChillClaw opens a seven-step onboarding flow at `/onboarding`.
 2. `Welcome` initializes the guided setup and stores onboarding draft progress in the daemon-backed state store.
 3. `Install OpenClaw` checks whether a compatible runtime already exists on the Mac, reuses it when possible, and deploys the latest available managed runtime when it is missing.
 4. `Permissions` guides the user through the macOS capabilities ChillClaw may need and reuses the same permissions UI that appears in Settings.
@@ -229,7 +230,20 @@ When a user installs and opens SlackClaw for the first time:
 7. `Create AI Employee` creates the first real OpenClaw-backed AI employee using the selected onboarding model.
 8. `Complete` shows an authoritative summary and lets the user continue to `AI Team`, `Dashboard`, or `Chat`.
 
-SlackClaw only marks first-run setup complete after the final onboarding step. If setup was not completed, SlackClaw resumes the onboarding flow instead of dropping the user straight into the main workspace.
+ChillClaw only marks first-run setup complete after the final onboarding step. If setup was not completed, ChillClaw resumes the onboarding flow instead of dropping the user straight into the main workspace.
+
+## Target onboarding contract
+
+The product is converging on a simpler six-step guided flow with one final apply point:
+
+1. `Welcome`
+2. `Detect Runtime`: detect install state, offer install when missing, and offer update when a managed update is available
+3. `Permissions`: persist and enforce the permissions gate before unlocking the next step
+4. `Configure First Model`: show only the three curated onboarding providers and save model auth/config only
+5. `Configure First Channel`: show only the curated onboarding channels and save channel config only
+6. `Create AI Employee`: let the user pick a preset and enter name/title, then create the first AI employee and apply all staged runtime changes once
+
+The detailed current-vs-target sequence diagrams, invariants, and implementation gaps live in [docs/reference/onboarding-design.md](/Users/home/Ryo/Projects/slackclaw/docs/reference/onboarding-design.md).
 
 ### Onboarding design baseline
 

@@ -26,7 +26,10 @@ type GatewayAccess = {
   sendChatMessage: (request: SendChatMessageRequest & { agentId: string; threadId: string; sessionKey: string }) => Promise<{ runId?: string }>;
   abortChatMessage: (request: AbortChatRequest & { agentId: string; threadId: string; sessionKey: string }) => Promise<void>;
   startWhatsappLogin: () => Promise<{ message: string; channel: ChannelSetupState }>;
-  approvePairing: (channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest) => Promise<{ message: string; channel: ChannelSetupState }>;
+  approvePairing: (
+    channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work",
+    request: PairingApprovalRequest
+  ) => Promise<{ message: string; channel: ChannelSetupState }>;
   prepareFeishu: () => Promise<{ message: string; channel: ChannelSetupState }>;
   finalizeOnboardingSetup: () => Promise<{ message: string; engineStatus: EngineStatus }>;
   startGatewayAfterChannels: () => Promise<{ message: string; engineStatus: EngineStatus }>;
@@ -79,7 +82,7 @@ export class OpenClawGatewayManager implements GatewayManager {
     return this.access.startWhatsappLogin();
   }
 
-  approvePairing(channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest) {
+  approvePairing(channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work", request: PairingApprovalRequest) {
     return this.access.approvePairing(channelId, request);
   }
 

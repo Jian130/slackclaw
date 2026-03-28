@@ -116,18 +116,19 @@ export class OnboardingService {
     const draft = nextState.onboarding?.draft ?? defaultOnboardingDraftState();
     const targetMode = presetSkillTargetMode(draft.install);
     const desiredPresetSkillIds = resolvePresetSkillIds(draft.employee);
-    const existingPresetSelection = nextState.presetSkills?.selections.onboarding;
+    const latestPresetSkills = (await this.store.read()).presetSkills;
+    const existingPresetSelection = latestPresetSkills?.selections.onboarding;
     const reuseExistingPresetSync =
       Boolean(existingPresetSelection) &&
       existingPresetSelection?.targetMode === targetMode &&
-      samePresetSkillSelection(existingPresetSelection?.presetSkillIds ?? [], desiredPresetSkillIds) &&
-      Boolean(nextState.presetSkills?.syncOverview);
+      samePresetSkillSelection(existingPresetSelection?.presetSkillIds ?? [], desiredPresetSkillIds);
     let presetSkillSync;
     if (this.presetSkillService) {
       presetSkillSync = reuseExistingPresetSync
         ? await this.presetSkillService.getOverview()
         : await this.presetSkillService.setDesiredPresetSkillIds("onboarding", desiredPresetSkillIds, {
-            targetMode
+            targetMode,
+            waitForReconcile: false
           });
     }
     const summary = reuseDraftSummary ? this.buildDraftSummary(draft) : await this.buildSummary(draft);

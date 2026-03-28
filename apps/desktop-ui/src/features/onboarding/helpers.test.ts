@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { OnboardingStep, SlackClawEvent } from "@slackclaw/contracts";
+import type { ChannelConfigOverview } from "@slackclaw/contracts";
 
 import {
+  applyPresetSkillSyncToOnboardingState,
   buildExistingInstallAdvanceDraft,
   buildOnboardingMemberRequest,
   onboardingDestinationPath,
@@ -19,6 +21,7 @@ import {
   resolveOnboardingChannelSetupVariant,
   buildOnboardingChannelSaveValues,
   nextOnboardingStepAfterModelSave,
+  resolveCompletedOnboardingChannelEntry,
   type ResolvedOnboardingModelProvider,
   resolveOnboardingProviderId,
   resolveOnboardingModelProviders
@@ -26,6 +29,124 @@ import {
 import { onboardingCopy } from "./copy.js";
 
 describe("onboarding helpers", () => {
+  it("merges preset skill sync snapshots into the current onboarding state", () => {
+    const onboardingState = {
+      firstRun: {
+        introCompleted: true,
+        setupCompleted: false
+      },
+      draft: {
+        currentStep: "employee" as const,
+        employee: {
+          name: "Ryo-AI",
+          jobTitle: "Research Analyst",
+          avatarPresetId: "onboarding-analyst",
+          presetId: "research-analyst",
+          personalityTraits: [],
+          presetSkillIds: ["research-brief", "status-writer"],
+          knowledgePackIds: [],
+          workStyles: [],
+          memoryEnabled: true
+        }
+      },
+      config: {
+        modelProviders: [],
+        channels: [],
+        employeePresets: []
+      },
+      summary: {},
+      presetSkillSync: undefined
+    };
+    const presetSkillSync = {
+      targetMode: "managed-local" as const,
+      entries: [
+        {
+          presetSkillId: "research-brief",
+          runtimeSlug: "research-brief",
+          targetMode: "managed-local" as const,
+          status: "verified" as const,
+          updatedAt: "2026-03-29T00:00:00.000Z"
+        }
+      ],
+      summary: "1 preset skill verified on the managed-local runtime.",
+      repairRecommended: false
+    };
+
+    expect(applyPresetSkillSyncToOnboardingState(onboardingState, presetSkillSync)).toEqual({
+      ...onboardingState,
+      presetSkillSync
+    });
+  });
+
+  it("leaves onboarding state untouched when a preset skill sync snapshot arrives too early", () => {
+    const presetSkillSync = {
+      targetMode: "managed-local" as const,
+      entries: [],
+      summary: "No preset skills selected.",
+      repairRecommended: false
+    };
+
+    expect(applyPresetSkillSyncToOnboardingState(undefined, presetSkillSync)).toBeUndefined();
+  });
+
+  it("detects when the personal WeChat onboarding channel is already completed in the refreshed config", () => {
+    const channelConfig: ChannelConfigOverview = {
+      baseOnboardingCompleted: false,
+      capabilities: [],
+      entries: [
+        {
+          id: "wechat:default",
+          channelId: "wechat",
+          label: "WeChat",
+          status: "completed",
+          summary: "WeChat is configured in OpenClaw.",
+          detail: "SlackClaw detected an existing configuration from the installed OpenClaw runtime.",
+          maskedConfigSummary: [],
+          editableValues: {},
+          pairingRequired: false
+        }
+      ],
+      gatewaySummary: "Ready"
+    };
+
+    expect(resolveCompletedOnboardingChannelEntry("wechat", "wechat:default", channelConfig)?.id).toBe("wechat:default");
+  });
+
+  it("does not auto-complete onboarding for unfinished or non-WeChat channel entries", () => {
+    const channelConfig: ChannelConfigOverview = {
+      baseOnboardingCompleted: false,
+      capabilities: [],
+      entries: [
+        {
+          id: "wechat:default",
+          channelId: "wechat",
+          label: "WeChat",
+          status: "awaiting-pairing",
+          summary: "WeChat login started.",
+          detail: "Scan the QR code to continue.",
+          maskedConfigSummary: [],
+          editableValues: {},
+          pairingRequired: true
+        },
+        {
+          id: "telegram:default",
+          channelId: "telegram",
+          label: "Telegram",
+          status: "completed",
+          summary: "Telegram is configured in OpenClaw.",
+          detail: "Telegram is ready.",
+          maskedConfigSummary: [],
+          editableValues: {},
+          pairingRequired: false
+        }
+      ],
+      gatewaySummary: "Ready"
+    };
+
+    expect(resolveCompletedOnboardingChannelEntry("wechat", "wechat:default", channelConfig)).toBeUndefined();
+    expect(resolveCompletedOnboardingChannelEntry("telegram", "telegram:default", channelConfig)).toBeUndefined();
+  });
+
   it("advances successful non-interactive model setup to the channel step", () => {
     expect(nextOnboardingStepAfterModelSave(false)).toBe("channel");
     expect(nextOnboardingStepAfterModelSave(true)).toBe("model");

@@ -90,4 +90,21 @@ struct UIContractTests {
             )
         }
     }
+
+    @Test
+    func deployScreenAvoidsUnsupportedRocketSymbol() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/Screens.swift"),
+            encoding: .utf8
+        )
+
+        #expect(
+            source.contains("\"rocket\"") == false,
+            "Deploy screen should avoid the unsupported 'rocket' SF Symbol"
+        )
+    }
 }

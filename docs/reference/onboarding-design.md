@@ -1,6 +1,6 @@
-# Onboarding Design Baseline
+# Onboarding Design and Flow Reference
 
-SlackClaw onboarding should feel like a centered macOS setup experience, not a generic full-width web app.
+ChillClaw onboarding should feel like a centered macOS setup experience, not a generic full-width web app.
 
 ## Layout
 
@@ -58,3 +58,151 @@ Preferred sizes:
 - The onboarding language selector should stay available across the whole flow, not only on the welcome step
 - Each client should reuse its existing shared language-selector component rather than adding onboarding-only picker logic unless the platform requires a native equivalent
 - These rules are the baseline for welcome/setup screens first, then should guide the later onboarding steps as they are refined
+
+## Current implementation snapshot
+
+The current implementation is still a seven-step flow with a separate `Complete` step. It is useful as a reference for what the product does today, but it is not the target contract for future work.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as "Web/Native Onboarding UI"
+    participant Onboarding as "OnboardingService"
+    participant Setup as "SetupService"
+    participant Config as "EngineAdapter.config"
+    participant Team as "AITeamService"
+    participant Gateway as "EngineAdapter.gateway"
+    participant OpenClaw
+
+    User->>UI: Step 1 Welcome
+    UI->>Onboarding: PATCH draft currentStep=install
+
+    User->>UI: Step 2 Install or reuse
+    alt User chooses install
+        UI->>Setup: POST /api/first-run/setup
+        Setup->>OpenClaw: detect existing runtime
+        Setup->>OpenClaw: reuse or install runtime
+        Setup-->>UI: install result
+    else User chooses use existing install
+        UI->>Onboarding: PATCH draft install=reused-existing
+    end
+
+    User->>UI: Step 3 Permissions
+    UI->>Onboarding: PATCH draft currentStep=model
+
+    User->>UI: Step 4 Save first model
+    UI->>Config: POST model config/auth
+    Config->>OpenClaw: write model auth/config
+    Config-->>UI: saved + pendingGatewayApply
+
+    User->>UI: Step 5 Save first channel
+    UI->>Config: POST channel config
+    alt Telegram / Feishu / WeChat Work
+        Config->>OpenClaw: write channel config
+        Config-->>UI: saved + pendingGatewayApply
+    else Personal WeChat
+        Config->>OpenClaw: start live login or install session
+        Config-->>UI: active session returned
+    end
+
+    User->>UI: Step 6 Create AI employee
+    UI->>Team: POST /api/ai-members
+    Team->>OpenClaw: create real agent and workspace now
+    Team-->>UI: member created
+
+    User->>UI: Step 7 Complete onboarding
+    UI->>Onboarding: POST /api/onboarding/complete
+    Onboarding->>Gateway: finalizeOnboardingSetup()
+    Gateway->>OpenClaw: install or restart gateway
+    Gateway->>OpenClaw: verify reachability
+    Onboarding-->>UI: setupCompleted=true
+```
+
+## Target onboarding contract
+
+This is the correct flow to optimize for in new design and engineering work. The daemon should own the step contract, completion gates, curated metadata, and final apply semantics.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as "Web/Native Onboarding UI"
+    participant Onboarding as "Onboarding Flow Kernel"
+    participant Setup as "Runtime Setup Service"
+    participant Config as "EngineAdapter.config"
+    participant Team as "AI Employee Service"
+    participant Gateway as "EngineAdapter.gateway"
+    participant OpenClaw
+
+    User->>UI: Step 1 Welcome
+    UI->>Onboarding: Start onboarding flow
+
+    User->>UI: Step 2 Detect runtime
+    UI->>Setup: read runtime status
+    Setup->>OpenClaw: detect install + update availability
+    Setup-->>UI: installed? update available?
+    alt Not installed
+        User->>UI: Install
+        UI->>Setup: install runtime
+        Setup->>OpenClaw: install or reuse compatible runtime
+        Setup-->>UI: installed
+    else Installed and update available
+        UI-->>User: Offer update now or later
+        opt User chooses update
+            UI->>Setup: update runtime
+            Setup->>OpenClaw: update runtime
+            Setup-->>UI: updated
+        end
+    end
+
+    User->>UI: Step 3 Permissions
+    UI->>Onboarding: persist permission state
+    Onboarding-->>UI: unlock next step only when policy satisfied
+
+    User->>UI: Step 4 Configure first model
+    UI->>Onboarding: read curated 3 providers from config
+    UI->>Config: save model auth/config
+    Config->>OpenClaw: write model config only
+    Config-->>UI: saved
+    Note over Config,OpenClaw: No gateway start, no health check, no extra finalize work
+
+    User->>UI: Step 5 Configure first channel
+    UI->>Onboarding: read curated channel list from config
+    UI->>Config: save channel config
+    Config->>OpenClaw: write channel config only
+    Config-->>UI: saved
+    Note over Config,OpenClaw: No gateway start, no health check, no extra finalize work
+
+    User->>UI: Step 6 Pick preset + enter name/title
+    UI->>Onboarding: submit final onboarding payload
+    Onboarding->>Team: create AI employee from chosen preset
+    Team->>OpenClaw: create agent/workspace and preset config
+    Onboarding->>Gateway: apply all staged config once
+    Gateway->>OpenClaw: install/restart gateway
+    Gateway->>OpenClaw: verify healthy
+    Onboarding-->>UI: onboarding completed
+    UI-->>User: success screen and enter app
+```
+
+## Step rules
+
+1. `Welcome` should only start or resume the guided flow.
+2. `Detect Runtime` should decide whether ChillClaw installs, reuses, or updates the managed OpenClaw runtime.
+3. `Permissions` should be a real gate owned by the daemon, not just a client-side informational step.
+4. `Configure First Model` should show only the three curated onboarding providers from daemon-owned config and should only write model configuration.
+5. `Configure First Channel` should show only the curated onboarding channels from daemon-owned config and should only write channel configuration.
+6. `Create AI Employee` should collect the preset plus user-facing identity fields, then run one finalization pass that creates the first AI employee and applies staged runtime changes once.
+
+## Flow invariants
+
+- Keep the `UI -> daemon -> EngineAdapter -> OpenClaw` boundary intact for every onboarding step.
+- Keep curated model and channel metadata daemon-owned so web and native clients render the same choices.
+- Keep staged config distinct from live applied state in both backend contracts and UI copy.
+- Do not start the gateway, run health checks, or trigger extra finalization work during steps 4 and 5.
+- Do not create the first real AI employee before the final step is submitted.
+
+## Known gaps between current and target flow
+
+- The daemon currently does not enforce step order or completion gates.
+- The permissions step is currently informational instead of a persisted gate.
+- Personal WeChat onboarding currently starts a live login/install session instead of staying config-only.
+- The first AI employee is currently created before onboarding completion instead of as part of finalization.

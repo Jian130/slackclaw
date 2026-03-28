@@ -41,7 +41,7 @@ struct ConfigurationScreenTests {
             fieldDefs: [],
             supportsEdit: true,
             supportsRemove: true,
-            supportsPairing: false,
+            supportsPairing: true,
             supportsLogin: false,
             guidedSetupKind: "wechat-work"
         )
@@ -62,7 +62,7 @@ struct ConfigurationScreenTests {
 
         #expect(configurationChannelActionState(entry: telegramEntry, capability: telegramCapability) == .init(primaryAction: .edit, showApproveAction: true))
         #expect(configurationChannelActionState(entry: .init(id: telegramEntry.id, channelId: telegramEntry.channelId, label: telegramEntry.label, status: telegramEntry.status, summary: telegramEntry.summary, detail: telegramEntry.detail, maskedConfigSummary: [], editableValues: [:], pairingRequired: true, lastUpdatedAt: nil), capability: telegramCapability) == .init(primaryAction: .continueSetup, showApproveAction: true))
-        #expect(configurationChannelActionState(entry: telegramEntry, capability: wechatCapability) == .init(primaryAction: .edit, showApproveAction: false))
+        #expect(configurationChannelActionState(entry: telegramEntry, capability: wechatCapability) == .init(primaryAction: .edit, showApproveAction: true))
         #expect(
             configurationChannelActionState(
                 entry: .init(

@@ -225,6 +225,40 @@ test("channel setup routes WeChat Work through plugin prerequisites and personal
   assert.ok(state.channelOnboarding?.entries?.["wechat:default"]);
 });
 
+test("channel approve pairing skips feature prerequisite preparation", async () => {
+  class RecordingAdapter extends MockAdapter {
+    ensureCalls: string[] = [];
+
+    override async ensureFeatureRequirements(featureId: string, options?: { deferGatewayRestart?: boolean }) {
+      this.ensureCalls.push(featureId);
+      return super.ensureFeatureRequirements(featureId, options);
+    }
+  }
+
+  const adapter = new RecordingAdapter();
+  const { service } = createServices("channel-setup-approve-skip-prepare", { adapter });
+
+  await service.saveEntry(undefined, {
+    channelId: "wechat-work",
+    action: "save",
+    values: {
+      botId: "1000001",
+      secret: "secret-value"
+    }
+  });
+
+  const result = await service.saveEntry("wechat-work:default", {
+    channelId: "wechat-work",
+    action: "approve-pairing",
+    values: {
+      code: "RRR7T5CT"
+    }
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(adapter.ensureCalls, ["channel:wechat-work"]);
+});
+
 test("channel setup publishes snapshot and session events for save and input flows", async () => {
   class InteractiveMockAdapter extends MockAdapter {
     override async submitChannelSessionInput(sessionId: string) {

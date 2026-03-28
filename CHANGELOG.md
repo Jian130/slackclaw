@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 2026-03-29 02:04 CST
+
+- clarified ChillClaw onboarding docs and README around the current seven-step flow versus the target six-step contract, with updated design references and product naming cleanup
+- improved web and native onboarding channel setup by polling active sessions, auto-advancing personal WeChat when refreshed config shows completion, sanitizing native session logs, and surfacing clearer QR-code wait states
+- normalized OpenClaw runtime channel handling for WeCom and personal WeChat, enabled WeChat Work pairing approval, and moved the personal WeChat helper path to a managed local `npm install` plus `weixin-installer` runtime
+- changed onboarding preset-skill reconciliation to return pending state immediately while the daemon finishes sync in the background, with matching event-driven UI refreshes and expanded regression coverage
+
 ### 2026-03-28 21:38 CST
 
 - added daemon-managed OpenClaw plugin lifecycle support with a dedicated Plugins surface, retained plugin-config events, automatic WeCom plugin install and update, and removal blocking when active features still depend on a managed plugin

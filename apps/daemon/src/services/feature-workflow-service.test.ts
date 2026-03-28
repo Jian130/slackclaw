@@ -58,7 +58,7 @@ test("feature workflow queues external installers without pretending they are pl
       status: "queued",
       installerId: "@tencent-weixin/openclaw-weixin-cli",
       displayName: "Personal WeChat installer",
-      command: ["npx", "-y", "@tencent-weixin/openclaw-weixin-cli@latest", "install"]
+      command: ["npm", "install", "@tencent-weixin/openclaw-weixin-cli@latest"]
     }
   ]);
 });

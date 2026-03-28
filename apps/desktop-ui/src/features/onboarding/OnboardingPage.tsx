@@ -42,6 +42,7 @@ import {
   createChannelEntry,
   createSavedModelEntry,
   fetchAITeamOverview,
+  fetchChannelSession,
   fetchChannelConfig,
   fetchModelAuthSession,
   fetchModelConfig,
@@ -70,6 +71,7 @@ import { GuidedFlowScaffold } from "../../shared/ui/Scaffold.js";
 import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 import { onboardingCopy } from "./copy.js";
 import {
+  applyPresetSkillSyncToOnboardingState,
   buildExistingInstallAdvanceDraft,
   buildOnboardingChannelSaveValues,
   buildOnboardingMemberRequest,
@@ -77,6 +79,7 @@ import {
   resolveOnboardingEmployeePresetReadiness,
   resolveOnboardingEmployeePresets,
   onboardingRefreshResourceForEvent,
+  resolveCompletedOnboardingChannelEntry,
   resolveOnboardingChannelPresentations,
   resolveOnboardingChannelSetupVariant,
   resolveOnboardingInstallViewState,
@@ -440,6 +443,32 @@ export default function OnboardingPage() {
     return next;
   }
 
+  async function maybeAdvanceCompletedChannelSetupIfNeeded(
+    channelId: string | undefined,
+    preferredEntryId: string | undefined,
+    nextChannelConfig: ChannelConfigOverview | undefined = channelConfig
+  ) {
+    if (currentStep !== "channel") {
+      return false;
+    }
+
+    const completedEntry = resolveCompletedOnboardingChannelEntry(channelId, preferredEntryId, nextChannelConfig);
+    if (!completedEntry) {
+      return false;
+    }
+
+    setChannelSessionInput("");
+    await persistDraft({
+      currentStep: "employee",
+      channel: {
+        channelId: completedEntry.channelId,
+        entryId: completedEntry.id
+      },
+      activeChannelSessionId: ""
+    });
+    return true;
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -563,6 +592,8 @@ export default function OnboardingPage() {
         });
       } else if (event.type === "ai-team.updated") {
         setTeamOverview(event.snapshot.data);
+      } else if (event.type === "preset-skill-sync.updated") {
+        setOnboardingState((current) => applyPresetSkillSyncToOnboardingState(current, event.snapshot.data));
       }
 
       const resource = onboardingRefreshResourceForEvent(currentStep, event);
@@ -690,6 +721,105 @@ export default function OnboardingPage() {
       cancelled = true;
     };
   }, [currentDraft.activeModelAuthSessionId]);
+
+  useEffect(() => {
+    if (currentStep !== "channel") {
+      return;
+    }
+
+    void maybeAdvanceCompletedChannelSetupIfNeeded(
+      currentDraft.channel?.channelId,
+      currentDraft.channel?.entryId
+    ).catch(() => undefined);
+  }, [channelConfig, currentDraft.channel?.channelId, currentDraft.channel?.entryId, currentStep]);
+
+  useEffect(() => {
+    if (currentStep !== "channel" || !currentDraft.activeChannelSessionId) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function poll() {
+      try {
+        const next = await fetchChannelSession(currentDraft.activeChannelSessionId!);
+        if (cancelled) {
+          return;
+        }
+
+        setChannelConfig(next.channelConfig);
+        const channelId = currentDraft.channel?.channelId ?? next.session.channelId;
+        const preferredEntryId = currentDraft.channel?.entryId ?? next.session.entryId;
+
+        if (await maybeAdvanceCompletedChannelSetupIfNeeded(channelId, preferredEntryId, next.channelConfig)) {
+          return;
+        }
+
+        if (next.session.status === "failed") {
+          setPageError(next.session.message);
+          await persistDraft({
+            channel: channelId
+              ? {
+                  channelId,
+                  entryId: preferredEntryId
+                }
+              : currentDraft.channel,
+            activeChannelSessionId: ""
+          });
+          return;
+        }
+      } catch (sessionError) {
+        try {
+          const nextChannelConfig = await readFreshChannelConfig();
+          if (cancelled) {
+            return;
+          }
+
+          if (
+            await maybeAdvanceCompletedChannelSetupIfNeeded(
+              currentDraft.channel?.channelId,
+              currentDraft.channel?.entryId,
+              nextChannelConfig
+            )
+          ) {
+            return;
+          }
+        } catch {
+          // Keep the original polling error below.
+        }
+
+        if (!cancelled) {
+          setPageError(
+            sessionError instanceof Error
+              ? sessionError.message
+              : "ChillClaw could not refresh this channel session."
+          );
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        timer = window.setTimeout(() => {
+          void poll();
+        }, 1_000);
+      }
+    }
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [
+    currentDraft.activeChannelSessionId,
+    currentDraft.channel?.channelId,
+    currentDraft.channel?.entryId,
+    currentStep
+  ]);
 
   useEffect(() => {
     if (currentStep !== "employee") {
@@ -992,7 +1122,8 @@ export default function OnboardingPage() {
           channel: {
             channelId: selectedChannelPresentation.id,
             entryId: savedEntry?.id
-          }
+          },
+          activeChannelSessionId: result.session.id
         });
         return;
       }
@@ -1002,7 +1133,8 @@ export default function OnboardingPage() {
         channel: {
           channelId: selectedChannelPresentation.id,
           entryId: savedEntry?.id
-        }
+        },
+        activeChannelSessionId: ""
       });
       void readFreshChannelConfig().then(setChannelConfig).catch(() => undefined);
     } catch (actionError) {
@@ -1020,10 +1152,22 @@ export default function OnboardingPage() {
     setChannelBusy(true);
     try {
       const next = await submitChannelSessionInput(activeChannelSession.id, { value: channelSessionInput.trim() });
-      setChannelConfig((current) => current ? { ...current, activeSession: next.session } : current);
+      setChannelConfig(next.channelConfig);
       setChannelSessionInput("");
-      await readFreshChannelConfig();
-      await refreshOnboardingState();
+      if (await maybeAdvanceCompletedChannelSetupIfNeeded(next.session.channelId, next.session.entryId, next.channelConfig)) {
+        return;
+      }
+
+      if (next.session.status === "failed") {
+        setPageError(next.session.message);
+        await persistDraft({
+          channel: {
+            channelId: next.session.channelId,
+            entryId: next.session.entryId
+          },
+          activeChannelSessionId: ""
+        });
+      }
     } catch (actionError) {
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not continue this channel session.");
     } finally {

@@ -301,7 +301,9 @@ async function withFakeOpenClaw(
     failFeishuConfigSet?: boolean;
     failWechatConfigSet?: boolean;
     invalidLegacyWechatConfig?: boolean;
+    canonicalWecomRuntime?: boolean;
     legacyWechatRuntime?: boolean;
+    openclawWeixinRuntime?: boolean;
     pluginInstalled?: boolean;
     pluginEnabled?: boolean;
     pluginUpdateAvailable?: boolean;
@@ -326,7 +328,7 @@ async function withFakeOpenClaw(
   const gatewayServiceMarkerPath = join(tempDir, "gateway-service.txt");
   const gatewayRunningMarkerPath = join(tempDir, "gateway-running.txt");
   const binDir = join(tempDir, "bin");
-  const npxPath = join(binDir, "npx");
+  const npmPath = join(binDir, "npm");
   const agentDirPath = join(tempDir, "main-agent");
   const dataDir = join(tempDir, "data");
   const binaryPath = join(dataDir, "openclaw-runtime", "node_modules", ".bin", "openclaw");
@@ -346,7 +348,9 @@ async function withFakeOpenClaw(
   const failFeishuConfigSet = options?.failFeishuConfigSet === true;
   const failWechatConfigSet = options?.failWechatConfigSet === true;
   const invalidLegacyWechatConfig = options?.invalidLegacyWechatConfig === true;
+  const canonicalWecomRuntime = options?.canonicalWecomRuntime === true;
   const legacyWechatRuntime = options?.legacyWechatRuntime === true;
+  const openclawWeixinRuntime = options?.openclawWeixinRuntime === true;
   const pluginInstalled = options?.pluginInstalled === true;
   const pluginEnabled = options?.pluginEnabled === true;
   const pluginUpdateAvailable = options?.pluginUpdateAvailable === true;
@@ -374,18 +378,40 @@ async function withFakeOpenClaw(
   await mkdir(binDir, { recursive: true });
   await mkdir(join(dataDir, "openclaw-runtime", "node_modules", ".bin"), { recursive: true });
   await writeFile(
-    npxPath,
+    npmPath,
     `#!/bin/sh
 echo "$0 $*" >> "$OPENCLAW_TEST_LOG"
-if [ "$1" = "-y" ] && [ "$2" = "@tencent-weixin/openclaw-weixin-cli@latest" ] && [ "$3" = "install" ]; then
+if [ "$1" = "--version" ]; then
+  echo '10.9.0'
+  exit 0
+fi
+if [ "$1" = "install" ] && [ "$2" = "--prefix" ] && [ "$4" = "@tencent-weixin/openclaw-weixin-cli@latest" ]; then
+  prefix="$3"
+  mkdir -p "$prefix/node_modules/.bin"
+  mkdir -p "$prefix/node_modules/@tencent-weixin/openclaw-weixin-cli"
+  cat > "$prefix/node_modules/@tencent-weixin/openclaw-weixin-cli/package.json" <<'EOF'
+{"name":"@tencent-weixin/openclaw-weixin-cli","bin":{"weixin-installer":"./cli.mjs"}}
+EOF
+  cat > "$prefix/node_modules/.bin/weixin-installer" <<'EOF'
+#!/bin/sh
+echo "$0 $*" >> "$OPENCLAW_TEST_LOG"
+if [ "$1" = "install" ]; then
   echo 'Installing WeChat runtime helper'
   echo 'Scan the QR code from WeChat on your phone to continue.'
+  if [ -t 1 ]; then
+    echo 'Interactive QR ready from TTY.'
+  fi
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "$prefix/node_modules/.bin/weixin-installer"
   exit 0
 fi
 exit 1
 `
   );
-  await chmod(npxPath, 0o755);
+  await chmod(npmPath, 0o755);
   await writeFile(
     binaryPath,
     `#!/bin/sh
@@ -453,14 +479,22 @@ EOF
   echo 'Open this URL to continue sign-in: https://auth.openai.example/authorize'
   sleep 0.1
 elif [ "$1" = "channels" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
-  if [ "${legacyWechatRuntime ? "1" : "0"}" = "1" ]; then
+  if [ "${canonicalWecomRuntime ? "1" : "0"}" = "1" ]; then
+    echo '{"chat":{"wecom":["default"]}}'
+  elif [ "${legacyWechatRuntime ? "1" : "0"}" = "1" ]; then
     echo '{"chat":{"wechat":["default"]}}'
+  elif [ "${openclawWeixinRuntime ? "1" : "0"}" = "1" ]; then
+    echo '{"chat":{"openclaw-weixin":["default"]}}'
   else
     echo '{"chat":{"telegram":["default"]}}'
   fi
 elif [ "$1" = "channels" ] && [ "$2" = "status" ] && [ "$3" = "--json" ] && [ "$4" = "--probe" ]; then
-  if [ "${legacyWechatRuntime ? "1" : "0"}" = "1" ]; then
+  if [ "${canonicalWecomRuntime ? "1" : "0"}" = "1" ]; then
+    echo '{"channels":{"wecom":{"configured":true,"running":true,"linked":true}},"channelAccounts":{"wecom":[{"accountId":"default","configured":true,"linked":true}]}}'
+  elif [ "${legacyWechatRuntime ? "1" : "0"}" = "1" ]; then
     echo '{"channels":{"wechat":{"configured":true,"running":true,"linked":true}},"channelAccounts":{"wechat":[{"accountId":"default","configured":true,"linked":true}]}}'
+  elif [ "${openclawWeixinRuntime ? "1" : "0"}" = "1" ]; then
+    echo '{"channels":{"openclaw-weixin":{"configured":true,"running":true,"linked":true}},"channelAccounts":{"openclaw-weixin":[{"accountId":"default","configured":true,"linked":true}]}}'
   else
     echo '{"channels":{"telegram":{"configured":true,"running":true,"linked":true}},"channelAccounts":{"telegram":[{"accountId":"default","configured":true,"linked":true,"probe":{"bot":{"username":"support_bot"}}}]}}'
   fi
@@ -754,6 +788,37 @@ test("legacy runtime wechat channel state is normalized to wechat-work", async (
   });
 });
 
+test("canonical runtime wecom channel state is normalized to wechat-work", async () => {
+  await withFakeOpenClaw(async ({ adapter }) => {
+    const entries = await adapter.getConfiguredChannelEntries();
+    const wecomEntry = entries.find((entry) => entry.id === "wechat-work:default");
+    const wechatWorkState = await adapter.getChannelState("wechat-work");
+
+    assert.ok(wecomEntry);
+    assert.equal(wecomEntry?.channelId, "wechat-work");
+    assert.equal(wechatWorkState.status, "completed");
+  }, {
+    canonicalWecomRuntime: true
+  });
+});
+
+test("personal WeChat runtime is normalized from openclaw-weixin", async () => {
+  await withFakeOpenClaw(async ({ adapter }) => {
+    const entries = await adapter.getConfiguredChannelEntries();
+    const personalWechatEntry = entries.find((entry) => entry.id === "wechat:default");
+    const personalWechatState = await adapter.getChannelState("wechat");
+    const wechatWorkState = await adapter.getChannelState("wechat-work");
+
+    assert.ok(personalWechatEntry);
+    assert.equal(personalWechatEntry?.channelId, "wechat");
+    assert.equal(entries.some((entry) => entry.channelId === "wechat-work"), false);
+    assert.equal(personalWechatState.status, "completed");
+    assert.equal(wechatWorkState.status, "not-started");
+  }, {
+    openclawWeixinRuntime: true
+  });
+});
+
 test("configureTelegram falls back to direct config writes when the command path rejects telegram", async () => {
   await withFakeOpenClaw(async ({ adapter, logPath, configPath }) => {
     const result = await adapter.config.saveChannelEntry({
@@ -913,7 +978,8 @@ test("configureWechatWorkaround writes the documented channels.wecom config shap
     const saved = config.channels?.wecom;
 
     assert.equal(result.requiresGatewayApply, true);
-    assert.match(result.message, /apply pending/i);
+    assert.equal(result.channel.status, "awaiting-pairing");
+    assert.match(result.message, /pairing code/i);
     assert.equal(countCommands(commands, "gateway restart"), 0);
     assert.equal(saved?.enabled, true);
     assert.equal(saved?.botId, "bot-id");
@@ -922,6 +988,22 @@ test("configureWechatWorkaround writes the documented channels.wecom config shap
     assert.equal("webhookPath" in (saved ?? {}), false);
     assert.equal("token" in (saved ?? {}), false);
     assert.equal("encodingAESKey" in (saved ?? {}), false);
+  });
+});
+
+test("approvePairing uses the canonical wecom channel id for wechat-work", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const result = await adapter.config.saveChannelEntry({
+      channelId: "wechat-work",
+      action: "approve-pairing",
+      values: {
+        code: "RRR7T5CT"
+      }
+    });
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.channel.status, "completed");
+    assert.equal(countCommands(commands, "pairing approve wecom RRR7T5CT --notify"), 1);
   });
 });
 
@@ -975,11 +1057,41 @@ test("personal WeChat runs the installer command and starts a channel session lo
     assert.equal(result.session?.channelId, "wechat");
     assert.match(result.session?.message ?? "", /wechat login|qr/i);
     assert.equal(result.session?.logs.some((line) => /qr code|scan/i.test(line)), true);
+    assert.equal(result.session?.logs.some((line) => line.includes("npm install") && line.includes("@tencent-weixin/openclaw-weixin-cli@latest")), true);
+    assert.equal(result.session?.logs.some((line) => /weixin-installer .*install/.test(line)), true);
     assert.equal(
-      result.session?.logs.some((line) => line.includes("npx -y @tencent-weixin/openclaw-weixin-cli@latest install")),
+      commands.some((command) => command.includes("npm install --prefix") && command.includes("@tencent-weixin/openclaw-weixin-cli@latest")),
       true
     );
+    assert.equal(commands.some((command) => /weixin-installer install$/.test(command)), true);
     assert.equal(commands.some((command) => command.startsWith("plugins install ")), false);
+  });
+});
+
+test("personal WeChat captures installer output that only appears on an interactive TTY", async () => {
+  await withFakeOpenClaw(async ({ adapter }) => {
+    const result = await adapter.config.saveChannelEntry({
+      channelId: "wechat",
+      action: "save",
+      values: {}
+    });
+    assert.ok(result.session);
+    let session = await adapter.gateway.getChannelSession(result.session.id);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (session.logs.some((line) => /interactive qr ready from tty/i.test(line))) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      session = await adapter.gateway.getChannelSession(result.session.id);
+    }
+
+    assert.equal(
+      session.logs.some((line) => /interactive qr ready from tty/i.test(line)),
+      true,
+      session.logs.join("\n")
+    );
   });
 });
 
@@ -1189,7 +1301,7 @@ exit 1
     const result = await adapter.install(false, { forceLocal: true });
 
     assert.equal(result.status, "installed");
-    assert.match(result.actualVersion ?? "", /OpenClaw 20\d{2}\.\d+\.\d+/);
+    assert.match(result.actualVersion ?? "", /20\d{2}\.\d+\.\d+/);
     assert.match(result.message, /OpenClaw 20\d{2}\.\d+\.\d+/);
   } finally {
     adapter.invalidateReadCaches();

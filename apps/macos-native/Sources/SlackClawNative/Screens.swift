@@ -392,7 +392,7 @@ struct DeployScreen: View {
         InfoBanner(
             title: "One-Click Deployment",
             description: "Select your preferred OpenClaw variant and deploy instantly. No terminal commands or manual configuration required.",
-            icon: "rocket",
+            icon: "shippingbox",
             accent: .blue
         ) {
             VStack(alignment: .leading, spacing: 14) {
@@ -615,7 +615,7 @@ struct DeployScreen: View {
     private func iconName(for action: NativeDeployActionKind) -> String {
         switch action {
         case .install:
-            return "rocket"
+            return "arrow.down.circle"
         case .update:
             return "arrow.clockwise"
         case .uninstall:

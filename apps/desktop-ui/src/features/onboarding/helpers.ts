@@ -1,4 +1,6 @@
 import type {
+  ChannelConfigOverview,
+  ConfiguredChannelEntry,
   ModelConfigOverview,
   ModelAuthMethod,
   ModelProviderConfig,
@@ -50,6 +52,20 @@ export function resolveOnboardingEmployeePresets(
   onboardingState: Pick<OnboardingStateResponse, "config"> | undefined
 ): OnboardingEmployeePresetPresentation[] {
   return onboardingState?.config.employeePresets ?? [];
+}
+
+export function applyPresetSkillSyncToOnboardingState(
+  onboardingState: OnboardingStateResponse | undefined,
+  presetSkillSync: PresetSkillSyncOverview
+): OnboardingStateResponse | undefined {
+  if (!onboardingState) {
+    return onboardingState;
+  }
+
+  return {
+    ...onboardingState,
+    presetSkillSync
+  };
 }
 
 export type OnboardingEmployeePresetReadinessStatus = "ready" | "syncing" | "repair" | "install";
@@ -314,6 +330,23 @@ export function buildOnboardingChannelSaveValues(
   }
 
   return values;
+}
+
+export function resolveCompletedOnboardingChannelEntry(
+  channelId: string | undefined,
+  preferredEntryId: string | undefined,
+  channelConfig: Pick<ChannelConfigOverview, "entries"> | undefined
+): ConfiguredChannelEntry | undefined {
+  if (channelId !== "wechat" || !channelConfig) {
+    return undefined;
+  }
+
+  const preferredEntry = preferredEntryId
+    ? channelConfig.entries.find((entry) => entry.id === preferredEntryId)
+    : undefined;
+  const resolvedEntry = preferredEntry ?? channelConfig.entries.find((entry) => entry.channelId === channelId);
+
+  return resolvedEntry?.status === "completed" ? resolvedEntry : undefined;
 }
 
 function installProgressStageLabel(

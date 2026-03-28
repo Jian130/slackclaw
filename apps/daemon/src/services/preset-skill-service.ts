@@ -17,6 +17,11 @@ export interface ReconcilePresetSkillsOptions {
   presetSkillIds?: string[];
 }
 
+export interface SetDesiredPresetSkillIdsOptions {
+  targetMode?: PresetSkillTargetMode;
+  waitForReconcile?: boolean;
+}
+
 function uniquePresetSkillIds(presetSkillIds: string[]): string[] {
   return [...new Set(presetSkillIds.map((presetSkillId) => presetSkillId.trim()).filter(Boolean))];
 }
@@ -85,6 +90,31 @@ function defaultSyncState(): PresetSkillState {
   return defaultPresetSkillState();
 }
 
+function buildPendingSyncOverview(
+  targetMode: PresetSkillTargetMode,
+  presetSkillIds: string[]
+): PresetSkillSyncOverview {
+  const now = new Date().toISOString();
+  const entries = uniquePresetSkillIds(presetSkillIds).map((presetSkillId) => {
+    const definition = presetSkillDefinitionById(presetSkillId);
+
+    if (!definition) {
+      return {
+        presetSkillId,
+        runtimeSlug: presetSkillId,
+        targetMode,
+        status: "failed" as const,
+        lastError: "Unknown preset skill.",
+        updatedAt: now
+      };
+    }
+
+    return createEntry(definition, targetMode, "pending", now);
+  });
+
+  return buildSyncOverview(targetMode, entries);
+}
+
 export class PresetSkillService {
   constructor(
     private readonly adapter: EngineAdapter,
@@ -112,7 +142,7 @@ export class PresetSkillService {
   async setDesiredPresetSkillIds(
     scope: PresetSkillScope,
     presetSkillIds: string[],
-    options?: { targetMode?: PresetSkillTargetMode }
+    options?: SetDesiredPresetSkillIdsOptions
   ): Promise<PresetSkillSyncOverview> {
     const normalized = normalizePresetSkillIds(presetSkillIds);
     const nextState = await this.store.update((current) => {
@@ -137,8 +167,20 @@ export class PresetSkillService {
       };
     });
 
+    const targetMode = nextState.presetSkills?.targetMode ?? defaultSyncState().targetMode;
+    if (options?.waitForReconcile === false) {
+      const pendingOverview = buildPendingSyncOverview(targetMode, normalized);
+      await this.commitSyncOverview(nextState.presetSkills ?? defaultSyncState(), pendingOverview);
+
+      if (pendingOverview.entries.some((entry) => entry.status === "pending")) {
+        void this.reconcilePresetSkills({ targetMode }).catch(() => undefined);
+      }
+
+      return pendingOverview;
+    }
+
     return this.reconcilePresetSkills({
-      targetMode: nextState.presetSkills?.targetMode
+      targetMode
     });
   }
 

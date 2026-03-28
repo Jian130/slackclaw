@@ -108,7 +108,7 @@ const wechatWorkCapability: ChannelCapability = {
   fieldDefs: [],
   supportsEdit: true,
   supportsRemove: true,
-  supportsPairing: false,
+  supportsPairing: true,
   supportsLogin: false,
   guidedSetupKind: "wechat-work"
 };
@@ -312,7 +312,7 @@ describe("ConfigPage helpers", () => {
 
     expect(configuredChannelActionState(configuredTelegramEntry, wechatWorkCapability)).toEqual({
       primaryAction: "edit",
-      showApproveAction: false
+      showApproveAction: true
     });
 
     expect(

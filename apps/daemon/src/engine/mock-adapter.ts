@@ -1250,6 +1250,10 @@ export class MockAdapter implements EngineAdapter {
           botName: request.values.botName
         });
       case "wechat-work":
+        if (request.action === "approve-pairing") {
+          return this.gateway.approvePairing("wechat-work", { code: request.values.code ?? "" });
+        }
+
         return this.configureWechatWorkaround({
           botId: request.values.botId ?? "",
           secret: request.values.secret ?? ""
@@ -1675,7 +1679,7 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async approvePairing(
-    channelId: "telegram" | "whatsapp" | "feishu",
+    channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work",
     _request: PairingApprovalRequest
   ): Promise<{ message: string; channel: ChannelSetupState }> {
     this.channels[channelId] = {
@@ -1723,9 +1727,9 @@ export class MockAdapter implements EngineAdapter {
   ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
     this.channels["wechat-work"] = {
       ...this.channels["wechat-work"],
-      status: "completed",
+      status: "awaiting-pairing",
       summary: "Mock WeChat Work configured.",
-      detail: "Mock mode marked the managed WeCom plugin flow as configured."
+      detail: "Mock mode saved the WeCom credentials. Send a DM to the app, then approve the pairing code."
     };
     this.markGatewayApplyPending();
     return { message: "Mock WeChat Work configured.", channel: this.channels["wechat-work"], requiresGatewayApply: true };

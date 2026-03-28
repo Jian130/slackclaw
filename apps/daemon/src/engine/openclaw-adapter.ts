@@ -97,7 +97,13 @@ import type {
   SkillRuntimeCatalog,
   SkillRuntimeEntry
 } from "./adapter.js";
-import { getAppRootDir, getDataDir, getManagedOpenClawBinPath, getManagedOpenClawDir } from "../runtime-paths.js";
+import {
+  getAppRootDir,
+  getDataDir,
+  getManagedOpenClawBinPath,
+  getManagedOpenClawDir,
+  getManagedWechatInstallerDir
+} from "../runtime-paths.js";
 import { errorToLogDetails, logDevelopmentCommand, writeErrorLog, writeInfoLog } from "../services/logger.js";
 
 interface OpenClawStatusJson {
@@ -458,6 +464,9 @@ const OPENCLAW_STATE_PATH = resolve(getDataDir(), "openclaw-state.json");
 const OPENCLAW_VERSION_OVERRIDE = process.env.SLACKCLAW_OPENCLAW_VERSION?.trim() || undefined;
 const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
 const OPENCLAW_PACKAGE_SPEC = OPENCLAW_VERSION_OVERRIDE ? `openclaw@${OPENCLAW_VERSION_OVERRIDE}` : "openclaw@latest";
+const WECHAT_INSTALLER_PACKAGE_SPEC = "@tencent-weixin/openclaw-weixin-cli@latest";
+const WECHAT_INSTALLER_INSTALL_DISPLAY = `npm install ${WECHAT_INSTALLER_PACKAGE_SPEC}`;
+const PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY = "openclaw-weixin";
 const FEISHU_BUNDLED_SINCE = "2026.3.7";
 const OPENCLAW_MAIN_AGENT_ID = "main";
 const OPENCLAW_INSTALL_DOCS_URL = "https://docs.openclaw.ai/install";
@@ -1668,16 +1677,24 @@ function channelIdFromEntryId(entryId: string): SupportedChannelId {
 function runtimeChannelKeys(channelId: SupportedChannelId): string[] {
   switch (channelId) {
     case "wechat-work":
-      return ["wechat-work", "wechat"];
+      return [CANONICAL_WECOM_CHANNEL_KEY, LEGACY_WECOM_CHANNEL_KEY, "wechat-work", "wechat"];
     case "wechat":
-      return [];
+      return [PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY];
     default:
       return [channelId];
   }
 }
 
 function normalizeRuntimeChannelId(channelId: string): SupportedChannelId | undefined {
-  if (channelId === "wechat") {
+  if (channelId === PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY) {
+    return "wechat";
+  }
+
+  if (
+    channelId === CANONICAL_WECOM_CHANNEL_KEY ||
+    channelId === LEGACY_WECOM_CHANNEL_KEY ||
+    channelId === "wechat"
+  ) {
     return "wechat-work";
   }
 
@@ -1879,9 +1896,13 @@ async function resolveCommandFromEnvPath(command: string, env: NodeJS.ProcessEnv
 }
 
 async function resolveCommandFromPath(command: string): Promise<string | undefined> {
-  return resolveCommandFromShellPath(command, {
-    env: buildCommandEnv()
-  });
+  const env = buildCommandEnv();
+  const fromEnvPath = await resolveCommandFromEnvPath(command, env);
+  if (fromEnvPath) {
+    return fromEnvPath;
+  }
+
+  return resolveCommandFromShellPath(command, { env });
 }
 
 async function resolveCommand(command: string, extraCandidates: string[] = []): Promise<string | undefined> {
@@ -1895,6 +1916,30 @@ async function resolveCommand(command: string, extraCandidates: string[] = []): 
     if (await fileExists(candidate)) {
       return candidate;
     }
+  }
+
+  return undefined;
+}
+
+async function readWechatInstallerBinName(packagePath: string): Promise<string | undefined> {
+  try {
+    const raw = await readFile(packagePath, "utf8");
+    const parsed = JSON.parse(raw) as {
+      name?: string;
+      bin?: string | Record<string, string>;
+    };
+
+    if (typeof parsed.bin === "string") {
+      const packageName = parsed.name?.split("/").pop()?.trim();
+      return packageName || undefined;
+    }
+
+    if (parsed.bin && typeof parsed.bin === "object") {
+      const [binName] = Object.keys(parsed.bin);
+      return binName?.trim() || undefined;
+    }
+  } catch {
+    return undefined;
   }
 
   return undefined;
@@ -7544,6 +7589,10 @@ export class OpenClawAdapter implements EngineAdapter {
           botName: request.values.botName
         });
       case "wechat-work":
+        if (request.action === "approve-pairing") {
+          return this.approvePairing("wechat-work", { code: request.values.code ?? "" });
+        }
+
         return this.configureWechatWorkaround({
           botId: request.values.botId ?? "",
           secret: request.values.secret ?? ""
@@ -8001,7 +8050,7 @@ export class OpenClawAdapter implements EngineAdapter {
     });
     await this.restartGatewayAndRequireHealthy("WhatsApp configuration");
 
-    activeChannelLoginSession = {
+    const sessionState: LoginSessionState = {
       channelId: "whatsapp",
       entryId: "whatsapp:default",
       startedAt: new Date().toISOString(),
@@ -8009,6 +8058,7 @@ export class OpenClawAdapter implements EngineAdapter {
       logs: ["Starting WhatsApp login. OpenClaw may print a QR code or pairing instructions here."],
       inputPrompt: "Paste the WhatsApp pairing code to finish setup."
     };
+    activeChannelLoginSession = sessionState;
 
     const command = await resolveOpenClawCommand();
 
@@ -8024,7 +8074,7 @@ export class OpenClawAdapter implements EngineAdapter {
     activeChannelLoginSession.child = child;
 
     const pushLog = (text: string) => {
-      if (!activeChannelLoginSession || activeChannelLoginSession.channelId !== "whatsapp") {
+      if (activeChannelLoginSession !== sessionState) {
         return;
       }
 
@@ -8046,7 +8096,7 @@ export class OpenClawAdapter implements EngineAdapter {
     });
 
     child.on("error", (error) => {
-      if (!activeChannelLoginSession || activeChannelLoginSession.channelId !== "whatsapp") {
+      if (activeChannelLoginSession !== sessionState) {
         return;
       }
 
@@ -8056,7 +8106,7 @@ export class OpenClawAdapter implements EngineAdapter {
     });
 
     child.on("exit", (code) => {
-      if (!activeChannelLoginSession || activeChannelLoginSession.channelId !== "whatsapp") {
+      if (activeChannelLoginSession !== sessionState) {
         return;
       }
 
@@ -8076,10 +8126,11 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async approvePairing(
-    channelId: "telegram" | "whatsapp" | "feishu",
+    channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work",
     request: PairingApprovalRequest
   ): Promise<{ message: string; channel: ChannelSetupState }> {
-    const result = await runOpenClaw(["pairing", "approve", channelId, request.code, "--notify"], { allowFailure: true });
+    const runtimeChannelId = channelId === "wechat-work" ? CANONICAL_WECOM_CHANNEL_KEY : channelId;
+    const result = await runOpenClaw(["pairing", "approve", runtimeChannelId, request.code, "--notify"], { allowFailure: true });
 
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout || `SlackClaw could not approve the ${channelId} pairing code.`);
@@ -8090,7 +8141,14 @@ export class OpenClawAdapter implements EngineAdapter {
       activeChannelLoginSession.logs.push("WhatsApp pairing approved.");
     }
 
-    const label = channelId === "telegram" ? "Telegram" : channelId === "whatsapp" ? "WhatsApp" : "Feishu";
+    const label =
+      channelId === "telegram"
+        ? "Telegram"
+        : channelId === "whatsapp"
+          ? "WhatsApp"
+          : channelId === "feishu"
+            ? "Feishu"
+            : "WeChat Work";
 
     return {
       message: `${label} pairing approved.`,
@@ -8117,11 +8175,12 @@ export class OpenClawAdapter implements EngineAdapter {
     await this.markGatewayApplyPending();
 
     return {
-      message: "ChillClaw saved the managed WeChat plugin configuration. Apply pending changes from Gateway Manager to make it live.",
+      message:
+        "ChillClaw saved the managed WeChat plugin configuration. Apply pending changes from Gateway Manager, send a DM to the app, then approve the pairing code.",
       channel: createChannelState("wechat-work", {
-        status: "completed",
-        summary: "WeChat Work configured.",
-        detail: "The managed WeCom plugin is configured. Apply pending gateway changes to make it live."
+        status: "awaiting-pairing",
+        summary: "WeChat Work is configured and waiting for pairing approval.",
+        detail: "The managed WeCom plugin is configured. Apply pending gateway changes, send a DM to the app, then approve the pairing code."
       }),
       requiresGatewayApply: true
     };
@@ -8136,37 +8195,60 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     const env = buildCommandEnv();
-    const command = (await resolveCommandFromEnvPath("npx", env)) ?? "npx";
+    const command = await this.ensureWechatInstallerCommand();
 
-    const installerArgs = ["-y", "@tencent-weixin/openclaw-weixin-cli@latest", "install"];
+    const installerArgs = ["install"];
     logExternalCommand(command, installerArgs);
-    const child = spawn(command, installerArgs, {
-      env
-    });
+    const child = spawnInteractiveCommand(command, installerArgs, env);
     let settleStartup: (() => void) | undefined;
     const startupReady = new Promise<void>((resolve) => {
       settleStartup = resolve;
     });
-    const startupTimer = setTimeout(() => {
+    let startupFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    const settleStartupSoon = (delayMs = 150) => {
+      if (!settleStartup) {
+        return;
+      }
+
+      if (startupFlushTimer) {
+        clearTimeout(startupFlushTimer);
+      }
+
+      startupFlushTimer = setTimeout(() => {
+        settleStartup?.();
+        settleStartup = undefined;
+        startupFlushTimer = undefined;
+      }, delayMs);
+    };
+    const settleStartupNow = () => {
+      if (startupFlushTimer) {
+        clearTimeout(startupFlushTimer);
+        startupFlushTimer = undefined;
+      }
       settleStartup?.();
       settleStartup = undefined;
-    }, 200);
+    };
+    const startupTimer = setTimeout(() => {
+      settleStartupNow();
+    }, 1000);
 
-    activeChannelLoginSession = {
+    const sessionState: LoginSessionState = {
       channelId: "wechat",
       entryId: "wechat:default",
       startedAt: new Date().toISOString(),
       status: "in-progress",
       logs: [
-        `Running installer: ${["npx", ...installerArgs].join(" ")}`,
+        `Installing WeChat runtime helper: ${WECHAT_INSTALLER_INSTALL_DISPLAY}`,
+        `Running installer: ${[command, ...installerArgs].join(" ")}`,
         "Starting the personal WeChat installer.",
         "Follow the QR code and login guidance printed below."
       ],
       child
     };
+    activeChannelLoginSession = sessionState;
 
     const pushLog = (text: string) => {
-      if (!activeChannelLoginSession || activeChannelLoginSession.channelId !== "wechat") {
+      if (activeChannelLoginSession !== sessionState) {
         return;
       }
 
@@ -8180,8 +8262,7 @@ export class OpenClawAdapter implements EngineAdapter {
       activeChannelLoginSession.logs.push(...lines);
       activeChannelLoginSession.logs = activeChannelLoginSession.logs.slice(-40);
       activeChannelLoginSession.status = "awaiting-pairing";
-      settleStartup?.();
-      settleStartup = undefined;
+      settleStartupSoon();
     };
 
     child.stdout.on("data", (chunk) => {
@@ -8193,19 +8274,18 @@ export class OpenClawAdapter implements EngineAdapter {
     });
 
     child.on("error", (error) => {
-      if (!activeChannelLoginSession || activeChannelLoginSession.channelId !== "wechat") {
+      if (activeChannelLoginSession !== sessionState) {
         return;
       }
 
       activeChannelLoginSession.status = "failed";
       activeChannelLoginSession.logs.push(`Failed to start WeChat login: ${error instanceof Error ? error.message : String(error)}`);
-      settleStartup?.();
-      settleStartup = undefined;
+      settleStartupNow();
       void writeErrorLog("WeChat login session failed to start.", errorToLogDetails(error));
     });
 
-    child.on("exit", (code) => {
-      if (!activeChannelLoginSession || activeChannelLoginSession.channelId !== "wechat") {
+    child.on("close", (code) => {
+      if (activeChannelLoginSession !== sessionState) {
         return;
       }
 
@@ -8217,11 +8297,13 @@ export class OpenClawAdapter implements EngineAdapter {
           ? "WeChat installer finished. If login is still pending, continue following the QR or log instructions above."
           : `WeChat installer exited with code ${code ?? 1}.`
       );
-      settleStartup?.();
-      settleStartup = undefined;
+      settleStartupNow();
     });
 
     await startupReady.finally(() => {
+      if (startupFlushTimer) {
+        clearTimeout(startupFlushTimer);
+      }
       clearTimeout(startupTimer);
     });
 
@@ -8234,6 +8316,77 @@ export class OpenClawAdapter implements EngineAdapter {
         detail: "Follow the QR-first WeChat installer logs, then complete any remaining confirmation steps from the session."
       })
     };
+  }
+
+  private async ensureWechatInstallerCommand(): Promise<string> {
+    const installPath = getManagedWechatInstallerDir();
+    await mkdir(installPath, { recursive: true });
+
+    const npmInvocation = await resolveNpmInvocation();
+    const ensuredNpmInvocation = npmInvocation ?? (await this.ensureSystemDependencies());
+
+    if (!ensuredNpmInvocation) {
+      throw new Error("ChillClaw could not find a working npm installation to prepare the personal WeChat helper.");
+    }
+
+    const installArgs = ["install", "--prefix", installPath, WECHAT_INSTALLER_PACKAGE_SPEC];
+    const installResult = await runCommand(
+      ensuredNpmInvocation.command,
+      [...ensuredNpmInvocation.argsPrefix, ...installArgs],
+      { allowFailure: true }
+    );
+
+    if (installResult.code !== 0) {
+      await writeErrorLog("Personal WeChat installer package install failed.", {
+        command: ensuredNpmInvocation.display,
+        args: installArgs,
+        result: installResult
+      });
+      throw new Error(
+        installResult.stderr ||
+          installResult.stdout ||
+          "ChillClaw could not install the personal WeChat helper package."
+      );
+    }
+
+    const installerCommand = await this.resolveWechatInstallerCommand(installPath);
+    if (!installerCommand) {
+      throw new Error(
+        `ChillClaw installed ${WECHAT_INSTALLER_PACKAGE_SPEC}, but could not find its generated CLI entry in ${installPath}.`
+      );
+    }
+
+    return installerCommand;
+  }
+
+  private async resolveWechatInstallerCommand(installPath: string): Promise<string | undefined> {
+    const packagePath = resolve(
+      installPath,
+      "node_modules",
+      "@tencent-weixin",
+      "openclaw-weixin-cli",
+      "package.json"
+    );
+    const discoveredBinName = await readWechatInstallerBinName(packagePath);
+    const candidateNames = [
+      discoveredBinName,
+      "weixin-installer",
+      "openclaw-weixin-cli"
+    ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+
+    for (const binName of candidateNames) {
+      const candidatePath = resolve(
+        installPath,
+        "node_modules",
+        ".bin",
+        process.platform === "win32" ? `${binName}.cmd` : binName
+      );
+      if (await fileExists(candidatePath)) {
+        return candidatePath;
+      }
+    }
+
+    return undefined;
   }
 
   async startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }> {

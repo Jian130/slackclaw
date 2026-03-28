@@ -10,6 +10,64 @@ struct SettledMutationResult<Mutation, State> {
     let settled: Bool
 }
 
+private let onboardingTerminalControlPattern = try! NSRegularExpression(pattern: #"\[[0-9;?]*[ -/]*[@-~]"#)
+private let onboardingQRCodeGlyphs = CharacterSet(charactersIn: "█▀▄▌▐▙▟▛▜■□▓▒")
+
+private func sanitizeOnboardingChannelSessionLogLines(_ lines: [String]) -> [String] {
+    lines.compactMap { line in
+        var sanitized = line.replacingOccurrences(of: "\r", with: "")
+        sanitized = sanitized.replacingOccurrences(of: "\u{001B}", with: "")
+
+        let range = NSRange(sanitized.startIndex..<sanitized.endIndex, in: sanitized)
+        sanitized = onboardingTerminalControlPattern.stringByReplacingMatches(
+            in: sanitized,
+            options: [],
+            range: range,
+            withTemplate: ""
+        )
+        sanitized = String(sanitized.unicodeScalars.filter { scalar in
+            scalar == "\t" || !CharacterSet.controlCharacters.contains(scalar)
+        })
+
+        let trimmed = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == ":" {
+            return nil
+        }
+
+        return sanitized
+    }
+}
+
+private func displayedOnboardingChannelSessionLogText(_ session: ChannelSession?) -> String {
+    sanitizeOnboardingChannelSessionLogLines(session?.logs ?? []).joined(separator: "\n")
+}
+
+private func onboardingWechatSessionHasVisibleQRCode(_ session: ChannelSession?) -> Bool {
+    guard let session, session.channelId == .wechat else { return false }
+
+    return sanitizeOnboardingChannelSessionLogLines(session.logs).contains { line in
+        let lowercaseLine = line.lowercased()
+        if lowercaseLine.contains("https://") || lowercaseLine.contains("http://") || lowercaseLine.contains("qrcode=") {
+            return true
+        }
+
+        let qrGlyphCount = line.unicodeScalars.reduce(into: 0) { count, scalar in
+            if onboardingQRCodeGlyphs.contains(scalar) {
+                count += 1
+            }
+        }
+        return qrGlyphCount >= 8
+    }
+}
+
+private func onboardingWechatSessionIsAwaitingVisibleQRCode(_ session: ChannelSession?) -> Bool {
+    guard let session, session.channelId == .wechat, session.inputPrompt == nil, session.status == "running" else {
+        return false
+    }
+
+    return !onboardingWechatSessionHasVisibleQRCode(session)
+}
+
 @MainActor
 @Observable
 final class NativeOnboardingViewModel {
@@ -18,6 +76,7 @@ final class NativeOnboardingViewModel {
     private let appState: SlackClawAppState
     private let daemonEventStreamFactory: DaemonEventStreamFactory
     private var modelSessionTask: Task<Void, Never>?
+    private var channelSessionTask: Task<Void, Never>?
     private var persistTask: Task<Void, Never>?
     private var daemonEventTask: Task<Void, Never>?
     private var isApplyingDraft = false
@@ -165,6 +224,30 @@ final class NativeOnboardingViewModel {
         return activeSession
     }
 
+    var displayedChannelSessionLogText: String {
+        displayedOnboardingChannelSessionLogText(activeChannelSession)
+    }
+
+    var channelPrimaryActionBusy: Bool {
+        channelBusy || (selectedChannelSetupVariant == .wechatGuided && onboardingWechatSessionIsAwaitingVisibleQRCode(activeChannelSession))
+    }
+
+    var channelPrimaryActionLabel: String {
+        if activeChannelSession?.inputPrompt != nil {
+            return "Submit Session Input"
+        }
+
+        if selectedChannelSetupVariant == .wechatGuided {
+            if channelPrimaryActionBusy {
+                return activeChannelSession == nil ? "Starting WeChat Login" : "Waiting for QR Code"
+            }
+
+            return activeChannelSession == nil ? "Start WeChat Login" : "Restart WeChat Login"
+        }
+
+        return copy.channelSaveContinue
+    }
+
     var selectedChannelSetupVariant: NativeOnboardingChannelSetupVariant? {
         resolveOnboardingChannelSetupVariant(selectedChannelPresentation?.setupKind)
     }
@@ -289,6 +372,22 @@ final class NativeOnboardingViewModel {
                 onboardingState = try await appState.client.fetchOnboardingState(fresh: true)
                 if let onboardingState {
                     applyDraft(onboardingState.draft)
+                }
+            }
+
+            if currentStep == .channel {
+                let draftChannel = onboardingState?.draft.channel
+                if try await maybeAdvanceCompletedChannelSetupIfNeeded(
+                    channelId: draftChannel?.channelId,
+                    preferredEntryId: draftChannel?.entryId
+                ) {
+                    pageLoading = false
+                    startDaemonEventsIfNeeded()
+                    return
+                }
+
+                if let sessionId = onboardingState?.draft.activeChannelSessionId, !sessionId.isEmpty {
+                    try await resumeChannelSession(sessionId: sessionId, draftChannel: draftChannel)
                 }
             }
         } catch {
@@ -535,7 +634,7 @@ final class NativeOnboardingViewModel {
         do {
             let previousEntries = appState.channelConfig?.entries ?? []
             let result = try await self.appState.client.saveChannelEntry(entryId: selectedChannelEntry?.id, request: request)
-            appState.channelConfig = result.channelConfig
+            applyChannelConfig(result.channelConfig, activeSession: result.session)
 
             channelMessage = result.message
             channelRequiresApply = result.requiresGatewayApply ?? false
@@ -547,15 +646,27 @@ final class NativeOnboardingViewModel {
                 findCreatedChannelEntry(previousEntries: previousEntries, nextEntries: result.channelConfig.entries) ??
                 result.channelConfig.entries.first(where: { $0.channelId == selectedChannelPresentation.id })
 
-            if result.session != nil {
+            if let session = result.session {
                 onboardingState = try await persistDraft(.init(
                     currentStep: .channel,
-                    channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id)
+                    channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id),
+                    activeChannelSessionId: session.id
                 ))
+                startChannelSessionPolling(
+                    sessionId: session.id,
+                    channelId: selectedChannelPresentation.id,
+                    preferredEntryId: savedEntry?.id ?? session.entryId
+                )
                 return
             }
 
-            onboardingState = try await persistDraft(.init(currentStep: .employee, channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id)))
+            channelSessionTask?.cancel()
+            channelSessionTask = nil
+            onboardingState = try await persistDraft(.init(
+                currentStep: .employee,
+                channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id),
+                activeChannelSessionId: ""
+            ))
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 _ = try? await self.readFreshChannelConfig()
@@ -578,13 +689,30 @@ final class NativeOnboardingViewModel {
                 sessionId: sessionID,
                 value: channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines)
             )
-            if var channelConfig = appState.channelConfig {
-                channelConfig.activeSession = next.session
-                appState.channelConfig = channelConfig
-            }
+            applyChannelConfig(next.channelConfig, activeSession: next.session)
             channelSessionInput = ""
-            _ = try await readFreshChannelConfig()
-            onboardingState = try await appState.client.fetchOnboardingState()
+            if try await maybeAdvanceCompletedChannelSetupIfNeeded(
+                channelId: next.session.channelId,
+                preferredEntryId: next.session.entryId
+            ) {
+                channelSessionTask = nil
+                return
+            }
+            if next.session.status == "failed" {
+                pageError = next.session.message
+                onboardingState = try await persistDraft(.init(
+                    channel: .init(channelId: next.session.channelId, entryId: next.session.entryId),
+                    activeChannelSessionId: ""
+                ))
+                channelSessionTask?.cancel()
+                channelSessionTask = nil
+                return
+            }
+            startChannelSessionPolling(
+                sessionId: sessionID,
+                channelId: next.session.channelId,
+                preferredEntryId: next.session.entryId
+            )
         } catch {
             presentErrorUnlessCancelled(error)
         }
@@ -727,6 +855,8 @@ final class NativeOnboardingViewModel {
     }
 
     func returnToChannelPicker() async {
+        channelSessionTask?.cancel()
+        channelSessionTask = nil
         selectedChannelId = nil
         channelValues = [
             "domain": "feishu",
@@ -739,6 +869,8 @@ final class NativeOnboardingViewModel {
     }
 
     func goBackFromChannelPicker() async {
+        channelSessionTask?.cancel()
+        channelSessionTask = nil
         await persistDraftSafely(.init(currentStep: .model))
     }
 
@@ -747,6 +879,8 @@ final class NativeOnboardingViewModel {
     }
 
     func updateSelectedChannel(_ channelID: SupportedChannelId) {
+        channelSessionTask?.cancel()
+        channelSessionTask = nil
         selectedChannelId = channelID
         channelMessage = nil
         channelRequiresApply = false
@@ -754,6 +888,129 @@ final class NativeOnboardingViewModel {
         if channelID == .feishu {
             channelValues["domain"] = channelValues["domain"] ?? "feishu"
             channelValues["botName"] = channelValues["botName"] ?? "ChillClaw Assistant"
+        }
+    }
+
+    private func resolvedChannelEntry(
+        channelId: SupportedChannelId,
+        preferredEntryId: String?,
+        in channelConfig: ChannelConfigOverview? = nil
+    ) -> ConfiguredChannelEntry? {
+        let resolvedConfig = channelConfig ?? appState.channelConfig
+        if let preferredEntryId,
+           let matched = resolvedConfig?.entries.first(where: { $0.id == preferredEntryId }) {
+            return matched
+        }
+        return resolvedConfig?.entries.first(where: { $0.channelId == channelId })
+    }
+
+    private func maybeAdvanceCompletedChannelSetupIfNeeded(
+        channelId: SupportedChannelId?,
+        preferredEntryId: String?
+    ) async throws -> Bool {
+        guard currentStep == .channel, channelId == .wechat else { return false }
+        guard let resolvedChannelId = channelId,
+              let entry = resolvedChannelEntry(channelId: resolvedChannelId, preferredEntryId: preferredEntryId),
+              entry.status == "completed"
+        else {
+            return false
+        }
+
+        channelSessionInput = ""
+        onboardingState = try await persistDraft(.init(
+            currentStep: .employee,
+            channel: .init(channelId: resolvedChannelId, entryId: entry.id),
+            activeChannelSessionId: ""
+        ))
+        return true
+    }
+
+    private func resumeChannelSession(
+        sessionId: String,
+        draftChannel: OnboardingChannelState?
+    ) async throws {
+        let next = try await appState.client.fetchChannelSession(sessionId: sessionId)
+        applyChannelConfig(next.channelConfig, activeSession: next.session)
+        let channelId = draftChannel?.channelId ?? next.session.channelId
+        let preferredEntryId = draftChannel?.entryId ?? next.session.entryId
+
+        if try await maybeAdvanceCompletedChannelSetupIfNeeded(
+            channelId: channelId,
+            preferredEntryId: preferredEntryId
+        ) {
+            return
+        }
+
+        if next.session.status == "failed" {
+            pageError = next.session.message
+            onboardingState = try await persistDraft(.init(
+                channel: .init(channelId: channelId, entryId: preferredEntryId),
+                activeChannelSessionId: ""
+            ))
+            return
+        }
+
+        startChannelSessionPolling(
+            sessionId: sessionId,
+            channelId: channelId,
+            preferredEntryId: preferredEntryId
+        )
+    }
+
+    private func startChannelSessionPolling(
+        sessionId: String,
+        channelId: SupportedChannelId,
+        preferredEntryId: String?
+    ) {
+        channelSessionTask?.cancel()
+        channelSessionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                do {
+                    let next = try await self.appState.client.fetchChannelSession(sessionId: sessionId)
+                    self.applyChannelConfig(next.channelConfig, activeSession: next.session)
+
+                    if try await self.maybeAdvanceCompletedChannelSetupIfNeeded(
+                        channelId: channelId,
+                        preferredEntryId: preferredEntryId ?? next.session.entryId
+                    ) {
+                        self.channelSessionTask = nil
+                        return
+                    }
+
+                    if next.session.status == "failed" {
+                        self.pageError = next.session.message
+                        self.onboardingState = try await self.persistDraft(.init(
+                            channel: .init(channelId: channelId, entryId: preferredEntryId ?? next.session.entryId),
+                            activeChannelSessionId: ""
+                        ))
+                        self.channelSessionTask = nil
+                        return
+                    }
+                } catch let sessionError {
+                    do {
+                        _ = try await self.readFreshChannelConfig()
+                        if try await self.maybeAdvanceCompletedChannelSetupIfNeeded(
+                            channelId: channelId,
+                            preferredEntryId: preferredEntryId
+                        ) {
+                            self.channelSessionTask = nil
+                            return
+                        }
+                    } catch let refreshError {
+                        self.presentErrorUnlessCancelled(refreshError)
+                        self.channelSessionTask = nil
+                        return
+                    }
+
+                    self.presentErrorUnlessCancelled(sessionError)
+                    self.channelSessionTask = nil
+                    return
+                }
+
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
         }
     }
 
@@ -990,6 +1247,12 @@ final class NativeOnboardingViewModel {
         }
     }
 
+    private func applyChannelConfig(_ channelConfig: ChannelConfigOverview, activeSession: ChannelSession?) {
+        var nextConfig = channelConfig
+        nextConfig.activeSession = activeSession
+        appState.channelConfig = nextConfig
+    }
+
     private func readFreshOverview() async throws -> ProductOverview {
         let overview = try await appState.client.fetchOverview()
         appState.overview = overview
@@ -1090,6 +1353,9 @@ final class NativeOnboardingViewModel {
                 _ = try await readFreshAITeamOverview()
             case .onboarding:
                 onboardingState = try await appState.client.fetchOnboardingState(fresh: true)
+                if let onboardingState {
+                    applyDraft(onboardingState.draft)
+                }
             }
             pageError = nil
         } catch {

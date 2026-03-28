@@ -13,6 +13,10 @@ export function getManagedOpenClawBinPath(): string {
   return resolve(getManagedOpenClawDir(), "node_modules", ".bin", "openclaw");
 }
 
+export function getManagedWechatInstallerDir(): string {
+  return resolve(getDataDir(), "wechat-installer-runtime");
+}
+
 export function getAppRootDir(): string | undefined {
   return process.env.SLACKCLAW_APP_ROOT;
 }
