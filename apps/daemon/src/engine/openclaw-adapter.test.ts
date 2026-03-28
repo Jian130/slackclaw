@@ -300,10 +300,12 @@ async function withFakeOpenClaw(
     failTelegramChannelsAdd?: boolean;
     failFeishuConfigSet?: boolean;
     failWechatConfigSet?: boolean;
+    invalidLegacyWechatConfig?: boolean;
     legacyWechatRuntime?: boolean;
     pluginInstalled?: boolean;
     pluginEnabled?: boolean;
     pluginUpdateAvailable?: boolean;
+    gatewayServiceLoaded?: boolean;
   }
 ): Promise<void> {
   const previousLock = fakeOpenClawLock;
@@ -321,6 +323,8 @@ async function withFakeOpenClaw(
   const pluginInstalledMarkerPath = join(tempDir, "plugin-installed.txt");
   const pluginEnabledMarkerPath = join(tempDir, "plugin-enabled.txt");
   const pluginUpdateMarkerPath = join(tempDir, "plugin-update-marker.txt");
+  const gatewayServiceMarkerPath = join(tempDir, "gateway-service.txt");
+  const gatewayRunningMarkerPath = join(tempDir, "gateway-running.txt");
   const binDir = join(tempDir, "bin");
   const npxPath = join(binDir, "npx");
   const agentDirPath = join(tempDir, "main-agent");
@@ -341,10 +345,12 @@ async function withFakeOpenClaw(
   const failTelegramChannelsAdd = options?.failTelegramChannelsAdd === true;
   const failFeishuConfigSet = options?.failFeishuConfigSet === true;
   const failWechatConfigSet = options?.failWechatConfigSet === true;
+  const invalidLegacyWechatConfig = options?.invalidLegacyWechatConfig === true;
   const legacyWechatRuntime = options?.legacyWechatRuntime === true;
   const pluginInstalled = options?.pluginInstalled === true;
   const pluginEnabled = options?.pluginEnabled === true;
   const pluginUpdateAvailable = options?.pluginUpdateAvailable === true;
+  const gatewayServiceLoaded = options?.gatewayServiceLoaded !== false;
   const chatHistoryPayload =
     options?.chatHistoryPayload ??
     '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
@@ -359,6 +365,10 @@ async function withFakeOpenClaw(
   }
   if (pluginUpdateAvailable) {
     await writeFile(pluginUpdateMarkerPath, "1\n");
+  }
+  if (gatewayServiceLoaded) {
+    await writeFile(gatewayServiceMarkerPath, "1\n");
+    await writeFile(gatewayRunningMarkerPath, "1\n");
   }
   await mkdir(agentDirPath, { recursive: true });
   await mkdir(binDir, { recursive: true });
@@ -382,10 +392,32 @@ exit 1
 echo "$*" >> "$OPENCLAW_TEST_LOG"
 if [ "$1" = "--version" ]; then
   cat "$OPENCLAW_TEST_VERSION_FILE"
+elif [ "${invalidLegacyWechatConfig ? "1" : "0"}" = "1" ] && grep -q '"wecom-openclaw-plugin"' ${JSON.stringify(configPath)}; then
+  >&2 echo 'Invalid config at ${configPath}:'
+  >&2 echo '- channels.wecom-openclaw-plugin: unknown channel id: wecom-openclaw-plugin'
+  >&2 echo 'Config invalid'
+  >&2 echo 'File: ~/.openclaw/openclaw.json'
+  >&2 echo 'Problem:'
+  >&2 echo '- channels.wecom-openclaw-plugin: unknown channel id: wecom-openclaw-plugin'
+  >&2 echo
+  >&2 echo 'Run: openclaw doctor --fix'
+  exit 1
 elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
-  echo '{"setup":{"required":false},"gateway":{"reachable":true},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+  if [ -f ${JSON.stringify(gatewayRunningMarkerPath)} ]; then
+    echo '{"setup":{"required":false},"gateway":{"reachable":true},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+  elif [ -f ${JSON.stringify(gatewayServiceMarkerPath)} ]; then
+    echo '{"setup":{"required":false},"gateway":{"reachable":false},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+  else
+    echo '{"setup":{"required":false},"gateway":{"reachable":false},"gatewayService":{"installed":false},"providers":{"summary":{"missingProfiles":0}}}'
+  fi
 elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
-  echo '{"rpc":{"ok":true},"service":{"installed":true,"loaded":true}}'
+  if [ -f ${JSON.stringify(gatewayRunningMarkerPath)} ]; then
+    echo '{"rpc":{"ok":true},"service":{"installed":true,"loaded":true}}'
+  elif [ -f ${JSON.stringify(gatewayServiceMarkerPath)} ]; then
+    echo '{"rpc":{"ok":false},"service":{"installed":true,"loaded":true}}'
+  else
+    echo '{"rpc":{"ok":false},"service":{"installed":false,"loaded":false}}'
+  fi
 elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   if [ -f "$OPENCLAW_TEST_UPDATE_MARKER" ]; then
     echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"${updatePackageManager}","registry":{"latestVersion":"2026.3.12"}},"channel":{"label":"stable"}}'
@@ -443,7 +475,7 @@ elif [ "$1" = "plugins" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
       plugin_enabled="true"
     fi
     cat <<EOF
-{"plugins":[{"id":"wecom-openclaw-plugin","name":"WeCom Plugin","source":"@wecom/wecom-openclaw-plugin","origin":"npm","enabled":\${plugin_enabled},"status":"\${plugin_status}"}],"diagnostics":[]}
+{"plugins":[{"id":"wecom-openclaw-plugin","name":"WeCom Plugin","source":"@wecom/wecom-openclaw-plugin","origin":"npm","enabled":${"$"}{plugin_enabled},"status":"${"$"}{plugin_status}"}],"diagnostics":[]}
 EOF
   else
     echo '{"plugins":[],"diagnostics":[]}'
@@ -463,6 +495,25 @@ elif [ "$1" = "plugins" ] && [ "$2" = "disable" ] && [ "$3" = "wecom-openclaw-pl
 elif [ "$1" = "plugins" ] && [ "$2" = "uninstall" ] && [ "$3" = "wecom-openclaw-plugin" ]; then
   rm -f "$OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER" "$OPENCLAW_TEST_PLUGIN_ENABLED_MARKER" "$OPENCLAW_TEST_PLUGIN_UPDATE_MARKER"
   echo 'Plugin removed'
+elif [ "$1" = "gateway" ] && [ "$2" = "install" ]; then
+  touch ${JSON.stringify(gatewayServiceMarkerPath)}
+  echo '{"status":"installed"}'
+elif [ "$1" = "gateway" ] && [ "$2" = "start" ]; then
+  if [ ! -f ${JSON.stringify(gatewayServiceMarkerPath)} ]; then
+    >&2 echo 'Gateway service not installed.'
+    exit 1
+  fi
+  touch ${JSON.stringify(gatewayRunningMarkerPath)}
+  echo 'Gateway started'
+elif [ "$1" = "gateway" ] && [ "$2" = "restart" ]; then
+  if [ ! -f ${JSON.stringify(gatewayServiceMarkerPath)} ]; then
+    echo 'Gateway service not loaded.'
+    echo 'Start with: openclaw gateway install'
+    echo 'Start with: openclaw gateway'
+    exit 0
+  fi
+  touch ${JSON.stringify(gatewayRunningMarkerPath)}
+  echo 'Gateway restarted'
 elif [ "$1" = "channels" ] && [ "$2" = "add" ] && [ "$3" = "--channel" ] && [ "$4" = "telegram" ] && [ "${failTelegramChannelsAdd ? "1" : "0"}" = "1" ]; then
   >&2 echo 'Unknown channel: telegram'
   exit 1
@@ -845,7 +896,7 @@ test("configureFeishu falls back to direct config writes when config set drifts"
   });
 });
 
-test("configureWechatWorkaround falls back to direct config writes when config set drifts", async () => {
+test("configureWechatWorkaround writes the documented channels.wecom config shape", async () => {
   await withFakeOpenClaw(async ({ adapter, logPath, configPath }) => {
     const result = await adapter.config.saveChannelEntry({
       channelId: "wechat-work",
@@ -859,7 +910,7 @@ test("configureWechatWorkaround falls back to direct config writes when config s
     const config = JSON.parse(await readFile(configPath, "utf8")) as {
       channels?: Record<string, Record<string, unknown>>;
     };
-    const saved = config.channels?.["wecom-openclaw-plugin"];
+    const saved = config.channels?.wecom;
 
     assert.equal(result.requiresGatewayApply, true);
     assert.match(result.message, /apply pending/i);
@@ -868,8 +919,46 @@ test("configureWechatWorkaround falls back to direct config writes when config s
     assert.equal(saved?.botId, "bot-id");
     assert.equal(saved?.secret, "corp-secret");
     assert.equal("corpId" in (saved ?? {}), false);
-  }, {
-    failWechatConfigSet: true
+    assert.equal("webhookPath" in (saved ?? {}), false);
+    assert.equal("token" in (saved ?? {}), false);
+    assert.equal("encodingAESKey" in (saved ?? {}), false);
+  });
+});
+
+test("configureWechatWorkaround removes the legacy channels.wecom-openclaw-plugin key and avoids strict config set", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath, configPath }) => {
+    await writeFile(configPath, JSON.stringify({
+      channels: {
+        "wecom-openclaw-plugin": {
+          enabled: true,
+          botId: "legacy-bot",
+          secret: "legacy-secret",
+          token: "legacy-token"
+        }
+      }
+    }));
+
+    const result = await adapter.config.saveChannelEntry({
+      channelId: "wechat-work",
+      action: "save",
+      values: {
+        botId: "bot-id",
+        secret: "corp-secret"
+      }
+    });
+    const commands = await readCommands(logPath);
+    const config = JSON.parse(await readFile(configPath, "utf8")) as {
+      channels?: Record<string, Record<string, unknown>>;
+    };
+    const saved = config.channels?.wecom;
+
+    assert.equal(result.requiresGatewayApply, true);
+    assert.match(result.message, /apply pending/i);
+    assert.equal(countCommands(commands, "config set --strict-json channels.wecom"), 0);
+    assert.equal(saved?.enabled, true);
+    assert.equal(saved?.botId, "bot-id");
+    assert.equal(saved?.secret, "corp-secret");
+    assert.equal("wecom-openclaw-plugin" in (config.channels ?? {}), false);
   });
 });
 
@@ -904,6 +993,49 @@ test("plugin manager installs and enables the managed WeChat plugin", async () =
     assert.equal(countCommands(commands, "plugins install @wecom/wecom-openclaw-plugin"), 1);
     assert.equal(countCommands(commands, "plugins enable wecom-openclaw-plugin"), 1);
     assert.equal(countCommands(commands, "gateway restart"), 1);
+  });
+});
+
+test("feature requirement preparation can defer gateway restart until WeChat Work config is saved", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const result = await adapter.plugins.ensureFeatureRequirements("channel:wechat-work", { deferGatewayRestart: true });
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.entries[0]?.installed, true);
+    assert.equal(result.entries[0]?.enabled, true);
+    assert.equal(countCommands(commands, "plugins install @wecom/wecom-openclaw-plugin"), 1);
+    assert.equal(countCommands(commands, "plugins enable wecom-openclaw-plugin"), 1);
+    assert.equal(countCommands(commands, "gateway restart"), 0);
+  });
+});
+
+test("WeChat Work requests repair the legacy invalid channel key before retrying OpenClaw commands", async () => {
+  await withFakeOpenClaw(async ({ adapter, configPath }) => {
+    await writeFile(configPath, JSON.stringify({
+      channels: {
+        "wecom-openclaw-plugin": {
+          enabled: true,
+          botId: "legacy-bot",
+          secret: "legacy-secret",
+          webhookPath: "/wecom-openclaw-plugin",
+          token: "legacy-token",
+          encodingAESKey: "legacy-aes"
+        }
+      }
+    }));
+
+    const result = await adapter.plugins.ensureFeatureRequirements("channel:wechat-work", { deferGatewayRestart: true });
+    const config = JSON.parse(await readFile(configPath, "utf8")) as {
+      channels?: Record<string, Record<string, unknown>>;
+    };
+
+    assert.equal(result.entries[0]?.installed, true);
+    assert.equal(config.channels?.wecom?.enabled, true);
+    assert.equal(config.channels?.wecom?.botId, "legacy-bot");
+    assert.equal(config.channels?.wecom?.secret, "legacy-secret");
+    assert.equal("wecom-openclaw-plugin" in (config.channels ?? {}), false);
+  }, {
+    invalidLegacyWechatConfig: true
   });
 });
 
@@ -1218,6 +1350,73 @@ test("restartGateway issues one gateway restart and reports success when the gat
 
     assert.equal(result.status, "completed");
     assert.match(result.message, /gateway restarted and is reachable/i);
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+  });
+});
+
+test("finalizeOnboardingSetup is a no-op when the gateway is already installed and reachable", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const statePath = resolve(process.cwd(), "apps/daemon/.data", "openclaw-state.json");
+    const previousState = await readFile(statePath, "utf8").catch(() => undefined);
+    if (previousState !== undefined) {
+      await rm(statePath, { force: true });
+    }
+
+    try {
+      const result = await adapter.gateway.finalizeOnboardingSetup();
+      const commands = await readCommands(logPath);
+
+      assert.equal(result.engineStatus.running, true);
+      assert.equal(countCommands(commands, "gateway restart"), 0);
+      assert.equal(countCommands(commands, "gateway install --json"), 0);
+      assert.equal(countCommands(commands, "gateway start"), 0);
+    } finally {
+      if (previousState !== undefined) {
+        await writeFile(statePath, previousState);
+      }
+    }
+  });
+});
+
+test("restartGateway installs and starts the gateway service when restart reports it is not loaded", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const result = await adapter.gateway.restartGateway();
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.status, "completed");
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(countCommands(commands, "gateway install --json"), 1);
+    assert.equal(countCommands(commands, "gateway start"), 1);
+  }, { gatewayServiceLoaded: false });
+});
+
+test("finalizeOnboardingSetup installs and starts the gateway service when it is missing", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    const result = await adapter.gateway.finalizeOnboardingSetup();
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.engineStatus.running, true);
+    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.equal(countCommands(commands, "gateway install --json"), 1);
+    assert.equal(countCommands(commands, "gateway start"), 1);
+  }, { gatewayServiceLoaded: false });
+});
+
+test("finalizeOnboardingSetup applies staged gateway changes before completing", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    await adapter.config.saveChannelEntry({
+      channelId: "telegram",
+      action: "save",
+      values: {
+        token: "123:finalize-token",
+        accountName: "Finalize Bot"
+      }
+    });
+
+    const result = await adapter.gateway.finalizeOnboardingSetup();
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.engineStatus.pendingGatewayApply, false);
     assert.equal(countCommands(commands, "gateway restart"), 1);
   });
 });

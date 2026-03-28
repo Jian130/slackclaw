@@ -199,7 +199,11 @@ struct NativeOnboardingView: View {
                     .ignoresSafeArea()
 
                 if viewModel.pageLoading && viewModel.onboardingState == nil {
-                    LoadingState(title: viewModel.copy.loading, description: "ChillClaw is preparing your guided setup.")
+                    LoadingState(
+                        title: viewModel.copy.loading,
+                        description: "ChillClaw is preparing your guided setup.",
+                        style: .hero
+                    )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     GuidedFlowScaffold {
@@ -210,7 +214,7 @@ struct NativeOnboardingView: View {
                         .frame(maxWidth: contentWidth)
                     } content: {
                         mainCard(contentWidth: contentWidth, welcomeMinHeight: welcomeMinHeight, compactEmployeeLayout: compactEmployeeLayout)
-                            .frame(maxWidth: contentWidth, alignment: .leading)
+                            .frame(maxWidth: contentWidth)
                     }
                 }
             }
@@ -965,7 +969,7 @@ struct NativeOnboardingView: View {
 
                                 NativeOnboardingActionButton(
                                     variant: .primary,
-                                    disabled: requiredModelFieldsMissing(viewModel.selectedMethod, values: viewModel.modelValues)
+                                    disabled: viewModel.modelBusy == "save" || requiredModelFieldsMissing(viewModel.selectedMethod, values: viewModel.modelValues)
                                 ) {
                                     Task { await viewModel.saveModel() }
                                 } label: {
@@ -1275,9 +1279,9 @@ struct NativeOnboardingView: View {
 
                             NativeOnboardingActionButton(
                                 variant: .primary,
-                                disabled: viewModel.activeChannelSession?.inputPrompt != nil
+                                disabled: viewModel.channelBusy || (viewModel.activeChannelSession?.inputPrompt != nil
                                     ? viewModel.channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    : viewModel.isSelectedChannelMissingRequiredValues()
+                                    : viewModel.isSelectedChannelMissingRequiredValues())
                             ) {
                                 Task {
                                     if viewModel.activeChannelSession?.inputPrompt != nil {
@@ -1653,38 +1657,27 @@ struct NativeOnboardingView: View {
     }
 
     private func destinationCard(title: String, subtitle: String, destination: OnboardingDestination) -> some View {
-        Button {
-            Task { await viewModel.complete(destination: destination) }
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
+        SurfaceCard(tone: .standard, padding: 22, spacing: 16, minimumHeight: 170) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text(title)
                     .font(.title3.weight(.semibold))
+                    .foregroundStyle(nativeOnboardingTextPrimary)
                 Text(subtitle)
                     .foregroundStyle(nativeOnboardingTextSecondary)
-                Spacer()
-                HStack {
-                    Spacer()
-                    if viewModel.completionBusy == destination {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "arrow.right")
-                            .font(.headline.weight(.semibold))
-                    }
+                Spacer(minLength: 0)
+                ActionButton(
+                    title,
+                    systemImage: "arrow.right",
+                    variant: .outline,
+                    isBusy: viewModel.completionBusy == destination,
+                    isDisabled: viewModel.completionBusy != nil && viewModel.completionBusy != destination,
+                    fullWidth: true
+                ) {
+                    Task { await viewModel.complete(destination: destination) }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 170, alignment: .leading)
-            .padding(22)
-            .contentShape(RoundedRectangle(cornerRadius: nativeOnboardingDisplayRadius, style: .continuous))
-            .background(
-                RoundedRectangle(cornerRadius: nativeOnboardingDisplayRadius, style: .continuous)
-                    .fill(Color.white.opacity(0.78))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: nativeOnboardingDisplayRadius, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.78))
-                    )
-            )
+            .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
         }
-        .buttonStyle(.plain)
     }
 
     private func summaryCard(title: String, value: String) -> some View {

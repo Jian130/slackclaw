@@ -4,7 +4,7 @@ import type { PluginManager } from "./adapter.js";
 
 type PluginAccess = {
   getConfigOverview: () => Promise<PluginConfigOverview>;
-  ensureFeatureRequirements: (featureId: string) => Promise<PluginConfigOverview>;
+  ensureFeatureRequirements: (featureId: string, options?: { deferGatewayRestart?: boolean }) => Promise<PluginConfigOverview>;
   installPlugin: (pluginId: string) => Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
   updatePlugin: (pluginId: string) => Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
   removePlugin: (pluginId: string) => Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
@@ -17,8 +17,8 @@ export class OpenClawPluginManager implements PluginManager {
     return this.access.getConfigOverview();
   }
 
-  ensureFeatureRequirements(featureId: string) {
-    return this.access.ensureFeatureRequirements(featureId);
+  ensureFeatureRequirements(featureId: string, options?: { deferGatewayRestart?: boolean }) {
+    return this.access.ensureFeatureRequirements(featureId, options);
   }
 
   installPlugin(pluginId: string) {

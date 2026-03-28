@@ -44,12 +44,17 @@ public final class SlackClawChatViewModel {
 
     private let transport: SlackClawChatTransport
     private var eventTask: Task<Void, Never>?
+    private var selectedThreadLoadTask: Task<Void, Never>?
+    private var isStarting = false
 
     public init(transport: SlackClawChatTransport) {
         self.transport = transport
     }
 
     public func start() async {
+        guard eventTask == nil, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
         await refresh()
         guard eventTask == nil else { return }
         eventTask = Task { [weak self] in
@@ -87,22 +92,24 @@ public final class SlackClawChatViewModel {
         do {
             let overview = try await transport.fetchOverview()
             self.overview = overview
-            if let current = selectedThread?.id ?? overview.threads.first?.id {
-                self.selectedThread = try await transport.fetchThread(threadId: current)
-            }
             self.errorMessage = nil
+            guard let current = selectedThreadID(for: overview) else {
+                selectedThreadLoadTask?.cancel()
+                selectedThreadLoadTask = nil
+                selectedThread = nil
+                return
+            }
+            showThreadPlaceholder(threadId: current, overview: overview)
+            loadThreadDetail(threadId: current)
         } catch {
             self.errorMessage = error.localizedDescription
         }
     }
 
     public func selectThread(_ threadId: String) async {
-        do {
-            self.selectedThread = try await transport.fetchThread(threadId: threadId)
-            self.errorMessage = nil
-        } catch {
-            self.errorMessage = error.localizedDescription
-        }
+        showThreadPlaceholder(threadId: threadId, overview: overview)
+        errorMessage = nil
+        loadThreadDetail(threadId: threadId)
     }
 
     public func createThread(memberId: String) async {
@@ -119,6 +126,9 @@ public final class SlackClawChatViewModel {
         guard let threadId = selectedThread?.id, let thread = selectedThread, canSendCurrentDraft else {
             return
         }
+
+        selectedThreadLoadTask?.cancel()
+        selectedThreadLoadTask = nil
 
         let message = draftMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let clientMessageId = UUID().uuidString
@@ -168,16 +178,18 @@ public final class SlackClawChatViewModel {
             upsert(thread: thread)
         case let .historyLoaded(threadId, detail):
             upsert(detail: detail)
-            if selectedThread?.id == threadId {
+            if selectedThreadID == threadId {
                 selectedThread = detail
             }
         case let .messageCreated(threadId, message):
-            guard selectedThread?.id == threadId else { return }
-            selectedThread?.messages = upsertChatMessages(selectedThread?.messages ?? [], message: message)
+            mutateSelectedThread(ifMatching: threadId) { thread in
+                thread.messages = upsertChatMessages(thread.messages, message: message)
+            }
         case let .runStarted(threadId, message, _):
-            guard selectedThread?.id == threadId else { return }
             updateComposer(threadId: threadId, activityLabel: "Thinking…", status: "thinking", toolActivities: [])
-            selectedThread?.messages = upsertChatMessages(selectedThread?.messages ?? [], message: message)
+            mutateSelectedThread(ifMatching: threadId) { thread in
+                thread.messages = upsertChatMessages(thread.messages, message: message)
+            }
         case let .assistantThinking(threadId, activityLabel):
             updateComposer(threadId: threadId, activityLabel: activityLabel, status: "thinking")
         case let .connectionState(threadId, state, detail):
@@ -192,18 +204,19 @@ public final class SlackClawChatViewModel {
             )
         case let .assistantDelta(threadId, message, activityLabel):
             updateComposer(threadId: threadId, activityLabel: activityLabel, status: "streaming")
-            guard selectedThread?.id == threadId else { return }
-            selectedThread?.messages = upsertChatMessages(selectedThread?.messages ?? [], message: message)
+            mutateSelectedThread(ifMatching: threadId) { thread in
+                thread.messages = upsertChatMessages(thread.messages, message: message)
+            }
         case let .assistantCompleted(threadId, detail, _),
              let .assistantAborted(threadId, detail, _):
             upsert(detail: detail)
-            if selectedThread?.id == detail.id {
+            if selectedThreadID == detail.id {
                 selectedThread = detail
             }
             updateComposer(threadId: threadId, activityLabel: nil, status: "idle", bridgeState: .connected, toolActivities: [])
         case let .assistantFailed(threadId, error, detail, activityLabel):
             updateComposer(threadId: threadId, activityLabel: activityLabel, status: "error", error: error, bridgeState: .connected, toolActivities: [])
-            if let detail, selectedThread?.id == threadId {
+            if let detail, selectedThreadID == threadId {
                 selectedThread = detail
             }
         case let .threadUpdated(thread):
@@ -262,21 +275,21 @@ public final class SlackClawChatViewModel {
         if let toolActivities {
             overview.threads[index].composerState.toolActivities = toolActivities
         }
-        if selectedThread?.id == threadId {
+        mutateSelectedThread(ifMatching: threadId) { thread in
             if let status {
-                selectedThread?.composerState.status = status
+                thread.composerState.status = status
                 let availability = composerAvailability(for: status)
-                selectedThread?.composerState.canSend = availability.canSend
-                selectedThread?.composerState.canAbort = availability.canAbort
-                selectedThread?.activeRunState = status == "idle" ? nil : status
+                thread.composerState.canSend = availability.canSend
+                thread.composerState.canAbort = availability.canAbort
+                thread.activeRunState = status == "idle" ? nil : status
             }
-            selectedThread?.composerState.activityLabel = activityLabel
-            selectedThread?.composerState.error = error
+            thread.composerState.activityLabel = activityLabel
+            thread.composerState.error = error
             if let bridgeState {
-                selectedThread?.composerState.bridgeState = bridgeState
+                thread.composerState.bridgeState = bridgeState
             }
             if let toolActivities {
-                selectedThread?.composerState.toolActivities = toolActivities
+                thread.composerState.toolActivities = toolActivities
             }
         }
     }
@@ -294,6 +307,55 @@ public final class SlackClawChatViewModel {
         }
 
         return activities
+    }
+
+    private func selectedThreadID(for overview: ChatOverview) -> String? {
+        if let selectedThread, overview.threads.contains(where: { $0.id == selectedThread.id }) {
+            return selectedThread.id
+        }
+
+        return overview.threads.first?.id
+    }
+
+    private var selectedThreadID: String? {
+        selectedThread?.id
+    }
+
+    private func mutateSelectedThread(ifMatching threadId: String, _ mutate: (inout ChatThreadDetail) -> Void) {
+        guard var thread = selectedThread, thread.id == threadId else { return }
+        mutate(&thread)
+        selectedThread = thread
+    }
+
+    private func showThreadPlaceholder(threadId: String, overview: ChatOverview) {
+        guard let summary = overview.threads.first(where: { $0.id == threadId }) else { return }
+        let existingDetail = selectedThread?.id == threadId ? selectedThread : nil
+        selectedThread = placeholderThreadDetail(summary: summary, existingDetail: existingDetail)
+    }
+
+    private func loadThreadDetail(threadId: String) {
+        selectedThreadLoadTask?.cancel()
+        let transport = self.transport
+
+        selectedThreadLoadTask = Task { [weak self] in
+            do {
+                let detail = try await transport.fetchThread(threadId: threadId)
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    guard let self, self.selectedThread?.id == threadId else { return }
+                    self.selectedThread = detail
+                    self.errorMessage = nil
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    guard let self, self.selectedThread?.id == threadId else { return }
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 }
 
@@ -446,6 +508,26 @@ private func optimisticThreadDetail(thread: ChatThreadDetail, message: String, c
         ),
         messages: upsertChatMessages(upsertChatMessages(thread.messages, message: userMessage), message: assistantMessage),
         historyError: thread.historyError
+    )
+}
+
+private func placeholderThreadDetail(summary: ChatThreadSummary, existingDetail: ChatThreadDetail?) -> ChatThreadDetail {
+    ChatThreadDetail(
+        id: summary.id,
+        memberId: summary.memberId,
+        agentId: summary.agentId,
+        sessionKey: summary.sessionKey,
+        title: summary.title,
+        createdAt: summary.createdAt,
+        updatedAt: summary.updatedAt,
+        lastPreview: summary.lastPreview ?? existingDetail?.lastPreview,
+        lastMessageAt: summary.lastMessageAt ?? existingDetail?.lastMessageAt,
+        unreadCount: summary.unreadCount,
+        activeRunState: summary.activeRunState,
+        historyStatus: summary.historyStatus,
+        composerState: summary.composerState,
+        messages: existingDetail?.messages ?? [],
+        historyError: existingDetail?.historyError
     )
 }
 

@@ -229,6 +229,10 @@ export function resolveOnboardingProviderId<T extends { id: string }>(
   return "";
 }
 
+export function nextOnboardingStepAfterModelSave(requiresInteraction: boolean): OnboardingStep {
+  return requiresInteraction ? "model" : "channel";
+}
+
 export function resolveOnboardingModelViewState(
   args: ResolveOnboardingModelViewStateArgs
 ): OnboardingModelViewState {
@@ -446,7 +450,7 @@ export function onboardingRefreshResourceForEvent(
       return event.type === "channel.session.updated" ? "channel" : undefined;
     case "employee":
     case "complete":
-      return event.type === "preset-skill-sync.updated" ? "onboarding" : undefined;
+      return undefined;
     case "welcome":
     default:
       return undefined;

@@ -6,6 +6,90 @@ import Testing
 @MainActor
 struct ChatViewModelTests {
     @Test
+    func startDoesNotBlockOnSlowInitialHistoryLoad() async {
+        let transport = SlowInitialHistoryChatTransport()
+        let viewModel = SlackClawChatViewModel(transport: transport)
+        let probe = CompletionProbe()
+
+        let startTask = Task {
+            await viewModel.start()
+            await probe.markCompleted()
+        }
+
+        for _ in 0..<50 {
+            if await probe.isCompleted {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        let startCompleted = await probe.isCompleted
+        #expect(startCompleted)
+        #expect(viewModel.overview.threads.count == 1)
+        #expect(viewModel.selectedThread?.id == "thread-1")
+        #expect(viewModel.selectedThread?.messages.isEmpty == true)
+
+        transport.finishThreadLoad()
+        await startTask.value
+    }
+
+    @Test
+    func startIgnoresDuplicateCallsWhileInitialHistoryIsStillLoading() async {
+        let transport = SlowInitialHistoryChatTransport()
+        let viewModel = SlackClawChatViewModel(transport: transport)
+
+        let firstStart = Task {
+            await viewModel.start()
+        }
+        let secondStart = Task {
+            await viewModel.start()
+        }
+
+        for _ in 0..<50 {
+            if transport.fetchThreadCallCount > 0 {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        let fetchThreadCallCount = transport.fetchThreadCallCount
+        #expect(fetchThreadCallCount == 1)
+
+        transport.finishThreadLoad()
+        await firstStart.value
+        await secondStart.value
+    }
+
+    @Test
+    func startAppliesIncomingChatEventsToTheSelectedThread() async {
+        let transport = StreamingEventChatTransport()
+        let viewModel = SlackClawChatViewModel(transport: transport)
+
+        await viewModel.start()
+        transport.push(.messageCreated(
+            threadId: "thread-1",
+            message: .init(id: "user-1", role: "user", text: "Hi", status: "sent")
+        ))
+        transport.push(.assistantDelta(
+            threadId: "thread-1",
+            message: .init(id: "assistant-1", role: "assistant", text: "Hello", status: "streaming"),
+            activityLabel: "Responding…"
+        ))
+
+        for _ in 0..<50 {
+            if viewModel.selectedThread?.messages.count == 2 {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(viewModel.selectedThread?.messages.count == 2)
+        #expect(viewModel.selectedThread?.messages.first?.text == "Hi")
+        #expect(viewModel.selectedThread?.messages.last?.text == "Hello")
+        #expect(viewModel.selectedThread?.composerState.status == "streaming")
+    }
+
+    @Test
     func sendStartsWithOptimisticPendingMessagesBeforeTheDaemonResponds() async {
         let transport = DelayedSendChatTransport()
         let viewModel = SlackClawChatViewModel(transport: transport)
@@ -277,6 +361,172 @@ private final class RetryingChatTransport: SlackClawChatTransport, @unchecked Se
         return AsyncThrowingStream { continuation in
             continuation.yield(.connectionState(threadId: "thread-1", state: .connected, detail: "Reconnected."))
             continuation.finish()
+        }
+    }
+}
+
+private actor CompletionProbe {
+    private var completed = false
+
+    func markCompleted() {
+        completed = true
+    }
+
+    var isCompleted: Bool {
+        completed
+    }
+}
+
+private final class SlowInitialHistoryChatTransport: SlackClawChatTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuations: [CheckedContinuation<ChatThreadDetail, Error>] = []
+    private var threadCallCount = 0
+
+    var fetchThreadCallCount: Int {
+        lock.withLock { threadCallCount }
+    }
+
+    func fetchOverview() async throws -> ChatOverview {
+        .init(threads: [
+            .init(
+                id: "thread-1",
+                memberId: "member-1",
+                agentId: "agent-1",
+                sessionKey: "session-1",
+                title: "Thread",
+                createdAt: "2026-03-20T00:00:00.000Z",
+                updatedAt: "2026-03-20T00:00:00.000Z",
+                unreadCount: 0,
+                historyStatus: "loading",
+                composerState: .init(status: "idle", canSend: true, canAbort: false)
+            )
+        ])
+    }
+
+    func fetchThread(threadId: String) async throws -> ChatThreadDetail {
+        lock.withLock {
+            threadCallCount += 1
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            self.continuations.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    func finishThreadLoad() {
+        lock.lock()
+        let continuations = self.continuations
+        self.continuations.removeAll()
+        lock.unlock()
+
+        for continuation in continuations {
+            continuation.resume(returning: .init(
+                id: "thread-1",
+                memberId: "member-1",
+                agentId: "agent-1",
+                sessionKey: "session-1",
+                title: "Thread",
+                createdAt: "2026-03-20T00:00:00.000Z",
+                updatedAt: "2026-03-20T00:00:00.000Z",
+                unreadCount: 0,
+                historyStatus: "ready",
+                composerState: .init(status: "idle", canSend: true, canAbort: false),
+                messages: []
+            ))
+        }
+    }
+
+    func createThread(memberId: String) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func sendMessage(threadId: String, message: String, clientMessageId: String?) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func abort(threadId: String) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func events() async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+}
+
+private final class StreamingEventChatTransport: SlackClawChatTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation?
+    private var pendingEvents: [ChatStreamEvent] = []
+
+    func fetchOverview() async throws -> ChatOverview {
+        .init(threads: [
+            .init(
+                id: "thread-1",
+                memberId: "member-1",
+                agentId: "agent-1",
+                sessionKey: "session-1",
+                title: "Thread",
+                createdAt: "2026-03-20T00:00:00.000Z",
+                updatedAt: "2026-03-20T00:00:00.000Z",
+                unreadCount: 0,
+                historyStatus: "ready",
+                composerState: .init(status: "idle", canSend: true, canAbort: false)
+            )
+        ])
+    }
+
+    func fetchThread(threadId: String) async throws -> ChatThreadDetail {
+        .init(
+            id: threadId,
+            memberId: "member-1",
+            agentId: "agent-1",
+            sessionKey: "session-1",
+            title: "Thread",
+            createdAt: "2026-03-20T00:00:00.000Z",
+            updatedAt: "2026-03-20T00:00:00.000Z",
+            unreadCount: 0,
+            historyStatus: "ready",
+            composerState: .init(status: "idle", canSend: true, canAbort: false),
+            messages: []
+        )
+    }
+
+    func createThread(memberId: String) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func sendMessage(threadId: String, message: String, clientMessageId: String?) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func abort(threadId: String) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func events() async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            lock.lock()
+            self.continuation = continuation
+            let pendingEvents = self.pendingEvents
+            self.pendingEvents.removeAll()
+            lock.unlock()
+
+            for event in pendingEvents {
+                continuation.yield(event)
+            }
+        }
+    }
+
+    func push(_ event: ChatStreamEvent) {
+        lock.withLock {
+            if let continuation {
+                continuation.yield(event)
+            } else {
+                pendingEvents.append(event)
+            }
         }
     }
 }

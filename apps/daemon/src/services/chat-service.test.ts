@@ -41,6 +41,7 @@ async function createServices(testName: string, options?: { withEvents?: boolean
       contextWindow: 128000
     }
   });
+  await adapter.gateway.startGatewayAfterChannels();
 
   return {
     adapter,
@@ -171,6 +172,78 @@ test("chat service sends messages and keeps thread histories isolated", async ()
   assert.equal(firstDetail.messages.some((message) => message.clientMessageId === "client-1"), true);
   assert.equal(secondDetail.messages.some((message) => message.text.includes("Draft tomorrow's plan.")), true);
   assert.equal(overview.threads.length, 2);
+});
+
+test("chat service reuses the already-loaded thread detail when sending from an open chat", async () => {
+  const { chatService, member, adapter } = await createServices("chat-service-send-reuses-cached-detail");
+
+  const thread = (await chatService.createThread({ memberId: member.id, mode: "new" })).thread!;
+  const baseGetChatThreadDetail = adapter.getChatThreadDetail.bind(adapter);
+  let historyReads = 0;
+
+  adapter.getChatThreadDetail = (async (request) => {
+    historyReads += 1;
+    return baseGetChatThreadDetail(request);
+  }) as typeof adapter.getChatThreadDetail;
+  adapter.sendChatMessage = (async () => {
+    await delay(250);
+    return { runId: "mock-run-cache" };
+  }) as typeof adapter.sendChatMessage;
+
+  await chatService.getThreadDetail(thread.id);
+  assert.equal(historyReads, 1);
+
+  await chatService.sendMessage(thread.id, { message: "Hello from the cached thread.", clientMessageId: "client-cache" });
+
+  assert.equal(historyReads, 1);
+  await chatService.abortThread(thread.id);
+});
+
+test("chat service rejects sends immediately when the gateway is not ready", async () => {
+  class PendingGatewayAdapter extends MockAdapter {
+    override async status() {
+      const current = await super.status();
+      return {
+        ...current,
+        running: false,
+        pendingGatewayApply: true,
+        pendingGatewayApplySummary: "OpenClaw setup is saved but the gateway is not running yet.",
+        summary: "OpenClaw gateway is not reachable yet."
+      };
+    }
+  }
+
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/chat-service-pending-gateway-${randomUUID()}.json`);
+  const adapter = new PendingGatewayAdapter();
+  const store = new StateStore(filePath);
+  const aiTeamService = new AITeamService(adapter, store);
+  const created = await aiTeamService.saveMember(undefined, {
+    name: "Alex Morgan",
+    jobTitle: "Research Lead",
+    avatar: {
+      presetId: "operator",
+      accent: "var(--avatar-1)",
+      emoji: "🦊",
+      theme: "sunrise"
+    },
+    brainEntryId: "mock-openai-gpt-4o-mini",
+    personality: "Analytical",
+    soul: "Keep work clear and grounded.",
+    workStyles: ["Methodical"],
+    skillIds: ["research-brief"],
+    knowledgePackIds: [],
+    capabilitySettings: {
+      memoryEnabled: true,
+      contextWindow: 128000
+    }
+  });
+  const guardedChatService = new ChatService(adapter, store, aiTeamService);
+  const guardedThread = (await guardedChatService.createThread({ memberId: created.overview.members[0].id, mode: "new" })).thread!;
+
+  await assert.rejects(
+    () => guardedChatService.sendMessage(guardedThread.id, { message: "Hello", clientMessageId: "client-pending" }),
+    /gateway is not running yet|not reachable yet|ready to apply/i
+  );
 });
 
 test("chat service mirrors chat stream updates onto the daemon event bus", async () => {

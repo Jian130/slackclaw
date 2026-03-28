@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-03-28 21:38 CST
+
+- added daemon-managed OpenClaw plugin lifecycle support with a dedicated Plugins surface, retained plugin-config events, automatic WeCom plugin install and update, and removal blocking when active features still depend on a managed plugin
+- split the old `wechat` integration into distinct `wechat-work` and `wechat` setup paths, renamed the existing flow to **WeChat Work (WeCom)**, aligned WeCom config with the upstream `channels.wecom.*` contract, and moved personal WeChat onto a QR-first external installer workflow
+- changed onboarding so model and channel saves advance immediately from authoritative mutation results, added explicit onboarding runtime finalization that installs or starts the gateway service before setup completes, and fixed stale draft reconciliation that could block AI employee creation after successful model setup
+- reduced daemon polling and event feedback loops by stopping snapshot GET routes from re-emitting update events, scoping preset-skill refreshes to real runtime changes, and adding ISO timestamps to daemon console output and logs for easier live debugging
+- polished the native macOS onboarding UX with centered loading hero cards, improved scaffold centering, clearer completion actions, button loading states, and WeChat Work save behavior that defers gateway restart until config is ready
+- stabilized native and shared chat flows by making initial history loads non-blocking, ignoring duplicate startup requests, reusing cached thread detail on send, and fixing a Swift exclusivity conflict in selected-thread event application that could freeze the macOS app after sending a message
+
 ### 2026-03-27 00:51 CST
 
 - refactored the macOS and React clients around shared UI primitives and approved page scaffolds so dashboard, deploy, settings, onboarding, chat, team, members, skills, and configuration now reuse the same design-system contract

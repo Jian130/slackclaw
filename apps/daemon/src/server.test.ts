@@ -7,6 +7,7 @@ import type { AppState } from "./services/state-store.js";
 import {
   resetStateAfterRuntimeUninstall,
   resolveFreshReadInvalidationTargets,
+  shouldPublishSnapshotForRoute,
   shouldResetStateAfterDeploymentUninstall
 } from "./server.js";
 
@@ -28,6 +29,20 @@ test("chat thread reads do not invalidate daemon read caches", () => {
 
 test("non-GET requests do not invalidate daemon read caches", () => {
   assert.deepEqual(resolveFreshReadInvalidationTargets("POST", "/api/models/default"), []);
+});
+
+test("snapshot GET routes do not emit snapshot events back onto the bus", () => {
+  assert.equal(shouldPublishSnapshotForRoute("GET", "/api/overview"), false);
+  assert.equal(shouldPublishSnapshotForRoute("GET", "/api/models/config"), false);
+  assert.equal(shouldPublishSnapshotForRoute("GET", "/api/channels/config"), false);
+  assert.equal(shouldPublishSnapshotForRoute("GET", "/api/plugins/config"), false);
+  assert.equal(shouldPublishSnapshotForRoute("GET", "/api/skills/config"), false);
+  assert.equal(shouldPublishSnapshotForRoute("GET", "/api/ai-team/overview"), false);
+});
+
+test("mutation routes still publish snapshot events", () => {
+  assert.equal(shouldPublishSnapshotForRoute("POST", "/api/models/config"), true);
+  assert.equal(shouldPublishSnapshotForRoute("PATCH", "/api/ai-team/member-1"), true);
 });
 
 test("successful managed-local target uninstall triggers runtime-state reset", () => {

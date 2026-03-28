@@ -174,31 +174,34 @@ struct GuidedFlowScaffold<Header: View, Content: View, Footer: View, Aside: View
     var body: some View {
         GeometryReader { geometry in
             let wideLayout = geometry.size.width >= 1180
+            let layoutMode = nativeGuidedFlowLayoutMode(contentWidth)
+            let stackAlignment: HorizontalAlignment = layoutMode == .centered ? .center : .leading
+            let frameAlignment: Alignment = layoutMode == .centered ? .center : .leading
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: stackAlignment, spacing: 20) {
                     header
                     if wideLayout {
                         HStack(alignment: .top, spacing: 20) {
-                            VStack(alignment: .leading, spacing: 20) {
+                            VStack(alignment: stackAlignment, spacing: 20) {
                                 content
                                 footer
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: frameAlignment)
 
                             aside
                                 .frame(width: asideWidth, alignment: .top)
                         }
                     } else {
-                        VStack(alignment: .leading, spacing: 20) {
+                        VStack(alignment: stackAlignment, spacing: 20) {
                             content
                             aside
                             footer
                         }
                     }
                 }
-                .frame(maxWidth: nativePageContentMaxWidth(contentWidth) ?? .infinity, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: contentWidth == .centered ? .center : .leading)
+                .frame(maxWidth: nativePageContentMaxWidth(contentWidth) ?? .infinity, alignment: frameAlignment)
+                .frame(maxWidth: .infinity, alignment: frameAlignment)
                 .padding(NativeUI.pagePadding)
             }
         }

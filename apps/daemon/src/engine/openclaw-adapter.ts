@@ -74,7 +74,12 @@ import { type CommandResult, probeCommand as probeExternalCommand, resolveComman
 import { createDefaultSecretsAdapter } from "../platform/macos-keychain-secrets-adapter.js";
 import { OpenClawGatewaySocketAdapter, normalizeGatewaySocketUrl, readGatewayChatText } from "../platform/openclaw-gateway-socket-adapter.js";
 import type { SecretsAdapter } from "../platform/secrets-adapter.js";
-import { managedPluginDefinitionById, managedPluginDefinitionForFeature, listManagedPluginDefinitions } from "../config/managed-plugins.js";
+import {
+  managedPluginConfigKeys,
+  managedPluginDefinitionById,
+  managedPluginDefinitionForFeature,
+  listManagedPluginDefinitions
+} from "../config/managed-plugins.js";
 
 import type {
   AIEmployeeManager,
@@ -544,6 +549,9 @@ interface PendingSavedModelEntryOperation {
 }
 
 type CommandFallbackDecision = "retry-with-config" | "hard-fail" | "not-applicable";
+
+const LEGACY_WECOM_CHANNEL_KEY = "wecom-openclaw-plugin";
+const CANONICAL_WECOM_CHANNEL_KEY = "wecom";
 
 let activeChannelLoginSession: LoginSessionState | undefined;
 const modelAuthSessions = new Map<string, RuntimeModelAuthSession>();
@@ -1703,7 +1711,93 @@ async function runOpenClaw(
     throw new Error("OpenClaw CLI is not installed.");
   }
 
+  const result = await runCommand(command, args, options);
+  if (!(await repairLegacyWecomChannelConfigFromFailure(result))) {
+    return result;
+  }
+
   return runCommand(command, args, options);
+}
+
+function isLegacyWecomChannelConfigFailure(result: CommandResult): boolean {
+  const text = commandFailureText(result).toLowerCase();
+  return (
+    text.includes(`channels.${LEGACY_WECOM_CHANNEL_KEY}`) &&
+    text.includes(`unknown channel id: ${LEGACY_WECOM_CHANNEL_KEY}`)
+  );
+}
+
+function normalizeLegacyWecomChannelConfigEntry(entry: unknown): Record<string, unknown> {
+  const next: Record<string, unknown> = {
+    enabled: true,
+    dmPolicy: "pairing",
+    groupPolicy: "open"
+  };
+
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return next;
+  }
+
+  const current = entry as Record<string, unknown>;
+  if (typeof current.enabled === "boolean") {
+    next.enabled = current.enabled;
+  }
+  if (typeof current.botId === "string" && current.botId.trim()) {
+    next.botId = current.botId.trim();
+  }
+  if (typeof current.secret === "string" && current.secret.trim()) {
+    next.secret = current.secret.trim();
+  }
+  if (typeof current.dmPolicy === "string" && current.dmPolicy.trim()) {
+    next.dmPolicy = current.dmPolicy.trim();
+  }
+  if (typeof current.groupPolicy === "string" && current.groupPolicy.trim()) {
+    next.groupPolicy = current.groupPolicy.trim();
+  }
+
+  return next;
+}
+
+async function repairLegacyWecomChannelConfigFromFailure(result: CommandResult): Promise<boolean> {
+  if (!isLegacyWecomChannelConfigFailure(result)) {
+    return false;
+  }
+
+  const failureText = commandFailureText(result);
+  const configPath =
+    failureText.match(/^Invalid config at (.+?):$/m)?.[1]?.trim() ||
+    failureText.match(/^Invalid config at (.+?):/m)?.[1]?.trim() ||
+    defaultOpenClawConfigPath();
+  const config = (await readOpenClawConfigFile(configPath)) ?? {};
+  const legacyEntry = config.channels?.[LEGACY_WECOM_CHANNEL_KEY];
+
+  if (!config.channels || legacyEntry === undefined) {
+    return false;
+  }
+
+  const existingCanonical =
+    config.channels[CANONICAL_WECOM_CHANNEL_KEY] &&
+    typeof config.channels[CANONICAL_WECOM_CHANNEL_KEY] === "object" &&
+    !Array.isArray(config.channels[CANONICAL_WECOM_CHANNEL_KEY])
+      ? config.channels[CANONICAL_WECOM_CHANNEL_KEY] as Record<string, unknown>
+      : undefined;
+  config.channels[CANONICAL_WECOM_CHANNEL_KEY] = {
+    ...normalizeLegacyWecomChannelConfigEntry(legacyEntry),
+    ...existingCanonical
+  };
+  delete config.channels[LEGACY_WECOM_CHANNEL_KEY];
+  if (Object.keys(config.channels).length === 0) {
+    delete config.channels;
+  }
+
+  await writeOpenClawConfigFile(configPath, config);
+  invalidateReadCache("models:", "engine:", "channels:", "plugins:");
+  await writeInfoLog("Repaired legacy WeChat Work channel config key.", {
+    configPath,
+    fromKey: LEGACY_WECOM_CHANNEL_KEY,
+    toKey: CANONICAL_WECOM_CHANNEL_KEY
+  });
+  return true;
 }
 
 async function runGatewayCall<T>(
@@ -4093,11 +4187,12 @@ export class OpenClawAdapter implements EngineAdapter {
       startWhatsappLogin: () => this.startWhatsappLogin(),
       approvePairing: (channelId, request) => this.approvePairing(channelId, request),
       prepareFeishu: () => this.prepareFeishu(),
+      finalizeOnboardingSetup: () => this.finalizeOnboardingSetup(),
       startGatewayAfterChannels: () => this.startGatewayAfterChannels()
     });
     this.plugins = new OpenClawPluginManager({
       getConfigOverview: () => this.getPluginConfigOverview(),
-      ensureFeatureRequirements: (featureId) => this.ensureFeatureRequirements(featureId),
+      ensureFeatureRequirements: (featureId, options) => this.ensureFeatureRequirements(featureId, options),
       installPlugin: (pluginId) => this.installPlugin(pluginId),
       updatePlugin: (pluginId) => this.updatePlugin(pluginId),
       removePlugin: (pluginId) => this.removePlugin(pluginId)
@@ -4289,16 +4384,20 @@ export class OpenClawAdapter implements EngineAdapter {
     });
   }
 
-  private async writeWechatChannelConfig(pluginId: string, request: WechatSetupRequest): Promise<void> {
+  private async writeWechatChannelConfig(
+    pluginId: string,
+    request: WechatSetupRequest,
+    legacyKeys: string[] = []
+  ): Promise<void> {
     await this.mutateOpenClawConfig(({ config }) => {
       config.channels = config.channels ?? {};
+      for (const legacyKey of legacyKeys) {
+        delete config.channels[legacyKey];
+      }
       config.channels[pluginId] = {
         enabled: true,
-        webhookPath: `/${pluginId}`,
         botId: request.botId,
         secret: request.secret,
-        token: `slackclaw-${randomBytes(10).toString("hex")}`,
-        encodingAESKey: randomBytes(32).toString("base64url").slice(0, 43),
         dmPolicy: "pairing",
         groupPolicy: "open"
       };
@@ -7168,7 +7267,9 @@ export class OpenClawAdapter implements EngineAdapter {
       entries: await Promise.all(
         listManagedPluginDefinitions().map(async (definition) => {
           const inspected = await inspectPlugin(definition.runtimePluginId);
-          const channelConfiguredInFile = Boolean(configSnapshot.config.channels?.[definition.configKey]);
+          const channelConfiguredInFile = managedPluginConfigKeys(definition).some((key) =>
+            Boolean(configSnapshot.config.channels?.[key])
+          );
           const dependencyStates = definition.dependencies.map((dependency) => ({
             ...dependency,
             active:
@@ -7226,7 +7327,10 @@ export class OpenClawAdapter implements EngineAdapter {
     };
   }
 
-  async ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview> {
+  async ensureFeatureRequirements(
+    featureId: string,
+    options?: { deferGatewayRestart?: boolean }
+  ): Promise<PluginConfigOverview> {
     const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat-work");
     if (!definition) {
       return this.getPluginConfigOverview();
@@ -7267,7 +7371,11 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     if (changed) {
-      await this.restartGatewayAndRequireHealthy(`${definition.label} preparation`);
+      if (options?.deferGatewayRestart) {
+        await this.markGatewayApplyPending();
+      } else {
+        await this.restartGatewayAndRequireHealthy(`${definition.label} preparation`);
+      }
     }
 
     this.invalidateReadCaches(["plugins", "channels"]);
@@ -7342,7 +7450,9 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     await this.removeManagedPluginConfigEntry(definition.runtimePluginId);
-    await this.removeChannelConfig(definition.configKey);
+    for (const channelKey of managedPluginConfigKeys(definition)) {
+      await this.removeChannelConfig(channelKey);
+    }
     await this.restartGatewayAndRequireHealthy(`${definition.label} removal`);
 
     this.invalidateReadCaches(["plugins", "channels"]);
@@ -7499,7 +7609,9 @@ export class OpenClawAdapter implements EngineAdapter {
         commandArgs: ["config", "unset", `channels.${wechatPlugin.configKey}`],
         fallbackDescription: `channels.${wechatPlugin.configKey} remove`,
         applyFallback: async () => {
-          await this.removeChannelConfig(wechatPlugin.configKey);
+          for (const channelKey of managedPluginConfigKeys(wechatPlugin)) {
+            await this.removeChannelConfig(channelKey);
+          }
         }
       });
 
@@ -7998,25 +8110,10 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error("Managed WeChat plugin definition is missing.");
     }
 
-    const configSave = await this.runMutationWithConfigFallback({
-      commandArgs: ["config", "set", "--strict-json", `channels.${wechatPlugin.configKey}`, JSON.stringify({
-        enabled: true,
-        webhookPath: `/${wechatPlugin.configKey}`,
-        botId: request.botId,
-        secret: request.secret,
-        token: `slackclaw-${randomBytes(10).toString("hex")}`,
-        encodingAESKey: randomBytes(32).toString("base64url").slice(0, 43),
-        dmPolicy: "pairing",
-        groupPolicy: "open"
-      })],
-      fallbackDescription: `channels.${wechatPlugin.configKey} config write`,
-      applyFallback: async () => {
-        await this.writeWechatChannelConfig(wechatPlugin.configKey, request);
-      }
-    });
-    if (!configSave.usedFallback && configSave.result.code !== 0) {
-      throw new Error(configSave.result.stderr || configSave.result.stdout || "SlackClaw could not save the WeChat configuration.");
-    }
+    // Managed plugin config may be written before the gateway restarts and reloads the plugin schema.
+    // Write the config file directly so setup does not depend on strict CLI validation.
+    logDevelopmentCommand("fallback", "openclaw-config", [`channels.${wechatPlugin.configKey} config write`]);
+    await this.writeWechatChannelConfig(wechatPlugin.configKey, request, wechatPlugin.legacyConfigKeys ?? []);
     await this.markGatewayApplyPending();
 
     return {
@@ -8148,10 +8245,42 @@ export class OpenClawAdapter implements EngineAdapter {
     };
   }
 
+  async finalizeOnboardingSetup(): Promise<{ message: string; engineStatus: EngineStatus }> {
+    const [engineStatus, snapshot] = await Promise.all([this.status(), readEngineSnapshot({ fresh: true })]);
+    const gatewayInstalled = Boolean(snapshot.statusJson?.gatewayService?.installed || snapshot.gatewayJson?.service?.installed);
+
+    if (gatewayInstalled && engineStatus.running && !engineStatus.pendingGatewayApply) {
+      return {
+        message: "OpenClaw gateway is already installed, configured, and reachable.",
+        engineStatus
+      };
+    }
+
+    const finalizedStatus = await this.restartGatewayAndRequireHealthy("onboarding completion");
+    return {
+      message: "OpenClaw onboarding finalization applied the gateway runtime and verified reachability.",
+      engineStatus: finalizedStatus
+    };
+  }
+
   private async restartGatewayAndRequireHealthy(reason: string): Promise<EngineStatus> {
     const restart = await runOpenClaw(["gateway", "restart"], { allowFailure: true });
 
-    if (restart.code !== 0) {
+    if (this.gatewayServiceNotLoaded(restart.stdout, restart.stderr)) {
+      const install = await runOpenClaw(["gateway", "install", "--json"], { allowFailure: true });
+      if (install.code !== 0) {
+        throw new Error(
+          install.stderr || install.stdout || `SlackClaw could not install the OpenClaw gateway service after ${reason}.`
+        );
+      }
+
+      const start = await runOpenClaw(["gateway", "start"], { allowFailure: true });
+      if (start.code !== 0) {
+        throw new Error(
+          start.stderr || start.stdout || `SlackClaw could not start the OpenClaw gateway service after ${reason}.`
+        );
+      }
+    } else if (restart.code !== 0) {
       throw new Error(restart.stderr || restart.stdout || `SlackClaw could not restart the OpenClaw gateway after ${reason}.`);
     }
 
@@ -8188,6 +8317,11 @@ export class OpenClawAdapter implements EngineAdapter {
       gatewayReachabilitySummary(snapshot) ||
         `SlackClaw restarted the OpenClaw gateway after ${reason}, but it is still not reachable.`
     );
+  }
+
+  private gatewayServiceNotLoaded(stdout?: string, stderr?: string): boolean {
+    const output = `${stdout ?? ""}\n${stderr ?? ""}`.toLowerCase();
+    return output.includes("gateway service not loaded");
   }
 
   private async collectStatusData(): Promise<{

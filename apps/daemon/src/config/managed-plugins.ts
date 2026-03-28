@@ -6,6 +6,7 @@ export interface ManagedPluginDefinition {
   packageSpec: string;
   runtimePluginId: string;
   configKey: string;
+  legacyConfigKeys?: string[];
   dependencies: Array<{
     id: ManagedFeatureId;
     label: string;
@@ -20,7 +21,8 @@ const managedPluginDefinitions = [
     label: "WeCom Plugin",
     packageSpec: "@wecom/wecom-openclaw-plugin",
     runtimePluginId: "wecom-openclaw-plugin",
-    configKey: "wecom-openclaw-plugin",
+    configKey: "wecom",
+    legacyConfigKeys: ["wecom-openclaw-plugin"],
     dependencies: [
       {
         id: "channel:wechat-work",
@@ -42,4 +44,8 @@ export function managedPluginDefinitionById(pluginId: string): ManagedPluginDefi
 
 export function managedPluginDefinitionForFeature(featureId: ManagedFeatureId): ManagedPluginDefinition | undefined {
   return managedPluginDefinitions.find((plugin) => plugin.dependencies.some((dependency) => dependency.id === featureId));
+}
+
+export function managedPluginConfigKeys(plugin: ManagedPluginDefinition): string[] {
+  return [plugin.configKey, ...(plugin.legacyConfigKeys ?? [])];
 }

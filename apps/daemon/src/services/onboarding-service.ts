@@ -50,6 +50,10 @@ function presetSkillTargetMode(install: ReturnType<typeof defaultOnboardingDraft
   return install?.disposition === "reused-existing" || install?.disposition === "installed-system" ? "reused-install" : "managed-local";
 }
 
+function samePresetSkillSelection(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((presetSkillId, index) => presetSkillId === right[index]);
+}
+
 export class OnboardingService {
   constructor(
     private readonly adapter: EngineAdapter,
@@ -111,10 +115,20 @@ export class OnboardingService {
 
     const draft = nextState.onboarding?.draft ?? defaultOnboardingDraftState();
     const targetMode = presetSkillTargetMode(draft.install);
+    const desiredPresetSkillIds = resolvePresetSkillIds(draft.employee);
+    const existingPresetSelection = nextState.presetSkills?.selections.onboarding;
+    const reuseExistingPresetSync =
+      Boolean(existingPresetSelection) &&
+      existingPresetSelection?.targetMode === targetMode &&
+      samePresetSkillSelection(existingPresetSelection?.presetSkillIds ?? [], desiredPresetSkillIds) &&
+      Boolean(nextState.presetSkills?.syncOverview);
+    let presetSkillSync;
     if (this.presetSkillService) {
-      await this.presetSkillService.setDesiredPresetSkillIds("onboarding", resolvePresetSkillIds(draft.employee), {
-        targetMode
-      });
+      presetSkillSync = reuseExistingPresetSync
+        ? await this.presetSkillService.getOverview()
+        : await this.presetSkillService.setDesiredPresetSkillIds("onboarding", desiredPresetSkillIds, {
+            targetMode
+          });
     }
     const summary = reuseDraftSummary ? this.buildDraftSummary(draft) : await this.buildSummary(draft);
 
@@ -127,7 +141,7 @@ export class OnboardingService {
       draft,
       config: onboardingUiConfig,
       summary,
-      presetSkillSync: this.presetSkillService ? await this.presetSkillService.getOverview() : undefined
+      presetSkillSync
     };
   }
 
@@ -135,6 +149,7 @@ export class OnboardingService {
     const current = await this.store.read();
     const draft = current.onboarding?.draft ?? defaultOnboardingDraftState();
     const summary = await this.buildSummary(draft);
+    await this.adapter.gateway.finalizeOnboardingSetup();
 
     await this.store.update((existing) => ({
       ...existing,
@@ -228,9 +243,9 @@ export class OnboardingService {
     if (draft.model) {
       const draftModel = draft.model;
       const modelConfig = await this.adapter.config.getModelConfig();
-      const matchedEntry = draftModel.entryId
-        ? modelConfig.savedEntries.find((entry) => entry.id === draftModel.entryId)
-        : modelConfig.savedEntries.find((entry) => entry.modelKey === draftModel.modelKey && entry.providerId === draftModel.providerId);
+      const matchedEntry =
+        modelConfig.savedEntries.find((entry) => entry.id === draftModel.entryId) ??
+        modelConfig.savedEntries.find((entry) => entry.modelKey === draftModel.modelKey && entry.providerId === draftModel.providerId);
 
       summary.model = matchedEntry
         ? {

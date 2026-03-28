@@ -500,6 +500,7 @@ struct OnboardingClientTests {
         let request = try #require(await recorder.lastRequest())
         #expect(request.httpMethod == "POST")
         #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/onboarding/complete")
+        #expect(request.timeoutInterval == 300)
         let body = try #require(readRequestBody(request))
         let payload = try JSONDecoder.slackClaw.decode(CompleteOnboardingRequest.self, from: body)
         #expect(payload.destination == .chat)

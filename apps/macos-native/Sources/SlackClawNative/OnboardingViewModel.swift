@@ -171,17 +171,22 @@ final class NativeOnboardingViewModel {
 
     var selectedModelEntry: SavedModelEntry? {
         guard let modelConfig = appState.modelConfig else { return nil }
-        if let entryId = currentDraft.model?.entryId {
-            return modelConfig.savedEntries.first(where: { $0.id == entryId })
+        if let entryId = currentDraft.model?.entryId,
+           let matched = modelConfig.savedEntries.first(where: { $0.id == entryId }) {
+            return matched
         }
-        if let entryId = onboardingState?.summary.model?.entryId {
-            return modelConfig.savedEntries.first(where: { $0.id == entryId })
+        if let entryId = onboardingState?.summary.model?.entryId,
+           let matched = modelConfig.savedEntries.first(where: { $0.id == entryId }) {
+            return matched
         }
-        return modelConfig.savedEntries.first(where: { $0.providerId == providerId && $0.modelKey == modelKey })
+        let fallbackProviderId = currentDraft.model?.providerId ?? onboardingState?.summary.model?.providerId ?? providerId
+        let fallbackModelKey = currentDraft.model?.modelKey ?? onboardingState?.summary.model?.modelKey ?? modelKey
+        guard !fallbackProviderId.isEmpty, !fallbackModelKey.isEmpty else { return nil }
+        return modelConfig.savedEntries.first(where: { $0.providerId == fallbackProviderId && $0.modelKey == fallbackModelKey })
     }
 
     var selectedBrainEntryId: String? {
-        selectedModelEntry?.id ?? onboardingState?.summary.model?.entryId
+        selectedModelEntry?.id
     }
 
     var previewAvatarPreset: NativeOnboardingAvatarPreset {
@@ -461,7 +466,7 @@ final class NativeOnboardingViewModel {
                 modelSession = authSession
                 onboardingState = try await persistDraft(
                     .init(
-                        currentStep: .model,
+                        currentStep: nativeOnboardingNextStepAfterModelSave(requiresInteraction: true),
                         model: .init(providerId: providerId, modelKey: modelKey.trimmingCharacters(in: .whitespacesAndNewlines), methodId: methodId),
                         activeModelAuthSessionId: authSession.id
                     )
@@ -476,7 +481,7 @@ final class NativeOnboardingViewModel {
 
             onboardingState = try await persistDraft(
                 .init(
-                    currentStep: .model,
+                    currentStep: nativeOnboardingNextStepAfterModelSave(requiresInteraction: false),
                     model: .init(
                         providerId: providerId,
                         modelKey: modelKey.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -529,46 +534,20 @@ final class NativeOnboardingViewModel {
 
         do {
             let previousEntries = appState.channelConfig?.entries ?? []
-            let result: SettledMutationResult<ChannelConfigActionResponse, ChannelConfigOverview>
-            if let selectedChannelEntry {
-                result = try await settleAfterMutation(
-                    mutate: { try await self.appState.client.saveChannelEntry(entryId: selectedChannelEntry.id, request: request) },
-                    getProvisionalState: { $0.channelConfig },
-                    applyState: { self.appState.channelConfig = $0 },
-                    readFresh: { try await self.readFreshChannelConfig() },
-                    isSettled: { state, mutation in
-                        let expectedEntry = mutation.channelConfig.entries.first(where: { $0.id == selectedChannelEntry.id })
-                        let actualEntry = state.entries.first(where: { $0.id == selectedChannelEntry.id })
-                        return channelEntrySignature(actualEntry) == channelEntrySignature(expectedEntry)
-                    }
-                )
-            } else {
-                result = try await settleAfterMutation(
-                    mutate: { try await self.appState.client.saveChannelEntry(entryId: nil, request: request) },
-                    getProvisionalState: { $0.channelConfig },
-                    applyState: { self.appState.channelConfig = $0 },
-                    readFresh: { try await self.readFreshChannelConfig() },
-                    isSettled: { state, mutation in
-                        guard let createdEntry = findCreatedChannelEntry(previousEntries: previousEntries, nextEntries: mutation.channelConfig.entries) else {
-                            return false
-                        }
-                        let actualEntry = state.entries.first(where: { $0.id == createdEntry.id })
-                        return channelEntrySignature(actualEntry) == channelEntrySignature(createdEntry)
-                    }
-                )
-            }
+            let result = try await self.appState.client.saveChannelEntry(entryId: selectedChannelEntry?.id, request: request)
+            appState.channelConfig = result.channelConfig
 
-            channelMessage = result.mutation.message
-            channelRequiresApply = result.mutation.requiresGatewayApply ?? false
-            if result.mutation.session != nil {
+            channelMessage = result.message
+            channelRequiresApply = result.requiresGatewayApply ?? false
+            if result.session != nil {
                 channelSessionInput = ""
             }
             let savedEntry =
-                (selectedChannelEntry.flatMap { selected in result.state.entries.first(where: { $0.id == selected.id }) }) ??
-                findCreatedChannelEntry(previousEntries: previousEntries, nextEntries: result.state.entries) ??
-                result.state.entries.first(where: { $0.channelId == selectedChannelPresentation.id })
+                (selectedChannelEntry.flatMap { selected in result.channelConfig.entries.first(where: { $0.id == selected.id }) }) ??
+                findCreatedChannelEntry(previousEntries: previousEntries, nextEntries: result.channelConfig.entries) ??
+                result.channelConfig.entries.first(where: { $0.channelId == selectedChannelPresentation.id })
 
-            if result.mutation.session != nil {
+            if result.session != nil {
                 onboardingState = try await persistDraft(.init(
                     currentStep: .channel,
                     channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id)
@@ -577,6 +556,10 @@ final class NativeOnboardingViewModel {
             }
 
             onboardingState = try await persistDraft(.init(currentStep: .employee, channel: .init(channelId: selectedChannelPresentation.id, entryId: savedEntry?.id)))
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = try? await self.readFreshChannelConfig()
+            }
         } catch {
             presentErrorUnlessCancelled(error)
         }
@@ -978,7 +961,7 @@ final class NativeOnboardingViewModel {
 
                         self.onboardingState = try await self.persistDraft(
                             .init(
-                                currentStep: .model,
+                                currentStep: nativeOnboardingNextStepAfterModelSave(requiresInteraction: false),
                                 model: .init(
                                     providerId: nextEntry?.providerId ?? self.providerId,
                                     modelKey: nextEntry?.modelKey ?? self.modelKey,

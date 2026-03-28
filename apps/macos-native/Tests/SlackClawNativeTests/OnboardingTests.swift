@@ -27,6 +27,76 @@ struct OnboardingTests {
     }
 
     @Test
+    func completeStepDestinationCardsRenderExplicitActionButtons() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("ActionButton("))
+        #expect(source.contains("systemImage: \"arrow.right\""))
+        #expect(source.contains("isBusy: viewModel.completionBusy == destination"))
+    }
+
+    @Test
+    func startupAndOnboardingUseHeroLoadingState() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let onboardingSource = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+        let rootSource = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/SlackClawNativeApp.swift"),
+            encoding: .utf8
+        )
+        let primitivesSource = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/UI/NativeUIPrimitives.swift"),
+            encoding: .utf8
+        )
+
+        #expect(onboardingSource.contains("style: .hero"))
+        #expect(rootSource.contains("style: .hero"))
+        #expect(primitivesSource.contains("enum LoadingStateStyle"))
+        #expect(primitivesSource.contains("case hero"))
+        #expect(primitivesSource.contains("NativeLoadingOrb"))
+    }
+
+    @Test
+    func modelSaveButtonDisablesWhileSaving() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("disabled: viewModel.modelBusy == \"save\" || requiredModelFieldsMissing"))
+    }
+
+    @Test
+    func channelSaveButtonDisablesWhileSaving() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("disabled: viewModel.channelBusy ||"))
+    }
+
+    @Test
     func nativeOnboardingForcesLightAppearance() {
         #expect(nativeOnboardingPreferredColorScheme == .light)
     }
@@ -910,6 +980,204 @@ struct OnboardingTests {
     }
 
     @Test
+    func savingNonInteractiveModelAdvancesToChannelWithSavedEntry() async throws {
+        let recorder = NativeRequestRecorder()
+        let savedEntry = SavedModelEntry(
+            id: "model-entry-1",
+            label: "MiniMax",
+            providerId: "minimax",
+            modelKey: "minimax/MiniMax-M2.5",
+            agentId: "agent-1",
+            authMethodId: "minimax-api",
+            authModeLabel: "API Key",
+            profileLabel: "Default",
+            isDefault: true,
+            isFallback: false,
+            createdAt: "2026-03-28T00:00:00.000Z",
+            updatedAt: "2026-03-28T00:00:00.000Z"
+        )
+        let savedConfig = ModelConfigOverview(
+            providers: [],
+            models: [],
+            defaultModel: savedEntry.modelKey,
+            configuredModelKeys: [savedEntry.modelKey],
+            savedEntries: [savedEntry],
+            defaultEntryId: savedEntry.id,
+            fallbackEntryIds: []
+        )
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/models/entries"):
+                let body = try JSONEncoder.slackClaw.encode(
+                    ModelConfigActionResponse(
+                        status: "completed",
+                        message: "Saved",
+                        modelConfig: savedConfig,
+                        authSession: nil,
+                        requiresGatewayApply: false
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            case ("GET", "/api/models/config"):
+                let body = try JSONEncoder.slackClaw.encode(savedConfig)
+                return (jsonResponse(url: url), body)
+            case ("PATCH", "/api/onboarding/state"):
+                let patchBody = try #require(bodyData(for: request))
+                let payload = try JSONDecoder.slackClaw.decode(UpdateOnboardingStateRequest.self, from: patchBody)
+                #expect(payload.currentStep == .channel)
+                #expect(payload.model?.entryId == savedEntry.id)
+
+                var nextState = makeOnboardingStateResponse(step: .channel)
+                nextState.draft.model = payload.model
+                let body = try JSONEncoder.slackClaw.encode(nextState)
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = SlackClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = SlackClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = SlackClawChatViewModel(transport: FakeChatTransport())
+        let appState = SlackClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model)
+        viewModel.selectProvider(try #require(viewModel.modelPickerProviders.first(where: { $0.id == "minimax" })))
+
+        await viewModel.saveModel()
+
+        #expect(viewModel.currentStep == OnboardingStep.channel)
+        #expect(viewModel.currentDraft.model?.entryId == savedEntry.id)
+        #expect(viewModel.modelBusy.isEmpty)
+    }
+
+    @Test
+    func savingWechatWorkChannelAdvancesWithoutFreshChannelRead() async throws {
+        let recorder = NativeRequestRecorder()
+        let savedEntry = ConfiguredChannelEntry(
+            id: "wechat-work:default",
+            channelId: .wechatWork,
+            label: "WeChat Work (WeCom)",
+            status: "completed",
+            summary: "WeChat Work is configured.",
+            detail: "Bot credentials are saved.",
+            maskedConfigSummary: [
+                .init(label: "Bot ID", value: "aiby...")
+            ],
+            editableValues: ["botId": "aiby..."],
+            pairingRequired: false,
+            lastUpdatedAt: "2026-03-28T00:00:00.000Z"
+        )
+        let savedConfig = ChannelConfigOverview(
+            baseOnboardingCompleted: true,
+            capabilities: [],
+            entries: [savedEntry],
+            activeSession: nil,
+            gatewaySummary: "Saved and ready to apply."
+        )
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/channels/entries"):
+                let body = try JSONEncoder.slackClaw.encode(
+                    ChannelConfigActionResponse(
+                        status: "completed",
+                        message: "Saved",
+                        channelConfig: savedConfig,
+                        session: nil,
+                        requiresGatewayApply: true
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            case ("PATCH", "/api/onboarding/state"):
+                let patchBody = try #require(bodyData(for: request))
+                let payload = try JSONDecoder.slackClaw.decode(UpdateOnboardingStateRequest.self, from: patchBody)
+                #expect(payload.currentStep == .employee)
+                #expect(payload.channel?.channelId == .wechatWork)
+                #expect(payload.channel?.entryId == savedEntry.id)
+
+                var nextState = makeOnboardingStateResponse(step: .employee)
+                nextState.draft.channel = payload.channel
+                let body = try JSONEncoder.slackClaw.encode(nextState)
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = SlackClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = SlackClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = SlackClawChatViewModel(transport: FakeChatTransport())
+        let appState = SlackClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .channel)
+        viewModel.updateSelectedChannel(.wechatWork)
+        viewModel.updateChannelValue(fieldId: "botId", value: "aibykFt...")
+        viewModel.updateChannelValue(fieldId: "secret", value: "secret-1")
+
+        await viewModel.saveChannel()
+
+        let urls = await recorder.recordedURLs()
+        #expect(urls.contains("http://127.0.0.1:4545/api/channels/entries"))
+        #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/state"))
+        #expect(urls.filter { $0.contains("/api/channels/config") }.isEmpty)
+        #expect(viewModel.currentStep == OnboardingStep.employee)
+        #expect(viewModel.currentDraft.channel?.entryId == savedEntry.id)
+        #expect(viewModel.channelBusy == false)
+    }
+
+    @Test
     func buildsOnboardingMemberRequestWithDeterministicHiddenFields() {
         let request = buildOnboardingMemberRequest(
             .init(
@@ -1424,7 +1692,7 @@ struct OnboardingTests {
         #expect(onboardingRefreshResourceForEvent(.channel, channelEvent) == .channel)
         #expect(onboardingRefreshResourceForEvent(.employee, employeeEvent) == nil)
         #expect(onboardingRefreshResourceForEvent(.complete, employeeEvent) == nil)
-        #expect(onboardingRefreshResourceForEvent(.employee, presetSyncEvent) == .onboarding)
+        #expect(onboardingRefreshResourceForEvent(.employee, presetSyncEvent) == nil)
         #expect(onboardingRefreshResourceForEvent(.welcome, unrelatedEvent) == nil)
         #expect(onboardingRefreshResourceForEvent(.model, unrelatedEvent) == nil)
     }

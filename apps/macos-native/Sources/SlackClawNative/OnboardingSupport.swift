@@ -648,6 +648,10 @@ func onboardingStepIndex(_ step: OnboardingStep) -> Int {
     nativeOnboardingStepOrder.firstIndex(of: step) ?? 0
 }
 
+func nativeOnboardingNextStepAfterModelSave(requiresInteraction: Bool) -> OnboardingStep {
+    requiresInteraction ? .model : .channel
+}
+
 func onboardingIsCurrentOrLater(_ step: OnboardingStep, target: OnboardingStep) -> Bool {
     onboardingStepIndex(step) >= onboardingStepIndex(target)
 }
@@ -683,7 +687,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: SlackCla
     case .employee, .complete:
         switch event {
         case .presetSkillSyncUpdated:
-            return .onboarding
+            return nil
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated,
              .chatStream, .channelSessionUpdated, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress:
             return nil

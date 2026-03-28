@@ -40,6 +40,18 @@ struct UIContractTests {
     }
 
     @Test
+    func guidedFlowLayoutModeCentersCenteredPages() {
+        #expect(nativeGuidedFlowLayoutMode(.centered) == .centered)
+        #expect(nativeGuidedFlowLayoutMode(.full) == .leading)
+    }
+
+    @Test
+    func successfulModelSetupAdvancesToChannelStep() {
+        #expect(nativeOnboardingNextStepAfterModelSave(requiresInteraction: false) == .channel)
+        #expect(nativeOnboardingNextStepAfterModelSave(requiresInteraction: true) == .model)
+    }
+
+    @Test
     func onboardingProgressAndSelectionStatesMapToSharedSemantics() {
         #expect(nativeOnboardingProgressState(active: true, complete: false) == .active)
         #expect(nativeOnboardingProgressState(active: false, complete: true) == .complete)

@@ -122,9 +122,22 @@ async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function gatewayNotReadyError(status: Awaited<ReturnType<EngineAdapter["instances"]["status"]>>): Error | undefined {
+  if (status.pendingGatewayApply) {
+    return new Error(status.pendingGatewayApplySummary ?? "OpenClaw setup is saved but the gateway is not running yet.");
+  }
+
+  if (!status.running) {
+    return new Error(status.summary || "OpenClaw gateway is not reachable yet.");
+  }
+
+  return undefined;
+}
+
 export class ChatService {
   private readonly activeRuns = new Map<string, ActiveChatRun>();
   private readonly detailOverrides = new Map<string, ChatThreadDetail>();
+  private readonly detailCache = new Map<string, ChatThreadDetail>();
   private liveBridgeReady = false;
   private liveBridgeConnected = false;
   private liveBridgeInitPromise?: Promise<boolean>;
@@ -176,6 +189,7 @@ export class ChatService {
     await this.persistThread(thread);
 
     const detail = this.buildEmptyDetail(thread);
+    this.cacheDetail(detail);
     this.broadcast({
       type: "thread-created",
       thread: this.toSummary(thread)
@@ -204,7 +218,9 @@ export class ChatService {
         sessionKey: thread.sessionKey
       });
 
-      return this.hydrateGatewayDetail(thread, detail, this.activeRuns.get(thread.id));
+      const hydratedDetail = this.hydrateGatewayDetail(thread, detail, this.activeRuns.get(thread.id));
+      this.cacheDetail(hydratedDetail);
+      return hydratedDetail;
     } catch (error) {
       await writeErrorLog("SlackClaw could not load chat history from OpenClaw.", {
         threadId,
@@ -212,7 +228,7 @@ export class ChatService {
         error: errorToLogDetails(error)
       });
 
-      return this.applyDetailOverride(
+      const fallbackDetail = this.applyDetailOverride(
         this.withActiveRunState(
         {
           ...this.buildEmptyDetail(thread),
@@ -222,6 +238,8 @@ export class ChatService {
         this.activeRuns.get(thread.id)
         )
       );
+      this.cacheDetail(fallbackDetail);
+      return fallbackDetail;
     }
   }
 
@@ -240,11 +258,17 @@ export class ChatService {
       throw new Error("Wait for the current reply to finish before sending another message.");
     }
 
+    const engineStatus = await this.adapter.instances.status();
+    const readinessError = gatewayNotReadyError(engineStatus);
+    if (readinessError) {
+      throw readinessError;
+    }
+
     void this.ensureLiveBridge();
 
     const now = new Date().toISOString();
     const clientMessageId = request.clientMessageId ?? randomUUID();
-    const initialDetail = await this.getThreadDetail(threadId);
+    const initialDetail = this.detailCache.get(threadId) ?? (await this.getThreadDetail(threadId));
     this.detailOverrides.delete(threadId);
     const nextTitle = thread.lastPreview ? thread.title : normalizePreview(message, thread.title);
 
@@ -648,6 +672,7 @@ export class ChatService {
       type: "thread-updated",
       thread: updatedThread
     });
+    this.cacheDetail(refreshedDetail);
     this.broadcast({
       type: eventType,
       threadId: activeRun.threadId,
@@ -681,6 +706,7 @@ export class ChatService {
       type: "thread-updated",
       thread: updatedThread
     });
+    this.cacheDetail(interruptedDetail);
     this.broadcast({
       type: "assistant-aborted",
       threadId: activeRun.threadId,
@@ -725,6 +751,7 @@ export class ChatService {
         activeRunState: "error"
       }
     });
+    this.cacheDetail(failedDetail);
     this.broadcast({
       type: "assistant-failed",
       threadId: activeRun.threadId,
@@ -782,7 +809,7 @@ export class ChatService {
     this.broadcast({
       type: "history-loaded",
       threadId: activeRun.threadId,
-      detail: this.hydrateGatewayDetail(thread, liveDetail, activeRun)
+      detail: this.cacheDetail(this.hydrateGatewayDetail(thread, liveDetail, activeRun))
     });
   }
 
@@ -1058,6 +1085,11 @@ export class ChatService {
       ...this.toSummary(thread),
       messages: []
     };
+  }
+
+  private cacheDetail(detail: ChatThreadDetail): ChatThreadDetail {
+    this.detailCache.set(detail.id, detail);
+    return detail;
   }
 
   private hydrateGatewayDetail(

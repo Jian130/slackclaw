@@ -10,6 +10,7 @@ import { AITeamService } from "./ai-team-service.js";
 import { ChannelSetupService } from "./channel-setup-service.js";
 import { OnboardingService } from "./onboarding-service.js";
 import { OverviewService } from "./overview-service.js";
+import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore } from "./state-store.js";
 
 function createService(testName: string) {
@@ -96,6 +97,71 @@ test("onboarding completion clears the draft, marks setup completed, and returns
   assert.equal(result.summary.employee?.name, "Alex Morgan");
 });
 
+test("onboarding completion runs the dedicated runtime finalization step before marking setup complete", async () => {
+  class FinalizingAdapter extends MockAdapter {
+    gatewayFinalizeCalls = 0;
+
+    override async finalizeOnboardingSetup() {
+      this.gatewayFinalizeCalls += 1;
+      return super.finalizeOnboardingSetup();
+    }
+  }
+
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-pending-gateway-${randomUUID()}.json`);
+  const adapter = new FinalizingAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService);
+
+  await service.updateState({
+    currentStep: "complete",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "installed-managed"
+    }
+  });
+
+  const result = await service.complete({ destination: "chat" });
+
+  assert.equal(adapter.gatewayFinalizeCalls, 1);
+  assert.equal(result.overview.engine.pendingGatewayApply, false);
+  assert.equal(result.overview.engine.running, true);
+});
+
+test("onboarding completion leaves the draft intact when runtime finalization fails", async () => {
+  class FailingFinalizationAdapter extends MockAdapter {
+    override async finalizeOnboardingSetup() {
+      return Promise.reject(new Error("Gateway finalization failed."));
+    }
+  }
+
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-finalization-failure-${randomUUID()}.json`);
+  const adapter = new FailingFinalizationAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService);
+
+  await service.updateState({
+    currentStep: "complete",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "installed-managed"
+    }
+  });
+
+  await assert.rejects(() => service.complete({ destination: "chat" }), /Gateway finalization failed/i);
+
+  const state = await store.read();
+  assert.equal(state.setupCompletedAt, undefined);
+  assert.equal(state.onboarding?.draft.currentStep, "complete");
+});
+
 test("onboarding service reuses install summary for step-only updates instead of rechecking engine status", async () => {
   const { adapter, service } = createService("onboarding-service-step-only-summary");
   let statusCalls = 0;
@@ -175,6 +241,24 @@ test("onboarding service reuses summary when clients send an unchanged draft sna
   assert.equal(updated.summary.model?.entryId, "entry-openai");
   assert.equal(statusCalls, 1);
   assert.equal(modelConfigCalls, 1);
+});
+
+test("onboarding summary remaps stale saved model entry ids to the live matching model entry", async () => {
+  const { service } = createService("onboarding-service-stale-model-entry");
+
+  const updated = await service.updateState({
+    currentStep: "employee",
+    model: {
+      providerId: "openai",
+      modelKey: "openai/gpt-4o-mini",
+      entryId: "stale-entry-id"
+    }
+  });
+
+  assert.equal(updated.draft.model?.entryId, "stale-entry-id");
+  assert.equal(updated.summary.model?.entryId, "mock-openai-gpt-4o-mini");
+  assert.equal(updated.summary.model?.providerId, "openai");
+  assert.equal(updated.summary.model?.modelKey, "openai/gpt-4o-mini");
 });
 
 test("redo onboarding clears completion state and resets the draft without wiping workspace data", async () => {
@@ -287,4 +371,59 @@ test("onboarding service migrates legacy preset skill ids out of the live draft 
 
   assert.deepEqual(state.draft.employee?.presetSkillIds, ["research-brief", "status-writer"]);
   assert.equal("skillIds" in (state.draft.employee ?? {}), false);
+});
+
+test("onboarding service does not re-run preset skill reconciliation when only employee profile fields change", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-preset-skill-reuse-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const presetSkillService = new PresetSkillService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store, undefined, presetSkillService);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, presetSkillService);
+
+  let reconcileCalls = 0;
+  const originalSetDesiredPresetSkillIds = presetSkillService.setDesiredPresetSkillIds.bind(presetSkillService);
+  presetSkillService.setDesiredPresetSkillIds = async (...args) => {
+    reconcileCalls += 1;
+    return originalSetDesiredPresetSkillIds(...args);
+  };
+
+  await service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "reused-existing"
+    },
+    employee: {
+      name: "Alex Morgan",
+      jobTitle: "Research Analyst",
+      avatarPresetId: "onboarding-analyst",
+      presetId: "research-analyst",
+      presetSkillIds: ["research-brief", "status-writer"]
+    }
+  });
+
+  assert.equal(reconcileCalls, 1);
+
+  const updated = await service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "reused-existing"
+    },
+    employee: {
+      name: "Ryo-AI",
+      jobTitle: "Assistant",
+      avatarPresetId: "onboarding-analyst",
+      presetId: "research-analyst",
+      presetSkillIds: ["research-brief", "status-writer"]
+    }
+  });
+
+  assert.equal(reconcileCalls, 1);
+  assert.equal(updated.presetSkillSync?.summary, "2 preset skills verified on the reused-install runtime.");
 });

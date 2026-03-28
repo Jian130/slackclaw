@@ -251,12 +251,13 @@ export interface GatewayManager {
   startWhatsappLogin(): Promise<{ message: string; channel: ChannelSetupState }>;
   approvePairing(channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest): Promise<{ message: string; channel: ChannelSetupState }>;
   prepareFeishu(): Promise<{ message: string; channel: ChannelSetupState }>;
+  finalizeOnboardingSetup(): Promise<{ message: string; engineStatus: EngineStatus }>;
   startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }>;
 }
 
 export interface PluginManager {
   getConfigOverview(): Promise<PluginConfigOverview>;
-  ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview>;
+  ensureFeatureRequirements(featureId: string, options?: { deferGatewayRestart?: boolean }): Promise<PluginConfigOverview>;
   installPlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
   updatePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
   removePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;

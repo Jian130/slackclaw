@@ -176,9 +176,9 @@ test("channel setup routes WeChat Work through plugin prerequisites and personal
   class RecordingAdapter extends MockAdapter {
     ensureCalls: string[] = [];
 
-    override async ensureFeatureRequirements(featureId: string) {
+    override async ensureFeatureRequirements(featureId: string, options?: { deferGatewayRestart?: boolean }) {
       this.ensureCalls.push(featureId);
-      return super.ensureFeatureRequirements(featureId);
+      return super.ensureFeatureRequirements(featureId, options);
     }
   }
 

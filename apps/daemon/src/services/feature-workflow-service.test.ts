@@ -8,10 +8,12 @@ test("feature workflow delegates plugin-backed prerequisites for WeChat Work", a
 
   class RecordingAdapter extends MockAdapter {
     ensureCalls: string[] = [];
+    ensureOptions: Array<{ deferGatewayRestart?: boolean } | undefined> = [];
 
-    override async ensureFeatureRequirements(featureId: string) {
+    override async ensureFeatureRequirements(featureId: string, options?: { deferGatewayRestart?: boolean }) {
       this.ensureCalls.push(featureId);
-      return super.ensureFeatureRequirements(featureId);
+      this.ensureOptions.push(options);
+      return super.ensureFeatureRequirements(featureId, options);
     }
   }
 
@@ -21,6 +23,7 @@ test("feature workflow delegates plugin-backed prerequisites for WeChat Work", a
   const result = await service.prepareFeature("channel:wechat-work");
 
   assert.deepEqual(adapter.ensureCalls, ["channel:wechat-work"]);
+  assert.deepEqual(adapter.ensureOptions, [{ deferGatewayRestart: true }]);
   assert.equal(result.feature.id, "channel:wechat-work");
   assert.equal(result.feature.setupKind, "credential-form");
   assert.equal(result.prerequisites[0]?.type, "openclaw-plugin");

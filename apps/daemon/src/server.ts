@@ -151,6 +151,24 @@ export function resolveFreshReadInvalidationTargets(method: string, pathname: st
   }
 }
 
+export function shouldPublishSnapshotForRoute(method: string, pathname: string): boolean {
+  if (method !== "GET") {
+    return true;
+  }
+
+  switch (pathname) {
+    case "/api/overview":
+    case "/api/models/config":
+    case "/api/channels/config":
+    case "/api/plugins/config":
+    case "/api/skills/config":
+    case "/api/ai-team/overview":
+      return false;
+    default:
+      return true;
+  }
+}
+
 export function resetStateAfterRuntimeUninstall(current: AppState): AppState {
   return {
     ...current,
@@ -258,7 +276,9 @@ export function startServer(port = 4545) {
 
       if (request.method === "GET" && pathname === "/api/overview") {
         const overview = await overviewService.getOverview();
-        eventPublisher.publishOverviewUpdated(overview);
+        if (shouldPublishSnapshotForRoute(request.method, pathname)) {
+          eventPublisher.publishOverviewUpdated(overview);
+        }
         sendJson(response, 200, overview);
         return;
       }
@@ -362,7 +382,9 @@ export function startServer(port = 4545) {
 
       if (request.method === "GET" && pathname === "/api/models/config") {
         const modelConfig = await adapter.config.getModelConfig();
-        eventPublisher.publishModelConfigUpdated(modelConfig);
+        if (shouldPublishSnapshotForRoute(request.method, pathname)) {
+          eventPublisher.publishModelConfigUpdated(modelConfig);
+        }
         sendJson(response, 200, modelConfig);
         return;
       }
@@ -494,21 +516,27 @@ export function startServer(port = 4545) {
 
       if (request.method === "GET" && pathname === "/api/channels/config") {
         const channelConfig = await channelSetupService.getConfigOverview();
-        eventPublisher.publishChannelConfigUpdated(channelConfig);
+        if (shouldPublishSnapshotForRoute(request.method, pathname)) {
+          eventPublisher.publishChannelConfigUpdated(channelConfig);
+        }
         sendJson(response, 200, channelConfig);
         return;
       }
 
       if (request.method === "GET" && pathname === "/api/plugins/config") {
         const pluginConfig = await pluginService.getConfigOverview();
-        eventPublisher.publishPluginConfigUpdated(pluginConfig);
+        if (shouldPublishSnapshotForRoute(request.method, pathname)) {
+          eventPublisher.publishPluginConfigUpdated(pluginConfig);
+        }
         sendJson(response, 200, pluginConfig);
         return;
       }
 
       if (request.method === "GET" && pathname === "/api/skills/config") {
         const skillConfig = await skillService.getConfigOverview();
-        eventPublisher.publishSkillCatalogUpdated(skillConfig);
+        if (shouldPublishSnapshotForRoute(request.method, pathname)) {
+          eventPublisher.publishSkillCatalogUpdated(skillConfig);
+        }
         sendJson(response, 200, skillConfig);
         return;
       }
@@ -548,7 +576,9 @@ export function startServer(port = 4545) {
 
       if (request.method === "GET" && pathname === "/api/ai-team/overview") {
         const overview = await aiTeamService.getOverview();
-        eventPublisher.publishAITeamUpdated(overview);
+        if (shouldPublishSnapshotForRoute(request.method, pathname)) {
+          eventPublisher.publishAITeamUpdated(overview);
+        }
         sendJson(response, 200, overview);
         return;
       }

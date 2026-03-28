@@ -442,11 +442,12 @@ export class MockAdapter implements EngineAdapter {
       startWhatsappLogin: () => this.startWhatsappLogin(),
       approvePairing: (channelId, request) => this.approvePairing(channelId, request),
       prepareFeishu: () => this.prepareFeishu(),
+      finalizeOnboardingSetup: () => this.finalizeOnboardingSetup(),
       startGatewayAfterChannels: () => this.startGatewayAfterChannels()
     });
     this.plugins = new OpenClawPluginManager({
       getConfigOverview: () => this.getPluginConfigOverview(),
-      ensureFeatureRequirements: (featureId) => this.ensureFeatureRequirements(featureId),
+      ensureFeatureRequirements: (featureId, options) => this.ensureFeatureRequirements(featureId, options),
       installPlugin: (pluginId) => this.installPlugin(pluginId),
       updatePlugin: (pluginId) => this.updatePlugin(pluginId),
       removePlugin: (pluginId) => this.removePlugin(pluginId)
@@ -1549,8 +1550,8 @@ export class MockAdapter implements EngineAdapter {
     };
   }
 
-  async ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview> {
-    const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat-work");
+  async ensureFeatureRequirements(_featureId: string, _options?: { deferGatewayRestart?: boolean }): Promise<PluginConfigOverview> {
+    const definition = managedPluginDefinitionForFeature(_featureId as "channel:wechat-work");
     if (!definition) {
       return this.getPluginConfigOverview();
     }
@@ -1755,6 +1756,14 @@ export class MockAdapter implements EngineAdapter {
     this.clearGatewayApplyPending();
     return {
       message: "Mock gateway started.",
+      engineStatus: await this.status()
+    };
+  }
+
+  async finalizeOnboardingSetup(): Promise<{ message: string; engineStatus: EngineStatus }> {
+    this.clearGatewayApplyPending();
+    return {
+      message: "Mock onboarding finalization completed.",
       engineStatus: await this.status()
     };
   }

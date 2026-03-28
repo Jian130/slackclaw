@@ -66,7 +66,7 @@ public final class SlackClawAPIClient: @unchecked Sendable {
     }
 
     public func completeOnboarding(_ request: CompleteOnboardingRequest) async throws -> CompleteOnboardingResponse {
-        try await post("/api/onboarding/complete", body: request)
+        try await post("/api/onboarding/complete", body: request, timeout: RequestTimeout.longRunning)
     }
 
     public func runFirstRunSetup(forceLocal: Bool = false) async throws -> SetupRunResponse {

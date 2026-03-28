@@ -39,7 +39,11 @@ struct RootView: View {
     var body: some View {
         Group {
             if !appState.hasBootstrapped && appState.overview == nil {
-                LoadingState(title: "Starting ChillClaw", description: "Connecting to the local daemon and reading workspace state.")
+                LoadingState(
+                    title: "Starting ChillClaw",
+                    description: "Connecting to the local daemon and reading workspace state.",
+                    style: .hero
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if appState.requiresOnboarding {
                 NativeOnboardingHostView(appState: appState)

@@ -1,6 +1,11 @@
 import SwiftUI
 import SlackClawProtocol
 
+enum LoadingStateStyle {
+    case inline
+    case hero
+}
+
 struct SurfaceCard<Content: View>: View {
     let title: String?
     let subtitle: String?
@@ -248,28 +253,102 @@ struct AvatarView: View {
 struct LoadingState: View {
     let title: String
     let description: String?
+    let style: LoadingStateStyle
 
-    init(title: String = "Loading", description: String? = nil) {
+    init(title: String = "Loading", description: String? = nil, style: LoadingStateStyle = .inline) {
         self.title = title
         self.description = description
+        self.style = style
     }
 
     var body: some View {
-        SurfaceCard(tone: .muted) {
-            HStack(spacing: 16) {
-                ProgressView()
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.headline)
-                    if let description {
-                        Text(description)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+        Group {
+            switch style {
+            case .inline:
+                SurfaceCard(tone: .muted) {
+                    HStack(spacing: 16) {
+                        ProgressView()
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(title)
+                                .font(.headline)
+                            if let description {
+                                Text(description)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
                     }
                 }
-                Spacer(minLength: 0)
+            case .hero:
+                SurfaceCard(tone: .standard, padding: 28, spacing: 22) {
+                    VStack(spacing: 18) {
+                        NativeLoadingOrb()
+
+                        VStack(spacing: 8) {
+                            Text(title)
+                                .font(.system(size: 25, weight: .bold))
+                                .foregroundStyle(nativeOnboardingTextPrimary)
+                                .multilineTextAlignment(.center)
+                            if let description {
+                                Text(description)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(nativeOnboardingTextSecondary)
+                                    .multilineTextAlignment(.center)
+                                    .lineSpacing(2)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .frame(maxWidth: 440)
             }
         }
+    }
+}
+
+private struct NativeLoadingOrb: View {
+    @State private var orbiting = false
+    @State private var breathing = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.96))
+                .shadow(color: Color.black.opacity(0.08), radius: 22, x: 0, y: 12)
+
+            Circle()
+                .fill(Color.blue.opacity(0.10))
+                .scaleEffect(breathing ? 1.08 : 0.9)
+                .opacity(breathing ? 0.28 : 0.12)
+
+            Circle()
+                .stroke(Color.blue.opacity(0.12), lineWidth: 8)
+
+            Circle()
+                .trim(from: 0.08, to: 0.62)
+                .stroke(
+                    nativeBrandMarkGradient(),
+                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                )
+                .rotationEffect(.degrees(orbiting ? 360 : 0))
+
+            Circle()
+                .trim(from: 0.70, to: 0.86)
+                .stroke(
+                    Color.white.opacity(0.96),
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                )
+                .rotationEffect(.degrees(orbiting ? -180 : 0))
+        }
+        .frame(width: 88, height: 88)
+        .onAppear {
+            guard !orbiting && !breathing else { return }
+            orbiting = true
+            breathing = true
+        }
+        .animation(.linear(duration: 1.15).repeatForever(autoreverses: false), value: orbiting)
+        .animation(.easeInOut(duration: 1.45).repeatForever(autoreverses: true), value: breathing)
     }
 }
 

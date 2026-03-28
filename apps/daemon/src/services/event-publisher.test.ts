@@ -165,7 +165,7 @@ test("event publisher emits retained plugin snapshot events", () => {
         label: "WeCom Plugin",
         packageSpec: "@wecom/wecom-openclaw-plugin",
         runtimePluginId: "wecom-openclaw-plugin",
-        configKey: "wecom-openclaw-plugin",
+        configKey: "wecom",
         status: "ready",
         summary: "Plugin is ready.",
         detail: "Managed by ChillClaw.",

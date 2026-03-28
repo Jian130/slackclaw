@@ -52,7 +52,9 @@ export class FeatureWorkflowService {
 
     for (const prerequisite of feature.prerequisites) {
       if (prerequisite.type === "openclaw-plugin") {
-        pluginConfig = await this.adapter.plugins.ensureFeatureRequirements(feature.id);
+        pluginConfig = await this.adapter.plugins.ensureFeatureRequirements(feature.id, {
+          deferGatewayRestart: true
+        });
         prerequisites.push({
           type: "openclaw-plugin",
           status: "ready",

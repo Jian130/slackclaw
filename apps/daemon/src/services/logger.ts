@@ -6,13 +6,21 @@ import { getAppRootDir, getLogDir } from "../runtime-paths.js";
 const ERROR_LOG_PATH = resolve(getLogDir(), "error.log");
 const filesystem = new FilesystemStateAdapter();
 
+function timestampPrefix(): string {
+  return new Date().toISOString();
+}
+
 function formatMessage(level: "INFO" | "ERROR", message: string, details?: unknown): string {
   const payload =
     details === undefined
       ? ""
       : ` ${typeof details === "string" ? details : JSON.stringify(details, null, 2)}`;
 
-  return `${new Date().toISOString()} [${level}] ${message}${payload}\n`;
+  return `${timestampPrefix()} [${level}] ${message}${payload}\n`;
+}
+
+export function formatConsoleLine(message: string): string {
+  return `${timestampPrefix()} ${message}`;
 }
 
 export async function writeErrorLog(message: string, details?: unknown): Promise<void> {
@@ -53,7 +61,7 @@ export function logDevelopmentCommand(scope: string, command: string, args: stri
   }
 
   const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
-  console.log(`[SlackClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`);
+  console.log(formatConsoleLine(`[SlackClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`));
 }
 
 export function errorToLogDetails(error: unknown): Record<string, unknown> {

@@ -28,6 +28,7 @@ type GatewayAccess = {
   startWhatsappLogin: () => Promise<{ message: string; channel: ChannelSetupState }>;
   approvePairing: (channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest) => Promise<{ message: string; channel: ChannelSetupState }>;
   prepareFeishu: () => Promise<{ message: string; channel: ChannelSetupState }>;
+  finalizeOnboardingSetup: () => Promise<{ message: string; engineStatus: EngineStatus }>;
   startGatewayAfterChannels: () => Promise<{ message: string; engineStatus: EngineStatus }>;
 };
 
@@ -84,6 +85,10 @@ export class OpenClawGatewayManager implements GatewayManager {
 
   prepareFeishu() {
     return this.access.prepareFeishu();
+  }
+
+  finalizeOnboardingSetup() {
+    return this.access.finalizeOnboardingSetup();
   }
 
   startGatewayAfterChannels() {

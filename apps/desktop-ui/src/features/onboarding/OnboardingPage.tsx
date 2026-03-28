@@ -22,7 +22,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   AITeamOverview,
-  ChannelConfigActionResponse,
   ChannelConfigOverview,
   ConfiguredChannelEntry,
   ModelAuthMethod,
@@ -86,6 +85,7 @@ import {
   resolveOnboardingModelViewState,
   resolveOnboardingProviderId,
   resolveOnboardingModelProviders,
+  nextOnboardingStepAfterModelSave,
   resolveOnboardingPresetSkillIds,
   shouldShowOnboardingAuthMethodChooser,
   type OnboardingEmployeeDraft,
@@ -168,21 +168,6 @@ function saveEntrySignature(entry: ModelConfigOverview["savedEntries"][number] |
     isDefault: entry.isDefault,
     isFallback: entry.isFallback,
     updatedAt: entry.updatedAt
-  });
-}
-
-function channelEntrySignature(entry: ConfiguredChannelEntry | undefined) {
-  if (!entry) {
-    return "";
-  }
-
-  return JSON.stringify({
-    id: entry.id,
-    channelId: entry.channelId,
-    status: entry.status,
-    summary: entry.summary,
-    pairingRequired: entry.pairingRequired,
-    lastUpdatedAt: entry.lastUpdatedAt
   });
 }
 
@@ -380,7 +365,7 @@ export default function OnboardingPage() {
     ]
   );
 
-  const selectedBrainEntryId = selectedModelEntry?.id ?? onboardingState?.summary.model?.entryId;
+  const selectedBrainEntryId = selectedModelEntry?.id;
   const selectedEmployeeAvatar = resolveMemberAvatarPreset(employeeAvatarPresetId);
   const employeePresets = useMemo(() => resolveOnboardingEmployeePresets(onboardingState), [onboardingState]);
   const selectedEmployeePreset = useMemo(() => {
@@ -772,7 +757,7 @@ export default function OnboardingPage() {
           );
 
         await persistDraft({
-          currentStep: "model",
+          currentStep: nextOnboardingStepAfterModelSave(true),
           model: {
             providerId: nextEntry?.providerId ?? providerId,
             modelKey: nextEntry?.modelKey ?? modelKey,
@@ -920,7 +905,7 @@ export default function OnboardingPage() {
       if (result.mutation.authSession) {
         setModelSession(result.mutation.authSession);
         await persistDraft({
-          currentStep: "model",
+          currentStep: nextOnboardingStepAfterModelSave(true),
           model: {
             providerId,
             modelKey: modelKey.trim(),
@@ -936,7 +921,7 @@ export default function OnboardingPage() {
         result.state.savedEntries.find((entry) => entry.providerId === providerId && entry.modelKey === modelKey.trim());
 
       await persistDraft({
-        currentStep: "model",
+        currentStep: nextOnboardingStepAfterModelSave(false),
         model: {
           providerId,
           modelKey: modelKey.trim(),
@@ -987,49 +972,21 @@ export default function OnboardingPage() {
       };
       const previousEntries = channelConfig?.entries ?? [];
       const result = selectedChannelEntry
-        ? await settleAfterMutation<ChannelConfigActionResponse, ChannelConfigOverview>({
-            mutate: () => updateChannelEntry(selectedChannelEntry.id, request),
-            getProvisionalState: (mutation) => mutation.channelConfig,
-            applyState: setChannelConfig,
-            readFresh: readFreshChannelConfig,
-            isSettled: (state, mutation) => {
-              const expectedEntry = mutation.channelConfig.entries.find((entry) => entry.id === selectedChannelEntry.id);
-              const actualEntry = state.entries.find((entry) => entry.id === selectedChannelEntry.id);
-              return channelEntrySignature(actualEntry) === channelEntrySignature(expectedEntry);
-            },
-            attempts: 8,
-            delayMs: 700
-          })
-        : await settleAfterMutation<ChannelConfigActionResponse, ChannelConfigOverview>({
-            mutate: () => createChannelEntry(request),
-            getProvisionalState: (mutation) => mutation.channelConfig,
-            applyState: setChannelConfig,
-            readFresh: readFreshChannelConfig,
-            isSettled: (state, mutation) => {
-              const createdEntry = findCreatedChannelEntry(previousEntries, mutation.channelConfig.entries);
-              if (!createdEntry) {
-                return false;
-              }
+        ? await updateChannelEntry(selectedChannelEntry.id, request)
+        : await createChannelEntry(request);
 
-              const actualEntry = state.entries.find((entry) => entry.id === createdEntry.id);
-              return channelEntrySignature(actualEntry) === channelEntrySignature(createdEntry);
-            },
-            attempts: 8,
-            delayMs: 700
-          });
-
-      setChannelConfig(result.state);
-      setChannelMessage(result.mutation.message);
-      setChannelRequiresApply(Boolean(result.mutation.requiresGatewayApply));
-      if (result.mutation.session) {
+      setChannelConfig(result.channelConfig);
+      setChannelMessage(result.message);
+      setChannelRequiresApply(Boolean(result.requiresGatewayApply));
+      if (result.session) {
         setChannelSessionInput("");
       }
       const savedEntry =
-        (selectedChannelEntry ? result.state.entries.find((entry) => entry.id === selectedChannelEntry.id) : undefined) ??
-        findCreatedChannelEntry(previousEntries, result.state.entries) ??
-        result.state.entries.find((entry) => entry.channelId === selectedChannelPresentation.id);
+        (selectedChannelEntry ? result.channelConfig.entries.find((entry) => entry.id === selectedChannelEntry.id) : undefined) ??
+        findCreatedChannelEntry(previousEntries, result.channelConfig.entries) ??
+        result.channelConfig.entries.find((entry) => entry.channelId === selectedChannelPresentation.id);
 
-      if (result.mutation.session) {
+      if (result.session) {
         await persistDraft({
           currentStep: "channel",
           channel: {
@@ -1047,6 +1004,7 @@ export default function OnboardingPage() {
           entryId: savedEntry?.id
         }
       });
+      void readFreshChannelConfig().then(setChannelConfig).catch(() => undefined);
     } catch (actionError) {
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not save this channel.");
     } finally {
@@ -1956,9 +1914,9 @@ export default function OnboardingPage() {
                               : handleSaveChannel())
                           }
                           disabled={
-                            activeChannelSession?.inputPrompt
+                            channelBusy || (activeChannelSession?.inputPrompt
                               ? !channelSessionInput.trim()
-                              : requiredChannelSetupFieldsMissing(selectedChannelSetupVariant, channelValues)
+                              : requiredChannelSetupFieldsMissing(selectedChannelSetupVariant, channelValues))
                           }
                           loading={channelBusy}
                         >

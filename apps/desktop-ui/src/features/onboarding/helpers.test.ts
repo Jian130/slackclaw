@@ -18,6 +18,7 @@ import {
   resolveOnboardingPresetSkillIds,
   resolveOnboardingChannelSetupVariant,
   buildOnboardingChannelSaveValues,
+  nextOnboardingStepAfterModelSave,
   type ResolvedOnboardingModelProvider,
   resolveOnboardingProviderId,
   resolveOnboardingModelProviders
@@ -25,6 +26,11 @@ import {
 import { onboardingCopy } from "./copy.js";
 
 describe("onboarding helpers", () => {
+  it("advances successful non-interactive model setup to the channel step", () => {
+    expect(nextOnboardingStepAfterModelSave(false)).toBe("channel");
+    expect(nextOnboardingStepAfterModelSave(true)).toBe("model");
+  });
+
   it("maps the final destination buttons to app routes", () => {
     expect(onboardingDestinationPath("team")).toBe("/team");
     expect(onboardingDestinationPath("dashboard")).toBe("/");
@@ -145,7 +151,7 @@ describe("onboarding helpers", () => {
     expect(onboardingRefreshResourceForEvent("model", modelEvent)).toBeUndefined();
     expect(onboardingRefreshResourceForEvent("channel", channelEvent)).toBeUndefined();
     expect(onboardingRefreshResourceForEvent("employee", employeeEvent)).toBeUndefined();
-    expect(onboardingRefreshResourceForEvent("employee", presetSyncEvent)).toBe("onboarding");
+    expect(onboardingRefreshResourceForEvent("employee", presetSyncEvent)).toBeUndefined();
   });
 
   it("ignores unrelated daemon events during onboarding", () => {

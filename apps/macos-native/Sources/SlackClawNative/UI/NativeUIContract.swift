@@ -61,6 +61,11 @@ enum NativePageContentWidth: Equatable {
     case full
 }
 
+enum NativeGuidedFlowLayoutMode: Equatable {
+    case leading
+    case centered
+}
+
 typealias NativeShellNavigationState = NativeSelectionState
 
 struct NativeSurfacePalette {
@@ -113,6 +118,15 @@ func nativePageContentMaxWidth(_ contentWidth: NativePageContentWidth) -> CGFloa
         return nativeCenteredPageMaxWidth
     case .full:
         return nil
+    }
+}
+
+func nativeGuidedFlowLayoutMode(_ contentWidth: NativePageContentWidth) -> NativeGuidedFlowLayoutMode {
+    switch contentWidth {
+    case .centered:
+        return .centered
+    case .full:
+        return .leading
     }
 }
 
