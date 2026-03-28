@@ -67,13 +67,11 @@ test("state store normalizes legacy wechat channel onboarding state to wechat-wo
   assert.equal(migrated.channelOnboarding?.entries?.["wechat-work:default"]?.id, "wechat-work:default");
   assert.equal(migrated.channelOnboarding?.entries?.["wechat-work:default"]?.channelId, "wechat-work");
   assert.deepEqual(migrated.channelOnboarding?.entries?.["wechat-work:default"]?.editableValues, {
-    corpId: "corp-id",
-    agentId: "1000001",
+    botId: "1000001",
     secret: "secret-value"
   });
   assert.deepEqual(migrated.channelOnboarding?.entries?.["wechat-work:default"]?.maskedConfigSummary, [
-    { label: "Corp ID", value: "corp-id" },
-    { label: "Agent ID", value: "1000001" }
+    { label: "Bot ID", value: "1000001" }
   ]);
   assert.equal(migrated.channelOnboarding?.entries?.["wechat-work:default"]?.lastUpdatedAt, "2026-03-24T00:03:00.000Z");
   assert.equal(migrated.onboarding?.draft.channel?.channelId, "wechat-work");
@@ -171,10 +169,12 @@ test("state store preserves canonical wechat-work state when legacy wechat data 
   assert.equal(migrated.channelOnboarding?.entries?.["wechat-work:secondary"]?.id, "wechat-work:secondary");
   assert.equal(migrated.channelOnboarding?.entries?.["wechat-work:secondary"]?.channelId, "wechat-work");
   assert.deepEqual(migrated.channelOnboarding?.entries?.["wechat-work:secondary"]?.editableValues, {
-    corpId: "secondary-corp",
-    agentId: "1000002",
+    botId: "1000002",
     secret: "secondary-secret"
   });
+  assert.deepEqual(migrated.channelOnboarding?.entries?.["wechat-work:secondary"]?.maskedConfigSummary, [
+    { label: "Bot ID", value: "1000002" }
+  ]);
   assert.equal(migrated.onboarding?.draft.channel?.channelId, "wechat-work");
   assert.equal(migrated.onboarding?.draft.channel?.entryId, "wechat-work:default");
 });

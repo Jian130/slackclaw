@@ -155,6 +155,43 @@ function shouldMigrateLegacyWechatWorkChannel(channelState: ChannelSetupState, h
   ].some((value) => containsLegacyWechatWorkMetadata(value));
 }
 
+function normalizeLegacyWechatWorkEditableValues(editableValues: Record<string, string>): Record<string, string> {
+  const botId = editableValues.botId?.trim() || editableValues.agentId?.trim() || "";
+  const nextValues = Object.fromEntries(
+    Object.entries(editableValues).filter(([fieldId]) => !LEGACY_WECHAT_WORK_FIELD_IDS.has(fieldId))
+  );
+
+  if (botId) {
+    nextValues.botId = botId;
+  }
+
+  return nextValues;
+}
+
+function normalizeLegacyWechatWorkMaskedSummary(
+  maskedConfigSummary: ChannelFieldSummary[],
+  editableValues: Record<string, string>
+): ChannelFieldSummary[] {
+  const nextSummary = maskedConfigSummary
+    .filter((summary) => !["Corp ID", "Webhook token", "Encoding AES key"].includes(summary.label))
+    .map((summary) => ({
+      ...summary,
+      label: summary.label === "Agent ID" ? "Bot ID" : summary.label
+    }));
+
+  const hasBotId = nextSummary.some((summary) => summary.label === "Bot ID");
+  if (hasBotId) {
+    return nextSummary;
+  }
+
+  const botId = editableValues.botId?.trim() || editableValues.agentId?.trim();
+  if (!botId) {
+    return nextSummary;
+  }
+
+  return [{ label: "Bot ID", value: botId }, ...nextSummary];
+}
+
 function migrateLegacyOnboardingPresetSkills(state: AppState): AppState {
   const employee = state.onboarding?.draft?.employee as (OnboardingDraftState["employee"] & {
     skillIds?: string[];
@@ -232,10 +269,15 @@ function migrateLegacyWechatChannelOnboarding(state: AppState): AppState {
                 return nextEntries;
               }
 
+              const nextEditableValues = shouldMigrate ? normalizeLegacyWechatWorkEditableValues(entry.editableValues) : entry.editableValues;
               nextEntries[nextEntryId] = {
                 ...entry,
                 id: nextEntryId,
-                channelId: nextChannelId
+                channelId: nextChannelId,
+                editableValues: nextEditableValues,
+                maskedConfigSummary: shouldMigrate
+                  ? normalizeLegacyWechatWorkMaskedSummary(entry.maskedConfigSummary, nextEditableValues)
+                  : entry.maskedConfigSummary
               };
               return nextEntries;
             }, {})
