@@ -1478,7 +1478,7 @@ export class MockAdapter implements EngineAdapter {
         };
         const dependencies = definition.dependencies.map((dependency) => ({
           ...dependency,
-          active: dependency.id === "channel:wechat" ? this.channels["wechat-work"].status !== "not-started" : false
+          active: dependency.id === "channel:wechat-work" ? this.channels["wechat-work"].status !== "not-started" : false
         }));
         const activeDependentCount = dependencies.filter((dependency) => dependency.active).length;
 
@@ -1519,7 +1519,7 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview> {
-    const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat");
+    const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat-work");
     if (!definition) {
       return this.getPluginConfigOverview();
     }

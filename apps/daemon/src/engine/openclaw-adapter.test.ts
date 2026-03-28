@@ -809,14 +809,11 @@ test("configureFeishu falls back to direct config writes when config set drifts"
 test("configureWechatWorkaround falls back to direct config writes when config set drifts", async () => {
   await withFakeOpenClaw(async ({ adapter, logPath, configPath }) => {
     const result = await adapter.config.saveChannelEntry({
-      channelId: "wechat",
+      channelId: "wechat-work",
       action: "save",
       values: {
-        corpId: "corp-id",
-        agentId: "1000001",
-        secret: "corp-secret",
-        token: "verify-token",
-        encodingAesKey: "aes-key"
+        botId: "bot-id",
+        secret: "corp-secret"
       }
     });
     const commands = await readCommands(logPath);
@@ -829,8 +826,8 @@ test("configureWechatWorkaround falls back to direct config writes when config s
     assert.match(result.message, /apply pending/i);
     assert.equal(countCommands(commands, "gateway restart"), 0);
     assert.equal(saved?.enabled, true);
-    assert.equal(saved?.corpId, "corp-id");
-    assert.equal(saved?.agentId, 1000001);
+    assert.equal(saved?.botId, "bot-id");
+    assert.equal(saved?.secret, "corp-secret");
   }, {
     failWechatConfigSet: true
   });
@@ -852,14 +849,11 @@ test("plugin manager installs and enables the managed WeChat plugin", async () =
 test("plugin manager blocks removal while the managed WeChat channel is still configured", async () => {
   await withFakeOpenClaw(async ({ adapter }) => {
     await adapter.config.saveChannelEntry({
-      channelId: "wechat",
+      channelId: "wechat-work",
       action: "save",
       values: {
-        corpId: "corp-id",
-        agentId: "1000001",
-        secret: "corp-secret",
-        token: "verify-token",
-        encodingAesKey: "aes-key"
+        botId: "bot-id",
+        secret: "corp-secret"
       }
     });
 

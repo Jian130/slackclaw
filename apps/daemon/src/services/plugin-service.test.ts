@@ -13,7 +13,7 @@ test("plugin service exposes the managed WeChat plugin dependency", async () => 
 
   assert.equal(overview.entries[0]?.id, "wecom");
   assert.equal(overview.entries[0]?.packageSpec, "@wecom/wecom-openclaw-plugin");
-  assert.equal(overview.entries[0]?.dependencies[0]?.id, "channel:wechat");
+  assert.equal(overview.entries[0]?.dependencies[0]?.id, "channel:wechat-work");
   assert.equal(overview.entries[0]?.activeDependentCount, 0);
 });
 
@@ -37,13 +37,10 @@ test("plugin service blocks removal while WeChat still depends on the managed pl
   const service = new PluginService(adapter);
 
   await adapter.config.saveChannelEntry({
-    channelId: "wechat",
+    channelId: "wechat-work",
     values: {
-      corpId: "corp-id",
-      agentId: "1000001",
-      secret: "secret-value",
-      token: "token-value",
-      encodingAesKey: "encoding-aes-key"
+      botId: "bot-id",
+      secret: "secret-value"
     }
   });
 

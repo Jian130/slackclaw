@@ -384,7 +384,7 @@ export class ChannelSetupService {
   }
 
   async saveEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
-    const managedFeatureId = request.channelId === "wechat-work" ? "channel:wechat" : managedFeatureIdForChannel(request.channelId);
+    const managedFeatureId = managedFeatureIdForChannel(request.channelId);
     if (managedFeatureId) {
       const pluginConfig = await this.adapter.plugins.ensureFeatureRequirements(managedFeatureId);
       this.eventPublisher?.publishPluginConfigUpdated(pluginConfig);

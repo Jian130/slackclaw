@@ -178,3 +178,59 @@ test("state store preserves canonical wechat-work state when legacy wechat data 
   assert.equal(migrated.onboarding?.draft.channel?.channelId, "wechat-work");
   assert.equal(migrated.onboarding?.draft.channel?.entryId, "wechat-work:default");
 });
+
+test("state store preserves genuine personal wechat channel state", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/state-store-personal-wechat-${randomUUID()}.json`);
+  const store = new StateStore(filePath);
+
+  await store.write({
+    tasks: [],
+    channelOnboarding: {
+      channels: {
+        wechat: {
+          id: "wechat",
+          title: "WeChat",
+          officialSupport: false,
+          status: "completed",
+          summary: "Personal WeChat is connected.",
+          detail: "This is the personal WeChat login flow.",
+          lastUpdatedAt: "2026-03-27T00:00:00.000Z",
+          logs: ["personal wechat ready"]
+        }
+      },
+      entries: {
+        "wechat:personal": {
+          id: "wechat:personal",
+          channelId: "wechat",
+          label: "Personal WeChat",
+          editableValues: {
+            sessionMode: "qr-login"
+          },
+          maskedConfigSummary: [{ label: "Login", value: "QR linked" }],
+          lastUpdatedAt: "2026-03-27T00:01:00.000Z"
+        }
+      }
+    },
+    onboarding: {
+      draft: {
+        currentStep: "channel",
+        channel: {
+          channelId: "wechat",
+          entryId: "wechat:personal"
+        }
+      }
+    }
+  });
+
+  const migrated = await store.read();
+
+  assert.equal(migrated.channelOnboarding?.channels.wechat?.id, "wechat");
+  assert.equal(migrated.channelOnboarding?.channels["wechat-work"], undefined);
+  assert.equal(migrated.channelOnboarding?.entries?.["wechat:personal"]?.channelId, "wechat");
+  assert.equal(migrated.channelOnboarding?.entries?.["wechat-work:personal"], undefined);
+  assert.deepEqual(migrated.channelOnboarding?.entries?.["wechat:personal"]?.editableValues, {
+    sessionMode: "qr-login"
+  });
+  assert.equal(migrated.onboarding?.draft.channel?.channelId, "wechat");
+  assert.equal(migrated.onboarding?.draft.channel?.entryId, "wechat:personal");
+});

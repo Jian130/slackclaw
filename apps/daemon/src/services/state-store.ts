@@ -115,6 +115,46 @@ const DEFAULT_STATE: AppState = {
   tasks: []
 };
 
+const LEGACY_WECHAT_WORK_FIELD_IDS = new Set(["corpId", "agentId", "token", "encodingAesKey"]);
+const LEGACY_WECHAT_WORK_SUMMARY_LABELS = new Set(["Corp ID", "Agent ID", "Webhook token", "Encoding AES key"]);
+
+function containsLegacyWechatWorkMetadata(value: string | undefined): boolean {
+  return /wechat work|wecom|workaround/i.test(value ?? "");
+}
+
+function shouldMigrateLegacyWechatWorkEntry(entry: StoredChannelEntryState): boolean {
+  if (entry.channelId !== "wechat") {
+    return false;
+  }
+
+  if (Object.keys(entry.editableValues ?? {}).some((fieldId) => LEGACY_WECHAT_WORK_FIELD_IDS.has(fieldId))) {
+    return true;
+  }
+
+  if (entry.maskedConfigSummary.some((summary) => LEGACY_WECHAT_WORK_SUMMARY_LABELS.has(summary.label) || containsLegacyWechatWorkMetadata(summary.value))) {
+    return true;
+  }
+
+  return containsLegacyWechatWorkMetadata(entry.label);
+}
+
+function shouldMigrateLegacyWechatWorkChannel(channelState: ChannelSetupState, hasLegacyWechatWorkEntries: boolean): boolean {
+  if (channelState.id !== "wechat") {
+    return false;
+  }
+
+  if (hasLegacyWechatWorkEntries) {
+    return true;
+  }
+
+  return [
+    channelState.title,
+    channelState.summary,
+    channelState.detail,
+    ...(channelState.logs ?? [])
+  ].some((value) => containsLegacyWechatWorkMetadata(value));
+}
+
 function migrateLegacyOnboardingPresetSkills(state: AppState): AppState {
   const employee = state.onboarding?.draft?.employee as (OnboardingDraftState["employee"] & {
     skillIds?: string[];
@@ -149,20 +189,32 @@ function migrateLegacyOnboardingPresetSkills(state: AppState): AppState {
 function migrateLegacyWechatChannelOnboarding(state: AppState): AppState {
   const channelOnboarding = state.channelOnboarding;
   const onboardingChannel = state.onboarding?.draft.channel;
+  const legacyWechatWorkEntryIds = new Set(
+    Object.entries(channelOnboarding?.entries ?? {})
+      .filter(([entryId, entry]) => entryId.startsWith("wechat:") && shouldMigrateLegacyWechatWorkEntry(entry))
+      .map(([entryId]) => entryId)
+  );
+  const hasLegacyWechatWorkEntries = legacyWechatWorkEntryIds.size > 0;
+  const legacyWechatWorkChannelIds = new Set(
+    Object.entries(channelOnboarding?.channels ?? {})
+      .filter(([channelId, channelState]) => channelId === "wechat" && shouldMigrateLegacyWechatWorkChannel(channelState, hasLegacyWechatWorkEntries))
+      .map(([channelId]) => channelId)
+  );
 
-  const migrateLegacyChannelId = (channelId: string): SupportedChannelId =>
-    (channelId === "wechat" ? "wechat-work" : channelId) as SupportedChannelId;
-  const migrateLegacyEntryId = (entryId: string): string =>
-    entryId.startsWith("wechat:") ? entryId.replace(/^wechat(?=:)/, "wechat-work") : entryId;
+  const migrateLegacyChannelId = (channelId: string, shouldMigrate: boolean): SupportedChannelId =>
+    (shouldMigrate && channelId === "wechat" ? "wechat-work" : channelId) as SupportedChannelId;
+  const migrateLegacyEntryId = (entryId: string, shouldMigrate: boolean): string =>
+    shouldMigrate && entryId.startsWith("wechat:") ? entryId.replace(/^wechat(?=:)/, "wechat-work") : entryId;
 
   const migratedChannelOnboarding = channelOnboarding
     ? {
         ...channelOnboarding,
         channels: Object.entries(channelOnboarding.channels ?? {}).reduce<Record<string, ChannelSetupState>>((nextChannels, [channelId, channelState]) => {
-          const nextChannelId = migrateLegacyChannelId(channelId);
+          const shouldMigrate = legacyWechatWorkChannelIds.has(channelId);
+          const nextChannelId = migrateLegacyChannelId(channelId, shouldMigrate);
           const canonicalEntryExists = nextChannelId in nextChannels;
 
-          if (canonicalEntryExists && channelId === "wechat" && nextChannelId !== channelId) {
+          if (canonicalEntryExists && shouldMigrate && nextChannelId !== channelId) {
             return nextChannels;
           }
 
@@ -171,11 +223,12 @@ function migrateLegacyWechatChannelOnboarding(state: AppState): AppState {
         }, {}),
         entries: channelOnboarding.entries
           ? Object.entries(channelOnboarding.entries).reduce<Record<string, StoredChannelEntryState>>((nextEntries, [entryId, entry]) => {
-              const nextEntryId = migrateLegacyEntryId(entryId);
-              const nextChannelId = migrateLegacyChannelId(entry.channelId);
+              const shouldMigrate = legacyWechatWorkEntryIds.has(entryId);
+              const nextEntryId = migrateLegacyEntryId(entryId, shouldMigrate);
+              const nextChannelId = migrateLegacyChannelId(entry.channelId, shouldMigrate);
               const canonicalEntryExists = nextEntryId in nextEntries;
 
-              if (canonicalEntryExists && entryId.startsWith("wechat:") && nextEntryId !== entryId) {
+              if (canonicalEntryExists && shouldMigrate && nextEntryId !== entryId) {
                 return nextEntries;
               }
 
@@ -194,8 +247,13 @@ function migrateLegacyWechatChannelOnboarding(state: AppState): AppState {
     onboardingChannel
       ? {
           ...onboardingChannel,
-          channelId: migrateLegacyChannelId(onboardingChannel.channelId),
-          entryId: onboardingChannel.entryId ? migrateLegacyEntryId(onboardingChannel.entryId) : onboardingChannel.entryId
+          channelId: migrateLegacyChannelId(
+            onboardingChannel.channelId,
+            legacyWechatWorkChannelIds.has(onboardingChannel.channelId) || legacyWechatWorkEntryIds.has(onboardingChannel.entryId ?? "")
+          ),
+          entryId: onboardingChannel.entryId
+            ? migrateLegacyEntryId(onboardingChannel.entryId, legacyWechatWorkEntryIds.has(onboardingChannel.entryId))
+            : onboardingChannel.entryId
         }
       : onboardingChannel;
 

@@ -3782,7 +3782,9 @@ function buildLiveChannelEntries(
               : "WhatsApp"
             : channelId === "feishu"
               ? "Feishu"
-              : "WeChat workaround";
+              : channelId === "wechat-work"
+                ? "WeChat Work"
+                : "WeChat";
 
       const maskedConfigSummary =
         channelId === "telegram"
@@ -7095,7 +7097,7 @@ export class OpenClawAdapter implements EngineAdapter {
           const dependencyStates = definition.dependencies.map((dependency) => ({
             ...dependency,
             active:
-              dependency.id === "channel:wechat"
+              dependency.id === "channel:wechat-work"
                 ? channelConfiguredInFile || channelEntries.some((entry) => entry.channelId === "wechat-work")
                 : false
           }));
@@ -7150,7 +7152,7 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   async ensureFeatureRequirements(featureId: string): Promise<PluginConfigOverview> {
-    const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat");
+    const definition = managedPluginDefinitionForFeature(featureId as "channel:wechat-work");
     if (!definition) {
       return this.getPluginConfigOverview();
     }
@@ -7397,7 +7399,7 @@ export class OpenClawAdapter implements EngineAdapter {
         throw new Error(remove.result.stderr || remove.result.stdout || "SlackClaw could not remove the Feishu configuration.");
       }
     } else if (channelId === "wechat-work") {
-      const wechatPlugin = managedPluginDefinitionForFeature("channel:wechat");
+      const wechatPlugin = managedPluginDefinitionForFeature("channel:wechat-work");
       if (!wechatPlugin) {
         throw new Error("Managed WeChat plugin definition is missing.");
       }
@@ -7894,7 +7896,7 @@ export class OpenClawAdapter implements EngineAdapter {
   private async configureWechatWorkaround(
     request: WechatSetupRequest
   ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
-    const wechatPlugin = managedPluginDefinitionForFeature("channel:wechat");
+    const wechatPlugin = managedPluginDefinitionForFeature("channel:wechat-work");
     if (!wechatPlugin) {
       throw new Error("Managed WeChat plugin definition is missing.");
     }

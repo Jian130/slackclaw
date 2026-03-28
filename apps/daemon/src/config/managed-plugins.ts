@@ -1,4 +1,4 @@
-export type ManagedFeatureId = "channel:wechat";
+export type ManagedFeatureId = "channel:wechat-work";
 
 export interface ManagedPluginDefinition {
   id: string;
@@ -23,7 +23,7 @@ const managedPluginDefinitions = [
     configKey: "wecom-openclaw-plugin",
     dependencies: [
       {
-        id: "channel:wechat",
+        id: "channel:wechat-work",
         label: "WeChat Work",
         kind: "channel",
         summary: "Required for the managed WeChat Work channel."
@@ -46,8 +46,8 @@ export function managedPluginDefinitionForFeature(featureId: ManagedFeatureId): 
 
 export function managedFeatureIdForChannel(channelId: string): ManagedFeatureId | undefined {
   switch (channelId) {
-    case "wechat":
-      return "channel:wechat";
+    case "wechat-work":
+      return "channel:wechat-work";
     default:
       return undefined;
   }
