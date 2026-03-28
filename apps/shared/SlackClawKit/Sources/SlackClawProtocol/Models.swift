@@ -46,6 +46,28 @@ public enum OnboardingDestination: String, Codable, Sendable {
     case chat
 }
 
+public enum SupportedChannelId: String, Codable, Sendable {
+    case telegram
+    case whatsapp
+    case feishu
+    case wechatWork = "wechat-work"
+    case wechat
+}
+
+public enum OnboardingChannelTheme: String, Codable, Sendable {
+    case wechatWork = "wechat-work"
+    case wechat
+    case feishu
+    case telegram
+}
+
+public enum OnboardingChannelSetupKind: String, Codable, Sendable {
+    case wechatWorkGuided = "wechat-work-guided"
+    case wechatGuided = "wechat-guided"
+    case feishuGuided = "feishu-guided"
+    case telegramGuided = "telegram-guided"
+}
+
 public struct OnboardingInstallState: Codable, Sendable {
     public var installed: Bool
     public var version: String?
@@ -73,10 +95,10 @@ public struct OnboardingModelState: Codable, Sendable {
 }
 
 public struct OnboardingChannelState: Codable, Sendable {
-    public var channelId: String
+    public var channelId: SupportedChannelId
     public var entryId: String?
 
-    public init(channelId: String, entryId: String? = nil) {
+    public init(channelId: SupportedChannelId, entryId: String? = nil) {
         self.channelId = channelId
         self.entryId = entryId
     }
@@ -198,23 +220,23 @@ public struct OnboardingModelProviderPresentation: Codable, Sendable, Identifiab
 }
 
 public struct OnboardingChannelPresentation: Codable, Sendable, Identifiable {
-    public var id: String
+    public var id: SupportedChannelId
     public var label: String
     public var secondaryLabel: String?
     public var description: String
-    public var theme: String
-    public var setupKind: String
+    public var theme: OnboardingChannelTheme
+    public var setupKind: OnboardingChannelSetupKind
     public var platformUrl: String?
     public var docsUrl: String?
     public var tutorialVideoUrl: String?
 
     public init(
-        id: String,
+        id: SupportedChannelId,
         label: String,
         secondaryLabel: String? = nil,
         description: String,
-        theme: String,
-        setupKind: String,
+        theme: OnboardingChannelTheme,
+        setupKind: OnboardingChannelSetupKind,
         platformUrl: String? = nil,
         docsUrl: String? = nil,
         tutorialVideoUrl: String? = nil
@@ -686,7 +708,7 @@ public struct ChannelFieldDefinition: Codable, Sendable, Identifiable {
 }
 
 public struct ChannelCapability: Codable, Sendable, Identifiable {
-    public var id: String
+    public var id: SupportedChannelId
     public var label: String
     public var description: String
     public var officialSupport: Bool
@@ -708,7 +730,7 @@ public struct ChannelFieldSummary: Codable, Sendable, Identifiable {
 
 public struct ConfiguredChannelEntry: Codable, Sendable, Identifiable {
     public var id: String
-    public var channelId: String
+    public var channelId: SupportedChannelId
     public var label: String
     public var status: String
     public var summary: String
@@ -721,7 +743,7 @@ public struct ConfiguredChannelEntry: Codable, Sendable, Identifiable {
 
 public struct ChannelSession: Codable, Sendable, Identifiable {
     public var id: String
-    public var channelId: String
+    public var channelId: SupportedChannelId
     public var entryId: String?
     public var status: String
     public var message: String

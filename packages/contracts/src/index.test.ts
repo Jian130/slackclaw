@@ -29,6 +29,10 @@ test("default product overview starts with OpenClaw not installed", () => {
   assert.equal(overview.installSpec.desiredVersion, "latest");
   assert.equal(overview.templates.length > 4, true);
   assert.equal(overview.recoveryActions.some((action) => action.id === "reinstall-engine"), true);
+  assert.deepEqual(
+    overview.channelSetup.channels.map((channel) => channel.id),
+    ["telegram", "whatsapp", "feishu", "wechat-work", "wechat"]
+  );
 });
 
 test("deployment target shapes serialize installed and available claw runtime targets", () => {
@@ -180,6 +184,45 @@ test("generic channel config shapes serialize with masked summaries and capabili
   assert.equal(parsed.capabilities[0].id, "telegram");
   assert.equal(parsed.entries[0].maskedConfigSummary[0].value, "te...en");
   assert.equal(parsed.entries[0].pairingRequired, true);
+});
+
+test("onboarding state response distinguishes wechat-work and wechat setup kinds", () => {
+  const response: OnboardingStateResponse = {
+    firstRun: {
+      introCompleted: true,
+      setupCompleted: false
+    },
+    draft: {
+      currentStep: "channel"
+    },
+    config: {
+      modelProviders: [],
+      channels: [
+        {
+          id: "wechat-work",
+          label: "WeChat Work (WeCom)",
+          secondaryLabel: "企业微信",
+          description: "Set up WeChat Work credentials for your digital employees.",
+          theme: "wechat-work",
+          setupKind: "wechat-work-guided",
+          docsUrl: "https://work.weixin.qq.com/"
+        },
+        {
+          id: "wechat",
+          label: "WeChat",
+          secondaryLabel: "微信",
+          description: "Set up personal WeChat with a QR-first login flow.",
+          theme: "wechat",
+          setupKind: "wechat-guided"
+        }
+      ],
+      employeePresets: []
+    },
+    summary: {}
+  };
+
+  assert.deepEqual(response.config.channels.map((channel) => channel.id), ["wechat-work", "wechat"]);
+  assert.deepEqual(response.config.channels.map((channel) => channel.setupKind), ["wechat-work-guided", "wechat-guided"]);
 });
 
 test("plugin config overview serializes managed plugin entries and dependencies", () => {

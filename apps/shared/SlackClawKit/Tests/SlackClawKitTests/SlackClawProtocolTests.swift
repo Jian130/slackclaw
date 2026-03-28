@@ -120,13 +120,21 @@ struct SlackClawProtocolTests {
             ],
             "channels": [
               {
-                "id": "wechat",
-                "label": "WeChat Work",
+                "id": "wechat-work",
+                "label": "WeChat Work (WeCom)",
                 "secondaryLabel": "企业微信",
                 "description": "Set up WeChat Work credentials for your digital employees.",
-                "theme": "wechat",
-                "setupKind": "wechat-guided",
+                "theme": "wechat-work",
+                "setupKind": "wechat-work-guided",
                 "docsUrl": "https://work.weixin.qq.com/"
+              },
+              {
+                "id": "wechat",
+                "label": "WeChat",
+                "secondaryLabel": "微信",
+                "description": "Set up personal WeChat with a QR-first login flow.",
+                "theme": "wechat",
+                "setupKind": "wechat-guided"
               },
               {
                 "id": "feishu",
@@ -202,8 +210,9 @@ struct SlackClawProtocolTests {
         #expect(response.config.modelProviders[1].defaultModelKey == "modelstudio/qwen3.5-plus")
         #expect(response.config.modelProviders[1].authMethods.map(\.id) == ["modelstudio-api-key-cn"])
         #expect(response.config.modelProviders[2].authMethods.map(\.id) == ["openai-api-key", "openai-codex"])
-        #expect(response.config.channels.map(\.id) == ["wechat", "feishu", "telegram"])
-        #expect(response.config.channels[1].platformUrl == "https://open.feishu.cn/app")
+        #expect(response.config.channels.map(\.id) == [.wechatWork, .wechat, .feishu, .telegram])
+        #expect(response.config.channels.map(\.setupKind) == [.wechatWorkGuided, .wechatGuided, .feishuGuided, .telegramGuided])
+        #expect(response.config.channels[2].platformUrl == "https://open.feishu.cn/app")
         #expect(response.config.employeePresets.first?.presetSkillIds == ["research-brief", "status-writer"])
         #expect(response.draft.install?.disposition == "reused-existing")
         #expect(response.draft.activeModelAuthSessionId == "session-1")

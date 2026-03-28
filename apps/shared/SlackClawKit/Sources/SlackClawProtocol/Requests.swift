@@ -1,5 +1,17 @@
 import Foundation
 
+public struct WechatWorkSetupRequest: Codable, Sendable {
+    public var botId: String
+    public var secret: String
+
+    public init(botId: String, secret: String) {
+        self.botId = botId
+        self.secret = secret
+    }
+}
+
+public typealias WechatSetupRequest = WechatWorkSetupRequest
+
 public struct InstallRequest: Codable, Sendable {
     public var autoConfigure: Bool
     public var forceLocal: Bool?

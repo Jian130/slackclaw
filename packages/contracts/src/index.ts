@@ -287,8 +287,12 @@ export interface OnboardingCompletionSummary {
 }
 
 export type OnboardingModelProviderTheme = "minimax" | "qwen" | "chatgpt";
-export type OnboardingChannelTheme = "wechat" | "feishu" | "telegram";
-export type OnboardingChannelSetupKind = "wechat-guided" | "feishu-guided" | "telegram-guided";
+export type OnboardingChannelTheme = "wechat-work" | "wechat" | "feishu" | "telegram";
+export type OnboardingChannelSetupKind =
+  | "wechat-work-guided"
+  | "wechat-guided"
+  | "feishu-guided"
+  | "telegram-guided";
 export type OnboardingEmployeePresetTheme = "analyst" | "support" | "operator";
 
 export interface OnboardingModelProviderPresentation {
@@ -369,7 +373,7 @@ export interface SetupStepResult {
   detail: string;
 }
 
-export type SupportedChannelId = "telegram" | "whatsapp" | "feishu" | "wechat";
+export type SupportedChannelId = "telegram" | "whatsapp" | "feishu" | "wechat-work" | "wechat";
 
 export interface ChannelSetupState {
   id: SupportedChannelId;
@@ -420,7 +424,7 @@ export interface ChannelCapability {
   supportsRemove: boolean;
   supportsPairing: boolean;
   supportsLogin: boolean;
-  guidedSetupKind?: "feishu" | "wechat";
+  guidedSetupKind?: "feishu" | "wechat-work" | "wechat";
 }
 
 export interface ChannelFieldSummary {
@@ -1106,13 +1110,12 @@ export interface PairingApprovalRequest {
   code: string;
 }
 
-export interface WechatSetupRequest {
-  corpId: string;
-  agentId: string;
+export interface WechatWorkSetupRequest {
+  botId: string;
   secret: string;
-  token: string;
-  encodingAesKey: string;
 }
+
+export type WechatSetupRequest = WechatWorkSetupRequest;
 
 export interface FeishuSetupRequest {
   appId: string;
@@ -1407,12 +1410,20 @@ export function createDefaultProductOverview(): ProductOverview {
           detail: "SlackClaw can guide you through the official OpenClaw Feishu plugin setup: app creation, credentials, gateway restart, long-connection event subscription, and pairing."
         },
         {
+          id: "wechat-work",
+          title: "WeChat Work (WeCom)",
+          officialSupport: true,
+          status: "not-started",
+          summary: "WeChat Work setup has not started yet.",
+          detail: "SlackClaw will install the managed WeCom plugin, then save the bot credentials."
+        },
+        {
           id: "wechat",
-          title: "WeChat workaround",
+          title: "WeChat",
           officialSupport: false,
           status: "not-started",
-          summary: "WeChat requires a workaround plugin path.",
-          detail: "SlackClaw can install and enable a community plugin path, but this is not official OpenClaw support."
+          summary: "Personal WeChat setup has not started yet.",
+          detail: "SlackClaw will start the QR-first installer flow, then wait for login confirmation."
         }
       ],
       nextChannelId: "telegram",

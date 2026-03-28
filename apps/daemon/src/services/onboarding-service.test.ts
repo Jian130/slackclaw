@@ -245,15 +245,16 @@ test("onboarding state exposes the curated model providers for step 3", async ()
   assert.deepEqual(state.config?.modelProviders?.[2]?.authMethods.map((method) => method.id), ["openai-api-key", "openai-codex"]);
   assert.deepEqual(
     state.config?.channels?.map((channel) => channel.id),
-    ["wechat", "feishu", "telegram"]
+    ["wechat-work", "wechat", "feishu", "telegram"]
   );
   assert.deepEqual(
     state.config?.channels?.map((channel) => channel.label),
-    ["WeChat Work", "Feishu", "Telegram"]
+    ["WeChat Work (WeCom)", "WeChat", "Feishu", "Telegram"]
   );
-  assert.equal(state.config?.channels?.[0]?.setupKind, "wechat-guided");
-  assert.equal(state.config?.channels?.[1]?.setupKind, "feishu-guided");
-  assert.equal(state.config?.channels?.[2]?.setupKind, "telegram-guided");
+  assert.deepEqual(
+    state.config?.channels?.map((channel) => channel.setupKind),
+    ["wechat-work-guided", "wechat-guided", "feishu-guided", "telegram-guided"]
+  );
   assert.deepEqual(
     state.config?.employeePresets?.map((preset) => preset.id),
     ["research-analyst", "support-captain", "delivery-operator"]

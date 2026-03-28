@@ -70,13 +70,21 @@ export const onboardingUiConfig: OnboardingUiConfig = {
   ],
   channels: [
     {
-      id: "wechat",
-      label: "WeChat Work",
+      id: "wechat-work",
+      label: "WeChat Work (WeCom)",
       secondaryLabel: "企业微信",
       description: "Set up WeChat Work credentials for your digital employees.",
-      theme: "wechat",
-      setupKind: "wechat-guided",
+      theme: "wechat-work",
+      setupKind: "wechat-work-guided",
       docsUrl: "https://work.weixin.qq.com/"
+    },
+    {
+      id: "wechat",
+      label: "WeChat",
+      secondaryLabel: "微信",
+      description: "Set up personal WeChat with a QR-first login flow.",
+      theme: "wechat",
+      setupKind: "wechat-guided"
     },
     {
       id: "feishu",

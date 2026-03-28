@@ -146,6 +146,65 @@ function migrateLegacyOnboardingPresetSkills(state: AppState): AppState {
   };
 }
 
+function migrateLegacyWechatChannelOnboarding(state: AppState): AppState {
+  const channelOnboarding = state.channelOnboarding;
+  const onboardingChannel = state.onboarding?.draft.channel;
+
+  const migratedChannelOnboarding = channelOnboarding
+    ? {
+        ...channelOnboarding,
+        channels: Object.fromEntries(
+          Object.entries(channelOnboarding.channels ?? {}).map(([channelId, channelState]) => {
+            const nextChannelId = (channelId === "wechat" ? "wechat-work" : channelId) as SupportedChannelId;
+            return [nextChannelId, { ...channelState, id: nextChannelId }];
+          })
+        ),
+        entries: channelOnboarding.entries
+          ? Object.fromEntries(
+              Object.entries(channelOnboarding.entries).map(([entryId, entry]) => {
+                const nextEntryId = entryId.startsWith("wechat:") ? entryId.replace(/^wechat(?=:)/, "wechat-work") : entryId;
+                const nextChannelId = (entry.channelId === "wechat" ? "wechat-work" : entry.channelId) as SupportedChannelId;
+                return [
+                  nextEntryId,
+                  {
+                    ...entry,
+                    id: nextEntryId,
+                    channelId: nextChannelId
+                  }
+                ];
+              })
+            )
+          : undefined
+      }
+    : channelOnboarding;
+
+  const migratedOnboardingChannel =
+    onboardingChannel?.channelId === "wechat"
+      ? {
+          ...onboardingChannel,
+          channelId: "wechat-work"
+        }
+      : onboardingChannel;
+
+  if (migratedChannelOnboarding === channelOnboarding && migratedOnboardingChannel === onboardingChannel) {
+    return state;
+  }
+
+  return {
+    ...state,
+    channelOnboarding: migratedChannelOnboarding,
+    onboarding: state.onboarding
+      ? {
+          ...state.onboarding,
+          draft: {
+            ...state.onboarding.draft,
+            channel: migratedOnboardingChannel
+          }
+        }
+      : state.onboarding
+  };
+}
+
 export class StateStore {
   private readonly filePath: string;
   private readonly filesystem: FilesystemStateAdapter;
@@ -157,7 +216,7 @@ export class StateStore {
 
   async read(): Promise<AppState> {
     const persisted = await this.filesystem.readJson(this.filePath, DEFAULT_STATE);
-    return migrateLegacyOnboardingPresetSkills({ ...DEFAULT_STATE, ...persisted } as AppState);
+    return migrateLegacyWechatChannelOnboarding(migrateLegacyOnboardingPresetSkills({ ...DEFAULT_STATE, ...persisted } as AppState));
   }
 
   async write(nextState: AppState): Promise<void> {

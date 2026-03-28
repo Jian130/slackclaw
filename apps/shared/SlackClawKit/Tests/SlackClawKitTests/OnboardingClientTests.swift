@@ -111,13 +111,21 @@ struct OnboardingClientTests {
                 ],
                 "channels": [
                   {
-                    "id": "wechat",
-                    "label": "WeChat Work",
+                    "id": "wechat-work",
+                    "label": "WeChat Work (WeCom)",
                     "secondaryLabel": "企业微信",
                     "description": "Set up WeChat Work credentials for your digital employees.",
-                    "theme": "wechat",
-                    "setupKind": "wechat-guided",
+                    "theme": "wechat-work",
+                    "setupKind": "wechat-work-guided",
                     "docsUrl": "https://work.weixin.qq.com/"
+                  },
+                  {
+                    "id": "wechat",
+                    "label": "WeChat",
+                    "secondaryLabel": "微信",
+                    "description": "Set up personal WeChat with a QR-first login flow.",
+                    "theme": "wechat",
+                    "setupKind": "wechat-guided"
                   },
                   {
                     "id": "feishu",
@@ -172,7 +180,8 @@ struct OnboardingClientTests {
 
         #expect(response.draft.currentStep == .welcome)
         #expect(response.config.modelProviders.map(\.id) == ["minimax", "modelstudio", "openai"])
-        #expect(response.config.channels.map(\.id) == ["wechat", "feishu", "telegram"])
+        #expect(response.config.channels.map(\.id) == [.wechatWork, .wechat, .feishu, .telegram])
+        #expect(response.config.channels.map(\.setupKind) == [.wechatWorkGuided, .wechatGuided, .feishuGuided, .telegramGuided])
         let request = try #require(await recorder.lastRequest())
         #expect(request.httpMethod == "GET")
         #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/onboarding/state?fresh=1")
@@ -288,13 +297,21 @@ struct OnboardingClientTests {
                 ],
                 "channels": [
                   {
-                    "id": "wechat",
-                    "label": "WeChat Work",
+                    "id": "wechat-work",
+                    "label": "WeChat Work (WeCom)",
                     "secondaryLabel": "企业微信",
                     "description": "Set up WeChat Work credentials for your digital employees.",
-                    "theme": "wechat",
-                    "setupKind": "wechat-guided",
+                    "theme": "wechat-work",
+                    "setupKind": "wechat-work-guided",
                     "docsUrl": "https://work.weixin.qq.com/"
+                  },
+                  {
+                    "id": "wechat",
+                    "label": "WeChat",
+                    "secondaryLabel": "微信",
+                    "description": "Set up personal WeChat with a QR-first login flow.",
+                    "theme": "wechat",
+                    "setupKind": "wechat-guided"
                   },
                   {
                     "id": "feishu",
