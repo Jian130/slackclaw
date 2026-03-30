@@ -73,6 +73,44 @@ struct UIContractTests {
     }
 
     @Test
+    func shellSidebarCollapseHelperMapsToSharedWidths() {
+        #expect(nativeShellSidebarWidth(isCollapsed: false) == 312)
+        #expect(nativeShellSidebarWidth(isCollapsed: true) == 0)
+    }
+
+    @Test
+    func nativeSidebarPlacesLanguagePickerBelowStatusCard() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/SlackClawNativeApp.swift"),
+            encoding: .utf8
+        )
+
+        let statusIndex = try #require(source.range(of: "SurfaceCard(title: copy.sidebarStatusTitle")?.lowerBound)
+        let localeIndex = try #require(source.range(of: "NativeLocalePicker(")?.lowerBound)
+
+        #expect(statusIndex < localeIndex)
+    }
+
+    @Test
+    func nativeSidebarLocalePickerUsesFullWidthLargeShellSizing() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/SlackClawNative/LocalePicker.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
+        #expect(source.contains(".font(.system(size: 18, weight: .medium))"))
+    }
+
+    @Test
     func auditedNativeViewsUseSharedCornerRadiusConstants() throws {
         let sourceFiles = [
             "Sources/SlackClawNative/UI/NativeUIPrimitives.swift",

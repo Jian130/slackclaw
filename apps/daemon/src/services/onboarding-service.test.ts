@@ -1352,7 +1352,7 @@ test("onboarding state exposes the curated model providers for step 3", async ()
     ["MiniMax", "Qwen (通义千问)", "ChatGPT"]
   );
   assert.equal(state.config?.modelProviders?.[0]?.defaultModelKey, "minimax/MiniMax-M2.7");
-  assert.deepEqual(state.config?.modelProviders?.[0]?.authMethods.map((method) => method.id), ["minimax-api"]);
+  assert.deepEqual(state.config?.modelProviders?.[0]?.authMethods.map((method) => method.id), ["minimax-api", "minimax-api-key-cn"]);
   assert.equal(state.config?.modelProviders?.[1]?.defaultModelKey, "modelstudio/qwen3.5-plus");
   assert.deepEqual(state.config?.modelProviders?.[1]?.authMethods.map((method) => method.id), ["modelstudio-api-key-cn"]);
   assert.deepEqual(state.config?.modelProviders?.[2]?.authMethods.map((method) => method.id), ["openai-api-key", "openai-codex"]);

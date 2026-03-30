@@ -188,7 +188,7 @@ If you still want to run pieces separately for debugging:
 2. `npm run dev:ui`
 3. optionally run `npm run bootstrap:openclaw` if you want to prepare OpenClaw ahead of time instead of using the in-product install flow
 
-For the exact upstream OpenClaw commands SlackClaw uses for install, models, channels, agents, and chat, see [docs/reference/openclaw-commands.md](/Users/home/Ryo/Projects/slackclaw/docs/reference/openclaw-commands.md).
+For the upstream OpenClaw CLI surface, config tree, and the exact commands ChillClaw uses today for install, models, channels, agents, and chat, see [docs/reference/openclaw-commands.md](/Users/home/Ryo/Projects/slackclaw/docs/reference/openclaw-commands.md).
 
 ## Engine compatibility workflow
 

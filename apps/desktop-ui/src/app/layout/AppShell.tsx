@@ -46,14 +46,16 @@ export function AppShell(props: PropsWithChildren<{ loading?: boolean }>) {
           </div>
         </NavLink>
         <SidebarNav />
-        <div className="sidebar-status">
-          <p className="sidebar-status__title">
-            {copy.shell.status}: {statusLabel}
-          </p>
-          <p>{overview?.engine.summary ?? copy.common.connecting}</p>
-        </div>
-        <div className="sidebar-language">
-          <LanguageSelector />
+        <div className="sidebar-utilities">
+          <div className="sidebar-status sidebar-utility-card">
+            <p className="sidebar-status__title">
+              {copy.shell.status}: {statusLabel}
+            </p>
+            <p>{overview?.engine.summary ?? copy.common.connecting}</p>
+          </div>
+          <div className="sidebar-language sidebar-utility-card">
+            <LanguageSelector />
+          </div>
         </div>
       </aside>
       <main className={`app-main app-main--${viewportMode}`}>

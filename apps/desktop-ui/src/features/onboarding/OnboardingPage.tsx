@@ -135,12 +135,12 @@ function onboardingAuthMethodIcon(method: ModelAuthMethod) {
   return method.kind === "oauth" ? <Sparkles size={18} /> : <Key size={18} />;
 }
 
-function onboardingAuthMethodLabel(copy: ReturnType<typeof onboardingCopy>, method: ModelAuthMethod) {
-  return method.kind === "oauth" ? copy.authOAuthLabel : copy.authApiKeyLabel;
+export function onboardingAuthMethodLabel(copy: ReturnType<typeof onboardingCopy>, method: ModelAuthMethod) {
+  return method.label.trim() || (method.kind === "oauth" ? copy.authOAuthLabel : copy.authApiKeyLabel);
 }
 
-function onboardingAuthMethodBody(copy: ReturnType<typeof onboardingCopy>, method: ModelAuthMethod) {
-  return method.kind === "oauth" ? copy.authOAuthBody : copy.authApiKeyBody;
+export function onboardingAuthMethodBody(copy: ReturnType<typeof onboardingCopy>, method: ModelAuthMethod) {
+  return method.description.trim() || (method.kind === "oauth" ? copy.authOAuthBody : copy.authApiKeyBody);
 }
 
 function formatOnboardingProgressLabel(template: string, current: number, total: number) {

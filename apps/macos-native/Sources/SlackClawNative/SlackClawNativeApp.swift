@@ -3,6 +3,13 @@ import SlackClawClient
 import SlackClawProtocol
 import SlackClawChatUI
 
+let nativeShellSidebarCollapsedDefaultsKey = "slackclaw.shell.sidebarCollapsed"
+let nativeShellExpandedSidebarWidth: CGFloat = 312
+
+func nativeShellSidebarWidth(isCollapsed: Bool) -> CGFloat {
+    isCollapsed ? 0 : nativeShellExpandedSidebarWidth
+}
+
 @main
 struct SlackClawNativeApp: App {
     @NSApplicationDelegateAdaptor(NativeAppDelegate.self) private var appDelegate
@@ -35,8 +42,13 @@ struct SlackClawNativeApp: App {
 
 struct RootView: View {
     @Bindable var appState: SlackClawAppState
+    @AppStorage(nativeOnboardingLocaleDefaultsKey) private var selectedLocaleIdentifier = resolveNativeOnboardingLocaleIdentifier()
+    @AppStorage(nativeShellSidebarCollapsedDefaultsKey) private var isSidebarCollapsed = false
 
     var body: some View {
+        let localeIdentifier = resolveNativeOnboardingLocaleIdentifier(selectedLocaleIdentifier)
+        let copy = nativeDashboardCopy(localeIdentifier: localeIdentifier)
+
         Group {
             if !appState.hasBootstrapped && appState.overview == nil {
                 LoadingState(
@@ -49,15 +61,27 @@ struct RootView: View {
                 NativeOnboardingHostView(appState: appState)
             } else {
                 HStack(spacing: 0) {
-                    NativeSidebar(appState: appState, iconForSection: icon(for:))
+                    ZStack(alignment: .leading) {
+                        if !isSidebarCollapsed {
+                            NativeSidebar(appState: appState, iconForSection: icon(for:))
+                                .transition(.move(edge: .leading).combined(with: .opacity))
+                        }
+                    }
+                    .frame(width: nativeShellSidebarWidth(isCollapsed: isSidebarCollapsed), alignment: .leading)
+                    .clipped()
+
                     ZStack {
                         nativeShellBackground
                             .ignoresSafeArea()
-                        content
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        VStack(spacing: 0) {
+                            shellTopBar(copy: copy)
+                            content
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        }
                     }
                     .frame(minWidth: 940, minHeight: 760)
                 }
+                .animation(.spring(response: 0.28, dampingFraction: 0.88), value: isSidebarCollapsed)
                 .overlay(alignment: .top) {
                     if let banner = appState.bannerMessage {
                         Text(banner)
@@ -124,6 +148,37 @@ struct RootView: View {
     private var nativeShellBackground: some View {
         nativeShellBackgroundStyle()
     }
+
+    private func shellTopBar(copy: NativeDashboardCopy) -> some View {
+        HStack {
+            Button {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                    isSidebarCollapsed.toggle()
+                }
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(nativeOnboardingTextPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: NativeUI.iconCornerRadius, style: .continuous)
+                            .fill(Color.white.opacity(0.9))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: NativeUI.iconCornerRadius, style: .continuous)
+                                    .strokeBorder(Color.black.opacity(0.08))
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(isSidebarCollapsed ? copy.showSidebar : copy.hideSidebar)
+            .accessibilityLabel(isSidebarCollapsed ? copy.showSidebar : copy.hideSidebar)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, NativeUI.pagePadding)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+    }
 }
 
 private struct NativeSidebar: View {
@@ -170,14 +225,6 @@ private struct NativeSidebar: View {
             Spacer(minLength: 0)
 
             VStack(alignment: .leading, spacing: 14) {
-                NativeLocalePicker(
-                    selected: nativeLocalePickerSelectedOption(localeIdentifier: localeIdentifier),
-                    options: nativeOnboardingLocaleOptions,
-                    onSelect: { nextLocaleIdentifier in
-                        selectedLocaleIdentifier = resolveNativeOnboardingLocaleIdentifier(nextLocaleIdentifier)
-                    }
-                )
-
                 SurfaceCard(title: copy.sidebarStatusTitle, tone: .accent, padding: 18, spacing: 10) {
                     StatusBadge(sidebarStatusLabel(copy: copy), tone: sidebarStatusTone)
                     Text(sidebarStatusSummary(copy: copy))
@@ -185,11 +232,22 @@ private struct NativeSidebar: View {
                         .foregroundStyle(nativeOnboardingTextSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                SurfaceCard(padding: 12, spacing: 0) {
+                    NativeLocalePicker(
+                        selected: nativeLocalePickerSelectedOption(localeIdentifier: localeIdentifier),
+                        options: nativeOnboardingLocaleOptions,
+                        fillsWidth: true,
+                        onSelect: { nextLocaleIdentifier in
+                            selectedLocaleIdentifier = resolveNativeOnboardingLocaleIdentifier(nextLocaleIdentifier)
+                        }
+                    )
+                }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(width: 312)
+        .frame(maxWidth: .infinity)
         .background(Color.white)
     }
 

@@ -396,7 +396,10 @@ describe("onboarding helpers", () => {
             platformUrl: "https://platform.minimaxi.com/login",
             tutorialVideoUrl: "https://video.example/minimax",
             defaultModelKey: "minimax/MiniMax-M2.7",
-            authMethods: [{ id: "minimax-api", label: "API Key", kind: "api-key", description: "Paste a MiniMax API key.", interactive: false, fields: [] }]
+            authMethods: [
+              { id: "minimax-api", label: "Global API Key", kind: "api-key", description: "Use the international MiniMax endpoint (api.minimax.io).", interactive: false, fields: [] },
+              { id: "minimax-api-key-cn", label: "China API Key", kind: "api-key", description: "Use the China MiniMax endpoint (api.minimaxi.com).", interactive: false, fields: [] }
+            ]
           },
           {
             id: "modelstudio",
@@ -478,6 +481,7 @@ describe("onboarding helpers", () => {
     expect(curatedProviders.map((provider) => provider.id)).toEqual(["minimax", "modelstudio", "openai"]);
     expect(curatedProviders.map((provider) => provider.curated.label)).toEqual(["MiniMax", "Qwen (通义千问)", "ChatGPT"]);
     expect(curatedProviders.some((provider) => provider.provider?.id === "anthropic")).toBe(false);
+    expect(curatedProviders[0]?.curated.authMethods.map((method) => method.id)).toEqual(["minimax-api", "minimax-api-key-cn"]);
     expect(curatedProviders[1]?.curated.authMethods.map((method) => method.id)).toEqual(["modelstudio-api-key-cn"]);
     expect(curatedProviders[2]?.curated.authMethods.map((method) => method.id)).toEqual(["openai-api-key", "openai-codex"]);
   });
@@ -494,7 +498,10 @@ describe("onboarding helpers", () => {
             platformUrl: "https://platform.minimaxi.com/login",
             tutorialVideoUrl: "https://video.example/minimax",
             defaultModelKey: "minimax/MiniMax-M2.7",
-            authMethods: [{ id: "minimax-api", label: "API Key", kind: "api-key", description: "Paste a MiniMax API key.", interactive: false, fields: [] }]
+            authMethods: [
+              { id: "minimax-api", label: "Global API Key", kind: "api-key", description: "Use the international MiniMax endpoint (api.minimax.io).", interactive: false, fields: [] },
+              { id: "minimax-api-key-cn", label: "China API Key", kind: "api-key", description: "Use the China MiniMax endpoint (api.minimaxi.com).", interactive: false, fields: [] }
+            ]
           },
           {
             id: "modelstudio",

@@ -762,12 +762,12 @@ struct NativeOnboardingView: View {
                                                             .foregroundStyle(Color(red: 0.24, green: 0.41, blue: 0.95))
                                                     }
 
-                                                    Text(method.kind == "oauth" ? viewModel.copy.authOAuthLabel : viewModel.copy.authApiKeyLabel)
+                                                    Text(nativeOnboardingAuthMethodLabel(method, copy: viewModel.copy))
                                                         .font(.system(size: 20, weight: .semibold))
                                                         .foregroundStyle(nativeOnboardingTextPrimary)
                                                         .multilineTextAlignment(.center)
 
-                                                    Text(method.kind == "oauth" ? viewModel.copy.authOAuthBody : viewModel.copy.authApiKeyBody)
+                                                    Text(nativeOnboardingAuthMethodBody(method, copy: viewModel.copy))
                                                         .font(.system(size: 14, weight: .regular))
                                                         .lineSpacing(4)
                                                         .foregroundStyle(nativeOnboardingTextSecondary)

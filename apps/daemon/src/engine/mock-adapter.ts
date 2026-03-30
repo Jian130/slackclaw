@@ -1523,7 +1523,7 @@ export class MockAdapter implements EngineAdapter {
           runId
         });
         this.activeChatTimers.delete(request.sessionKey);
-      }, 20)
+      }, 80)
     ];
     this.activeChatTimers.set(request.sessionKey, timers);
 

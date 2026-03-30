@@ -708,6 +708,7 @@ struct OnboardingTests {
 
         #expect(viewModel.curatedModelProviders.map(\.id) == ["minimax", "modelstudio", "openai"])
         #expect(viewModel.curatedModelProviders.map(\.curated.label) == ["MiniMax", "Qwen (通义千问)", "ChatGPT"])
+        #expect(viewModel.curatedModelProviders[0].curated.authMethods.map(\.id) == ["minimax-api", "minimax-api-key-cn"])
         #expect(viewModel.curatedModelProviders[1].curated.authMethods.map(\.id) == ["modelstudio-api-key-cn"])
         #expect(viewModel.curatedModelProviders[2].curated.authMethods.map(\.id) == ["openai-api-key", "openai-codex"])
     }
@@ -1188,6 +1189,38 @@ struct OnboardingTests {
         #expect(
             shouldShowNativeOnboardingAuthMethodChooser(multipleMethods) == true
         )
+    }
+
+    @Test
+    func authMethodCardsPreferProviderDefinedLabelsAndDescriptions() {
+        let copy = nativeOnboardingCopy(localeIdentifier: "en")
+        let method = ModelAuthMethod(
+            id: "minimax-api-key-cn",
+            label: "China API Key",
+            kind: "api-key",
+            description: "Use the China MiniMax endpoint (api.minimaxi.com).",
+            interactive: false,
+            fields: []
+        )
+
+        #expect(nativeOnboardingAuthMethodLabel(method, copy: copy) == "China API Key")
+        #expect(nativeOnboardingAuthMethodBody(method, copy: copy) == "Use the China MiniMax endpoint (api.minimaxi.com).")
+    }
+
+    @Test
+    func authMethodCardsFallBackToGenericCopyWhenMethodTextIsMissing() {
+        let copy = nativeOnboardingCopy(localeIdentifier: "en")
+        let method = ModelAuthMethod(
+            id: "openai-api-key",
+            label: "",
+            kind: "api-key",
+            description: "",
+            interactive: false,
+            fields: []
+        )
+
+        #expect(nativeOnboardingAuthMethodLabel(method, copy: copy) == "API Key")
+        #expect(nativeOnboardingAuthMethodBody(method, copy: copy) == "Use your API key for quick setup")
     }
 
     @Test
@@ -3012,7 +3045,8 @@ private func makeOnboardingStateResponse(step: OnboardingStep) -> OnboardingStat
                     tutorialVideoUrl: "https://video.example/minimax",
                     defaultModelKey: "minimax/MiniMax-M2.5",
                     authMethods: [
-                        .init(id: "minimax-api", label: "API Key", kind: "api-key", description: "Paste a MiniMax API key.", interactive: false, fields: [])
+                        .init(id: "minimax-api", label: "Global API Key", kind: "api-key", description: "Use the international MiniMax endpoint (api.minimax.io).", interactive: false, fields: []),
+                        .init(id: "minimax-api-key-cn", label: "China API Key", kind: "api-key", description: "Use the China MiniMax endpoint (api.minimaxi.com).", interactive: false, fields: [])
                     ]
                 ),
                 .init(

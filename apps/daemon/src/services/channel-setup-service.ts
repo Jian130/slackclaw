@@ -13,8 +13,8 @@ import type {
   SaveChannelEntryRequest,
   SupportedChannelId
 } from "@slackclaw/contracts";
-import { createDefaultProductOverview } from "@slackclaw/contracts";
 
+import { defaultChannelSetupStateMap } from "../config/channel-setup-state.js";
 import type { EngineAdapter } from "../engine/adapter.js";
 import { channelSecretName, NoopSecretsAdapter, type SecretsAdapter } from "../platform/secrets-adapter.js";
 import type { AppState } from "./state-store.js";
@@ -126,15 +126,7 @@ const CHANNEL_CAPABILITIES: ChannelCapability[] = [
 ];
 
 function defaultChannelMap(): Record<SupportedChannelId, ChannelSetupState> {
-  const defaults = createDefaultProductOverview().channelSetup.channels;
-
-  return {
-    telegram: defaults.find((channel) => channel.id === "telegram")!,
-    whatsapp: defaults.find((channel) => channel.id === "whatsapp")!,
-    feishu: defaults.find((channel) => channel.id === "feishu")!,
-    "wechat-work": defaults.find((channel) => channel.id === "wechat-work")!,
-    wechat: defaults.find((channel) => channel.id === "wechat")!
-  };
+  return defaultChannelSetupStateMap();
 }
 
 function mergeChannelStates(

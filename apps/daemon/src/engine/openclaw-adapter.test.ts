@@ -641,7 +641,7 @@ elif [ "$1" = "update" ] && [ "$2" = "--json" ] && [ "$3" = "--yes" ] && [ "$4" 
   fi
 elif [ "$1" = "models" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   if [ "${slowModelReads ? "1" : "0"}" = "1" ]; then
-    sleep 0.2
+    sleep 1
   fi
   if [ "${cleanModelRuntime ? "1" : "0"}" = "1" ]; then
     echo '{"models":[]}'
@@ -652,7 +652,7 @@ elif [ "$1" = "models" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
   fi
 elif [ "$1" = "models" ] && [ "$2" = "list" ] && [ "$3" = "--all" ] && [ "$4" = "--json" ]; then
   if [ "${slowModelReads ? "1" : "0"}" = "1" ]; then
-    sleep 0.2
+    sleep 1
   fi
   if [ "${minimaxCatalog ? "1" : "0"}" = "1" ]; then
     echo '{"models":[{"key":"minimax/MiniMax-M2.7","name":"MiniMax-M2.7","input":"text","contextWindow":400000,"local":false,"available":true,"tags":["default","configured"],"missing":false},{"key":"anthropic/claude-sonnet-4-6","name":"Claude Sonnet 4.6","input":"text+image","contextWindow":200000,"local":false,"available":true,"tags":["fallback#1","configured"],"missing":false},{"key":"google/gemini-2.5-pro","name":"Gemini 2.5 Pro","input":"text+image","contextWindow":1000000,"local":false,"available":true,"tags":[],"missing":false}]}'
@@ -661,7 +661,7 @@ elif [ "$1" = "models" ] && [ "$2" = "list" ] && [ "$3" = "--all" ] && [ "$4" = 
   fi
 elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   if [ "${slowModelReads ? "1" : "0"}" = "1" ]; then
-    sleep 0.2
+    sleep 1
   fi
   if [ "${cleanModelRuntime ? "1" : "0"}" = "1" ]; then
     echo '{"configPath":${JSON.stringify(configPath)},"agentDir":${JSON.stringify(agentDirPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
@@ -847,6 +847,7 @@ fi
   try {
     await fn({ adapter, logPath, configPath });
   } finally {
+    await new Promise((resolve) => setTimeout(resolve, options?.longRunningWechatInstaller ? 2200 : 150));
     adapter.invalidateReadCaches();
     if (originalPath === undefined) {
       delete process.env.PATH;
@@ -921,7 +922,18 @@ test("OpenClaw model config uses the full provider catalog and one status read p
 test("fresh model invalidation reuses an in-flight model snapshot instead of starting a duplicate reload", async () => {
   await withFakeOpenClaw(async ({ adapter, logPath }) => {
     const firstRead = adapter.config.getModelConfig();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const commands = await readCommands(logPath);
+      if (
+        countCommands(commands, "models list --json") >= 1 &&
+        countCommands(commands, "models list --all --json") >= 1 &&
+        countCommands(commands, "models status --json") >= 1
+      ) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     adapter.invalidateReadCaches(["models"]);
 
     await Promise.all([firstRead, adapter.config.getModelConfig()]);
@@ -1461,14 +1473,40 @@ test("personal WeChat runs the installer command and starts a channel session lo
       action: "save",
       values: {}
     });
-    const commands = await readCommands(logPath);
-
     assert.ok(result.session);
-    assert.equal(result.session?.channelId, "wechat");
-    assert.match(result.session?.message ?? "", /wechat login|qr/i);
-    assert.equal(result.session?.logs.some((line) => /qr code|scan/i.test(line)), true);
-    assert.equal(result.session?.logs.some((line) => line.includes("npm install") && line.includes("@tencent-weixin/openclaw-weixin-cli@latest")), true);
-    assert.equal(result.session?.logs.some((line) => /weixin-installer .*install/.test(line)), true);
+    let session = await adapter.gateway.getChannelSession(result.session.id);
+
+	    for (let attempt = 0; attempt < 20; attempt += 1) {
+	      if (
+	        session.logs.some((line) => /qr code|scan/i.test(line)) &&
+	        session.logs.some((line) => line.includes("npm install") && line.includes("@tencent-weixin/openclaw-weixin-cli@latest")) &&
+	        session.logs.some((line) => /weixin-installer .*install/.test(line))
+	      ) {
+        break;
+      }
+
+	      await new Promise((resolve) => setTimeout(resolve, 100));
+	      session = await adapter.gateway.getChannelSession(result.session.id);
+	    }
+
+	    let commands = await readCommands(logPath);
+	    for (let attempt = 0; attempt < 10; attempt += 1) {
+	      if (
+	        commands.some((command) => command.includes("npm install --prefix") && command.includes("@tencent-weixin/openclaw-weixin-cli@latest")) &&
+	        commands.some((command) => /weixin-installer install$/.test(command))
+	      ) {
+	        break;
+	      }
+
+	      await new Promise((resolve) => setTimeout(resolve, 100));
+	      commands = await readCommands(logPath);
+	    }
+
+	    assert.equal(session.channelId, "wechat");
+    assert.match(session.message ?? "", /wechat login|qr/i);
+    assert.equal(session.logs.some((line) => /qr code|scan/i.test(line)), true);
+    assert.equal(session.logs.some((line) => line.includes("npm install") && line.includes("@tencent-weixin/openclaw-weixin-cli@latest")), true);
+    assert.equal(session.logs.some((line) => /weixin-installer .*install/.test(line)), true);
     assert.equal(
       commands.some((command) => command.includes("npm install --prefix") && command.includes("@tencent-weixin/openclaw-weixin-cli@latest")),
       true
@@ -1568,12 +1606,12 @@ test("personal WeChat does not start a second installer while the QR session is 
       values: {}
     });
     let firstSession = await adapter.gateway.getActiveChannelSession();
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
       if (firstSession?.channelId === "wechat" && firstSession.status === "running") {
         break;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       firstSession = await adapter.gateway.getActiveChannelSession();
     }
 
@@ -1755,44 +1793,6 @@ test("saveAIMemberRuntime upgrades stale MiniMax entries, avoids inherited fallb
       fallbacks: []
     });
     assert.deepEqual(Object.keys(authStore.profiles ?? {}), ["minimax:slackclaw-existing-agent"]);
-  }, {
-    minimaxCatalog: true
-  });
-});
-
-test("rehydrateMemberAuthFromSavedSecrets materializes a MiniMax profile in the managed member agent dir", async () => {
-  await withFakeOpenClaw(async () => {
-    const secrets = new InMemorySecretsAdapter();
-    await secrets.set(modelAuthSecretName("minimax", "minimax-api", "apiKey"), "sk-minimax");
-    const adapter = new OpenClawAdapter(secrets) as unknown as {
-      rehydrateMemberAuthFromSavedSecrets: (
-        agentId: string,
-        agentDir: string,
-        providerId: string,
-        methodId: string
-      ) => Promise<{
-        profiles?: Record<string, { provider?: string; type?: string; key?: string }>;
-        lastGood?: Record<string, string>;
-      } | undefined>;
-    };
-    const agentId = "slackclaw-member-ai-ryo";
-    const agentDir = resolve(process.env.SLACKCLAW_DATA_DIR ?? "", "ai-members", "member-new-minimax", "agent");
-    const profileId = `minimax:slackclaw-${agentId}`;
-
-    const store = await adapter.rehydrateMemberAuthFromSavedSecrets(agentId, agentDir, "minimax", "minimax-api");
-    const authStore = JSON.parse(await readFile(resolve(agentDir, "auth-profiles.json"), "utf8")) as {
-      profiles?: Record<string, { provider?: string; type?: string; key?: string }>;
-      lastGood?: Record<string, string>;
-    };
-
-    assert.equal(store?.profiles?.[profileId]?.provider, "minimax");
-    assert.equal(store?.profiles?.[profileId]?.type, "api_key");
-    assert.equal(store?.profiles?.[profileId]?.key, "sk-minimax");
-    assert.equal(store?.lastGood?.minimax, profileId);
-    assert.equal(authStore.profiles?.[profileId]?.provider, "minimax");
-    assert.equal(authStore.profiles?.[profileId]?.type, "api_key");
-    assert.equal(authStore.profiles?.[profileId]?.key, "sk-minimax");
-    assert.equal(authStore.lastGood?.minimax, profileId);
   }, {
     minimaxCatalog: true
   });

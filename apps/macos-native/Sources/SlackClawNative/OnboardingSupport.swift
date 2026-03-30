@@ -632,6 +632,22 @@ func onboardingAuthMethodSymbol(_ method: ModelAuthMethod) -> String {
     }
 }
 
+func nativeOnboardingAuthMethodLabel(_ method: ModelAuthMethod, copy: NativeOnboardingCopy) -> String {
+    let trimmed = method.label.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmed.isEmpty {
+        return trimmed
+    }
+    return method.kind == "oauth" ? copy.authOAuthLabel : copy.authApiKeyLabel
+}
+
+func nativeOnboardingAuthMethodBody(_ method: ModelAuthMethod, copy: NativeOnboardingCopy) -> String {
+    let trimmed = method.description.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmed.isEmpty {
+        return trimmed
+    }
+    return method.kind == "oauth" ? copy.authOAuthBody : copy.authApiKeyBody
+}
+
 func resolveOnboardingProviderID<Provider: Identifiable>(
     currentProviderId: String,
     draftProviderId: String?,

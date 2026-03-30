@@ -1,15 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 
 import type { AppState } from "./services/state-store.js";
 import {
+  startServer,
   resetStateAfterRuntimeUninstall,
   resolveFreshReadInvalidationTargets,
   shouldPublishSnapshotForRoute,
   shouldResetStateAfterDeploymentUninstall
 } from "./server.js";
+
+const sourceDir = dirname(fileURLToPath(import.meta.url));
 
 test("fresh overview reads only invalidate overview-related caches", () => {
   assert.deepEqual(resolveFreshReadInvalidationTargets("GET", "/api/overview"), ["engine", "channels"]);
@@ -180,9 +186,66 @@ test("runtime uninstall reset clears setup and channel onboarding state but pres
 });
 
 test("server keeps channel session transport instead of adding a workflow-session API", async () => {
-  const source = await readFile(resolve(process.cwd(), "apps/daemon/src/server.ts"), "utf8");
+  const serverSource = await readFile(resolve(sourceDir, "server.ts"), "utf8");
+  const channelsSource = await readFile(resolve(sourceDir, "routes/channels.ts"), "utf8");
 
-  assert.match(source, /\/api\/channels\/session\//);
-  assert.doesNotMatch(source, /\/api\/workflow-session\//);
-  assert.doesNotMatch(source, /\/api\/workflows\/session\//);
+  assert.match(serverSource, /findRouteDefinition/);
+  assert.match(channelsSource, /\/api\/channels\/session\/:sessionId/);
+  assert.doesNotMatch(serverSource, /\/api\/workflow-session\//);
+  assert.doesNotMatch(serverSource, /\/api\/workflows\/session\//);
+  assert.doesNotMatch(channelsSource, /\/api\/workflow-session\//);
+  assert.doesNotMatch(channelsSource, /\/api\/workflows\/session\//);
+});
+
+test("server matches mutable skill routes from pathname instead of raw request.url", async () => {
+  const previousEngine = process.env.SLACKCLAW_ENGINE;
+  process.env.SLACKCLAW_ENGINE = "mock";
+
+  const server = startServer(0);
+  await once(server, "listening");
+  const port = (server.address() as AddressInfo).port;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/skills/Skill%20Finder%20-%20Search%20Skills?fresh=1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update-marketplace" })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.status, "completed");
+    assert.match(payload.message, /updated/i);
+  } finally {
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    if (previousEngine === undefined) {
+      delete process.env.SLACKCLAW_ENGINE;
+    } else {
+      process.env.SLACKCLAW_ENGINE = previousEngine;
+    }
+  }
+});
+
+test("team backend routes return an explicit unsupported response", async () => {
+  const previousEngine = process.env.SLACKCLAW_ENGINE;
+  process.env.SLACKCLAW_ENGINE = "mock";
+
+  const server = startServer(0);
+  await once(server, "listening");
+  const port = (server.address() as AddressInfo).port;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/ai-team/overview`);
+    const payload = await response.json();
+
+    assert.equal(response.status, 501);
+    assert.match(payload.error, /not supported|removed/i);
+  } finally {
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    if (previousEngine === undefined) {
+      delete process.env.SLACKCLAW_ENGINE;
+    } else {
+      process.env.SLACKCLAW_ENGINE = previousEngine;
+    }
+  }
 });

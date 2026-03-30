@@ -2,6 +2,8 @@
 
 This note shows the main backend objects wired in `apps/daemon/src/server.ts` and the engine-manager split defined in `apps/daemon/src/engine/adapter.ts`.
 
+For the current HTTP route inventory, see `docs/reference/daemon-routes.md`.
+
 ## Daemon object graph
 
 ```mermaid

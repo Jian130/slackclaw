@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 2026-03-31 00:17 CST
+
+- split the daemon server and OpenClaw integration into dedicated route modules plus capability, model, channel, chat, agent, and runtime lifecycle coordinators, and refreshed the backend reference maps and command docs to match the new structure
+- improved runtime management by moving install, update, and uninstall behavior behind the new OpenClaw runtime lifecycle service, including a standard-runtime uninstall fallback that retries `npm uninstall openclaw -g` when the OpenClaw CLI uninstall leaves the system package behind
+- polished the React and native macOS shell by aligning the language selector under the status card, adding the native macOS sidebar collapse toggle, and enlarging the native locale picker control so it matches the surrounding dashboard chrome
+- fixed MiniMax setup across the daemon, web onboarding, and native macOS onboarding by supporting distinct Global and China API-key paths, using OpenClaw’s current provider onboarding flow instead of raw token paste for MiniMax auth, and showing the endpoint-specific auth method labels and descriptions in the onboarding cards
+
 ### 2026-03-30 16:51 CST
 
 - rebuilt Configuration across the daemon, React UI, and native macOS app around live OpenClaw truth only, including refreshed Figma-aligned models and channels layouts, redesigned add-model and add-channel workflows, restored remove actions, and live-only pruning of stale saved state

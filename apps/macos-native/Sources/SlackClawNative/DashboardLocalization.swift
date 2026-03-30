@@ -21,6 +21,8 @@ struct NativeDashboardCopy: Sendable {
     let workspaceHealthTitle: String
     let sidebarStatusTitle: String
     let sidebarStatusReadySummary: String
+    let showSidebar: String
+    let hideSidebar: String
     let engineMetricTitle: String
     let connectedModelsMetricTitle: String
     let aiMembersMetricTitle: String
@@ -73,6 +75,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             workspaceHealthTitle: "工作区健康状态",
             sidebarStatusTitle: "状态：运行中",
             sidebarStatusReadySummary: "所有系统运行正常",
+            showSidebar: "显示侧边栏",
+            hideSidebar: "隐藏侧边栏",
             engineMetricTitle: "引擎",
             connectedModelsMetricTitle: "已连接模型",
             aiMembersMetricTitle: "AI 员工",
@@ -122,6 +126,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             workspaceHealthTitle: "ワークスペースの健全性",
             sidebarStatusTitle: "状態: 稼働中",
             sidebarStatusReadySummary: "すべてのシステムは正常です",
+            showSidebar: "サイドバーを表示",
+            hideSidebar: "サイドバーを隠す",
             engineMetricTitle: "エンジン",
             connectedModelsMetricTitle: "接続済みモデル",
             aiMembersMetricTitle: "AI メンバー",
@@ -171,6 +177,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             workspaceHealthTitle: "워크스페이스 상태",
             sidebarStatusTitle: "상태: 활성",
             sidebarStatusReadySummary: "모든 시스템이 정상 작동 중입니다",
+            showSidebar: "사이드바 표시",
+            hideSidebar: "사이드바 숨기기",
             engineMetricTitle: "엔진",
             connectedModelsMetricTitle: "연결된 모델",
             aiMembersMetricTitle: "AI 멤버",
@@ -220,6 +228,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             workspaceHealthTitle: "Salud del espacio",
             sidebarStatusTitle: "Estado: Activo",
             sidebarStatusReadySummary: "Todos los sistemas están operativos",
+            showSidebar: "Mostrar barra lateral",
+            hideSidebar: "Ocultar barra lateral",
             engineMetricTitle: "Motor",
             connectedModelsMetricTitle: "Modelos conectados",
             aiMembersMetricTitle: "Miembros de IA",
@@ -269,6 +279,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             workspaceHealthTitle: "Workspace Health",
             sidebarStatusTitle: "Status: Active",
             sidebarStatusReadySummary: "All systems operational",
+            showSidebar: "Show sidebar",
+            hideSidebar: "Hide sidebar",
             engineMetricTitle: "Engine",
             connectedModelsMetricTitle: "Connected Models",
             aiMembersMetricTitle: "AI Members",

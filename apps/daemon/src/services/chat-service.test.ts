@@ -263,7 +263,7 @@ test("chat service mirrors chat stream updates onto the daemon event bus", async
   const thread = (await chatService.createThread({ memberId: member.id, mode: "new" })).thread!;
 
   await chatService.sendMessage(thread.id, { message: "Summarize today's work.", clientMessageId: "client-event" });
-  await delay(60);
+  await delay(160);
   unsubscribe();
 
   assert.equal(eventTypes.includes("chat.stream"), true);

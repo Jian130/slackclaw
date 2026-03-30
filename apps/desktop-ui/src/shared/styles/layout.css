@@ -68,9 +68,14 @@
   font-weight: 500;
 }
 
-.sidebar-status {
-  margin: var(--space-4);
-  margin-top: auto;
+.sidebar-utilities {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: auto var(--space-4) var(--space-4);
+}
+
+.sidebar-utility-card {
   border-radius: var(--radius-md);
   background: var(--surface-accent);
   padding: 12px 16px;
@@ -90,14 +95,17 @@
 }
 
 .sidebar-language {
-  margin: 0 16px 16px;
+  display: flex;
 }
 
 .sidebar-language .language-selector {
+  display: flex;
   width: 100%;
 }
 
 .sidebar-language .language-selector select {
+  flex: 1;
+  min-width: 0;
   width: 100%;
 }
 
@@ -232,8 +240,8 @@
   justify-content: flex-start;
 }
 
-.app-shell--tablet .sidebar-status,
-.app-shell--phone .sidebar-status {
+.app-shell--tablet .sidebar-utilities,
+.app-shell--phone .sidebar-utilities {
   margin-top: 8px;
 }
 

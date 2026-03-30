@@ -25,9 +25,17 @@ const onboardingModelProviders: OnboardingModelProviderPresentation[] = [
     authMethods: [
       {
         id: "minimax-api",
-        label: "API Key",
+        label: "Global API Key",
         kind: "api-key",
-        description: "Paste a MiniMax API key.",
+        description: "Use the international MiniMax endpoint (api.minimax.io).",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true, placeholder: "Paste your API key here" }]
+      },
+      {
+        id: "minimax-api-key-cn",
+        label: "China API Key",
+        kind: "api-key",
+        description: "Use the China MiniMax endpoint (api.minimaxi.com).",
         interactive: false,
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true, placeholder: "Paste your API key here" }]
       }
