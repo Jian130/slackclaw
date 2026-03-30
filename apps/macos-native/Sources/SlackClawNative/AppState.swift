@@ -125,6 +125,17 @@ enum NativeSection: String, CaseIterable, Identifiable {
     case settings = "Settings"
 
     var id: String { rawValue }
+
+    static let navigationSections: [NativeSection] = [
+        .deploy,
+        .configuration,
+        .plugins,
+        .skills,
+        .members,
+        .chat,
+        .dashboard,
+        .settings
+    ]
 }
 
 enum NativeClientError: Error, LocalizedError {

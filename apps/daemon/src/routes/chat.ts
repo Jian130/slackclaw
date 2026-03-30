@@ -68,8 +68,8 @@ export const chatRoutes: RouteDefinition[] = [
     match: createPathMatcher("/api/ai-team/overview"),
     freshReadInvalidationTargets: ["models", "skills", "ai-members"],
     snapshotPolicy: "silent",
-    async handle() {
-      return unsupportedTeamResponse();
+    async handle({ context }) {
+      return jsonResponse(await context.aiTeamService.getOverview());
     }
   },
   {

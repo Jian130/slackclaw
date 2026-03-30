@@ -226,7 +226,7 @@ test("server matches mutable skill routes from pathname instead of raw request.u
   }
 });
 
-test("team backend routes return an explicit unsupported response", async () => {
+test("AI team overview route returns a daemon snapshot instead of an unsupported placeholder", async () => {
   const previousEngine = process.env.SLACKCLAW_ENGINE;
   process.env.SLACKCLAW_ENGINE = "mock";
 
@@ -238,8 +238,10 @@ test("team backend routes return an explicit unsupported response", async () => 
     const response = await fetch(`http://127.0.0.1:${port}/api/ai-team/overview`);
     const payload = await response.json();
 
-    assert.equal(response.status, 501);
-    assert.match(payload.error, /not supported|removed/i);
+    assert.equal(response.status, 200);
+    assert.equal(typeof payload.teamVision, "string");
+    assert.ok(Array.isArray(payload.members));
+    assert.ok(Array.isArray(payload.teams));
   } finally {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     if (previousEngine === undefined) {

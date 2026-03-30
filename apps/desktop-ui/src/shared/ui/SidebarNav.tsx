@@ -1,4 +1,4 @@
-import { LayoutDashboard, Plug, Rocket, Settings2, Zap, Users, MessageSquare, Settings, UserRound } from "lucide-react";
+import { LayoutDashboard, Plug, Rocket, Settings2, Zap, MessageSquare, Settings, UserRound } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { useLocale } from "../../app/providers/LocaleProvider.js";
@@ -14,7 +14,6 @@ export function SidebarNav() {
     { to: "/skills", label: copy.skills, icon: Zap },
     { to: "/members", label: copy.members, icon: UserRound },
     { to: "/chat", label: copy.chat, icon: MessageSquare },
-    { to: "/team", label: copy.team, icon: Users },
     { to: "/", label: copy.dashboard, icon: LayoutDashboard },
     { to: "/settings", label: copy.settings, icon: Settings }
   ];

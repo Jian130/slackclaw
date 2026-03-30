@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, delimiter, dirname, resolve } from "node:path";
 
 import type {
@@ -20,7 +20,6 @@ import type {
   ModelAuthSession,
   ModelAuthMethod,
   ModelCatalogEntry,
-  ModelConfigActionResponse,
   ModelConfigOverview,
   SaveModelEntryRequest,
   SavedModelEntry,
@@ -2138,16 +2137,6 @@ function getMainOpenClawAgentDir(): string {
   return resolve(process.env.HOME ?? "", ".openclaw", "agents", OPENCLAW_MAIN_AGENT_ID, "agent");
 }
 
-function getManagedModelAgentPaths(entryId: string): { rootDir: string; agentDir: string; workspaceDir: string } {
-  const rootDir = resolve(getDataDir(), "model-agents", entryId);
-
-  return {
-    rootDir,
-    agentDir: resolve(rootDir, "agent"),
-    workspaceDir: resolve(rootDir, "workspace")
-  };
-}
-
 function getManagedMemberAgentPaths(memberId: string): { rootDir: string; agentDir: string; workspaceDir: string } {
   const rootDir = resolve(getDataDir(), "ai-members", memberId);
 
@@ -2180,62 +2169,6 @@ async function readAuthStore(agentDir: string): Promise<OpenClawAuthProfileStore
 async function writeAuthStore(agentDir: string, store: OpenClawAuthProfileStoreJson): Promise<void> {
   await mkdir(agentDir, { recursive: true });
   await writeFile(getAuthStorePath(agentDir), JSON.stringify(store, null, 2));
-}
-
-function removeProfileIdsFromConfig(config: OpenClawConfigFileJson, profileIds: string[]): void {
-  if (profileIds.length === 0) {
-    return;
-  }
-
-  const profileIdSet = new Set(profileIds);
-
-  for (const profileId of profileIdSet) {
-    delete config.auth?.profiles?.[profileId];
-  }
-
-  if (config.auth?.order) {
-    config.auth.order = Object.fromEntries(
-      Object.entries(config.auth.order)
-        .map(([providerId, orderedProfileIds]) => [
-          providerId,
-          orderedProfileIds.filter((profileId) => !profileIdSet.has(profileId))
-        ])
-        .filter(([, orderedProfileIds]) => orderedProfileIds.length > 0)
-    );
-  }
-}
-
-async function removeProfileIdsFromAuthStore(agentDir: string | undefined, profileIds: string[]): Promise<void> {
-  if (!agentDir || profileIds.length === 0) {
-    return;
-  }
-
-  const store = await readAuthStore(agentDir);
-  const profileIdSet = new Set(profileIds);
-
-  for (const profileId of profileIdSet) {
-    delete store.profiles?.[profileId];
-    delete store.usageStats?.[profileId];
-  }
-
-  if (store.order) {
-    store.order = Object.fromEntries(
-      Object.entries(store.order)
-        .map(([providerId, orderedProfileIds]) => [
-          providerId,
-          orderedProfileIds.filter((profileId) => !profileIdSet.has(profileId))
-        ])
-        .filter(([, orderedProfileIds]) => orderedProfileIds.length > 0)
-    );
-  }
-
-  if (store.lastGood) {
-    store.lastGood = Object.fromEntries(
-      Object.entries(store.lastGood).filter(([, profileId]) => !profileIdSet.has(profileId))
-    );
-  }
-
-  await writeAuthStore(agentDir, store);
 }
 
 function normalizeModelLookupKey(value: string): string {
@@ -2307,22 +2240,6 @@ export function resolveCatalogModelKey(
 
   if (fuzzyMatches.length === 1) {
     return fuzzyMatches[0]?.key;
-  }
-
-  return undefined;
-}
-
-function authModeLabelForCredentialType(type: unknown): string | undefined {
-  if (type === "oauth") {
-    return "OAuth";
-  }
-
-  if (type === "token") {
-    return "Token";
-  }
-
-  if (type === "api_key") {
-    return "API key";
   }
 
   return undefined;
@@ -2613,19 +2530,6 @@ export function reconcileSavedEntriesWithRuntime(
   };
 }
 
-function describeProfileLabel(profileId: string, profile: Record<string, unknown> & { email?: string; accountId?: string }): string {
-  if (profile.email?.trim()) {
-    return profile.email.trim();
-  }
-
-  if (profile.accountId?.trim()) {
-    return profile.accountId.trim();
-  }
-
-  const suffixIndex = profileId.indexOf(":");
-  return suffixIndex >= 0 ? profileId.slice(suffixIndex + 1) : profileId;
-}
-
 function matchingProfileIdsForProvider(
   store: OpenClawAuthProfileStoreJson,
   provider: InternalModelProviderConfig | undefined
@@ -2635,24 +2539,6 @@ function matchingProfileIdsForProvider(
       provider ? providerMatchesAuthProvider(provider, String(profile.provider ?? "")) : true
     )
     .map(([profileId]) => profileId);
-}
-
-function pruneExplicitMainAgentEntry(config: OpenClawConfigFileJson): boolean {
-  const existingList = config.agents?.list ?? [];
-  const nextList = existingList.filter((entry) => entry.id !== OPENCLAW_MAIN_AGENT_ID);
-
-  if (nextList.length === existingList.length) {
-    return false;
-  }
-
-  config.agents = config.agents ?? {};
-  if (nextList.length > 0) {
-    config.agents.list = nextList;
-  } else if (config.agents) {
-    delete config.agents.list;
-  }
-
-  return true;
 }
 
 function preferredConfiguredPrimaryAgentId(config: OpenClawConfigFileJson): string | undefined {
@@ -3266,15 +3152,20 @@ export class OpenClawAdapter implements EngineAdapter {
           };
           status?: {
             agentDir?: string;
+            aliases?: Record<string, string>;
           };
         };
       },
-      readEntryAuthSummary: (agentDir, providerId) => this.readEntryAuthSummary(agentDir, providerId),
-      replaceEntryProfileIds: (configPath, config, entry) =>
-        this.replaceEntryProfileIds(
+      writeOpenClawConfigSnapshot: (configPath, config) =>
+        this.writeOpenClawConfigSnapshot(configPath, config as OpenClawConfigFileJson),
+      readAuthStore,
+      writeAuthStore,
+      upsertAgentConfigEntry: (configPath, config, entry, model) =>
+        this.upsertAgentConfigEntry(
           configPath,
           config as OpenClawConfigFileJson,
-          entry as SavedModelEntryState
+          entry as SavedModelEntryState,
+          model
         ),
       hasReusableAuthForSavedModelEntry: (entry, providerId, method) =>
         this.hasReusableAuthForSavedModelEntry(
@@ -3284,11 +3175,12 @@ export class OpenClawAdapter implements EngineAdapter {
         ),
       normalizeStateFlags: (state) => this.normalizeStateFlags(state as OpenClawAdapterState),
       isRuntimeDerivedModelEntryId,
-      removeRuntimeDerivedModelEntry: (entry, nextState) =>
-        this.removeRuntimeDerivedModelEntry(entry as SavedModelEntryState, nextState as OpenClawAdapterState),
-      cleanupRemovedSavedModelEntry: (entry, nextState) =>
-        this.cleanupRemovedSavedModelEntry(entry as SavedModelEntryState, nextState as OpenClawAdapterState),
-      syncRuntimeModelChain: (nextState) => this.syncRuntimeModelChain(nextState as OpenClawAdapterState),
+      removeRuntimeDerivedModelFromConfig: (config, status, modelKey) =>
+        removeRuntimeDerivedModelFromConfig(
+          config as OpenClawConfigFileJson,
+          status as Pick<OpenClawModelStatusJson, "aliases"> | undefined,
+          modelKey
+        ),
       markGatewayApplyPending: () => this.markGatewayApplyPending(),
       runMutationWithConfigFallback: (options) => this.runMutationWithConfigFallback(options),
       writeDefaultModelConfig: (modelKey) => this.writeDefaultModelConfig(modelKey),
@@ -3918,7 +3810,7 @@ export class OpenClawAdapter implements EngineAdapter {
     const provider = providerDefinitionByModelKey(modelKey);
     const createdAt = new Date().toISOString();
     const agentDir = snapshot.status?.agentDir ?? getMainOpenClawAgentDir();
-    const summary = await this.readEntryAuthSummary(agentDir, provider?.id);
+    const summary = await this.modelsConfigCoordinator.readEntryAuthSummary(agentDir, provider?.id);
     const runtimeEntryId = runtimeEntryIdForModelKey(modelKey);
 
     return {
@@ -4176,274 +4068,6 @@ export class OpenClawAdapter implements EngineAdapter {
     };
 
     await this.writeOpenClawConfigSnapshot(configPath, config);
-  }
-
-  private async readEntryAuthSummary(agentDir: string, providerId?: string): Promise<{
-    profileIds: string[];
-    authModeLabel?: string;
-    profileLabel?: string;
-  }> {
-    const store = await readAuthStore(agentDir);
-    const provider = providerDefinitionById(providerId ?? "");
-    const profiles = Object.entries(store.profiles ?? {}).filter(([, profile]) =>
-      provider ? providerMatchesAuthProvider(provider, String(profile.provider ?? "")) : true
-    );
-    const first = profiles[0];
-
-    return {
-      profileIds: profiles.map(([profileId]) => profileId),
-      authModeLabel: first ? authModeLabelForCredentialType(first[1].type) : undefined,
-      profileLabel: first ? describeProfileLabel(first[0], first[1]) : undefined
-    };
-  }
-
-  private async replaceEntryProfileIds(
-    configPath: string,
-    config: OpenClawConfigFileJson,
-    entry: SavedModelEntryState
-  ): Promise<SavedModelEntryState> {
-    const provider = providerDefinitionById(entry.providerId);
-    const store = await readAuthStore(entry.agentDir);
-    const sourceProfiles = Object.entries(store.profiles ?? {}).filter(([, profile]) =>
-      provider ? providerMatchesAuthProvider(provider, String(profile.provider ?? "")) : true
-    );
-    const nextProfiles: NonNullable<OpenClawAuthProfileStoreJson["profiles"]> = {};
-    const nextUsageStats: NonNullable<OpenClawAuthProfileStoreJson["usageStats"]> = {};
-    const nextProfileIds: string[] = [];
-
-    for (const existingProfileId of entry.profileIds ?? []) {
-      delete config.auth?.profiles?.[existingProfileId];
-    }
-
-    const providerPrefix = provider?.authProviderId ?? provider?.providerRefs[0]?.replace(/\/$/, "") ?? entry.providerId;
-
-    sourceProfiles.forEach(([profileId, profile], index) => {
-      const nextProfileId = `${providerPrefix}:slackclaw-${entry.id}-${index + 1}`;
-      nextProfiles[nextProfileId] = profile;
-      if (store.usageStats?.[profileId]) {
-        nextUsageStats[nextProfileId] = store.usageStats[profileId];
-      }
-      nextProfileIds.push(nextProfileId);
-    });
-
-    for (const [profileId, profile] of Object.entries(store.profiles ?? {})) {
-      if (sourceProfiles.some(([id]) => id === profileId)) {
-        continue;
-      }
-
-      nextProfiles[profileId] = profile;
-      if (store.usageStats?.[profileId]) {
-        nextUsageStats[profileId] = store.usageStats[profileId];
-      }
-    }
-
-    store.profiles = nextProfiles;
-    store.usageStats = nextUsageStats;
-
-    if (store.lastGood) {
-      for (const [providerKey, profileId] of Object.entries(store.lastGood)) {
-        const sourceIndex = sourceProfiles.findIndex(([id]) => id === profileId);
-        if (sourceIndex >= 0) {
-          store.lastGood[providerKey] = nextProfileIds[sourceIndex];
-        }
-      }
-    }
-
-    await writeAuthStore(entry.agentDir, store);
-
-    config.auth = config.auth ?? {};
-    config.auth.profiles = config.auth.profiles ?? {};
-
-    for (const profileId of nextProfileIds) {
-      const profile = nextProfiles[profileId];
-      config.auth.profiles[profileId] = {
-        provider: String(profile.provider ?? providerPrefix),
-        mode: profile.type === "api_key" ? "api_key" : profile.type === "token" ? "token" : "oauth",
-        ...(typeof profile.email === "string" && profile.email.trim() ? { email: profile.email.trim() } : {})
-      };
-    }
-
-    await this.writeOpenClawConfigSnapshot(configPath, config);
-
-    return {
-      ...entry,
-      profileIds: nextProfileIds,
-      authModeLabel: nextProfileIds[0] ? authModeLabelForCredentialType(nextProfiles[nextProfileIds[0]]?.type) : undefined,
-      profileLabel: nextProfileIds[0] ? describeProfileLabel(nextProfileIds[0], nextProfiles[nextProfileIds[0]]) : undefined
-    };
-  }
-
-  private async syncRuntimeAuthProfiles(
-    configPath: string,
-    config: OpenClawConfigFileJson,
-    defaultEntry: SavedModelEntryState,
-    activeEntries: SavedModelEntryState[]
-  ): Promise<void> {
-    const targetStore = await readAuthStore(defaultEntry.agentDir);
-    targetStore.profiles = targetStore.profiles ?? {};
-    targetStore.usageStats = targetStore.usageStats ?? {};
-    targetStore.order = targetStore.order ?? {};
-    config.auth = config.auth ?? {};
-    config.auth.profiles = config.auth.profiles ?? {};
-
-    for (const entry of activeEntries) {
-      const sourceStore = await readAuthStore(entry.agentDir);
-      const providerOrder: string[] = [];
-
-      for (const profileId of entry.profileIds ?? []) {
-        const profile = sourceStore.profiles?.[profileId];
-        if (!profile) {
-          continue;
-        }
-
-        targetStore.profiles[profileId] = profile;
-        if (sourceStore.usageStats?.[profileId]) {
-          targetStore.usageStats[profileId] = sourceStore.usageStats[profileId];
-        }
-
-        providerOrder.push(profileId);
-        config.auth.profiles[profileId] = {
-          provider: String(profile.provider ?? entry.providerId),
-          mode: profile.type === "api_key" ? "api_key" : profile.type === "token" ? "token" : "oauth",
-          ...(typeof profile.email === "string" && profile.email.trim() ? { email: profile.email.trim() } : {})
-        };
-      }
-
-      if (providerOrder.length > 0) {
-        const providerConfigKey =
-          providerDefinitionById(entry.providerId)?.authProviderId ??
-          providerDefinitionById(entry.providerId)?.providerRefs[0]?.replace(/\/$/, "") ??
-          entry.providerId;
-        targetStore.order[providerConfigKey] = providerOrder;
-      }
-    }
-
-    await writeAuthStore(defaultEntry.agentDir, targetStore);
-    await this.writeOpenClawConfigSnapshot(configPath, config);
-  }
-
-  private async syncRuntimeModelChain(nextState: OpenClawAdapterState): Promise<OpenClawAdapterState> {
-    const state = this.normalizeStateFlags(nextState);
-    const defaultEntry = state.modelEntries?.find((entry) => entry.id === state.defaultModelEntryId);
-    const fallbackEntries = (state.fallbackModelEntryIds ?? [])
-      .map((entryId) => state.modelEntries?.find((entry) => entry.id === entryId))
-      .filter((entry): entry is SavedModelEntryState => Boolean(entry));
-
-    if (!defaultEntry) {
-      await writeAdapterState(state);
-      return state;
-    }
-
-    const snapshot = await this.readOpenClawConfigSnapshot();
-    const allModelKeys = [...new Set((state.modelEntries ?? []).map((entry) => entry.modelKey))];
-
-    snapshot.config.agents = snapshot.config.agents ?? {};
-    snapshot.config.agents.defaults = {
-      ...snapshot.config.agents.defaults,
-      model: {
-        primary: defaultEntry.modelKey,
-        fallbacks: fallbackEntries.map((entry) => entry.modelKey)
-      },
-      models: Object.fromEntries(allModelKeys.map((modelKey) => [modelKey, snapshot.config.agents?.defaults?.models?.[modelKey] ?? {}]))
-    };
-    pruneExplicitMainAgentEntry(snapshot.config);
-
-    if (!defaultEntry.agentId || !defaultEntry.agentDir || !defaultEntry.workspaceDir) {
-      await this.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
-      await writeAdapterState(state);
-      return state;
-    }
-
-    const runtimeFallbackEntries = fallbackEntries.filter((entry): entry is SavedModelEntryState => Boolean(entry.agentId && entry.agentDir && entry.workspaceDir));
-    const activeEntries = [defaultEntry, ...runtimeFallbackEntries];
-
-    await this.upsertAgentConfigEntry(snapshot.configPath, snapshot.config, defaultEntry, {
-      primary: defaultEntry.modelKey,
-      fallbacks: runtimeFallbackEntries.map((entry) => entry.modelKey)
-    });
-
-    for (const entry of state.modelEntries ?? []) {
-      if (entry.id === defaultEntry.id || !entry.agentId || !entry.agentDir || !entry.workspaceDir) {
-        continue;
-      }
-
-      await this.upsertAgentConfigEntry(snapshot.configPath, snapshot.config, entry, entry.modelKey);
-    }
-
-    await this.syncRuntimeAuthProfiles(snapshot.configPath, snapshot.config, defaultEntry, activeEntries);
-    await writeAdapterState(state);
-    return state;
-  }
-
-  private async removeRuntimeDerivedModelEntry(
-    entry: SavedModelEntryState,
-    nextState: OpenClawAdapterState
-  ): Promise<ModelConfigActionResponse> {
-    if (nextState.defaultModelEntryId) {
-      await this.syncRuntimeModelChain(nextState);
-    } else {
-      const snapshot = await this.readOpenClawConfigSnapshot();
-      removeRuntimeDerivedModelFromConfig(snapshot.config, snapshot.status, entry.modelKey);
-      pruneExplicitMainAgentEntry(snapshot.config);
-      await this.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
-      await writeAdapterState(nextState);
-    }
-
-    await this.markGatewayApplyPending();
-
-    return {
-      ...this.mutationSyncMeta(),
-      status: "completed",
-      message: appendGatewayApplyMessage(`${entry.label} was removed from OpenClaw.`),
-      modelConfig: await this.modelsConfigCoordinator.getModelConfig(),
-      requiresGatewayApply: true
-    };
-  }
-
-  private async deleteManagedModelAgent(entry: SavedModelEntryState): Promise<void> {
-    if (!isManagedModelAgentId(entry.agentId)) {
-      return;
-    }
-
-    const result = await runOpenClaw(["agents", "delete", entry.agentId, "--force", "--json"], { allowFailure: true });
-
-    if (result.code !== 0) {
-      const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
-      if (!output.includes("not found")) {
-        throw new Error(result.stderr || result.stdout || `SlackClaw could not delete the hidden model agent ${entry.agentId}.`);
-      }
-    }
-
-    const managedPaths = getManagedModelAgentPaths(entry.id);
-    await rm(managedPaths.rootDir, { recursive: true, force: true }).catch(() => undefined);
-  }
-
-  private async cleanupRemovedSavedModelEntry(
-    entry: SavedModelEntryState,
-    nextState: OpenClawAdapterState
-  ): Promise<void> {
-    const snapshot = await this.readOpenClawConfigSnapshot();
-
-    if (isManagedModelAgentId(entry.agentId) || isImplicitMainAgentId(entry.agentId)) {
-      snapshot.config.agents = {
-        ...snapshot.config.agents,
-        list: (snapshot.config.agents?.list ?? []).filter((item) => item.id !== entry.agentId)
-      };
-    }
-
-    pruneExplicitMainAgentEntry(snapshot.config);
-
-    if (isManagedModelAgentId(entry.agentId)) {
-      removeProfileIdsFromConfig(snapshot.config, entry.profileIds);
-      await this.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
-
-      const nextDefaultEntry = (nextState.modelEntries ?? []).find((item) => item.id === nextState.defaultModelEntryId);
-      await removeProfileIdsFromAuthStore(nextDefaultEntry?.agentDir, entry.profileIds);
-    }
-
-    if (isManagedModelAgentId(entry.agentId)) {
-      await this.deleteManagedModelAgent(entry);
-    }
   }
 
   async install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse> {

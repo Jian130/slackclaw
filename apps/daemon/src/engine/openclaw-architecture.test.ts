@@ -78,6 +78,13 @@ test("OpenClawAdapter no longer owns the extracted chat, capability, agent, and 
   assert.doesNotMatch(source, /private async finalizeSavedModelEntryOperation\(/);
   assert.doesNotMatch(source, /private async startEntryAuthentication\(/);
   assert.doesNotMatch(source, /private async createOrUpdateSavedModelEntry\(/);
+  assert.doesNotMatch(source, /private async readEntryAuthSummary\(/);
+  assert.doesNotMatch(source, /private async replaceEntryProfileIds\(/);
+  assert.doesNotMatch(source, /private async syncRuntimeAuthProfiles\(/);
+  assert.doesNotMatch(source, /private async syncRuntimeModelChain\(/);
+  assert.doesNotMatch(source, /private async removeRuntimeDerivedModelEntry\(/);
+  assert.doesNotMatch(source, /private async deleteManagedModelAgent\(/);
+  assert.doesNotMatch(source, /private async cleanupRemovedSavedModelEntry\(/);
   assert.doesNotMatch(source, /private async saveAIMemberRuntime\(/);
   assert.doesNotMatch(source, /async getAIMemberBindings\(/);
   assert.doesNotMatch(source, /async bindAIMemberChannel\(/);
@@ -107,6 +114,13 @@ test("ModelsConfigCoordinator owns the extracted model overview and auth session
   assert.match(source, /private async finalizeSavedModelEntryOperation\(/);
   assert.match(source, /private async startEntryAuthentication\(/);
   assert.match(source, /private async createOrUpdateSavedModelEntry\(/);
+  assert.match(source, /async readEntryAuthSummary\(/);
+  assert.match(source, /private async replaceEntryProfileIds\(/);
+  assert.match(source, /private async syncRuntimeAuthProfiles\(/);
+  assert.match(source, /async syncRuntimeModelChain\(/);
+  assert.match(source, /private async removeRuntimeDerivedModelEntry\(/);
+  assert.match(source, /private async deleteManagedModelAgent\(/);
+  assert.match(source, /private async cleanupRemovedSavedModelEntry\(/);
 });
 
 test("ChannelsConfigCoordinator owns the extracted channel session and installer workflow", async () => {

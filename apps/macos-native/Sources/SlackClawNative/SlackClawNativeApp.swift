@@ -194,7 +194,7 @@ private struct NativeSidebar: View {
             sidebarBrand(copy: copy)
             Divider()
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(NativeSection.allCases) { section in
+                ForEach(NativeSection.navigationSections) { section in
                     let palette = nativeShellNavigationPalette(nativeShellNavigationState(selected: appState.selectedSection == section))
 
                     Button {

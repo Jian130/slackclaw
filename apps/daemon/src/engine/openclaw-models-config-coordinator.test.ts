@@ -99,28 +99,24 @@ function createCoordinatorTestHarness(overrides: Partial<ModelsConfigAccess> = {
       config: {},
       status: { agentDir: "/tmp/default-agent" }
     }),
-    readEntryAuthSummary: async () => ({
-      profileIds: [],
-      authModeLabel: undefined,
-      profileLabel: undefined
+    writeOpenClawConfigSnapshot: async () => undefined,
+    readAuthStore: async () => ({
+      version: 1,
+      profiles: {},
+      usageStats: {},
+      order: {},
+      lastGood: {}
     }),
-    replaceEntryProfileIds: async (_configPath, _config, entry) => ({
-      ...entry,
-      profileIds: ["minimax:slackclaw-test"],
-      authModeLabel: "API key",
-      profileLabel: "minimax"
-    }),
+    writeAuthStore: async () => undefined,
+    upsertAgentConfigEntry: async () => undefined,
     hasReusableAuthForSavedModelEntry: async () => false,
     normalizeStateFlags: (state) => state,
     isRuntimeDerivedModelEntryId: () => false,
-    removeRuntimeDerivedModelEntry: async () => {
-      throw new Error("not used");
-    },
-    cleanupRemovedSavedModelEntry: async () => undefined,
-    syncRuntimeModelChain: async (nextState) => {
-      adapterState = nextState;
-      return nextState;
-    },
+    removeRuntimeDerivedModelFromConfig: () => ({
+      changed: false,
+      remainingModelKeys: [],
+      removedDefault: false
+    }),
     markGatewayApplyPending: async () => undefined,
     runMutationWithConfigFallback: async () => {
       throw new Error("not used");
@@ -136,7 +132,10 @@ function createCoordinatorTestHarness(overrides: Partial<ModelsConfigAccess> = {
   return {
     coordinator: new ModelsConfigCoordinator(access),
     runCalls,
-    getAdapterState: () => adapterState
+    getAdapterState: () => adapterState,
+    setAdapterState: (state: typeof adapterState) => {
+      adapterState = state;
+    }
   };
 }
 
@@ -189,4 +188,89 @@ test("createSavedModelEntry uses OpenClaw onboarding for MiniMax global API keys
   assert.ok(runCalls[0]?.options?.envOverrides?.OPENCLAW_AGENT_DIR);
   assert.equal(getAdapterState().modelEntries?.[0]?.providerId, "minimax");
   assert.equal(getAdapterState().modelEntries?.[0]?.authMethodId, "minimax-api");
+});
+
+test("removeSavedModelEntry removes a runtime-derived default entry through coordinator-owned runtime cleanup", async () => {
+  const configWrites: Array<Record<string, unknown>> = [];
+  let pendingMarked = 0;
+  const { coordinator, getAdapterState, setAdapterState } = createCoordinatorTestHarness({
+    writeOpenClawConfigSnapshot: async (_configPath, config) => {
+      configWrites.push(structuredClone(config) as Record<string, unknown>);
+    },
+    readOpenClawConfigSnapshot: async () => ({
+      configPath: "/tmp/openclaw.json",
+      config: {
+        agents: {
+          defaults: {
+            model: {
+              primary: "minimax/MiniMax-M2.7",
+              fallbacks: []
+            },
+            models: {
+              "minimax/MiniMax-M2.7": {}
+            }
+          }
+        }
+      },
+      status: { agentDir: "/tmp/default-agent", aliases: {} }
+    }),
+    isRuntimeDerivedModelEntryId: (entryId) => entryId.startsWith("runtime:"),
+    removeRuntimeDerivedModelFromConfig: (config, _status, modelKey) => {
+      if (config.agents?.defaults?.models) {
+        delete config.agents.defaults.models[modelKey];
+        if (Object.keys(config.agents.defaults.models).length === 0) {
+          delete config.agents.defaults.models;
+        }
+      }
+
+      if (config.agents?.defaults) {
+        delete config.agents.defaults.model;
+      }
+
+      return {
+        changed: true,
+        remainingModelKeys: [],
+        removedDefault: true
+      };
+    },
+    markGatewayApplyPending: async () => {
+      pendingMarked += 1;
+    }
+  });
+
+  setAdapterState({
+    modelEntries: [
+      {
+        id: "runtime:minimax-minimax-m2-7",
+        label: "MiniMax M2.7",
+        providerId: "minimax",
+        modelKey: "minimax/MiniMax-M2.7",
+        agentId: "",
+        agentDir: "",
+        workspaceDir: "",
+        authMethodId: undefined,
+        profileIds: [],
+        isDefault: true,
+        isFallback: false,
+        createdAt: "2026-03-31T00:00:00.000Z",
+        updatedAt: "2026-03-31T00:00:00.000Z"
+      }
+    ],
+    defaultModelEntryId: "runtime:minimax-minimax-m2-7",
+    fallbackModelEntryIds: []
+  });
+
+  const result = await coordinator.removeSavedModelEntry("runtime:minimax-minimax-m2-7");
+
+  assert.equal(result.requiresGatewayApply, true);
+  assert.match(result.message, /removed from OpenClaw/);
+  assert.equal(pendingMarked, 1);
+  assert.equal(getAdapterState().modelEntries?.length ?? 0, 0);
+  assert.equal(getAdapterState().defaultModelEntryId, undefined);
+  assert.equal(configWrites.length, 1);
+  assert.deepEqual(configWrites[0], {
+    agents: {
+      defaults: {}
+    }
+  });
 });

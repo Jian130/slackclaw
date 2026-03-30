@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import type {
   ModelAuthRequest,
@@ -20,8 +22,10 @@ import {
   buildOnboardAuthArgs,
   canUseTokenPasteAuth,
   providerDefinitionById,
-  resolveTokenAuthProvider
+  resolveTokenAuthProvider,
+  type InternalModelProviderConfig
 } from "../config/openclaw-model-provider-catalog.js";
+import { getDataDir } from "../runtime-paths.js";
 import { appendGatewayApplyMessage } from "./openclaw-shared.js";
 
 type SavedModelEntryLike = SavedModelEntry & {
@@ -84,6 +88,44 @@ type RuntimeModelAuthSessionLike = ModelAuthSession & {
   pendingEntry?: PendingSavedModelEntryOperationLike;
 };
 
+type OpenClawAuthProfileStoreLike = {
+  version?: number;
+  profiles?: Record<string, Record<string, unknown> & { provider?: string; type?: string; email?: string; accountId?: string }>;
+  usageStats?: Record<string, unknown>;
+  order?: Record<string, string[]>;
+  lastGood?: Record<string, string>;
+};
+
+type OpenClawConfigSnapshotLike = {
+  configPath: string;
+  config: {
+    auth?: {
+      profiles?: Record<string, { provider?: string; mode?: string; email?: string }>;
+      order?: Record<string, string[]>;
+    };
+    agents?: {
+      defaults?: {
+        model?: string | { primary?: string; fallbacks?: string[] };
+        models?: Record<string, unknown>;
+        workspace?: string;
+      };
+      list?: Array<{
+        id: string;
+        name?: string;
+        workspace?: string;
+        agentDir?: string;
+        default?: boolean;
+        model?: string | { primary?: string; fallbacks?: string[] };
+      }>;
+    };
+    [key: string]: unknown;
+  };
+  status?: {
+    agentDir?: string;
+    aliases?: Record<string, string>;
+  };
+};
+
 type ModelsConfigAccess = {
   readModelSnapshot: () => Promise<ModelSnapshotLike>;
   resolveCatalogModelKey: (
@@ -128,64 +170,16 @@ type ModelsConfigAccess = {
   appendAuthSessionOutput: (session: RuntimeModelAuthSessionLike, chunk: string) => void;
   writeErrorLog: (message: string, details: unknown) => Promise<void>;
   errorToLogDetails: (error: unknown) => unknown;
-  readOpenClawConfigSnapshot: () => Promise<{
-    configPath: string;
-    config: {
-      auth?: {
-        profiles?: Record<string, { provider?: string; mode?: string; email?: string }>;
-        order?: Record<string, string[]>;
-      };
-      agents?: {
-        defaults?: {
-          model?: string | { primary?: string; fallbacks?: string[] };
-          models?: Record<string, unknown>;
-          workspace?: string;
-        };
-        list?: Array<{
-          id: string;
-          name?: string;
-          workspace?: string;
-          agentDir?: string;
-          default?: boolean;
-          model?: string | { primary?: string; fallbacks?: string[] };
-        }>;
-      };
-      [key: string]: unknown;
-    };
-    status?: {
-      agentDir?: string;
-    };
-  }>;
-  readEntryAuthSummary: (
-    agentDir: string,
-    providerId?: string
-  ) => Promise<{ profileIds: string[]; authModeLabel?: string; profileLabel?: string }>;
-  replaceEntryProfileIds: (
+  readOpenClawConfigSnapshot: () => Promise<OpenClawConfigSnapshotLike>;
+  writeOpenClawConfigSnapshot: (configPath: string, config: OpenClawConfigSnapshotLike["config"]) => Promise<void>;
+  readAuthStore: (agentDir: string) => Promise<OpenClawAuthProfileStoreLike>;
+  writeAuthStore: (agentDir: string, store: OpenClawAuthProfileStoreLike) => Promise<void>;
+  upsertAgentConfigEntry: (
     configPath: string,
-    config: {
-      auth?: {
-        profiles?: Record<string, { provider?: string; mode?: string; email?: string }>;
-        order?: Record<string, string[]>;
-      };
-      agents?: {
-        defaults?: {
-          model?: string | { primary?: string; fallbacks?: string[] };
-          models?: Record<string, unknown>;
-          workspace?: string;
-        };
-        list?: Array<{
-          id: string;
-          name?: string;
-          workspace?: string;
-          agentDir?: string;
-          default?: boolean;
-          model?: string | { primary?: string; fallbacks?: string[] };
-        }>;
-      };
-      [key: string]: unknown;
-    },
-    entry: SavedModelEntryLike
-  ) => Promise<SavedModelEntryLike>;
+    config: OpenClawConfigSnapshotLike["config"],
+    entry: SavedModelEntryLike & { agentId: string; agentDir: string; workspaceDir: string },
+    model: string | { primary?: string; fallbacks?: string[] }
+  ) => Promise<void>;
   hasReusableAuthForSavedModelEntry: (
     entry: SavedModelEntryLike | undefined,
     providerId: string,
@@ -197,12 +191,11 @@ type ModelsConfigAccess = {
   ) => Promise<boolean>;
   normalizeStateFlags: (state: AdapterModelState) => AdapterModelState;
   isRuntimeDerivedModelEntryId: (entryId: string) => boolean;
-  removeRuntimeDerivedModelEntry: (
-    entry: SavedModelEntryLike,
-    nextState: AdapterModelState
-  ) => Promise<ModelConfigActionResponse>;
-  cleanupRemovedSavedModelEntry: (entry: SavedModelEntryLike, nextState: AdapterModelState) => Promise<void>;
-  syncRuntimeModelChain: (nextState: AdapterModelState) => Promise<AdapterModelState>;
+  removeRuntimeDerivedModelFromConfig: (
+    config: OpenClawConfigSnapshotLike["config"],
+    status: OpenClawConfigSnapshotLike["status"] | undefined,
+    modelKey: string
+  ) => { changed: boolean; remainingModelKeys: string[]; removedDefault: boolean };
   markGatewayApplyPending: () => Promise<void>;
   runMutationWithConfigFallback: (options: {
     commandArgs: string[];
@@ -277,6 +270,150 @@ function shouldAuthenticateSavedModelEntry(
   }
 
   return false;
+}
+
+const OPENCLAW_MAIN_AGENT_ID = "main";
+const MANAGED_MODEL_AGENT_PREFIX = "slackclaw-model-";
+
+function authModeLabelForCredentialType(type: unknown): string | undefined {
+  if (type === "oauth") {
+    return "OAuth";
+  }
+
+  if (type === "token") {
+    return "Token";
+  }
+
+  if (type === "api_key") {
+    return "API key";
+  }
+
+  return undefined;
+}
+
+function authModeForCredentialType(type: unknown): "api_key" | "token" | "oauth" {
+  if (type === "api_key") {
+    return "api_key";
+  }
+
+  if (type === "token") {
+    return "token";
+  }
+
+  return "oauth";
+}
+
+function describeProfileLabel(
+  profileId: string,
+  profile: Record<string, unknown> & { email?: string; accountId?: string }
+): string {
+  if (profile.email?.trim()) {
+    return profile.email.trim();
+  }
+
+  if (profile.accountId?.trim()) {
+    return profile.accountId.trim();
+  }
+
+  const suffixIndex = profileId.indexOf(":");
+  return suffixIndex >= 0 ? profileId.slice(suffixIndex + 1) : profileId;
+}
+
+function providerMatchesAuthProvider(provider: InternalModelProviderConfig, authProvider: string): boolean {
+  const normalized = authProvider.trim().toLowerCase();
+  const candidates = new Set<string>();
+
+  candidates.add(provider.id.toLowerCase());
+
+  for (const ref of provider.providerRefs) {
+    candidates.add(ref.replace(/\/$/, "").toLowerCase());
+  }
+
+  if (provider.authProviderId) {
+    candidates.add(provider.authProviderId.toLowerCase());
+  }
+
+  for (const method of provider.authMethods) {
+    if (method.loginProviderId) {
+      candidates.add(method.loginProviderId.toLowerCase());
+    }
+
+    if (method.tokenProviderId) {
+      candidates.add(method.tokenProviderId.toLowerCase());
+    }
+
+    if (method.setupTokenProvider) {
+      candidates.add(method.setupTokenProvider.toLowerCase());
+    }
+  }
+
+  return candidates.has(normalized);
+}
+
+function matchingProfilesForProvider(
+  store: OpenClawAuthProfileStoreLike,
+  provider: InternalModelProviderConfig | undefined
+): Array<[string, Record<string, unknown> & { provider?: string; type?: string; email?: string; accountId?: string }]> {
+  return Object.entries(store.profiles ?? {}).filter(([, profile]) =>
+    provider ? providerMatchesAuthProvider(provider, String(profile.provider ?? "")) : true
+  );
+}
+
+function pruneExplicitMainAgentEntry(config: OpenClawConfigSnapshotLike["config"]): boolean {
+  const existingList = config.agents?.list ?? [];
+  const nextList = existingList.filter((entry) => entry.id !== OPENCLAW_MAIN_AGENT_ID);
+
+  if (nextList.length === existingList.length) {
+    return false;
+  }
+
+  config.agents = config.agents ?? {};
+  if (nextList.length > 0) {
+    config.agents.list = nextList;
+  } else if (config.agents) {
+    delete config.agents.list;
+  }
+
+  return true;
+}
+
+function isManagedModelAgentId(agentId: string | undefined): boolean {
+  const trimmed = agentId?.trim();
+  return Boolean(trimmed && trimmed.startsWith(MANAGED_MODEL_AGENT_PREFIX));
+}
+
+function isImplicitMainAgentId(agentId: string | undefined): boolean {
+  return agentId?.trim() === OPENCLAW_MAIN_AGENT_ID;
+}
+
+function getManagedModelAgentRootDir(entryId: string): string {
+  return resolve(getDataDir(), "model-agents", entryId);
+}
+
+function removeProfileIdsFromConfig(
+  config: OpenClawConfigSnapshotLike["config"],
+  profileIds: string[]
+): void {
+  if (profileIds.length === 0) {
+    return;
+  }
+
+  const profileIdSet = new Set(profileIds);
+
+  for (const profileId of profileIdSet) {
+    delete config.auth?.profiles?.[profileId];
+  }
+
+  if (config.auth?.order) {
+    config.auth.order = Object.fromEntries(
+      Object.entries(config.auth.order)
+        .map(([providerId, orderedProfileIds]) => [
+          providerId,
+          orderedProfileIds.filter((profileId) => !profileIdSet.has(profileId))
+        ])
+        .filter(([, orderedProfileIds]) => orderedProfileIds.length > 0)
+    );
+  }
 }
 
 export class ModelsConfigCoordinator {
@@ -533,13 +670,13 @@ export class ModelsConfigCoordinator {
     const touchedRuntime = runtimeDerivedEntry || entry.isDefault || entry.isFallback;
 
     if (runtimeDerivedEntry) {
-      return this.access.removeRuntimeDerivedModelEntry(entry, nextState);
+      return this.removeRuntimeDerivedModelEntry(entry, nextState);
     }
 
-    await this.access.cleanupRemovedSavedModelEntry(entry, nextState);
+    await this.cleanupRemovedSavedModelEntry(entry, nextState);
 
     if (touchedRuntime) {
-      await this.access.syncRuntimeModelChain(nextState);
+      await this.syncRuntimeModelChain(nextState);
       await this.access.markGatewayApplyPending();
 
       return {
@@ -568,7 +705,7 @@ export class ModelsConfigCoordinator {
       throw new Error("Saved model entry not found.");
     }
 
-    await this.access.syncRuntimeModelChain({
+    await this.syncRuntimeModelChain({
       ...state,
       defaultModelEntryId: request.entryId,
       fallbackModelEntryIds: (state.fallbackModelEntryIds ?? []).filter((entryId) => entryId !== request.entryId)
@@ -588,7 +725,7 @@ export class ModelsConfigCoordinator {
   async replaceFallbackModelEntries(request: ReplaceFallbackModelEntriesRequest): Promise<ModelConfigActionResponse> {
     await this.getModelConfig();
     const state = this.access.normalizeStateFlags(await this.access.readAdapterState());
-    await this.access.syncRuntimeModelChain({
+    await this.syncRuntimeModelChain({
       ...state,
       fallbackModelEntryIds: request.entryIds
     });
@@ -767,6 +904,96 @@ export class ModelsConfigCoordinator {
     };
   }
 
+  async readEntryAuthSummary(agentDir: string, providerId?: string): Promise<{
+    profileIds: string[];
+    authModeLabel?: string;
+    profileLabel?: string;
+  }> {
+    const store = await this.access.readAuthStore(agentDir);
+    const provider = providerDefinitionById(providerId ?? "");
+    const profiles = matchingProfilesForProvider(store, provider);
+    const first = profiles[0];
+
+    return {
+      profileIds: profiles.map(([profileId]) => profileId),
+      authModeLabel: first ? authModeLabelForCredentialType(first[1].type) : undefined,
+      profileLabel: first ? describeProfileLabel(first[0], first[1]) : undefined
+    };
+  }
+
+  async syncRuntimeModelChain(nextState: AdapterModelState): Promise<AdapterModelState> {
+    const state = this.access.normalizeStateFlags(nextState);
+    const defaultEntry = state.modelEntries?.find((entry) => entry.id === state.defaultModelEntryId);
+    const fallbackEntries = (state.fallbackModelEntryIds ?? [])
+      .map((entryId) => state.modelEntries?.find((entry) => entry.id === entryId))
+      .filter((entry): entry is SavedModelEntryLike => Boolean(entry));
+
+    if (!defaultEntry) {
+      await this.access.writeAdapterState(state);
+      return state;
+    }
+
+    const snapshot = await this.access.readOpenClawConfigSnapshot();
+    const allModelKeys = [...new Set((state.modelEntries ?? []).map((entry) => entry.modelKey))];
+
+    snapshot.config.agents = snapshot.config.agents ?? {};
+    snapshot.config.agents.defaults = {
+      ...snapshot.config.agents.defaults,
+      model: {
+        primary: defaultEntry.modelKey,
+        fallbacks: fallbackEntries.map((entry) => entry.modelKey)
+      },
+      models: Object.fromEntries(
+        allModelKeys.map((modelKey) => [modelKey, snapshot.config.agents?.defaults?.models?.[modelKey] ?? {}])
+      )
+    };
+    pruneExplicitMainAgentEntry(snapshot.config);
+
+    if (!defaultEntry.agentId || !defaultEntry.agentDir || !defaultEntry.workspaceDir) {
+      await this.access.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
+      await this.access.writeAdapterState(state);
+      return state;
+    }
+
+    const runtimeDefaultEntry = defaultEntry as SavedModelEntryLike & {
+      agentId: string;
+      agentDir: string;
+      workspaceDir: string;
+    };
+    const runtimeFallbackEntries = fallbackEntries.filter(
+      (entry): entry is SavedModelEntryLike & { agentId: string; agentDir: string; workspaceDir: string } =>
+        Boolean(entry.agentId && entry.agentDir && entry.workspaceDir)
+    );
+    const activeEntries = [runtimeDefaultEntry, ...runtimeFallbackEntries];
+
+    await this.access.upsertAgentConfigEntry(
+      snapshot.configPath,
+      snapshot.config,
+      runtimeDefaultEntry,
+      {
+        primary: runtimeDefaultEntry.modelKey,
+        fallbacks: runtimeFallbackEntries.map((entry) => entry.modelKey)
+      }
+    );
+
+    for (const entry of state.modelEntries ?? []) {
+      if (entry.id === defaultEntry.id || !entry.agentId || !entry.agentDir || !entry.workspaceDir) {
+        continue;
+      }
+
+      await this.access.upsertAgentConfigEntry(
+        snapshot.configPath,
+        snapshot.config,
+        entry as SavedModelEntryLike & { agentId: string; agentDir: string; workspaceDir: string },
+        entry.modelKey
+      );
+    }
+
+    await this.syncRuntimeAuthProfiles(snapshot.configPath, snapshot.config, runtimeDefaultEntry, activeEntries);
+    await this.access.writeAdapterState(state);
+    return state;
+  }
+
   private buildSavedModelEntryState(
     entryId: string,
     request: SaveModelEntryRequest,
@@ -863,7 +1090,7 @@ export class ModelsConfigCoordinator {
     let nextState = this.applySavedModelEntryState(state, nextEntry, request);
 
     if (previousWasRuntime) {
-      nextState = await this.access.syncRuntimeModelChain(nextState);
+      nextState = await this.syncRuntimeModelChain(nextState);
       await this.access.markGatewayApplyPending();
       return {
         ...this.access.mutationSyncMeta(),
@@ -915,10 +1142,10 @@ export class ModelsConfigCoordinator {
     };
     const nextEntry = entryDraft.agentId
       ? entryDraft.agentId.startsWith("slackclaw-model-")
-        ? await this.access.replaceEntryProfileIds(snapshot.configPath, snapshot.config, entryDraft)
+        ? await this.replaceEntryProfileIds(snapshot.configPath, snapshot.config, entryDraft)
         : {
             ...entryDraft,
-            ...(await this.access.readEntryAuthSummary(
+            ...(await this.readEntryAuthSummary(
               entryDraft.agentDir || snapshot.status?.agentDir || "",
               provider?.id
             ))
@@ -934,7 +1161,7 @@ export class ModelsConfigCoordinator {
       nextEntry,
       operation.draft
     );
-    nextState = await this.access.syncRuntimeModelChain(nextState);
+    nextState = await this.syncRuntimeModelChain(nextState);
     await this.access.markGatewayApplyPending();
 
     return {
@@ -1118,5 +1345,246 @@ export class ModelsConfigCoordinator {
     }
 
     return this.startEntryAuthentication(provider.id, method.id, normalizedRequest, operation);
+  }
+
+  private async replaceEntryProfileIds(
+    configPath: string,
+    config: OpenClawConfigSnapshotLike["config"],
+    entry: SavedModelEntryLike
+  ): Promise<SavedModelEntryLike> {
+    if (!entry.agentDir) {
+      throw new Error(`SlackClaw could not find the hidden agent directory for ${entry.label}.`);
+    }
+
+    const provider = providerDefinitionById(entry.providerId);
+    const store = await this.access.readAuthStore(entry.agentDir);
+    const sourceProfiles = matchingProfilesForProvider(store, provider);
+    const nextProfiles: NonNullable<OpenClawAuthProfileStoreLike["profiles"]> = {};
+    const nextUsageStats: NonNullable<OpenClawAuthProfileStoreLike["usageStats"]> = {};
+    const nextProfileIds: string[] = [];
+
+    for (const existingProfileId of entry.profileIds ?? []) {
+      delete config.auth?.profiles?.[existingProfileId];
+    }
+
+    const providerPrefix = provider?.authProviderId ?? provider?.providerRefs[0]?.replace(/\/$/, "") ?? entry.providerId;
+
+    sourceProfiles.forEach(([profileId, profile], index) => {
+      const nextProfileId = `${providerPrefix}:slackclaw-${entry.id}-${index + 1}`;
+      nextProfiles[nextProfileId] = profile;
+      if (store.usageStats?.[profileId]) {
+        nextUsageStats[nextProfileId] = store.usageStats[profileId];
+      }
+      nextProfileIds.push(nextProfileId);
+    });
+
+    for (const [profileId, profile] of Object.entries(store.profiles ?? {})) {
+      if (sourceProfiles.some(([id]) => id === profileId)) {
+        continue;
+      }
+
+      nextProfiles[profileId] = profile;
+      if (store.usageStats?.[profileId]) {
+        nextUsageStats[profileId] = store.usageStats[profileId];
+      }
+    }
+
+    store.profiles = nextProfiles;
+    store.usageStats = nextUsageStats;
+
+    if (store.lastGood) {
+      for (const [providerKey, profileId] of Object.entries(store.lastGood)) {
+        const sourceIndex = sourceProfiles.findIndex(([id]) => id === profileId);
+        if (sourceIndex >= 0) {
+          store.lastGood[providerKey] = nextProfileIds[sourceIndex];
+        }
+      }
+    }
+
+    await this.access.writeAuthStore(entry.agentDir, store);
+
+    config.auth = config.auth ?? {};
+    config.auth.profiles = config.auth.profiles ?? {};
+
+    for (const profileId of nextProfileIds) {
+      const profile = nextProfiles[profileId];
+      if (!profile) {
+        continue;
+      }
+
+      config.auth.profiles[profileId] = {
+        provider: String(profile.provider ?? providerPrefix),
+        mode: authModeForCredentialType(profile.type),
+        ...(typeof profile.email === "string" && profile.email.trim() ? { email: profile.email.trim() } : {})
+      };
+    }
+
+    await this.access.writeOpenClawConfigSnapshot(configPath, config);
+
+    return {
+      ...entry,
+      profileIds: nextProfileIds,
+      authModeLabel: nextProfileIds[0] ? authModeLabelForCredentialType(nextProfiles[nextProfileIds[0]]?.type) : undefined,
+      profileLabel: nextProfileIds[0] ? describeProfileLabel(nextProfileIds[0], nextProfiles[nextProfileIds[0]] ?? {}) : undefined
+    };
+  }
+
+  private async syncRuntimeAuthProfiles(
+    configPath: string,
+    config: OpenClawConfigSnapshotLike["config"],
+    defaultEntry: SavedModelEntryLike & { agentDir: string },
+    activeEntries: SavedModelEntryLike[]
+  ): Promise<void> {
+    const targetStore = await this.access.readAuthStore(defaultEntry.agentDir);
+    targetStore.profiles = targetStore.profiles ?? {};
+    targetStore.usageStats = targetStore.usageStats ?? {};
+    targetStore.order = targetStore.order ?? {};
+    config.auth = config.auth ?? {};
+    config.auth.profiles = config.auth.profiles ?? {};
+
+    for (const entry of activeEntries) {
+      if (!entry.agentDir) {
+        continue;
+      }
+
+      const sourceStore = await this.access.readAuthStore(entry.agentDir);
+      const providerOrder: string[] = [];
+
+      for (const profileId of entry.profileIds ?? []) {
+        const profile = sourceStore.profiles?.[profileId];
+        if (!profile) {
+          continue;
+        }
+
+        targetStore.profiles[profileId] = profile;
+        if (sourceStore.usageStats?.[profileId]) {
+          targetStore.usageStats[profileId] = sourceStore.usageStats[profileId];
+        }
+
+        providerOrder.push(profileId);
+        config.auth.profiles[profileId] = {
+          provider: String(profile.provider ?? entry.providerId),
+          mode: authModeForCredentialType(profile.type),
+          ...(typeof profile.email === "string" && profile.email.trim() ? { email: profile.email.trim() } : {})
+        };
+      }
+
+      if (providerOrder.length > 0) {
+        const provider = providerDefinitionById(entry.providerId);
+        const providerConfigKey =
+          provider?.authProviderId ??
+          provider?.providerRefs[0]?.replace(/\/$/, "") ??
+          entry.providerId;
+        targetStore.order[providerConfigKey] = providerOrder;
+      }
+    }
+
+    await this.access.writeAuthStore(defaultEntry.agentDir, targetStore);
+    await this.access.writeOpenClawConfigSnapshot(configPath, config);
+  }
+
+  private async removeRuntimeDerivedModelEntry(
+    entry: SavedModelEntryLike,
+    nextState: AdapterModelState
+  ): Promise<ModelConfigActionResponse> {
+    if (nextState.defaultModelEntryId) {
+      await this.syncRuntimeModelChain(nextState);
+    } else {
+      const snapshot = await this.access.readOpenClawConfigSnapshot();
+      this.access.removeRuntimeDerivedModelFromConfig(snapshot.config, snapshot.status, entry.modelKey);
+      pruneExplicitMainAgentEntry(snapshot.config);
+      await this.access.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
+      await this.access.writeAdapterState(nextState);
+    }
+
+    await this.access.markGatewayApplyPending();
+
+    return {
+      ...this.access.mutationSyncMeta(),
+      status: "completed",
+      message: appendGatewayApplyMessage(`${entry.label} was removed from OpenClaw.`),
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
+    };
+  }
+
+  private async deleteManagedModelAgent(entry: SavedModelEntryLike): Promise<void> {
+    if (!isManagedModelAgentId(entry.agentId)) {
+      return;
+    }
+
+    const result = await this.access.runOpenClaw(["agents", "delete", entry.agentId, "--force", "--json"], {
+      allowFailure: true
+    });
+
+    if (result.code !== 0) {
+      const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
+      if (!output.includes("not found")) {
+        throw new Error(result.stderr || result.stdout || `SlackClaw could not delete the hidden model agent ${entry.agentId}.`);
+      }
+    }
+
+    await rm(getManagedModelAgentRootDir(entry.id), { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  private async removeProfileIdsFromAuthStore(agentDir: string | undefined, profileIds: string[]): Promise<void> {
+    if (!agentDir || profileIds.length === 0) {
+      return;
+    }
+
+    const store = await this.access.readAuthStore(agentDir);
+    const profileIdSet = new Set(profileIds);
+
+    for (const profileId of profileIdSet) {
+      delete store.profiles?.[profileId];
+      delete store.usageStats?.[profileId];
+    }
+
+    if (store.order) {
+      store.order = Object.fromEntries(
+        Object.entries(store.order)
+          .map(([providerId, orderedProfileIds]) => [
+            providerId,
+            orderedProfileIds.filter((profileId) => !profileIdSet.has(profileId))
+          ])
+          .filter(([, orderedProfileIds]) => orderedProfileIds.length > 0)
+      );
+    }
+
+    if (store.lastGood) {
+      store.lastGood = Object.fromEntries(
+        Object.entries(store.lastGood).filter(([, profileId]) => !profileIdSet.has(profileId))
+      );
+    }
+
+    await this.access.writeAuthStore(agentDir, store);
+  }
+
+  private async cleanupRemovedSavedModelEntry(
+    entry: SavedModelEntryLike,
+    nextState: AdapterModelState
+  ): Promise<void> {
+    const snapshot = await this.access.readOpenClawConfigSnapshot();
+
+    if (isManagedModelAgentId(entry.agentId) || isImplicitMainAgentId(entry.agentId)) {
+      snapshot.config.agents = {
+        ...snapshot.config.agents,
+        list: (snapshot.config.agents?.list ?? []).filter((item) => item.id !== entry.agentId)
+      };
+    }
+
+    pruneExplicitMainAgentEntry(snapshot.config);
+
+    if (isManagedModelAgentId(entry.agentId)) {
+      removeProfileIdsFromConfig(snapshot.config, entry.profileIds ?? []);
+      await this.access.writeOpenClawConfigSnapshot(snapshot.configPath, snapshot.config);
+
+      const nextDefaultEntry = (nextState.modelEntries ?? []).find((item) => item.id === nextState.defaultModelEntryId);
+      await this.removeProfileIdsFromAuthStore(nextDefaultEntry?.agentDir, entry.profileIds ?? []);
+    }
+
+    if (isManagedModelAgentId(entry.agentId)) {
+      await this.deleteManagedModelAgent(entry);
+    }
   }
 }

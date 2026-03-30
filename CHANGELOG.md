@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 2026-03-31 02:08 CST
+
+- moved more OpenClaw model-runtime ownership out of `OpenClawAdapter` and into the models config coordinator, including auth-profile sync, runtime-derived model cleanup, and config-write helpers, with refreshed architecture assertions and coordinator regression coverage
+- restored the daemon-backed AI team overview read route so dashboard, chat, and onboarding refreshes no longer surface the temporary `501` backend-refactor placeholder when those flows request `/api/ai-team/overview`
+- hid the AI Team entry from the React and native macOS sidebars for now while keeping the underlying screen and section wiring intact, and added navigation regression tests for both clients
+
 ### 2026-03-31 00:17 CST
 
 - split the daemon server and OpenClaw integration into dedicated route modules plus capability, model, channel, chat, agent, and runtime lifecycle coordinators, and refreshed the backend reference maps and command docs to match the new structure

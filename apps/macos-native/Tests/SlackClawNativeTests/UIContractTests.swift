@@ -79,6 +79,12 @@ struct UIContractTests {
     }
 
     @Test
+    func nativeSidebarHidesAITeamFromNavigationOnly() {
+        #expect(NativeSection.navigationSections.contains(.team) == false)
+        #expect(NativeSection.allCases.contains(.team))
+    }
+
+    @Test
     func nativeSidebarPlacesLanguagePickerBelowStatusCard() throws {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
