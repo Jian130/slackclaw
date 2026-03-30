@@ -23,11 +23,11 @@ export class OverviewService {
   async getOverview(): Promise<ProductOverview> {
     const base = createDefaultProductOverview();
     const state = await this.store.read();
-    const engine = await this.adapter.status();
-    const healthChecks = await this.adapter.healthCheck(state.selectedProfileId);
+    const engine = await this.adapter.instances.status();
+    const healthChecks = await this.adapter.gateway.healthCheck(state.selectedProfileId);
     const appService = await this.appServiceManager.getStatus();
     const installChecks = await this.getInstallChecks(base.installSpec.prerequisites);
-    const liveWhatsapp = await this.adapter.getChannelState("whatsapp");
+    const liveWhatsapp = await this.adapter.config.getChannelState("whatsapp");
     const storedChannels = state.channelOnboarding?.channels ?? {};
     const baseChannels = Object.fromEntries(base.channelSetup.channels.map((channel) => [channel.id, channel])) as Record<
       "telegram" | "whatsapp" | "feishu" | "wechat",
@@ -62,8 +62,8 @@ export class OverviewService {
         channels: [mergedChannels.telegram, mergedChannels.whatsapp, mergedChannels.feishu, mergedChannels.wechat],
         nextChannelId,
         gatewayStarted: Boolean(state.channelOnboarding?.gatewayStartedAt),
-        gatewaySummary: state.channelOnboarding?.gatewayStartedAt
-          ? "Gateway restarted after channel setup."
+        gatewaySummary: engine.pendingGatewayApply
+          ? engine.pendingGatewayApplySummary ?? "SlackClaw saved changes that are ready to apply to the gateway."
           : nextChannelId
             ? `Next recommended channel: ${mergedChannels[nextChannelId].title}.`
             : "All channel setup steps are complete. Restart the gateway to load every channel."

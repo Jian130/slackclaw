@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { AIMemberDetail, ChatThreadDetail, ChatThreadSummary } from "@slackclaw/contracts";
+import type { AIMemberDetail, ChatThreadDetail, ChatThreadSummary, SlackClawEvent } from "@slackclaw/contracts";
 
-import { applyChatEventToDetail, memberNameForThread, preferredNewChatMemberId, sortChatThreads } from "./ChatPage.js";
+import {
+  applyChatEventToDetail,
+  canSendComposerDraft,
+  chatStreamEventFromDaemonEvent,
+  inlineToolActivitiesForMessage,
+  memberNameForThread,
+  preferredNewChatMemberId,
+  shouldSubmitComposerShortcut,
+  sortChatThreads
+} from "./ChatPage.js";
 
 const members: AIMemberDetail[] = [
   {
@@ -122,6 +131,30 @@ describe("ChatPage helpers", () => {
     expect(streaming?.messages.at(-1)?.text).toBe("Working on it...");
     expect(streaming?.composerState.status).toBe("streaming");
 
+    const withToolProgress = applyChatEventToDetail(streaming, {
+      type: "assistant-tool-status",
+      threadId: "thread-1",
+      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      activityLabel: "Gathering sources…",
+      toolActivity: {
+        id: "tool-1",
+        label: "Search knowledge base",
+        status: "running"
+      }
+    });
+
+    expect(withToolProgress?.composerState.bridgeState).toBeUndefined();
+    expect(withToolProgress?.composerState.toolActivities?.at(0)?.label).toBe("Search knowledge base");
+
+    const connected = applyChatEventToDetail(withToolProgress, {
+      type: "connection-state",
+      threadId: "thread-1",
+      state: "reconnecting",
+      detail: "Bridge reconnecting"
+    });
+
+    expect(connected?.composerState.bridgeState).toBe("reconnecting");
+
     const completed = applyChatEventToDetail(detail(), {
       type: "assistant-completed",
       threadId: "thread-1",
@@ -173,5 +206,119 @@ describe("ChatPage helpers", () => {
 
     expect(aborted?.messages.at(-1)?.interrupted).toBe(true);
     expect(aborted?.composerState.canSend).toBe(true);
+  });
+
+  it("extracts chat stream payloads from daemon events", () => {
+    const chatEvent: SlackClawEvent = {
+      type: "chat.stream",
+      threadId: "thread-1",
+      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      payload: {
+        type: "assistant-delta",
+        threadId: "thread-1",
+        activityLabel: "Responding…",
+        message: {
+          id: "thread-1:assistant:stream",
+          role: "assistant",
+          text: "Working on it...",
+          status: "streaming"
+        }
+      }
+    };
+
+    expect(chatStreamEventFromDaemonEvent(chatEvent)).toEqual(chatEvent.payload);
+  });
+
+  it("ignores non-chat daemon events when deriving chat stream updates", () => {
+    expect(
+      chatStreamEventFromDaemonEvent({
+        type: "gateway.status",
+        reachable: true,
+        pendingGatewayApply: false,
+        summary: "Gateway is healthy."
+      })
+    ).toBeUndefined();
+  });
+
+  it("only sends from the keyboard when the draft is sendable and composition is inactive", () => {
+    expect(
+      shouldSubmitComposerShortcut({
+        key: "Enter",
+        shiftKey: false,
+        canSend: true,
+        draft: "Send this",
+        isComposing: false
+      })
+    ).toBe(true);
+
+    expect(
+      shouldSubmitComposerShortcut({
+        key: "Enter",
+        shiftKey: true,
+        canSend: true,
+        draft: "Keep newline",
+        isComposing: false
+      })
+    ).toBe(false);
+
+    expect(
+      shouldSubmitComposerShortcut({
+        key: "Enter",
+        shiftKey: false,
+        canSend: false,
+        draft: "Blocked while streaming",
+        isComposing: false
+      })
+    ).toBe(false);
+
+    expect(
+      shouldSubmitComposerShortcut({
+        key: "Enter",
+        shiftKey: false,
+        canSend: true,
+        draft: "正在输入",
+        isComposing: true
+      })
+    ).toBe(false);
+  });
+
+  it("reuses the same sendability rule for the button and keyboard path", () => {
+    expect(canSendComposerDraft("Send this", true)).toBe(true);
+    expect(canSendComposerDraft("   ", true)).toBe(false);
+    expect(canSendComposerDraft("Blocked", false)).toBe(false);
+  });
+
+  it("exposes inline tool activity for the active assistant run only", () => {
+    const currentDetail = applyChatEventToDetail(detail(), {
+      type: "assistant-tool-status",
+      threadId: "thread-1",
+      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      activityLabel: "Gathering sources…",
+      toolActivity: {
+        id: "tool-1",
+        label: "Search knowledge base",
+        status: "running",
+        detail: "Scanning recent workspace notes"
+      }
+    });
+
+    const activeMessage = {
+      id: "thread-1:assistant:stream",
+      role: "assistant" as const,
+      text: "Working on it...",
+      status: "streaming" as const
+    };
+
+    expect(inlineToolActivitiesForMessage(activeMessage, currentDetail)?.[0]?.label).toBe("Search knowledge base");
+    expect(
+      inlineToolActivitiesForMessage(
+        {
+          id: "assistant-final",
+          role: "assistant",
+          text: "Done"
+        },
+        currentDetail
+      )
+    ).toBeUndefined();
   });
 });

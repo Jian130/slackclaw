@@ -1,0 +1,1276 @@
+import type {
+  ChannelConfigActionResponse,
+  ChannelSessionInputRequest,
+  ChannelSessionResponse,
+  CompleteOnboardingRequest,
+  CompleteOnboardingResponse,
+  ModelAuthSessionInputRequest,
+  ModelAuthSessionResponse,
+  ModelConfigActionResponse,
+  OnboardingCompletionSummary,
+  OnboardingEmployeeState,
+  OnboardingInstallState,
+  OnboardingStateResponse,
+  OnboardingStep,
+  OnboardingStepNavigationRequest,
+  SaveAIMemberRequest,
+  SaveChannelEntryRequest,
+  SaveModelEntryRequest,
+  UpdateOnboardingStateRequest
+} from "@slackclaw/contracts";
+
+import type { EngineAdapter } from "../engine/adapter.js";
+import { aiMemberPresetById, normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";
+import { resolveOnboardingUiConfig } from "../config/onboarding-config.js";
+import type { ChannelSetupService } from "./channel-setup-service.js";
+import { EventPublisher } from "./event-publisher.js";
+import { fallbackMutationSyncMeta } from "./mutation-sync.js";
+import type { OverviewService } from "./overview-service.js";
+import type { PresetSkillService } from "./preset-skill-service.js";
+import { SetupService } from "./setup-service.js";
+import { AITeamService } from "./ai-team-service.js";
+import { StateStore, defaultOnboardingDraftState } from "./state-store.js";
+
+const onboardingUiConfig = resolveOnboardingUiConfig();
+const ONBOARDING_STEP_ORDER: OnboardingStep[] = ["welcome", "install", "permissions", "model", "channel", "employee"];
+
+const AVATAR_PRESET_DETAILS: Record<string, { accent: string; emoji: string; theme: string }> = {
+  operator: { accent: "var(--avatar-1)", emoji: "🦊", theme: "sunrise" },
+  analyst: { accent: "var(--avatar-2)", emoji: "🧭", theme: "forest" },
+  partner: { accent: "var(--avatar-3)", emoji: "🌟", theme: "ocean" },
+  builder: { accent: "var(--avatar-4)", emoji: "🛠️", theme: "ember" },
+  "onboarding-analyst": { accent: "#97b5ea", emoji: "🧠", theme: "onboarding" },
+  "onboarding-strategist": { accent: "#a9bde8", emoji: "🗺️", theme: "onboarding" },
+  "onboarding-builder": { accent: "#9ec1ef", emoji: "🛠️", theme: "onboarding" },
+  "onboarding-guide": { accent: "#a0c7ef", emoji: "✨", theme: "onboarding" },
+  "onboarding-visionary": { accent: "#afc6f0", emoji: "🚀", theme: "onboarding" }
+};
+
+function hasOwn(input: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function stepIndex(step: OnboardingStep): number {
+  return ONBOARDING_STEP_ORDER.indexOf(step);
+}
+
+function stepIsAtOrAfter(currentStep: OnboardingStep, target: OnboardingStep): boolean {
+  return stepIndex(currentStep) >= stepIndex(target);
+}
+
+function isCompletedInstall(draft: ReturnType<typeof defaultOnboardingDraftState>): boolean {
+  return draft.install?.installed === true;
+}
+
+function isConfirmedPermissions(draft: ReturnType<typeof defaultOnboardingDraftState>): boolean {
+  return draft.permissions?.confirmed === true;
+}
+
+function onboardingTargetMode(install: OnboardingInstallState | undefined) {
+  return install?.disposition === "reused-existing" || install?.disposition === "installed-system" ? "reused-install" : "managed-local";
+}
+
+function resolvePresetSkillIds(employee: OnboardingEmployeeState | undefined): string[] {
+  if (!employee) {
+    return [];
+  }
+
+  const configuredPreset = employee.presetId ? aiMemberPresetById(employee.presetId) : undefined;
+  const fromEmployee = normalizePresetSkillIds(employee.presetSkillIds).filter((presetSkillId) => presetSkillDefinitionById(presetSkillId));
+  const fromPreset = normalizePresetSkillIds(configuredPreset?.presetSkillIds);
+
+  return [...new Set((fromEmployee.length > 0 ? fromEmployee : fromPreset).filter(Boolean))];
+}
+
+function normalizedEmployeeState(employee: OnboardingEmployeeState | undefined): OnboardingEmployeeState | undefined {
+  if (!employee) {
+    return undefined;
+  }
+
+  return {
+    ...employee,
+    // Preserve in-progress text exactly as typed during onboarding autosave.
+    name: employee.name ?? "",
+    jobTitle: employee.jobTitle ?? "",
+    presetSkillIds: resolvePresetSkillIds(employee),
+    knowledgePackIds: [...new Set((employee.knowledgePackIds ?? []).map((value) => value.trim()).filter(Boolean))],
+    workStyles: [...new Set((employee.workStyles ?? []).map((value) => value.trim()).filter(Boolean))],
+    personalityTraits: [...new Set((employee.personalityTraits ?? []).map((value) => value.trim()).filter(Boolean))]
+  };
+}
+
+function normalizeModelLookupKey(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function modelKeyMatches(left: string | undefined, right: string | undefined): boolean {
+  if (!left?.trim() || !right?.trim()) {
+    return false;
+  }
+
+  if (left === right) {
+    return true;
+  }
+
+  const leftNormalized = normalizeModelLookupKey(left.includes("/") ? left.slice(left.indexOf("/") + 1) : left);
+  const rightNormalized = normalizeModelLookupKey(right.includes("/") ? right.slice(right.indexOf("/") + 1) : right);
+  return Boolean(leftNormalized) && leftNormalized === rightNormalized;
+}
+
+function resolveSavedModelEntry(
+  savedEntries: ModelConfigActionResponse["modelConfig"]["savedEntries"],
+  criteria: {
+    entryId?: string;
+    providerId?: string;
+    modelKey?: string;
+    preferDefault?: boolean;
+  }
+) {
+  if (criteria.entryId) {
+    const byId = savedEntries.find((entry) => entry.id === criteria.entryId);
+    if (byId) {
+      return byId;
+    }
+  }
+
+  const providerEntries = criteria.providerId
+    ? savedEntries.filter((entry) => entry.providerId === criteria.providerId)
+    : savedEntries;
+  const byModel = criteria.modelKey
+    ? providerEntries.find((entry) => modelKeyMatches(entry.modelKey, criteria.modelKey))
+    : undefined;
+
+  if (byModel) {
+    return byModel;
+  }
+
+  if (criteria.preferDefault) {
+    const providerDefault = providerEntries.find((entry) => entry.isDefault);
+    if (providerDefault) {
+      return providerDefault;
+    }
+  }
+
+  return providerEntries.length === 1 ? providerEntries[0] : undefined;
+}
+
+function resolveAvatarPreset(presetId: string | undefined) {
+  const fallback = AVATAR_PRESET_DETAILS.operator;
+  return {
+    presetId: presetId?.trim() || "operator",
+    ...(AVATAR_PRESET_DETAILS[presetId?.trim() || ""] ?? fallback)
+  };
+}
+
+function buildOnboardingMemberRequest(
+  employee: OnboardingEmployeeState,
+  brainEntryId: string
+): SaveAIMemberRequest {
+  const personality = (employee.personalityTraits?.length ? employee.personalityTraits : employee.workStyles ?? []).join(", ");
+  const avatar = resolveAvatarPreset(employee.avatarPresetId);
+
+  return {
+    name: employee.name.trim(),
+    jobTitle: employee.jobTitle.trim(),
+    avatar,
+    brainEntryId,
+    personality,
+    soul: personality,
+    workStyles: employee.workStyles ?? [],
+    presetSkillIds: resolvePresetSkillIds(employee),
+    skillIds: [],
+    knowledgePackIds: employee.knowledgePackIds ?? [],
+    capabilitySettings: {
+      memoryEnabled: employee.memoryEnabled ?? true,
+      contextWindow: 128000
+    }
+  };
+}
+
+export class OnboardingService {
+  constructor(
+    private readonly adapter: EngineAdapter,
+    private readonly store: StateStore,
+    private readonly overviewService: OverviewService,
+    private readonly channelSetupService: ChannelSetupService,
+    private readonly aiTeamService: AITeamService,
+    private readonly presetSkillService?: PresetSkillService,
+    private readonly eventPublisher?: EventPublisher
+  ) {}
+
+  async getState(): Promise<OnboardingStateResponse> {
+    const { state } = await this.readResolvedDraftState();
+    return this.buildStateResponse(state);
+  }
+
+  async updateState(
+    request: UpdateOnboardingStateRequest,
+    options?: { responseSummaryMode?: "draft" | "resolved" }
+  ): Promise<OnboardingStateResponse> {
+    let reuseDraftSummary = false;
+    const nextState = await this.store.update((current) => {
+      const existingDraft = current.onboarding?.draft ?? defaultOnboardingDraftState();
+      const nextDraft = {
+        ...existingDraft,
+        ...(request.currentStep ? { currentStep: request.currentStep } : {}),
+        ...(hasOwn(request, "install") ? { install: request.install } : {}),
+        ...(hasOwn(request, "permissions") ? { permissions: request.permissions } : {}),
+        ...(hasOwn(request, "model") ? { model: request.model } : {}),
+        ...(hasOwn(request, "channel") ? { channel: request.channel } : {}),
+        ...(hasOwn(request, "channelProgress") ? { channelProgress: request.channelProgress } : {}),
+        ...(hasOwn(request, "employee") ? { employee: normalizedEmployeeState(request.employee) } : {}),
+        ...(hasOwn(request, "activeModelAuthSessionId")
+          ? { activeModelAuthSessionId: request.activeModelAuthSessionId || undefined }
+          : {}),
+        ...(hasOwn(request, "activeChannelSessionId")
+          ? { activeChannelSessionId: request.activeChannelSessionId || undefined }
+          : {})
+      };
+      reuseDraftSummary = this.shouldReuseDraftSummary(existingDraft, nextDraft);
+
+      return {
+        ...current,
+        onboarding: {
+          draft: nextDraft
+        }
+      };
+    });
+
+    const draft = {
+      ...(nextState.onboarding?.draft ?? defaultOnboardingDraftState()),
+      employee: normalizedEmployeeState(nextState.onboarding?.draft?.employee)
+    };
+    const presetSkillSync = this.presetSkillService
+      ? await this.presetSkillService.getOverview()
+      : undefined;
+    const summary =
+      options?.responseSummaryMode === "draft" || reuseDraftSummary
+        ? this.buildDraftSummary(draft)
+        : await this.buildSummary(draft);
+
+    return {
+      firstRun: {
+        introCompleted: Boolean(nextState.introCompletedAt),
+        setupCompleted: Boolean(nextState.setupCompletedAt),
+        selectedProfileId: nextState.selectedProfileId
+      },
+      draft,
+      config: onboardingUiConfig,
+      summary,
+      presetSkillSync
+    };
+  }
+
+  async navigateStep(request: OnboardingStepNavigationRequest): Promise<OnboardingStateResponse> {
+    const { draft } = await this.readResolvedDraftState();
+    const summary = await this.buildSummary(draft);
+
+    if (!this.canNavigateToStep(draft.currentStep, request.step, draft, summary)) {
+      throw new Error("Finish the earlier onboarding steps before moving ahead.");
+    }
+
+    return this.updateState({ currentStep: request.step });
+  }
+
+  async detectRuntime(): Promise<OnboardingStateResponse> {
+    const install = await this.detectInstallState((await this.store.read()).onboarding?.draft.install);
+    return this.updateState({
+      currentStep: "install",
+      install
+    });
+  }
+
+  async installRuntime(options?: { forceLocal?: boolean }) {
+    const setupService = new SetupService(this.adapter, this.store, this.overviewService, this.eventPublisher);
+    const result = await setupService.runFirstRunSetup({ forceLocal: options?.forceLocal ?? false });
+    const install = await this.detectInstallStateFromRuntime(result.install, (await this.store.read()).onboarding?.draft.install);
+    const onboarding = await this.updateState({
+      currentStep: "install",
+      install
+    });
+
+    return {
+      ...result,
+      onboarding
+    };
+  }
+
+  async updateRuntime() {
+    const targets = await this.adapter.instances.getDeploymentTargets();
+    const target = targets.targets.find((entry) => entry.active) ?? targets.targets.find((entry) => entry.installed);
+    const result = target?.id === "standard" || target?.id === "managed-local"
+      ? await this.adapter.instances.updateDeploymentTarget(target.id)
+      : await this.adapter.instances.update();
+    const install = await this.detectInstallStateFromRuntime(undefined, (await this.store.read()).onboarding?.draft.install);
+    const onboarding = await this.updateState({
+      currentStep: "install",
+      install
+    });
+
+    return {
+      status: "completed" as const,
+      message: result.message,
+      steps: [
+        {
+          id: "update-openclaw",
+          title: "Update the managed OpenClaw runtime",
+          status: "completed" as const,
+          detail: result.message
+        }
+      ],
+      overview: await this.overviewService.getOverview(),
+      onboarding
+    };
+  }
+
+  async confirmPermissions(): Promise<OnboardingStateResponse> {
+    const { draft } = await this.readResolvedDraftState();
+    if (!isCompletedInstall(draft)) {
+      throw new Error("Install OpenClaw before confirming permissions.");
+    }
+
+    return this.updateState({
+      currentStep: "model",
+      permissions: {
+        confirmed: true,
+        confirmedAt: new Date().toISOString()
+      }
+    });
+  }
+
+  async reuseDetectedRuntime(): Promise<OnboardingStateResponse> {
+    const install = await this.detectInstallState((await this.store.read()).onboarding?.draft.install);
+    if (!install.installed) {
+      throw new Error("OpenClaw is not installed yet.");
+    }
+
+    return this.updateState({
+      currentStep: "permissions",
+      install: {
+        ...install,
+        disposition: install.disposition === "installed-managed" ? "installed-managed" : "reused-existing"
+      }
+    });
+  }
+
+  async saveModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+    const { draft } = await this.readResolvedDraftState();
+    if (!isCompletedInstall(draft) || !isConfirmedPermissions(draft)) {
+      throw new Error("Confirm permissions before configuring the first model.");
+    }
+
+    const shouldUpdateExistingEntry =
+      Boolean(draft.model?.entryId) && draft.model?.providerId === request.providerId;
+    const mutation = shouldUpdateExistingEntry && draft.model?.entryId
+      ? await this.adapter.config.updateSavedModelEntry(draft.model.entryId, request)
+      : await this.adapter.config.createSavedModelEntry(request);
+    const result = await this.clearOnboardingFallbackModels(mutation);
+    const sync = this.eventPublisher?.publishModelConfigUpdated(result.modelConfig) ?? fallbackMutationSyncMeta(!result.authSession);
+    const onboarding = await this.updateState(this.modelDraftPatchFromMutation(request, result));
+
+    return {
+      ...result,
+      ...sync,
+      settled: result.status === "interactive" ? false : sync.settled,
+      onboarding
+    };
+  }
+
+  async getModelAuthSession(sessionId: string): Promise<ModelAuthSessionResponse> {
+    const response = await this.clearOnboardingFallbacksFromSession(await this.adapter.config.getModelAuthSession(sessionId));
+    const onboarding = await this.updateState(this.modelDraftPatchFromSession(response));
+
+    return {
+      ...response,
+      onboarding
+    };
+  }
+
+  async submitModelAuthSessionInput(
+    sessionId: string,
+    request: ModelAuthSessionInputRequest
+  ): Promise<ModelAuthSessionResponse> {
+    const response = await this.clearOnboardingFallbacksFromSession(
+      await this.adapter.config.submitModelAuthSessionInput(sessionId, request)
+    );
+    const onboarding = await this.updateState(this.modelDraftPatchFromSession(response));
+
+    return {
+      ...response,
+      onboarding
+    };
+  }
+
+  async saveChannelEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
+    const { draft } = await this.readResolvedDraftState();
+    const summary = await this.buildSummary(draft);
+    if (!summary.model?.entryId) {
+      throw new Error("Save the first model before configuring a channel.");
+    }
+
+    const result = await this.channelSetupService.saveEntry(entryId, request);
+    const onboarding = await this.updateState(this.channelDraftPatchFromMutation(request.channelId, entryId, result));
+
+    return {
+      ...result,
+      onboarding
+    };
+  }
+
+  async getChannelSession(sessionId: string): Promise<ChannelSessionResponse> {
+    let response: ChannelSessionResponse;
+    try {
+      response = await this.channelSetupService.getSession(sessionId);
+    } catch (error) {
+      throw await this.recoverMissingChannelSession(sessionId, error);
+    }
+    const onboarding = await this.updateState(this.channelDraftPatchFromSession(response));
+
+    return {
+      ...response,
+      onboarding
+    };
+  }
+
+  async submitChannelSessionInput(
+    sessionId: string,
+    request: ChannelSessionInputRequest
+  ): Promise<ChannelSessionResponse> {
+    let response: ChannelSessionResponse;
+    try {
+      response = await this.channelSetupService.submitSessionInput(sessionId, request);
+    } catch (error) {
+      throw await this.recoverMissingChannelSession(sessionId, error);
+    }
+    const onboarding = await this.updateState(this.channelDraftPatchFromSession(response));
+
+    return {
+      ...response,
+      onboarding
+    };
+  }
+
+  async saveEmployeeDraft(employee: OnboardingEmployeeState): Promise<OnboardingStateResponse> {
+    const { draft } = await this.readResolvedDraftState();
+    let resolvedChannel = draft.channel;
+    let canTreatDeferredWechatChannelAsStaged =
+      resolvedChannel?.channelId === "wechat" &&
+      Boolean(resolvedChannel?.entryId) &&
+      !draft.activeChannelSessionId;
+    let canTreatChannelAsStaged =
+      Boolean(resolvedChannel?.entryId) &&
+      (stepIsAtOrAfter(draft.currentStep, "employee") || canTreatDeferredWechatChannelAsStaged);
+
+    if ((!this.isChannelStaged(draft) && !canTreatChannelAsStaged) || !resolvedChannel?.entryId) {
+      const summary = await this.buildSummary(draft);
+      resolvedChannel = summary.channel ?? draft.channel;
+      canTreatDeferredWechatChannelAsStaged =
+        resolvedChannel?.channelId === "wechat" &&
+        Boolean(resolvedChannel?.entryId) &&
+        !draft.activeChannelSessionId;
+      canTreatChannelAsStaged =
+        Boolean(resolvedChannel?.entryId) &&
+        (stepIsAtOrAfter(draft.currentStep, "employee") || canTreatDeferredWechatChannelAsStaged);
+
+      if ((!this.isChannelStaged(draft) && !canTreatChannelAsStaged) || !resolvedChannel?.entryId) {
+        throw new Error("Finish staging the first channel before naming the AI employee.");
+      }
+    }
+
+    let nextModel = draft.model;
+    if (draft.model) {
+      const modelConfig = await this.adapter.config.getModelConfig();
+      const matchedEntry = resolveSavedModelEntry(modelConfig.savedEntries, {
+        entryId: draft.model.entryId,
+        providerId: draft.model.providerId,
+        modelKey: draft.model.modelKey,
+        preferDefault: true
+      });
+
+      if (matchedEntry) {
+        nextModel = {
+          providerId: matchedEntry.providerId,
+          modelKey: matchedEntry.modelKey,
+          methodId: matchedEntry.authMethodId ?? draft.model.methodId,
+          entryId: matchedEntry.id
+        };
+      }
+    }
+
+    // Employee autosave should stay lightweight and rely on the already-staged draft state.
+    return this.updateState(
+      {
+        currentStep: "employee",
+        model: nextModel,
+        channel: resolvedChannel,
+        channelProgress: canTreatChannelAsStaged
+          ? {
+              status: "staged",
+              message: draft.channelProgress?.message ?? "Channel staged for final gateway activation."
+            }
+          : draft.channelProgress,
+        activeChannelSessionId: canTreatChannelAsStaged ? "" : draft.activeChannelSessionId,
+        employee: normalizedEmployeeState(employee)
+      },
+      { responseSummaryMode: "draft" }
+    );
+  }
+
+  async resetModelDraft(): Promise<OnboardingStateResponse> {
+    return this.updateState({
+      currentStep: "model",
+      model: undefined,
+      activeModelAuthSessionId: ""
+    });
+  }
+
+  async resetChannelDraft(): Promise<OnboardingStateResponse> {
+    return this.updateState({
+      currentStep: "channel",
+      channel: undefined,
+      channelProgress: undefined,
+      activeChannelSessionId: ""
+    });
+  }
+
+  async complete(request: CompleteOnboardingRequest): Promise<CompleteOnboardingResponse> {
+    const { draft } = await this.readResolvedDraftState();
+    const skipToDashboard = request.destination === "dashboard";
+    const summary = skipToDashboard ? await this.buildSummary(draft) : await this.buildFinalizeSummary(draft);
+    let finalSummary = summary;
+
+    if (!skipToDashboard) {
+      this.assertReadyForFinalize(draft, summary);
+
+      const employee = normalizedEmployeeState(draft.employee);
+      if (!employee) {
+        throw new Error("Enter the AI employee profile before finishing onboarding.");
+      }
+
+      const brainEntryId = summary.model?.entryId ?? draft.model?.entryId;
+      if (!brainEntryId) {
+        throw new Error("Save the first model before creating the AI employee.");
+      }
+
+      const presetSkillIds = resolvePresetSkillIds(employee);
+      if (this.presetSkillService) {
+        await this.presetSkillService.setDesiredPresetSkillIds("onboarding", presetSkillIds, {
+          targetMode: onboardingTargetMode(draft.install),
+          waitForReconcile: true
+        });
+      }
+
+      const memberResult = await this.aiTeamService.saveMemberForOnboarding(
+        employee.memberId,
+        buildOnboardingMemberRequest(employee, brainEntryId)
+      );
+      const createdMember = memberResult.member;
+
+      if (!createdMember) {
+        throw new Error("ChillClaw could not verify the staged AI employee after creation.");
+      }
+
+      const channelBinding = summary.channel?.entryId ?? draft.channel?.entryId;
+      if (channelBinding && !createdMember.bindings.some((binding) => binding.target === channelBinding)) {
+        await this.aiTeamService.bindMemberChannelForOnboarding(createdMember.id, { binding: channelBinding });
+      }
+      await this.adapter.aiEmployees.setPrimaryAIMemberAgent(createdMember.agentId);
+
+      await this.store.update((existing) => ({
+        ...existing,
+        onboarding: {
+          draft: {
+            ...(existing.onboarding?.draft ?? defaultOnboardingDraftState()),
+            employee: {
+              ...(existing.onboarding?.draft.employee ?? employee),
+              memberId: createdMember.id,
+              name: createdMember.name,
+              jobTitle: createdMember.jobTitle,
+              avatarPresetId: createdMember.avatar.presetId,
+              presetId: employee.presetId,
+              personalityTraits: employee.personalityTraits,
+              presetSkillIds: resolvePresetSkillIds(employee),
+              knowledgePackIds: employee.knowledgePackIds,
+              workStyles: employee.workStyles,
+              memoryEnabled: employee.memoryEnabled
+            }
+          }
+        }
+      }));
+
+      finalSummary = {
+        ...summary,
+        employee: {
+          memberId: createdMember.id,
+          name: createdMember.name,
+          jobTitle: createdMember.jobTitle,
+          avatarPresetId: createdMember.avatar.presetId,
+          presetId: employee.presetId,
+          personalityTraits: employee.personalityTraits,
+          presetSkillIds: resolvePresetSkillIds(employee),
+          knowledgePackIds: employee.knowledgePackIds,
+          workStyles: employee.workStyles,
+          memoryEnabled: employee.memoryEnabled
+        }
+      };
+      await this.adapter.gateway.finalizeOnboardingSetup();
+    }
+
+    await this.store.update((existing) => ({
+      ...existing,
+      introCompletedAt: existing.introCompletedAt ?? new Date().toISOString(),
+      setupCompletedAt: existing.setupCompletedAt ?? new Date().toISOString(),
+      onboarding: undefined
+    }));
+
+    return {
+      status: "completed",
+      destination: request.destination,
+      summary: finalSummary,
+      overview: await this.overviewService.getOverview()
+    };
+  }
+
+  private async clearOnboardingFallbackModels(result: ModelConfigActionResponse): Promise<ModelConfigActionResponse> {
+    if (result.authSession || result.modelConfig.fallbackEntryIds.length === 0) {
+      return result;
+    }
+
+    const cleared = await this.adapter.config.replaceFallbackModelEntries({ entryIds: [] });
+    return {
+      ...result,
+      modelConfig: cleared.modelConfig,
+      requiresGatewayApply: result.requiresGatewayApply || cleared.requiresGatewayApply
+    };
+  }
+
+  private async clearOnboardingFallbacksFromSession(
+    response: ModelAuthSessionResponse
+  ): Promise<ModelAuthSessionResponse> {
+    if (response.session.status !== "completed" || response.modelConfig.fallbackEntryIds.length === 0) {
+      return response;
+    }
+
+    const cleared = await this.adapter.config.replaceFallbackModelEntries({ entryIds: [] });
+    return {
+      ...response,
+      modelConfig: cleared.modelConfig
+    };
+  }
+
+  async reset(): Promise<OnboardingStateResponse> {
+    const nextState = await this.store.update((current) => ({
+      ...current,
+      setupCompletedAt: undefined,
+      onboarding: {
+        draft: defaultOnboardingDraftState()
+      }
+    }));
+
+    return {
+      firstRun: {
+        introCompleted: Boolean(nextState.introCompletedAt),
+        setupCompleted: false,
+        selectedProfileId: nextState.selectedProfileId
+      },
+      draft: nextState.onboarding?.draft ?? defaultOnboardingDraftState(),
+      config: onboardingUiConfig,
+      summary: {},
+      presetSkillSync: this.presetSkillService ? await this.presetSkillService.setDesiredPresetSkillIds("onboarding", []) : undefined
+    };
+  }
+
+  private async readResolvedDraftState(): Promise<{
+    state: Awaited<ReturnType<StateStore["read"]>>;
+    draft: ReturnType<typeof defaultOnboardingDraftState>;
+  }> {
+    const current = await this.store.read();
+    const existingDraft = {
+      ...(current.onboarding?.draft ?? defaultOnboardingDraftState()),
+      employee: normalizedEmployeeState(current.onboarding?.draft?.employee)
+    };
+    const repairedDraft = await this.repairProgressedDraft(existingDraft);
+
+    if (JSON.stringify(this.repairableDraftFields(existingDraft)) === JSON.stringify(this.repairableDraftFields(repairedDraft))) {
+      return {
+        state: current,
+        draft: repairedDraft
+      };
+    }
+
+    const nextState = await this.store.update((state) => ({
+      ...state,
+      onboarding: {
+        draft: {
+          ...(state.onboarding?.draft ?? defaultOnboardingDraftState()),
+          install: repairedDraft.install,
+          permissions: repairedDraft.permissions,
+          model: repairedDraft.model,
+          channel: repairedDraft.channel,
+          channelProgress: repairedDraft.channelProgress,
+          activeChannelSessionId: repairedDraft.activeChannelSessionId
+        }
+      }
+    }));
+
+    return {
+      state: nextState,
+      draft: {
+        ...(nextState.onboarding?.draft ?? defaultOnboardingDraftState()),
+        employee: normalizedEmployeeState(nextState.onboarding?.draft?.employee)
+      }
+    };
+  }
+
+  private repairableDraftFields(draft: ReturnType<typeof defaultOnboardingDraftState>) {
+    return {
+      install: draft.install,
+      permissions: draft.permissions,
+      model: draft.model,
+      channel: draft.channel,
+      channelProgress: draft.channelProgress,
+      activeChannelSessionId: draft.activeChannelSessionId
+    };
+  }
+
+  private async repairProgressedDraft(
+    draft: ReturnType<typeof defaultOnboardingDraftState>
+  ): Promise<ReturnType<typeof defaultOnboardingDraftState>> {
+    const repaired = {
+      ...draft,
+      employee: normalizedEmployeeState(draft.employee)
+    };
+
+    if (!repaired.install && stepIsAtOrAfter(repaired.currentStep, "permissions")) {
+      const detectedInstall = await this.detectInstallState(repaired.install);
+      if (detectedInstall.installed) {
+        repaired.install = detectedInstall;
+      }
+    }
+
+    if (!repaired.permissions?.confirmed && stepIsAtOrAfter(repaired.currentStep, "model")) {
+      repaired.permissions = {
+        confirmed: true,
+        confirmedAt: repaired.permissions?.confirmedAt ?? new Date().toISOString()
+      };
+    }
+
+    if (!repaired.model && stepIsAtOrAfter(repaired.currentStep, "channel")) {
+      const modelConfig = await this.adapter.config.getModelConfig();
+      const preferredEntry =
+        modelConfig.savedEntries.find((entry) => entry.id === modelConfig.defaultEntryId) ??
+        modelConfig.savedEntries.find((entry) => entry.modelKey === modelConfig.defaultModel) ??
+        modelConfig.savedEntries[0];
+
+      if (preferredEntry) {
+        repaired.model = {
+          providerId: preferredEntry.providerId,
+          modelKey: preferredEntry.modelKey,
+          methodId: preferredEntry.authMethodId,
+          entryId: preferredEntry.id
+        };
+      }
+    }
+
+    if (
+      stepIsAtOrAfter(repaired.currentStep, "employee") &&
+      !repaired.activeChannelSessionId &&
+      (!repaired.channel || repaired.channelProgress?.status !== "staged")
+    ) {
+      const channelConfig = await this.channelSetupService.getConfigOverview();
+      const preferredEntry = [...channelConfig.entries]
+        .filter((entry) => entry.status !== "not-started")
+        .sort((left, right) => {
+          const leftTime = Date.parse(left.lastUpdatedAt ?? "");
+          const rightTime = Date.parse(right.lastUpdatedAt ?? "");
+          return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+        })[0];
+
+      if (preferredEntry) {
+        repaired.channel = {
+          channelId: preferredEntry.channelId,
+          entryId: preferredEntry.id
+        };
+        repaired.channelProgress = {
+          status: "staged",
+          message: preferredEntry.summary
+        };
+      }
+    }
+
+    return repaired;
+  }
+
+  private canNavigateToStep(
+    currentStep: OnboardingStep,
+    targetStep: OnboardingStep,
+    draft: ReturnType<typeof defaultOnboardingDraftState>,
+    summary: OnboardingCompletionSummary
+  ): boolean {
+    if (stepIndex(targetStep) <= stepIndex(currentStep)) {
+      return true;
+    }
+
+    switch (targetStep) {
+      case "install":
+        return true;
+      case "permissions":
+        return isCompletedInstall(draft);
+      case "model":
+        return isCompletedInstall(draft) && isConfirmedPermissions(draft);
+      case "channel":
+        return isCompletedInstall(draft) && isConfirmedPermissions(draft) && Boolean(summary.model?.entryId);
+      case "employee":
+        return this.isChannelStaged(draft) && Boolean(summary.channel?.entryId);
+      case "welcome":
+      default:
+        return true;
+    }
+  }
+
+  private assertReadyForFinalize(
+    draft: ReturnType<typeof defaultOnboardingDraftState>,
+    summary: OnboardingCompletionSummary
+  ): void {
+    if (!isCompletedInstall(draft) || !summary.install?.installed) {
+      throw new Error("Install OpenClaw before finishing onboarding.");
+    }
+
+    if (!isConfirmedPermissions(draft)) {
+      throw new Error("Confirm permissions before finishing onboarding.");
+    }
+
+    if (!summary.model?.entryId) {
+      throw new Error("Save the first model before finishing onboarding.");
+    }
+
+    if (!this.isChannelStaged(draft) || !summary.channel?.entryId) {
+      throw new Error("Finish staging the first channel before finishing onboarding.");
+    }
+
+    if (!draft.employee?.name?.trim() || !draft.employee.jobTitle?.trim()) {
+      throw new Error("Name the first AI employee before finishing onboarding.");
+    }
+  }
+
+  private isChannelStaged(draft: ReturnType<typeof defaultOnboardingDraftState>): boolean {
+    if (!draft.channel) {
+      return false;
+    }
+
+    if (draft.channelProgress?.status === "staged") {
+      return true;
+    }
+
+    if (draft.activeChannelSessionId) {
+      return false;
+    }
+
+    return stepIsAtOrAfter(draft.currentStep, "employee");
+  }
+
+  private async recoverMissingChannelSession(sessionId: string, error: unknown): Promise<Error> {
+    if (!(error instanceof Error) || !/channel session not found/i.test(error.message)) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+
+    const state = await this.store.read();
+    const draft = state.onboarding?.draft ?? defaultOnboardingDraftState();
+    if (draft.activeChannelSessionId === sessionId) {
+      await this.updateState({
+        currentStep: "channel",
+        channel: draft.channel,
+        channelProgress: {
+          status: "idle",
+          message: "The channel login session ended. Start the login again."
+        },
+        activeChannelSessionId: ""
+      });
+    }
+
+    return new Error("The channel login session ended. Start the login again.");
+  }
+
+  private async buildStateResponse(state: Awaited<ReturnType<StateStore["read"]>>): Promise<OnboardingStateResponse> {
+    const draft = {
+      ...(state.onboarding?.draft ?? defaultOnboardingDraftState()),
+      employee: normalizedEmployeeState(state.onboarding?.draft?.employee)
+    };
+
+    return {
+      firstRun: {
+        introCompleted: Boolean(state.introCompletedAt),
+        setupCompleted: Boolean(state.setupCompletedAt),
+        selectedProfileId: state.selectedProfileId
+      },
+      draft,
+      config: onboardingUiConfig,
+      summary: await this.buildSummary(draft),
+      presetSkillSync: this.presetSkillService ? await this.presetSkillService.getOverview() : undefined
+    };
+  }
+
+  private async buildFinalizeSummary(
+    draft: ReturnType<typeof defaultOnboardingDraftState>
+  ): Promise<OnboardingCompletionSummary> {
+    const summary = this.buildDraftSummary(draft);
+
+    if (draft.install) {
+      summary.install = await this.detectInstallState(draft.install);
+    }
+
+    return summary;
+  }
+
+  private shouldReuseDraftSummary(
+    previousDraft: ReturnType<typeof defaultOnboardingDraftState>,
+    nextDraft: ReturnType<typeof defaultOnboardingDraftState>
+  ): boolean {
+    return JSON.stringify(this.summaryInputs(previousDraft)) === JSON.stringify(this.summaryInputs(nextDraft));
+  }
+
+  private summaryInputs(draft: ReturnType<typeof defaultOnboardingDraftState>) {
+    return {
+      install: draft.install,
+      model: draft.model,
+      channel: draft.channel,
+      employee: draft.employee
+    };
+  }
+
+  private buildDraftSummary(draft: ReturnType<typeof defaultOnboardingDraftState>): OnboardingCompletionSummary {
+    const summary: OnboardingCompletionSummary = {};
+
+    if (draft.install) {
+      summary.install = { ...draft.install };
+    }
+
+    if (draft.model) {
+      summary.model = { ...draft.model };
+    }
+
+    if (draft.channel) {
+      summary.channel = { ...draft.channel };
+    }
+
+    if (draft.employee) {
+      summary.employee = { ...draft.employee };
+    }
+
+    return summary;
+  }
+
+  private async buildSummary(draft: ReturnType<typeof defaultOnboardingDraftState>): Promise<OnboardingCompletionSummary> {
+    const summary: OnboardingCompletionSummary = {};
+
+    if (draft.install) {
+      summary.install = await this.detectInstallState(draft.install);
+    }
+
+    if (draft.model) {
+      const draftModel = draft.model;
+      const modelConfig = await this.adapter.config.getModelConfig();
+      const matchedEntry = resolveSavedModelEntry(modelConfig.savedEntries, {
+        entryId: draftModel.entryId,
+        providerId: draftModel.providerId,
+        modelKey: draftModel.modelKey,
+        preferDefault: true
+      });
+
+      summary.model = matchedEntry
+        ? {
+            providerId: matchedEntry.providerId,
+            modelKey: matchedEntry.modelKey,
+            methodId: matchedEntry.authMethodId ?? draftModel.methodId,
+            entryId: matchedEntry.id
+          }
+        : draftModel;
+    }
+
+    if (draft.channel) {
+      const draftChannel = draft.channel;
+      const channelConfig = await this.channelSetupService.getConfigOverview();
+      const matchedEntry = draftChannel.entryId
+        ? channelConfig.entries.find((entry) => entry.id === draftChannel.entryId)
+        : channelConfig.entries.find((entry) => entry.channelId === draftChannel.channelId);
+
+      summary.channel = matchedEntry
+        ? {
+            channelId: matchedEntry.channelId,
+            entryId: matchedEntry.id
+          }
+        : draftChannel;
+    }
+
+    if (draft.employee) {
+      const draftEmployee = draft.employee;
+      if (!draftEmployee.memberId) {
+        summary.employee = draftEmployee;
+      } else {
+        const aiTeam = await this.aiTeamService.getOverview();
+        const matchedMember = aiTeam.members.find((member) => member.id === draftEmployee.memberId);
+
+        summary.employee = matchedMember
+          ? {
+              memberId: matchedMember.id,
+              name: matchedMember.name,
+              jobTitle: matchedMember.jobTitle,
+              avatarPresetId: matchedMember.avatar.presetId,
+              presetId: draftEmployee.presetId,
+              personalityTraits: draftEmployee.personalityTraits,
+              presetSkillIds: resolvePresetSkillIds(draftEmployee),
+              knowledgePackIds: draftEmployee.knowledgePackIds,
+              workStyles: draftEmployee.workStyles,
+              memoryEnabled: draftEmployee.memoryEnabled
+            }
+          : draftEmployee;
+      }
+    }
+
+    return summary;
+  }
+
+  private async detectInstallState(existing: OnboardingInstallState | undefined): Promise<OnboardingInstallState> {
+    const [status, targets] = await Promise.all([
+      this.adapter.instances.status(),
+      this.adapter.instances.getDeploymentTargets()
+    ]);
+    const target = targets.targets.find((entry) => entry.active) ?? targets.targets.find((entry) => entry.installed);
+    const hasLiveInstallEvidence =
+      status.installed ||
+      Boolean(status.version) ||
+      Boolean(target?.installed || target?.version);
+    const installed =
+      hasLiveInstallEvidence ||
+      Boolean(existing?.installed && existing.disposition !== "not-installed" && existing.version);
+
+    return {
+      installed,
+      version: status.version ?? target?.version ?? existing?.version,
+      disposition:
+        existing?.disposition ??
+        (!installed
+          ? "not-installed"
+          : target?.installMode === "managed-local"
+            ? "installed-managed"
+            : "reused-existing"),
+      updateAvailable: target?.updateAvailable ?? existing?.updateAvailable,
+      latestVersion: target?.latestVersion ?? existing?.latestVersion,
+      updateSummary: target?.updateSummary ?? existing?.updateSummary
+    };
+  }
+
+  private async detectInstallStateFromRuntime(
+    installResult: { disposition?: string; existingVersion?: string; actualVersion?: string } | undefined,
+    existing: OnboardingInstallState | undefined
+  ): Promise<OnboardingInstallState> {
+    const detected = await this.detectInstallState(existing);
+
+    return {
+      ...detected,
+      version: detected.version ?? installResult?.actualVersion ?? installResult?.existingVersion,
+      disposition:
+        installResult?.disposition === "reused-existing"
+          ? "reused-existing"
+          : detected.installed
+            ? detected.disposition === "reused-existing"
+              ? "reused-existing"
+              : "installed-managed"
+            : "not-installed"
+    };
+  }
+
+  private modelDraftPatchFromMutation(
+    request: SaveModelEntryRequest,
+    mutation: ModelConfigActionResponse
+  ): UpdateOnboardingStateRequest {
+    const savedEntry = resolveSavedModelEntry(mutation.modelConfig.savedEntries, {
+      entryId: mutation.authSession?.entryId,
+      providerId: request.providerId,
+      modelKey: request.modelKey,
+      preferDefault: request.makeDefault
+    });
+
+    if (mutation.authSession) {
+      return {
+        currentStep: "model",
+        model: {
+          providerId: request.providerId,
+          modelKey: request.modelKey,
+          methodId: request.methodId,
+          entryId: savedEntry?.id
+        },
+        activeModelAuthSessionId: mutation.authSession.id
+      };
+    }
+
+    return {
+      currentStep: "channel",
+      model: {
+        providerId: savedEntry?.providerId ?? request.providerId,
+        modelKey: savedEntry?.modelKey ?? request.modelKey,
+        methodId: savedEntry?.authMethodId ?? request.methodId,
+        entryId: savedEntry?.id
+      },
+      activeModelAuthSessionId: ""
+    };
+  }
+
+  private modelDraftPatchFromSession(response: ModelAuthSessionResponse): UpdateOnboardingStateRequest {
+    const session = response.session;
+    const resolvedEntry =
+      resolveSavedModelEntry(response.modelConfig.savedEntries, {
+        entryId: session.entryId,
+        providerId: session.providerId,
+        preferDefault: true
+      }) ??
+      response.modelConfig.savedEntries.find(
+        (entry) => entry.providerId === session.providerId && (entry.authMethodId ?? "") === session.methodId
+      );
+
+    if (session.status === "completed") {
+      return {
+        currentStep: "channel",
+        model: {
+          providerId: resolvedEntry?.providerId ?? session.providerId,
+          modelKey: resolvedEntry?.modelKey ?? "",
+          methodId: resolvedEntry?.authMethodId ?? session.methodId,
+          entryId: resolvedEntry?.id ?? session.entryId
+        },
+        activeModelAuthSessionId: ""
+      };
+    }
+
+    if (session.status === "failed") {
+      return {
+        currentStep: "model",
+        activeModelAuthSessionId: ""
+      };
+    }
+
+    return {
+      currentStep: "model",
+      model: resolvedEntry
+        ? {
+            providerId: resolvedEntry.providerId,
+            modelKey: resolvedEntry.modelKey,
+            methodId: resolvedEntry.authMethodId ?? session.methodId,
+            entryId: resolvedEntry.id
+          }
+        : undefined,
+      activeModelAuthSessionId: session.id
+    };
+  }
+
+  private channelDraftPatchFromMutation(
+    channelId: SaveChannelEntryRequest["channelId"],
+    requestedEntryId: string | undefined,
+    mutation: ChannelConfigActionResponse
+  ): UpdateOnboardingStateRequest {
+    const savedEntry =
+      (requestedEntryId ? mutation.channelConfig.entries.find((entry) => entry.id === requestedEntryId) : undefined) ??
+      mutation.channelConfig.entries.find((entry) => entry.channelId === channelId);
+
+    if (mutation.session) {
+      return {
+        currentStep: "channel",
+        channel: {
+          channelId,
+          entryId: savedEntry?.id ?? mutation.session.entryId
+        },
+        channelProgress: {
+          status: "capturing",
+          sessionId: mutation.session.id,
+          message: mutation.message,
+          requiresGatewayApply: Boolean(mutation.requiresGatewayApply)
+        },
+        activeChannelSessionId: mutation.session.id
+      };
+    }
+
+    return {
+      currentStep: "employee",
+      channel: {
+        channelId,
+        entryId: savedEntry?.id ?? requestedEntryId
+      },
+      channelProgress: {
+        status: "staged",
+        message: mutation.message,
+        requiresGatewayApply: Boolean(mutation.requiresGatewayApply)
+      },
+      activeChannelSessionId: ""
+    };
+  }
+
+  private channelDraftPatchFromSession(response: ChannelSessionResponse): UpdateOnboardingStateRequest {
+    const session = response.session;
+    const resolvedEntry =
+      (session.entryId ? response.channelConfig.entries.find((entry) => entry.id === session.entryId) : undefined) ??
+      response.channelConfig.entries.find((entry) => entry.channelId === session.channelId);
+    const isStaged =
+      resolvedEntry?.status === "completed" ||
+      (session.channelId === "wechat" && session.status === "completed");
+
+    if (isStaged) {
+      return {
+        currentStep: "employee",
+        channel: {
+          channelId: session.channelId,
+          entryId: resolvedEntry?.id ?? session.entryId
+        },
+        channelProgress: {
+          status: "staged",
+          sessionId: session.id,
+          message: session.message
+        },
+        activeChannelSessionId: ""
+      };
+    }
+
+    if (session.status === "completed") {
+      return {
+        currentStep: "channel",
+        channel: {
+          channelId: session.channelId,
+          entryId: resolvedEntry?.id ?? session.entryId
+        },
+        channelProgress: {
+          status: "idle",
+          sessionId: session.id,
+          message: resolvedEntry?.summary ?? session.message
+        },
+        activeChannelSessionId: ""
+      };
+    }
+
+    if (session.status === "failed") {
+      return {
+        currentStep: "channel",
+        channel: {
+          channelId: session.channelId,
+          entryId: resolvedEntry?.id ?? session.entryId
+        },
+        channelProgress: {
+          status: "idle",
+          message: session.message
+        },
+        activeChannelSessionId: ""
+      };
+    }
+
+    return {
+      currentStep: "channel",
+      channel: {
+        channelId: session.channelId,
+        entryId: resolvedEntry?.id ?? session.entryId
+      },
+      channelProgress: {
+        status: "capturing",
+        sessionId: session.id,
+        message: session.message
+      },
+      activeChannelSessionId: session.id
+    };
+  }
+}

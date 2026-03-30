@@ -20,6 +20,9 @@ const APP_UI = resolve(APP_RUNTIME_ROOT, "ui");
 const APP_SCRIPTS = resolve(APP_RUNTIME_ROOT, "scripts");
 const PACKAGED_DAEMON_BUNDLE = resolve(BUILD_DIR, "slackclaw-daemon.cjs");
 const PACKAGED_DAEMON_BINARY = resolve(APP_RUNTIME, "slackclaw-daemon");
+const MACOS_NATIVE_PACKAGE_DIR = resolve(ROOT, "apps/macos-native");
+const NATIVE_EXECUTABLE_NAME = "SlackClawNative";
+const APP_NATIVE_EXECUTABLE = resolve(APP_MACOS, APP_NAME);
 const PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
 const LAUNCH_AGENT_LABEL = "ai.slackclaw.daemon";
 
@@ -44,6 +47,33 @@ function run(command, args) {
     child.on("exit", (code) => {
       if (code === 0) {
         resolvePromise();
+        return;
+      }
+
+      reject(new Error(`${command} ${args.join(" ")} failed with exit code ${code ?? 1}`));
+    });
+  });
+}
+
+function capture(command, args) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      cwd: ROOT,
+      stdio: ["ignore", "pipe", "inherit"],
+      env: {
+        ...process.env,
+        NO_COLOR: "1"
+      }
+    });
+
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolvePromise(stdout.trim());
         return;
       }
 
@@ -99,90 +129,31 @@ async function buildStandaloneDaemon() {
   await chmod(PACKAGED_DAEMON_BINARY, 0o755);
 }
 
-function launcherScript() {
-  return `#!/bin/sh
-set -eu
+async function buildNativeClient() {
+  await run("swift", [
+    "build",
+    "--package-path",
+    MACOS_NATIVE_PACKAGE_DIR,
+    "-c",
+    "release",
+    "--product",
+    NATIVE_EXECUTABLE_NAME
+  ]);
 
-APP_ROOT="$(cd "$(dirname "$0")/../Resources" && pwd)"
-APP_SUPPORT="$HOME/Library/Application Support/SlackClaw"
-DATA_DIR="$APP_SUPPORT/data"
-LOG_DIR="$APP_SUPPORT/logs"
-DAEMON_BIN="$APP_ROOT/runtime/slackclaw-daemon"
-UI_URL="http://127.0.0.1:4545/"
-PING_URL="http://127.0.0.1:4545/api/ping"
-LAUNCHER_LOG="$LOG_DIR/launcher.log"
-FAILURE_PAGE="$APP_SUPPORT/startup-failed.html"
+  const binDir = await capture("swift", [
+    "build",
+    "--package-path",
+    MACOS_NATIVE_PACKAGE_DIR,
+    "-c",
+    "release",
+    "--product",
+    NATIVE_EXECUTABLE_NAME,
+    "--show-bin-path"
+  ]);
 
-mkdir -p "$DATA_DIR" "$LOG_DIR"
-
-export SLACKCLAW_APP_ROOT="$APP_ROOT"
-export SLACKCLAW_PORT="4545"
-export SLACKCLAW_DATA_DIR="$DATA_DIR"
-export SLACKCLAW_STATIC_DIR="$APP_ROOT/app/ui"
-export SLACKCLAW_OPENCLAW_BOOTSTRAP_SCRIPT="$APP_ROOT/app/scripts/bootstrap-openclaw.mjs"
-export SLACKCLAW_LAUNCHAGENT_LABEL="${LAUNCH_AGENT_LABEL}"
-
-log_launcher() {
-  /bin/echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >>"$LAUNCHER_LOG"
-}
-
-wait_for_ping() {
-  ATTEMPT=0
-  LIMIT="$1"
-  until /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1 || [ "$ATTEMPT" -ge "$LIMIT" ]; do
-    ATTEMPT=$((ATTEMPT + 1))
-    /bin/sleep 1
-  done
-}
-
-if ! /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1; then
-  log_launcher "app launch requested, installing or refreshing LaunchAgent"
-  "$APP_ROOT/app/scripts/install-launchagent.sh" >>"$LAUNCHER_LOG" 2>&1 || true
-  wait_for_ping 10
-fi
-
-if ! /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1; then
-  log_launcher "launchagent start did not become ready, starting daemon directly"
-  /usr/bin/nohup "$APP_ROOT/app/scripts/run-daemon.sh" direct-launch >>"$LOG_DIR/daemon.log" 2>&1 &
-  wait_for_ping 15
-fi
-
-if /usr/bin/curl --silent --fail "$PING_URL" >/dev/null 2>&1; then
-  log_launcher "daemon reachable, opening local UI"
-  /usr/bin/open "$UI_URL"
-else
-  log_launcher "daemon still not reachable, opening troubleshooting page"
-  cat >"$FAILURE_PAGE" <<EOF
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>SlackClaw Startup Failed</title>
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f6f2e7; color: #1b1710; }
-      main { max-width: 760px; margin: 48px auto; padding: 32px; background: rgba(255,255,255,0.82); border: 1px solid rgba(82,57,29,0.14); border-radius: 24px; }
-      h1 { margin-top: 0; font-size: 2rem; }
-      code { background: rgba(27,23,16,0.06); padding: 0.15rem 0.35rem; border-radius: 6px; }
-      li { margin: 0.5rem 0; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>SlackClaw could not start its local daemon.</h1>
-      <p>SlackClaw was not able to confirm that <code>127.0.0.1:4545</code> is running.</p>
-      <p>Check these log files on this Mac:</p>
-      <ul>
-        <li><code>$LOG_DIR/launcher.log</code></li>
-        <li><code>$LOG_DIR/daemon.log</code></li>
-      </ul>
-      <p>This build uses a self-contained daemon binary. If it still fails, send the newest log lines for diagnosis.</p>
-    </main>
-  </body>
-</html>
-EOF
-  /usr/bin/open "$FAILURE_PAGE"
-fi
-`;
+  const nativeBinary = resolve(binDir, NATIVE_EXECUTABLE_NAME);
+  await copyFile(nativeBinary, APP_NATIVE_EXECUTABLE);
+  await chmod(APP_NATIVE_EXECUTABLE, 0o755);
 }
 
 function installLaunchAgentScript() {
@@ -313,6 +284,24 @@ function infoPlist() {
   <string>14.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSUserNotificationUsageDescription</key>
+  <string>ChillClaw needs notification permission to show alerts for agent activity.</string>
+  <key>NSScreenCaptureDescription</key>
+  <string>ChillClaw captures the screen when the agent needs screenshots for context.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>ChillClaw can capture photos or short video clips when requested by the agent.</string>
+  <key>NSLocationUsageDescription</key>
+  <string>ChillClaw can share your location when requested by the agent.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>ChillClaw can share your location when requested by the agent.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>ChillClaw can share your location when requested by the agent.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>ChillClaw needs microphone access for Voice Wake and audio capture.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>ChillClaw uses on-device speech recognition to detect your Voice Wake trigger phrase.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>ChillClaw needs Automation (AppleScript) permission to drive Terminal and other apps for agent actions.</string>
 </dict>
 </plist>
 `;
@@ -326,6 +315,7 @@ async function stageBundle() {
   await mkdir(APP_SCRIPTS, { recursive: true });
 
   await buildStandaloneDaemon();
+  await buildNativeClient();
   await cp(resolve(ROOT, "apps/desktop-ui/dist"), APP_UI, { recursive: true });
   await copyFile(resolve(ROOT, "scripts/bootstrap-openclaw.mjs"), resolve(APP_SCRIPTS, "bootstrap-openclaw.mjs"));
 
@@ -337,8 +327,6 @@ async function stageBundle() {
   await chmod(resolve(APP_SCRIPTS, "restart-launchagent.sh"), 0o755);
   await chmod(resolve(APP_SCRIPTS, "run-daemon.sh"), 0o755);
   await chmod(resolve(APP_SCRIPTS, "uninstall-launchagent.sh"), 0o755);
-  await writeFile(resolve(APP_MACOS, "SlackClaw"), launcherScript());
-  await chmod(resolve(APP_MACOS, "SlackClaw"), 0o755);
   await writeFile(resolve(APP_CONTENTS, "Info.plist"), infoPlist());
 }
 

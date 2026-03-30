@@ -4,17 +4,22 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import type { ChatStreamEvent } from "@slackclaw/contracts";
+
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
 import { ChatService } from "./chat-service.js";
+import { EventBusService } from "./event-bus-service.js";
+import { EventPublisher } from "./event-publisher.js";
 import { StateStore } from "./state-store.js";
 
-async function createServices(testName: string) {
+async function createServices(testName: string, options?: { withEvents?: boolean }) {
   const filePath = resolve(process.cwd(), `apps/daemon/.data/${testName}-${randomUUID()}.json`);
   const adapter = new MockAdapter();
   const store = new StateStore(filePath);
   const aiTeamService = new AITeamService(adapter, store);
-  const chatService = new ChatService(adapter, store, aiTeamService);
+  const eventBus = options?.withEvents ? new EventBusService() : undefined;
+  const chatService = new ChatService(adapter, store, aiTeamService, eventBus ? new EventPublisher(eventBus) : undefined);
 
   const created = await aiTeamService.saveMember(undefined, {
     name: "Alex Morgan",
@@ -36,12 +41,14 @@ async function createServices(testName: string) {
       contextWindow: 128000
     }
   });
+  await adapter.gateway.startGatewayAfterChannels();
 
   return {
     adapter,
     store,
     aiTeamService,
     chatService,
+    eventBus,
     member: created.overview.members[0]
   };
 }
@@ -130,6 +137,7 @@ test("chat service prefers the live AI member mapping over stale stored agent id
     teams: [],
     activity: [],
     availableBrains: [],
+    memberPresets: [],
     knowledgePacks: [],
     skillOptions: []
   })) as typeof aiTeamService.getOverview;
@@ -164,6 +172,141 @@ test("chat service sends messages and keeps thread histories isolated", async ()
   assert.equal(firstDetail.messages.some((message) => message.clientMessageId === "client-1"), true);
   assert.equal(secondDetail.messages.some((message) => message.text.includes("Draft tomorrow's plan.")), true);
   assert.equal(overview.threads.length, 2);
+});
+
+test("chat service reuses the already-loaded thread detail when sending from an open chat", async () => {
+  const { chatService, member, adapter } = await createServices("chat-service-send-reuses-cached-detail");
+
+  const thread = (await chatService.createThread({ memberId: member.id, mode: "new" })).thread!;
+  const baseGetChatThreadDetail = adapter.getChatThreadDetail.bind(adapter);
+  let historyReads = 0;
+
+  adapter.getChatThreadDetail = (async (request) => {
+    historyReads += 1;
+    return baseGetChatThreadDetail(request);
+  }) as typeof adapter.getChatThreadDetail;
+  adapter.sendChatMessage = (async () => {
+    await delay(250);
+    return { runId: "mock-run-cache" };
+  }) as typeof adapter.sendChatMessage;
+
+  await chatService.getThreadDetail(thread.id);
+  assert.equal(historyReads, 1);
+
+  await chatService.sendMessage(thread.id, { message: "Hello from the cached thread.", clientMessageId: "client-cache" });
+
+  assert.equal(historyReads, 1);
+  await chatService.abortThread(thread.id);
+});
+
+test("chat service rejects sends immediately when the gateway is not ready", async () => {
+  class PendingGatewayAdapter extends MockAdapter {
+    override async status() {
+      const current = await super.status();
+      return {
+        ...current,
+        running: false,
+        pendingGatewayApply: true,
+        pendingGatewayApplySummary: "OpenClaw setup is saved but the gateway is not running yet.",
+        summary: "OpenClaw gateway is not reachable yet."
+      };
+    }
+  }
+
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/chat-service-pending-gateway-${randomUUID()}.json`);
+  const adapter = new PendingGatewayAdapter();
+  const store = new StateStore(filePath);
+  const aiTeamService = new AITeamService(adapter, store);
+  const created = await aiTeamService.saveMember(undefined, {
+    name: "Alex Morgan",
+    jobTitle: "Research Lead",
+    avatar: {
+      presetId: "operator",
+      accent: "var(--avatar-1)",
+      emoji: "🦊",
+      theme: "sunrise"
+    },
+    brainEntryId: "mock-openai-gpt-4o-mini",
+    personality: "Analytical",
+    soul: "Keep work clear and grounded.",
+    workStyles: ["Methodical"],
+    skillIds: ["research-brief"],
+    knowledgePackIds: [],
+    capabilitySettings: {
+      memoryEnabled: true,
+      contextWindow: 128000
+    }
+  });
+  const guardedChatService = new ChatService(adapter, store, aiTeamService);
+  const guardedThread = (await guardedChatService.createThread({ memberId: created.overview.members[0].id, mode: "new" })).thread!;
+
+  await assert.rejects(
+    () => guardedChatService.sendMessage(guardedThread.id, { message: "Hello", clientMessageId: "client-pending" }),
+    /gateway is not running yet|not reachable yet|ready to apply/i
+  );
+});
+
+test("chat service mirrors chat stream updates onto the daemon event bus", async () => {
+  const { chatService, member, eventBus } = await createServices("chat-service-daemon-events", { withEvents: true });
+  const eventTypes: string[] = [];
+  const payloadTypes: string[] = [];
+  const toolPayloads: Array<Extract<ChatStreamEvent, { type: "assistant-tool-status" }>> = [];
+  const unsubscribe = eventBus!.subscribe((event) => {
+    eventTypes.push(event.type);
+    if (event.type === "chat.stream") {
+      payloadTypes.push(event.payload.type);
+      if (event.payload.type === "assistant-tool-status") {
+        toolPayloads.push(event.payload);
+      }
+    }
+  });
+  const thread = (await chatService.createThread({ memberId: member.id, mode: "new" })).thread!;
+
+  await chatService.sendMessage(thread.id, { message: "Summarize today's work.", clientMessageId: "client-event" });
+  await delay(160);
+  unsubscribe();
+
+  assert.equal(eventTypes.includes("chat.stream"), true);
+  assert.equal(payloadTypes.includes("thread-created"), true);
+  assert.equal(payloadTypes.includes("message-created"), true);
+  assert.equal(payloadTypes.includes("assistant-tool-status"), true);
+  assert.equal(payloadTypes.includes("assistant-completed"), true);
+  assert.equal(toolPayloads[0]?.sessionKey, thread.sessionKey);
+  assert.equal(toolPayloads[0]?.toolActivity.label, "mock-search");
+});
+
+test("chat service publishes connection-state and history-loaded resync events on reconnect", async () => {
+  const { adapter, chatService, member, eventBus } = await createServices("chat-service-reconnect-resync", { withEvents: true });
+  const payloadTypes: string[] = [];
+  const connectionStates: string[] = [];
+  const listeners = (adapter as unknown as {
+    chatListeners: Set<(event: import("../engine/adapter.js").EngineChatLiveEvent) => void>;
+  }).chatListeners;
+
+  eventBus!.subscribe((event) => {
+    if (event.type !== "chat.stream") {
+      return;
+    }
+
+    payloadTypes.push(event.payload.type);
+    if (event.payload.type === "connection-state") {
+      connectionStates.push(event.payload.state);
+    }
+  });
+
+  const thread = (await chatService.createThread({ memberId: member.id, mode: "new" })).thread!;
+  await chatService.sendMessage(thread.id, { message: "Summarize today's work.", clientMessageId: "client-reconnect" });
+
+  for (const listener of listeners) {
+    listener({ type: "disconnected", error: "Socket dropped." });
+    listener({ type: "connected" });
+  }
+
+  await delay(50);
+
+  assert.equal(connectionStates.includes("reconnecting"), true);
+  assert.equal(connectionStates.includes("connected"), true);
+  assert.equal(payloadTypes.includes("history-loaded"), true);
 });
 
 test("chat service abort returns the current thread detail when nothing is running", async () => {

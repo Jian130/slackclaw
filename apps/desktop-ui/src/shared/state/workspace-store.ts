@@ -181,7 +181,7 @@ export const defaultWorkspaceState: WorkspaceState = {
   customSkillDrafts: [],
   settings: {
     general: {
-      instanceName: "My SlackClaw Workspace",
+      instanceName: "My ChillClaw Workspace",
       autoStart: true,
       checkUpdates: true,
       telemetry: false

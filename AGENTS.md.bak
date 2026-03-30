@@ -1,0 +1,163 @@
+# AGENTS.md
+
+## Purpose
+
+SlackClaw is a macOS-first, local-first product layer on top of OpenClaw. Its job is to make OpenClaw usable for non-technical users through guided install, onboarding, daily task flows, health checks, updates, and recovery.
+
+This file captures the important operating rules for agents working in this repository.
+
+## Product priorities
+
+- Optimize for ordinary users, not operators or developers.
+- Normal use must not require a terminal.
+- Prefer clarity, reliability, and recovery over feature breadth.
+- Keep the product opinionated. Do not expose raw engine complexity unless there is a strong user need.
+- Treat “first useful result in under 15 minutes” as a core product constraint.
+
+## Architecture rules
+
+- Preserve the `UI -> local daemon -> EngineAdapter -> engine` boundary.
+- Do not let frontend code call OpenClaw directly.
+- Do not let product-layer daemon code depend on OpenClaw-specific internals outside the adapter implementation.
+- Keep engine-specific logic confined to `apps/daemon/src/engine/*`.
+- If adding a new engine later, do it by implementing the existing adapter seam first, not by branching product logic throughout the codebase.
+- Treat future local-LLM backends as adapter work. Qwen-family models, MiniMax-compatible local gateways, Ollama, vLLM, LM Studio, and similar runtimes should integrate through the same product-layer seam.
+
+## Native macOS client rules
+
+- The native macOS app is a full SwiftUI client on top of the local SlackClaw daemon, not a direct OpenClaw client.
+- Preserve the `native UI -> SlackClaw daemon -> EngineAdapter -> engine` boundary for all native features, including onboarding, chat, install, config, and recovery.
+- Keep React as the fallback and developer surface. Do not move product logic out of the daemon just to satisfy one client.
+- Treat the native app as a second client of the same daemon APIs. React and SwiftUI should render the same backend truth.
+- Keep the native client OpenClaw-agnostic. Do not let SwiftUI code depend on OpenClaw CLI shapes, gateway internals, or engine-specific runtime assumptions.
+- Prefer SwiftUI for the native app and use AppKit only when SwiftUI is insufficient.
+- Keep the native app structured around:
+  - central `AppState` for shell, window, and client lifecycle state
+  - `DaemonEndpointStore` for daemon endpoint/auth/reachability resolution
+  - `DaemonProcessManager` and `LaunchAgentManager` for packaged daemon lifecycle
+  - reusable native client/chat packages in `apps/shared/SlackClawKit`
+- Keep the shared Swift packages split by responsibility:
+  - `SlackClawProtocol` for daemon DTOs
+  - `SlackClawClient` for HTTP + WebSocket event transport
+  - `SlackClawChatUI` for native chat transport, transcript, and view models
+- Do not embed browser views for core product flows when a native screen exists. Native chat should stay native, not a web wrapper.
+- Keep daemon routes stable when possible. Add only the minimum daemon metadata needed for native parity rather than inventing native-only backend behavior.
+- Use HTTP for command/query APIs and the daemon WebSocket event bus for live client updates. Keep the OpenClaw gateway socket daemon-internal.
+- Native UI must surface the same distinction between:
+  - installed instance
+  - staged config / pending gateway apply
+  - live gateway-applied state
+- Keep the client boundary daemon-centric so future Windows or other native clients can reuse the same backend pattern.
+
+## OpenClaw integration rules
+
+- SlackClaw installs the latest available OpenClaw version by default for users.
+- Only use an explicit OpenClaw version override for compatibility testing or controlled diagnostics.
+- Always check for an existing compatible OpenClaw install before reinstalling.
+- Reuse an existing compatible install when possible.
+- During install or reuse, normalize the OpenClaw gateway config back to SlackClaw's safe local baseline: local mode, loopback bind, token auth, and no inherited remote override.
+- If OpenClaw is missing or incompatible, use SlackClaw’s bootstrap/install path rather than inventing a second installer path.
+- Distinguish between:
+  - OpenClaw CLI installed
+  - OpenClaw gateway/service reachable
+  - OpenClaw healthy enough for user work
+- Do not report the system as healthy just because `openclaw` exists on `PATH`.
+- Do not couple product behavior to OpenClaw-only assumptions if the same behavior should later work for local-LLM adapters.
+
+## UX rules
+
+- Keep install, onboarding, health, update, and recovery messaging in plain language.
+- All UI changes must remain responsive across desktop, tablet, and narrow-screen layouts. Do not ship desktop-only page structures.
+- Preserve localized UI support for English, Chinese, Japanese, Korean, and Spanish when changing frontend copy.
+- Prefer one primary action per screen or panel.
+- Surface recommended recovery actions first.
+- When there is a failure, explain:
+  - what is broken
+  - what SlackClaw can do automatically
+  - what the user should do next if auto-repair is insufficient
+- Avoid adding advanced settings by default.
+
+## Onboarding design rules
+
+- Treat the onboarding flow as a centered macOS setup canvas, not a generic web form.
+- Use the same language selector component across the entire onboarding flow in each client, not a step-specific one-off control.
+- For onboarding welcome and setup screens, target:
+  - content width `clamp(windowWidth × 0.70, 672, 1120)`
+  - content aspect ratio near `1.618 : 1`
+  - welcome-card height `clamp(contentWidth ÷ 1.74, 520, 616)` so normal desktop windows do not feel oversized vertically
+  - header/logo text zone capped at `768` wide or `73%` of the content width, whichever is smaller
+  - side gutters that naturally land near `15%–16%` on wide windows
+- Use an 8-point spacing grid for onboarding surfaces.
+- Native onboarding windows should:
+  - default to `1280 × 860`
+  - stay resizable
+  - use a minimum size of `960 × 720`
+  - avoid forcing full-screen on first launch
+- Use the system font stack in code. For onboarding typography, prefer:
+  - hero title `34/40` semibold
+  - intro/subtitle `16/24` regular
+  - feature card title `20/26` semibold
+  - feature card body `14/20` regular
+  - primary button label `15/20` semibold
+  - meta/progress text `12/16` medium
+- Use these onboarding shape and spacing values by default:
+  - outer panel padding `32`
+  - inner feature card padding `24`
+  - gap between feature cards `16–20`
+  - gap between title and subtitle `8–12`
+  - gap between major sections `24–32`
+  - outer radius `24`
+  - feature card radius `16`
+  - icon tile radius `12`
+  - primary CTA height `48–52`
+
+## Packaging and runtime rules
+
+- The packaged macOS app is a native SwiftUI client backed by the bundled local daemon.
+- Keep the React UI as the fallback and developer surface; do not let it become a second product backend.
+- The packaged macOS app should prefer a per-user `LaunchAgent` for daemon lifecycle instead of ad hoc background shell processes.
+- Packaged runtime data should live under `~/Library/Application Support/SlackClaw`.
+- Operational errors must be written to log files, not only returned to the UI. When adding new install, startup, shutdown, recovery, or external-command paths, make sure failures are persisted under the SlackClaw logs directory.
+- The installed app must not assume it is running from the repo checkout.
+- When changing paths, use runtime path helpers instead of `process.cwd()` assumptions.
+- Keep the macOS installer build reproducible through `npm run build:mac-installer`.
+
+## Repo-specific implementation guidance
+
+- `apps/desktop-ui`: first-party user experience only
+- `apps/macos-native`: native macOS client only; keep it daemon-backed and OpenClaw-agnostic
+- `apps/shared/SlackClawKit`: shared Swift protocol, client, and chat packages for native clients
+- `apps/daemon`: orchestration, policy, health, recovery, diagnostics, static asset serving in packaged mode
+- `apps/daemon/src/config/onboarding-config.ts`: the single source of truth for curated onboarding-only provider and channel presentation, ordering, and guided setup metadata
+- `packages/contracts`: shared product/domain contracts; keep these stable and explicit
+- onboarding curated-provider and curated-channel metadata is daemon-owned; use `platformUrl` for provider/channel platform destinations, `docsUrl` for documentation links, and `tutorialVideoUrl` for optional in-app tutorial video flows so React and native stay aligned
+- `scripts/bootstrap-openclaw.mjs`: the single source of truth for OpenClaw install/reuse behavior
+- `scripts/build-macos-installer.mjs`: the single source of truth for packaged macOS app assembly
+- `scripts/start-dev.mjs`: the single source of truth for local end-to-end startup ordering during development
+- `scripts/stop-dev.mjs`: the single source of truth for managed local dev-process teardown
+
+## Scope control
+
+- Do not chase full OpenClaw feature parity.
+- Do not add multi-user, team admin, hosted sync, or channel-sprawl features to the MVP path unless explicitly requested.
+- Do not widen the engine adapter contract unless a concrete product need justifies it.
+- Avoid turning SlackClaw into a generic developer control panel.
+- If future local-LLM support is added, keep it inside the install/lifecycle/health/task abstraction instead of adding raw model-provider configuration screens everywhere.
+
+## Testing expectations
+
+- Run `npm run build` after substantial changes.
+- Run `npm test` after changing shared contracts, daemon behavior, or UI logic.
+- If changing installer or runtime packaging behavior, also run `npm run build:mac-installer`.
+- If changing local startup behavior, verify `npm start` still waits for the daemon and UI before reporting readiness.
+- If changing local startup behavior, preserve clear step-by-step console output so `npm start` shows exactly what it is doing and what it is waiting for.
+- If changing local startup or teardown behavior, verify `npm stop` removes the managed dev processes and clears `.data/dev-processes.json`.
+- In development mode, external commands SlackClaw executes must be echoed to the console before they run so install, update, repair, and bootstrap behavior stays observable.
+- Prefer validating real OpenClaw status/health behavior through the adapter when possible.
+
+## When making changes
+
+- Update `README.md` when install, runtime, packaging, or architecture behavior changes.
+- Keep ADRs in `docs/adr` aligned when a core architectural rule changes.
+- Preserve swapability with future engines like ZeroClaw or IronClaw.
+- If a change improves developer convenience but hurts non-technical user simplicity, reject it unless explicitly requested.

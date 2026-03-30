@@ -1,9 +1,14 @@
-import { appendFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { FilesystemStateAdapter } from "../platform/filesystem-state-adapter.js";
 import { getAppRootDir, getLogDir } from "../runtime-paths.js";
 
 const ERROR_LOG_PATH = resolve(getLogDir(), "error.log");
+const filesystem = new FilesystemStateAdapter();
+
+function timestampPrefix(): string {
+  return new Date().toISOString();
+}
 
 function formatMessage(level: "INFO" | "ERROR", message: string, details?: unknown): string {
   const payload =
@@ -11,13 +16,16 @@ function formatMessage(level: "INFO" | "ERROR", message: string, details?: unkno
       ? ""
       : ` ${typeof details === "string" ? details : JSON.stringify(details, null, 2)}`;
 
-  return `${new Date().toISOString()} [${level}] ${message}${payload}\n`;
+  return `${timestampPrefix()} [${level}] ${message}${payload}\n`;
+}
+
+export function formatConsoleLine(message: string): string {
+  return `${timestampPrefix()} ${message}`;
 }
 
 export async function writeErrorLog(message: string, details?: unknown): Promise<void> {
   try {
-    await mkdir(getLogDir(), { recursive: true });
-    await appendFile(ERROR_LOG_PATH, formatMessage("ERROR", message, details), "utf8");
+    await filesystem.appendLog(ERROR_LOG_PATH, formatMessage("ERROR", message, details));
   } catch {
     // Logging must never crash the app.
   }
@@ -25,8 +33,7 @@ export async function writeErrorLog(message: string, details?: unknown): Promise
 
 export async function writeInfoLog(message: string, details?: unknown): Promise<void> {
   try {
-    await mkdir(getLogDir(), { recursive: true });
-    await appendFile(ERROR_LOG_PATH, formatMessage("INFO", message, details), "utf8");
+    await filesystem.appendLog(ERROR_LOG_PATH, formatMessage("INFO", message, details));
   } catch {
     // Logging must never crash the app.
   }
@@ -54,7 +61,7 @@ export function logDevelopmentCommand(scope: string, command: string, args: stri
   }
 
   const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
-  console.log(`[SlackClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`);
+  console.log(formatConsoleLine(`[SlackClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`));
 }
 
 export function errorToLogDetails(error: unknown): Record<string, unknown> {

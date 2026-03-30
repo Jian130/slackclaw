@@ -1,6 +1,20 @@
-import { Copy, ExternalLink, Link2, MessageCircle, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  Briefcase,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Link2,
+  MessageCircle,
+  Plus,
+  Radio,
+  RefreshCw,
+  Send,
+  Sparkles,
+  Trash2
+} from "lucide-react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type {
+  ChannelCapability,
   ChannelConfigOverview,
   ConfiguredChannelEntry,
   ModelAuthSessionResponse,
@@ -13,7 +27,6 @@ import {
   createChannelEntry,
   createSavedModelEntry,
   fetchChannelConfig,
-  fetchModelAuthSession,
   fetchModelConfig,
   removeSavedModelEntry,
   removeChannelEntry,
@@ -24,6 +37,7 @@ import {
   submitModelAuthSessionInput
 } from "../../shared/api/client.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
+import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -33,7 +47,8 @@ import { FieldLabel, Input, Select, Textarea } from "../../shared/ui/Field.js";
 import { InfoBanner } from "../../shared/ui/InfoBanner.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 import { ProviderLogo, providerFallbackGlyph } from "../../shared/ui/ProviderLogo.js";
@@ -66,12 +81,12 @@ const feishuScopes = `{
 
 export const feishuGuideSteps = [
   "Open Feishu Open Platform and create an enterprise app for this workspace.",
-  "Copy the App ID and App Secret, then paste them into SlackClaw.",
+  "Copy the App ID and App Secret, then paste them into ChillClaw.",
   "Batch-import the required scopes and confirm the bot capability is enabled for the app.",
-  "Use Prepare in SlackClaw first so OpenClaw can verify the Feishu plugin is ready.",
+  "Use Prepare in ChillClaw first so OpenClaw can verify the Feishu plugin is ready.",
   "In Feishu event subscriptions, switch delivery to long connection and enable the message receive event OpenClaw expects.",
   "Publish the app after permissions and event settings are finished.",
-  "Save the credentials here, send the bot a direct message, then approve the pairing code in SlackClaw.",
+  "Save the credentials here, send the bot a direct message, then approve the pairing code in ChillClaw.",
   "If your tenant uses Lark instead of Feishu, change the Domain field to lark before saving."
 ] as const;
 
@@ -106,11 +121,16 @@ export function channelStatusTone(status: ConfiguredChannelEntry["status"] | und
   return "neutral" as const;
 }
 
+export function ChannelStatusBadge(props: { status: ConfiguredChannelEntry["status"] | undefined }) {
+  return <StatusBadge tone={channelStatusTone(props.status)}>{props.status ?? "pending"}</StatusBadge>;
+}
+
 export function channelIcon(channelId: string) {
   const icons: Record<string, string> = {
     telegram: "TG",
     whatsapp: "WA",
     feishu: "飞",
+    "wechat-work": "WC",
     wechat: "WX"
   };
 
@@ -199,16 +219,11 @@ export function activeSavedModelEntries(
   return savedEntries.filter((entry) => runtimeKeys.has(entry.modelKey));
 }
 
-export function inactiveSavedModelEntries(
+export function runtimeDerivedModelEntry(
   savedEntries: SavedModelEntry[],
-  runtimeModels: Array<{ key: string }>
+  modelKey: string
 ) {
-  const runtimeKeys = new Set(runtimeModels.map((model) => model.key));
-  return savedEntries.filter((entry) => !runtimeKeys.has(entry.modelKey));
-}
-
-export function showInactiveSavedEntries(runtimeModelCount: number, inactiveEntryCount: number) {
-  return runtimeModelCount === 0 && inactiveEntryCount > 0;
+  return savedEntries.find((entry) => entry.id.startsWith("runtime:") && entry.modelKey === modelKey);
 }
 
 export const providerIcon = providerFallbackGlyph;
@@ -262,12 +277,12 @@ export function applyModelEntryRole(role: ModelEntryRole): { makeDefault: boolea
   };
 }
 
-export function defaultModelEntryRole(savedEntries: SavedModelEntry[], initialEntry?: SavedModelEntry): ModelEntryRole {
+export function defaultModelEntryRole(liveConfiguredModelCount: number, initialEntry?: SavedModelEntry): ModelEntryRole {
   if (initialEntry) {
     return resolveModelEntryRole(Boolean(initialEntry.isDefault), Boolean(initialEntry.isFallback));
   }
 
-  return savedEntries.length === 0 ? "default" : "normal";
+  return liveConfiguredModelCount === 0 ? "default" : "normal";
 }
 
 export function validateModelEntryDraft(
@@ -310,11 +325,219 @@ async function copyText(value: string) {
   await navigator.clipboard.writeText(value);
 }
 
+export function configuredChannelActionState(
+  entry: Pick<ConfiguredChannelEntry, "pairingRequired" | "status">,
+  capability: Pick<ChannelCapability, "supportsPairing" | "supportsLogin"> | undefined
+) {
+  return {
+    primaryAction: entry.pairingRequired || (capability?.supportsLogin && entry.status !== "completed") ? "continue-setup" : "edit",
+    showApproveAction: Boolean(capability?.supportsPairing)
+  } as const;
+}
+
+export function shouldCloseChannelDialogAfterAction(
+  action: "save" | "prepare" | "login" | "approve-pairing",
+  channelId: string,
+  hasSession: boolean
+) {
+  if (hasSession) {
+    return false;
+  }
+
+  if (action === "approve-pairing") {
+    return true;
+  }
+
+  return action === "save" && channelId !== "whatsapp";
+}
+
+function ConfiguredChannelCardActions(props: {
+  capability?: ChannelCapability;
+  copy: Record<string, string>;
+  entry: ConfiguredChannelEntry;
+  busy: string;
+  onEdit: () => void;
+  onApprove: () => void;
+  onRemove: () => void;
+}) {
+  const actionState = configuredChannelActionState(props.entry, props.capability);
+
+  return (
+    <div className="actions-row config-page__entry-actions">
+      {actionState.showApproveAction ? (
+        <Button onClick={props.onApprove} variant="outline">
+          {props.copy.approvePairing}
+        </Button>
+      ) : null}
+      <Button onClick={props.onEdit} variant="outline">
+        {actionState.primaryAction === "continue-setup" ? props.copy.continueSetup : props.copy.editChannel}
+      </Button>
+      <Button loading={props.busy === `remove:${props.entry.id}`} onClick={props.onRemove} variant="danger">
+        <Trash2 size={14} />
+        {props.busy === `remove:${props.entry.id}` ? props.copy.removingChannel : props.copy.removeChannel}
+      </Button>
+    </div>
+  );
+}
+
+type ConfigPalette = {
+  accent: string;
+  accentStrong: string;
+  surface: string;
+  surfaceStrong: string;
+};
+
+const defaultModelPalette: ConfigPalette = {
+  accent: "#6366f1",
+  accentStrong: "#4f46e5",
+  surface: "#eef2ff",
+  surfaceStrong: "#e0e7ff"
+};
+
+const modelPalettes: Record<string, ConfigPalette> = {
+  openai: {
+    accent: "#10b981",
+    accentStrong: "#059669",
+    surface: "#ecfdf5",
+    surfaceStrong: "#d1fae5"
+  },
+  anthropic: {
+    accent: "#f59e0b",
+    accentStrong: "#d97706",
+    surface: "#fffbeb",
+    surfaceStrong: "#fef3c7"
+  },
+  google: {
+    accent: "#3b82f6",
+    accentStrong: "#2563eb",
+    surface: "#eff6ff",
+    surfaceStrong: "#dbeafe"
+  },
+  gemini: {
+    accent: "#3b82f6",
+    accentStrong: "#2563eb",
+    surface: "#eff6ff",
+    surfaceStrong: "#dbeafe"
+  },
+  github: {
+    accent: "#475569",
+    accentStrong: "#334155",
+    surface: "#f8fafc",
+    surfaceStrong: "#e2e8f0"
+  },
+  "github-copilot": {
+    accent: "#7c3aed",
+    accentStrong: "#6d28d9",
+    surface: "#faf5ff",
+    surfaceStrong: "#ede9fe"
+  },
+  minimax: {
+    accent: "#ec4899",
+    accentStrong: "#db2777",
+    surface: "#fdf2f8",
+    surfaceStrong: "#fce7f3"
+  }
+};
+
+const defaultChannelPalette: ConfigPalette = {
+  accent: "#14b8a6",
+  accentStrong: "#0f766e",
+  surface: "#ecfeff",
+  surfaceStrong: "#ccfbf1"
+};
+
+const channelPalettes: Record<string, ConfigPalette> = {
+  telegram: {
+    accent: "#3b82f6",
+    accentStrong: "#2563eb",
+    surface: "#eff6ff",
+    surfaceStrong: "#dbeafe"
+  },
+  whatsapp: {
+    accent: "#16a34a",
+    accentStrong: "#15803d",
+    surface: "#f0fdf4",
+    surfaceStrong: "#dcfce7"
+  },
+  feishu: {
+    accent: "#14b8a6",
+    accentStrong: "#0f766e",
+    surface: "#ecfeff",
+    surfaceStrong: "#ccfbf1"
+  },
+  wechat: {
+    accent: "#22c55e",
+    accentStrong: "#16a34a",
+    surface: "#f0fdf4",
+    surfaceStrong: "#dcfce7"
+  },
+  "wechat-work": {
+    accent: "#0ea5e9",
+    accentStrong: "#0284c7",
+    surface: "#f0f9ff",
+    surfaceStrong: "#e0f2fe"
+  }
+};
+
+function paletteStyle(palette: ConfigPalette): CSSProperties {
+  return {
+    ["--config-accent" as string]: palette.accent,
+    ["--config-accent-strong" as string]: palette.accentStrong,
+    ["--config-surface" as string]: palette.surface,
+    ["--config-surface-strong" as string]: palette.surfaceStrong
+  } as CSSProperties;
+}
+
+function providerPalette(providerId: string): ConfigPalette {
+  return modelPalettes[providerId] ?? defaultModelPalette;
+}
+
+function channelPalette(channelId: string): ConfigPalette {
+  return channelPalettes[channelId] ?? defaultChannelPalette;
+}
+
+function channelVisualIcon(channelId: string) {
+  const icons = {
+    telegram: Send,
+    whatsapp: MessageCircle,
+    feishu: Sparkles,
+    wechat: MessageCircle,
+    "wechat-work": Briefcase
+  };
+
+  return icons[channelId as keyof typeof icons] ?? Radio;
+}
+
+function ConfigMetric(props: { label: string; value: ReactNode; tone?: "primary" | "success" }) {
+  return (
+    <div className={`config-page__metric${props.tone === "success" ? " config-page__metric--success" : ""}`}>
+      <span className="config-page__metric-label">{props.label}</span>
+      <strong className="config-page__metric-value">{props.value}</strong>
+    </div>
+  );
+}
+
+function ConfigAddCard(props: {
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className="config-page__add-card" onClick={props.onClick} type="button">
+      <span className="config-page__add-card-icon">
+        <Plus size={20} />
+      </span>
+      <strong>{props.title}</strong>
+      <span>{props.description}</span>
+    </button>
+  );
+}
+
 function ModelDialog(props: {
   open: boolean;
   onClose: () => void;
   modelConfig?: ModelConfigOverview;
-  reloadModelConfig: () => Promise<ModelConfigOverview>;
+  reloadModelConfig: (options?: { fresh?: boolean }) => Promise<ModelConfigOverview>;
   onModelConfigChange: (next: ModelConfigOverview) => void;
   initialEntry?: SavedModelEntry;
 }) {
@@ -332,13 +555,10 @@ function ModelDialog(props: {
   const provider = props.modelConfig?.providers.find((item) => item.id === providerId);
   const method = provider?.authMethods.find((item) => item.id === methodId);
   const models = modelOptions(props.modelConfig, provider);
+  const runtimeModels = useMemo(() => runtimeConfiguredModels(props.modelConfig), [props.modelConfig]);
   const selectedModelValue = modelSelectValue(models, modelKey);
   const showCustomModelInput = models.length === 0 || selectedModelValue === MODEL_KEY_CUSTOM_OPTION;
   const isEdit = Boolean(props.initialEntry);
-  const savedEntries = useMemo(
-    () => (props.modelConfig?.savedEntries ?? []).filter((entry) => !entry.id.startsWith("runtime:")),
-    [props.modelConfig?.savedEntries]
-  );
   const validationError = validateModelEntryDraft(method, values, resolveModelEntryRole(makeDefault, useAsFallback));
 
   useEffect(() => {
@@ -353,11 +573,11 @@ function ModelDialog(props: {
     setValues({});
     setSession(undefined);
     setSessionInput("");
-    const nextRole = defaultModelEntryRole(savedEntries, props.initialEntry);
+    const nextRole = defaultModelEntryRole(runtimeModels.length, props.initialEntry);
     const nextFlags = applyModelEntryRole(nextRole);
     setMakeDefault(nextFlags.makeDefault);
     setUseAsFallback(nextFlags.useAsFallback);
-  }, [props.initialEntry, props.open, savedEntries]);
+  }, [props.initialEntry, props.open, runtimeModels.length]);
 
   useEffect(() => {
     if (!props.open || !provider) {
@@ -374,29 +594,6 @@ function ModelDialog(props: {
     });
   }, [models, props.initialEntry?.modelKey, props.modelConfig, props.open, provider]);
 
-  useEffect(() => {
-    if (!session?.id) {
-      return;
-    }
-
-    const timer = window.setInterval(async () => {
-      const nextSession = await fetchModelAuthSession(session.id);
-      setSession(nextSession.session);
-
-      if (nextSession.session.status === "completed") {
-        await props.reloadModelConfig();
-        props.onClose();
-        return;
-      }
-
-      if (nextSession.session.status === "failed") {
-        await props.reloadModelConfig();
-      }
-    }, 1600);
-
-    return () => window.clearInterval(timer);
-  }, [props, session?.id]);
-
   async function handleSave() {
     if (!provider || !method) return;
     setBusy("save");
@@ -410,14 +607,14 @@ function ModelDialog(props: {
         makeDefault,
         useAsFallback
       };
-      const result = props.initialEntry
-        ? await updateSavedModelEntry(props.initialEntry.id, request)
+      const response = props.initialEntry
+        ? await updateSavedModelEntry(props.initialEntry!.id, request)
         : await createSavedModelEntry(request);
 
-      props.onModelConfigChange(result.modelConfig);
-      setSession(result.authSession);
+      props.onModelConfigChange(response.modelConfig);
+      setSession(response.authSession);
 
-      if (!result.authSession && result.status === "completed") {
+      if (!response.authSession && response.status === "completed") {
         props.onClose();
       }
     } finally {
@@ -432,7 +629,11 @@ function ModelDialog(props: {
       const next = await submitModelAuthSessionInput(session.id, { value: sessionInput.trim() });
       setSession(next.session);
       setSessionInput("");
-      props.onModelConfigChange(await props.reloadModelConfig());
+      props.onModelConfigChange(next.modelConfig);
+
+      if (next.session.status === "completed") {
+        props.onClose();
+      }
     } finally {
       setBusy("");
     }
@@ -467,15 +668,15 @@ function ModelDialog(props: {
         <LoadingBlocker
           active={busy === "save" || busy === "input"}
           label={busy === "input" ? "Finishing model authentication" : "Saving AI model"}
-          description="SlackClaw is syncing the model entry with OpenClaw."
+          description="ChillClaw is syncing the model entry with OpenClaw."
         >
           <div className="panel-stack">
-          <div className="info-banner">
-            <ProviderLogo label={provider.label} providerId={provider.id} />
-            <div>
-              <h3>{provider.label}</h3>
-              <p>{provider.description}</p>
-              <div className="actions-row" style={{ marginTop: 12 }}>
+            <InfoBanner
+              icon={<ProviderLogo label={provider.label} providerId={provider.id} />}
+              title={provider.label}
+              description={provider.description}
+            >
+              <div className="actions-row info-banner__actions">
                 <Button onClick={() => setProviderId("")} variant="outline">
                   Change Provider
                 </Button>
@@ -486,8 +687,7 @@ function ModelDialog(props: {
                   </Button>
                 ) : null}
               </div>
-            </div>
-          </div>
+            </InfoBanner>
 
           <div className="field-grid field-grid--two">
             <div>
@@ -619,7 +819,7 @@ function ChannelDialog(props: {
   onClose: () => void;
   channelConfig?: ChannelConfigOverview;
   onChannelConfigChange: (next: ChannelConfigOverview) => void;
-  reloadChannelConfig: () => Promise<ChannelConfigOverview>;
+  reloadChannelConfig: (options?: { fresh?: boolean }) => Promise<ChannelConfigOverview>;
   initialEntry?: ConfiguredChannelEntry;
   initialChannelId?: string;
 }) {
@@ -641,8 +841,7 @@ function ChannelDialog(props: {
     setMessage("");
     setValues({
       domain: "feishu",
-      botName: "SlackClaw Assistant",
-      pluginSpec: "@openclaw-china/wecom-app",
+      botName: "ChillClaw Assistant",
       ...props.initialEntry?.editableValues
     });
   }, [props.initialChannelId, props.initialEntry, props.open]);
@@ -655,18 +854,13 @@ function ChannelDialog(props: {
     setBusy(action);
     try {
       const request = { channelId: capability.id, values, action };
-      const result = props.initialEntry
-        ? await updateChannelEntry(props.initialEntry.id, request)
+      const response = props.initialEntry
+        ? await updateChannelEntry(props.initialEntry!.id, request)
         : await createChannelEntry(request);
-      props.onChannelConfigChange(result.channelConfig);
-      setMessage(result.message);
+      props.onChannelConfigChange(response.channelConfig);
+      setMessage(response.message);
 
-      if (!result.session && action !== "approve-pairing") {
-        const refreshed = await props.reloadChannelConfig();
-        props.onChannelConfigChange(refreshed);
-      }
-
-      if (action === "save" && capability.id !== "whatsapp") {
+      if (shouldCloseChannelDialogAfterAction(action, capability.id, Boolean(response.session))) {
         props.onClose();
       }
     } finally {
@@ -676,7 +870,7 @@ function ChannelDialog(props: {
 
   return (
     <Dialog
-      description="Choose a communication channel, review the setup guidance, and save the account through SlackClaw."
+      description="Choose a communication channel, review the setup guidance, and save the account through ChillClaw."
       onClose={props.onClose}
       open={props.open}
       title={isEdit ? "Edit Channel" : "Add Channel"}
@@ -698,15 +892,15 @@ function ChannelDialog(props: {
         <LoadingBlocker
           active={Boolean(busy)}
           label="Saving channel configuration"
-          description="SlackClaw is sending the channel action to OpenClaw."
+          description="ChillClaw is sending the channel action to OpenClaw."
         >
           <div className="panel-stack">
-          <div className="info-banner">
-            <div className="provider-logo">{channelIcon(capability.id)}</div>
-            <div>
-              <h3>{capability.label}</h3>
-              <p>{capability.description}</p>
-              <div className="actions-row" style={{ marginTop: 12 }}>
+            <InfoBanner
+              icon={<div className="provider-logo">{channelIcon(capability.id)}</div>}
+              title={capability.label}
+              description={capability.description}
+            >
+              <div className="actions-row info-banner__actions">
                 <Button onClick={() => setChannelId("")} variant="outline">
                   Change Channel
                 </Button>
@@ -717,15 +911,14 @@ function ChannelDialog(props: {
                   </Button>
                 ) : null}
               </div>
-            </div>
-          </div>
+            </InfoBanner>
 
           {props.initialEntry ? (
             <Card>
               <CardContent className="panel-stack">
                 <div className="actions-row" style={{ justifyContent: "space-between" }}>
                   <strong>Current configuration</strong>
-                  <Badge tone={channelStatusTone(props.initialEntry.status)}>{props.initialEntry.status}</Badge>
+                  <ChannelStatusBadge status={props.initialEntry.status} />
                 </div>
                 <p className="card__description">{props.initialEntry.summary}</p>
                 {props.initialEntry.maskedConfigSummary.length ? (
@@ -747,7 +940,7 @@ function ChannelDialog(props: {
               <CardContent className="panel-stack">
                 <strong>Feishu setup guidance</strong>
                 <p className="card__description">
-                  Follow the official Feishu channel guide step by step, then return here to save credentials and finish pairing in SlackClaw.
+                  Follow the official Feishu channel guide step by step, then return here to save credentials and finish pairing in ChillClaw.
                 </p>
                 <div className="actions-row" style={{ flexWrap: "wrap" }}>
                   {feishuDirectLinks.map((link) => (
@@ -771,15 +964,11 @@ function ChannelDialog(props: {
                     </div>
                   ))}
                 </div>
-                <div className="info-banner">
-                  <div>
-                    <h3>What to prepare before saving</h3>
-                    <p>
-                      App ID, App Secret, the correct tenant domain, imported scopes, bot capability enabled, long connection enabled,
-                      and the message receive event required by OpenClaw.
-                    </p>
-                  </div>
-                </div>
+                <InfoBanner
+                  title="What to prepare before saving"
+                  description="App ID, App Secret, the correct tenant domain, imported scopes, bot capability enabled, long connection enabled, and the message receive event required by OpenClaw."
+                  accent="blue"
+                />
                 <Textarea readOnly value={feishuScopes} />
                 <div className="actions-row">
                   <Button onClick={() => void copyText(feishuScopes)} variant="outline">
@@ -791,12 +980,26 @@ function ChannelDialog(props: {
             </Card>
           ) : null}
 
+          {capability.guidedSetupKind === "wechat-work" ? (
+            <Card>
+              <CardContent className="panel-stack">
+                <strong>WeChat Work setup guidance</strong>
+                <p className="card__description">
+                  ChillClaw manages the required WeCom plugin automatically. Save the Bot ID and Secret here, and the
+                  daemon will install or update the plugin before it writes the WeChat Work channel config.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {capability.guidedSetupKind === "wechat" ? (
             <Card>
               <CardContent className="panel-stack">
-                <strong>WeChat workaround guidance</strong>
-                <p className="card__description">SlackClaw uses the workaround plugin path for WeChat. Confirm the plugin package, then save the Corp ID, Agent ID, webhook token, and AES key.</p>
-                <Textarea readOnly value={"openclaw plugins install @openclaw-china/wecom-app"} />
+                <strong>Personal WeChat login</strong>
+                <p className="card__description">
+                  ChillClaw starts the QR-first WeChat installer for you. Use Start Login to begin, then keep this dialog
+                  open while the session log streams the pairing steps.
+                </p>
               </CardContent>
             </Card>
           ) : null}
@@ -853,7 +1056,7 @@ function ChannelDialog(props: {
               <Badge tone={capability.officialSupport ? "success" : "warning"}>
                 {capability.officialSupport ? "Official" : "Workaround"}
               </Badge>
-              {props.initialEntry?.pairingRequired ? <Badge tone="info">Pairing required</Badge> : null}
+              {props.initialEntry?.pairingRequired ? <StatusBadge tone="info">Pairing required</StatusBadge> : null}
             </div>
             <div className="actions-row">
               {capability.id === "feishu" ? (
@@ -863,10 +1066,10 @@ function ChannelDialog(props: {
               ) : null}
               {capability.supportsLogin ? (
                 <Button loading={busy === "login"} onClick={() => void applyChannelAction("login")} variant="outline">
-                  {busy === "login" ? "Starting..." : "Start Login"}
+                  {busy === "login" ? "Starting..." : capability.id === "wechat" ? "Start Login" : "Start Login"}
                 </Button>
               ) : null}
-              {capability.id !== "whatsapp" ? (
+              {capability.id !== "whatsapp" && capability.id !== "wechat" ? (
                 <Button loading={busy === "save"} onClick={() => void applyChannelAction("save")}>
                   {busy === "save" ? "Saving..." : isEdit ? "Save Changes" : "Save Channel"}
                 </Button>
@@ -927,16 +1130,33 @@ export default function ConfigPage() {
   }, [channelConfig, channelDialogOpen, channelsLoading]);
 
   useEffect(() => {
-    if (!channelConfig?.activeSession?.id) {
-      return;
-    }
+    return subscribeToDaemonEvents((event) => {
+      if (event.type === "model-config.updated") {
+        setModelConfig(event.snapshot.data);
+        setModelsLoading(false);
+        return;
+      }
 
-    const timer = window.setInterval(() => {
-      void reloadChannelConfig();
-    }, 1600);
+      if (event.type === "channel-config.updated") {
+        setChannelConfig(event.snapshot.data);
+        setChannelsLoading(false);
+        return;
+      }
 
-    return () => window.clearInterval(timer);
-  }, [channelConfig?.activeSession?.id]);
+      if (event.type === "channel.session.updated") {
+        setChannelConfig((current) => {
+          if (!current || current.activeSession?.channelId !== event.channelId) {
+            return current;
+          }
+
+          return {
+            ...current,
+            activeSession: event.session
+          };
+        });
+      }
+    });
+  }, []);
 
   async function reloadModelConfig(options?: { fresh?: boolean }) {
     setModelsLoading(true);
@@ -969,9 +1189,9 @@ export default function ConfigPage() {
   async function handleRemoveChannel(entry: ConfiguredChannelEntry) {
     setBusy(`remove:${entry.id}`);
     try {
-      const result = await removeChannelEntry(entry.id);
-      setChannelConfig(result.channelConfig);
-      setChannelMessage(result.message);
+      const response = await removeChannelEntry(entry.id);
+      setChannelConfig(response.channelConfig);
+      setChannelMessage(response.message);
     } finally {
       setBusy("");
     }
@@ -980,8 +1200,8 @@ export default function ConfigPage() {
   async function handleSetDefaultEntry(entry: SavedModelEntry) {
     setBusy("models:gateway");
     try {
-      const result = await setDefaultModelEntry({ entryId: entry.id });
-      setModelConfig(result.modelConfig);
+      const response = await setDefaultModelEntry({ entryId: entry.id });
+      setModelConfig(response.modelConfig);
     } finally {
       setBusy("");
     }
@@ -1014,102 +1234,170 @@ export default function ConfigPage() {
         })
         .map((item) => item.id);
 
-      const result = await replaceFallbackModelEntries({ entryIds: nextFallbackIds });
-      setModelConfig(result.modelConfig);
+      const response = await replaceFallbackModelEntries({ entryIds: nextFallbackIds });
+      setModelConfig(response.modelConfig);
     } finally {
       setBusy("");
     }
   }
 
   async function handleRemoveModelEntry(entry: SavedModelEntry) {
-    if (!window.confirm(`Remove ${entry.label} from SlackClaw?`)) {
+    if (!window.confirm(`Remove ${entry.label} from ChillClaw?`)) {
       return;
     }
 
     setBusy(`models:remove:${entry.id}`);
     try {
-      const result = await removeSavedModelEntry(entry.id);
-      setModelConfig(result.modelConfig);
+      const response = await removeSavedModelEntry(entry.id);
+      setModelConfig(response.modelConfig);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "SlackClaw could not remove this configured model.");
+      window.alert(error instanceof Error ? error.message : "ChillClaw could not remove this configured model.");
     } finally {
       setBusy("");
     }
   }
 
-  const savedEntries = (modelConfig?.savedEntries ?? []).filter((entry) => !entry.id.startsWith("runtime:"));
+  const allSavedEntries = modelConfig?.savedEntries ?? [];
+  const savedEntries = allSavedEntries.filter((entry) => !entry.id.startsWith("runtime:"));
   const runtimeModels = runtimeConfiguredModels(modelConfig);
   const runtimeModelsByKey = new Map(runtimeModels.map((model) => [model.key, model]));
   const runtimeManagedEntries = activeSavedModelEntries(savedEntries, runtimeModels);
-  const inactiveEntries = inactiveSavedModelEntries(savedEntries, runtimeModels);
   const runtimeOnlyModels = runtimeModels.filter((model) => !runtimeManagedEntries.some((entry) => entry.modelKey === model.key));
-  const showSavedEntriesSection = showInactiveSavedEntries(runtimeModels.length, inactiveEntries.length);
   const configuredChannels = channelConfig?.entries ?? [];
+  const configuredProviderCount =
+    modelConfig?.providers.filter((item) => providerConfiguredModels(modelConfig, item).length > 0 || item.configured).length ?? 0;
+  const defaultRuntimeModel =
+    runtimeModels.find((model) => model.key === modelConfig?.defaultModel) ??
+    (modelConfig?.defaultModel
+      ? {
+          key: modelConfig.defaultModel,
+          name: modelConfig.defaultModel.split("/").pop() ?? modelConfig.defaultModel
+        }
+      : undefined);
+  const activeChannelSession = channelConfig?.activeSession;
   const modelBusy = busy.startsWith("models:");
+  const modelHeaderAction = (
+    <>
+      <Button onClick={() => void reloadModelConfig({ fresh: true })} variant="outline" loading={modelsLoading}>
+        <RefreshCw size={14} />
+        {copy.refreshProviders}
+      </Button>
+      <Button
+        onClick={() => {
+          setSelectedModelEntry(undefined);
+          setModelDialogOpen(true);
+        }}
+      >
+        <Plus size={14} />
+        {copy.addModel}
+      </Button>
+    </>
+  );
+  const channelHeaderAction = (
+    <>
+      <Button onClick={() => void reloadChannelConfig({ fresh: true })} variant="outline" loading={channelsLoading}>
+        <RefreshCw size={14} />
+        {copy.refreshProviders}
+      </Button>
+      <Button onClick={openAddChannelDialog}>
+        <Plus size={14} />
+        Add Channel
+      </Button>
+    </>
+  );
 
   return (
-    <div className="panel-stack">
-      <PageHeader
-        title={copy.title}
-        subtitle={copy.subtitle}
-        actions={
-          <Button
-            onClick={() =>
-              void (activeTab === "channels"
-                ? reloadChannelConfig({ fresh: true })
-                : reloadModelConfig({ fresh: true }))
-            }
-            variant="outline"
-            loading={activeTab === "channels" ? channelsLoading : modelsLoading}
-          >
-            <RefreshCw size={14} />
-            {copy.refreshProviders}
-          </Button>
-        }
-      />
+    <WorkspaceScaffold
+      className="config-page"
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={activeTab === "channels" ? channelHeaderAction : modelHeaderAction}
+    >
 
-      <Tabs defaultValue="models" value={activeTab} onValueChange={(value) => setActiveTab(value as "models" | "channels")}>
-        <TabsList>
-          <TabsTrigger value="models">{copy.modelsTab} ({runtimeModels.length})</TabsTrigger>
-          <TabsTrigger value="channels">{copy.channelsTab} ({configuredChannels.length})</TabsTrigger>
+      <Tabs className="config-page__tabs" defaultValue="models" value={activeTab} onValueChange={(value) => setActiveTab(value as "models" | "channels")}>
+        <TabsList className="config-page__tab-list">
+          <TabsTrigger value="models">
+            <span className="config-page__tab-trigger">
+              <span className="config-page__tab-icon config-page__tab-icon--models">
+                <Sparkles size={16} />
+              </span>
+              <span className="config-page__tab-copy">
+                <strong>{copy.modelsTab}</strong>
+                <small>{runtimeModels.length ? "Live runtime models" : "No live runtime models yet"}</small>
+              </span>
+              <Badge tone="accent">{runtimeModels.length}</Badge>
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="channels">
+            <span className="config-page__tab-trigger">
+              <span className="config-page__tab-icon config-page__tab-icon--channels">
+                <MessageCircle size={16} />
+              </span>
+              <span className="config-page__tab-copy">
+                <strong>{copy.channelsTab}</strong>
+                <small>{configuredChannels.length ? "Configured live channels" : "No live channels yet"}</small>
+              </span>
+              <Badge tone="accent">{configuredChannels.length}</Badge>
+            </span>
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="models" className="panel-stack">
+        <TabsContent value="models" className="config-page__content">
           {modelsLoading && !modelConfig ? (
-            <LoadingPanel title="Loading AI models" description="SlackClaw is reading configured models from OpenClaw." />
+            <LoadingPanel title="Loading AI models" description="ChillClaw is reading configured models from OpenClaw." />
           ) : null}
 
           {!modelsLoading && modelConfig ? (
             <>
-          <InfoBanner icon={<Sparkles size={22} />} title={copy.modelsInfoTitle} description={copy.modelsInfoBody} />
-          <Card>
-            <CardContent className="actions-row" style={{ justifyContent: "space-between" }}>
-              <div>
-                <strong>Current model configuration</strong>
-                <p className="card__description">
-                  {"SlackClaw manages saved model entries and shows the live OpenClaw runtime model chain."}
-                </p>
-              </div>
-              <Button
-                onClick={() => {
-                  setSelectedModelEntry(undefined);
-                  setModelDialogOpen(true);
-                }}
-              >
-                <Plus size={14} />
-                {copy.addModel}
-              </Button>
-            </CardContent>
-          </Card>
+              <Card className="config-page__hero-card config-page__hero-card--models">
+                <CardContent className="config-page__hero-card-content">
+                  <div className="config-page__hero-main">
+                    <div className="config-page__hero-icon config-page__hero-icon--models">
+                      <Sparkles size={28} />
+                    </div>
+                    <div className="config-page__hero-copy">
+                      <span className="config-page__eyebrow">Live runtime</span>
+                      <h2>{copy.modelsInfoTitle}</h2>
+                      <p>{copy.modelsInfoBody}</p>
+                      <div className="config-page__hero-points">
+                        <span>
+                          <CheckCircle2 size={14} />
+                          Managed entries stay tied to the active OpenClaw runtime.
+                        </span>
+                        <span>
+                          <CheckCircle2 size={14} />
+                          Default and fallback routing are visible in one place.
+                        </span>
+                        <span>
+                          <CheckCircle2 size={14} />
+                          Credentials remain editable without showing stale history.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="config-page__hero-metrics">
+                    <ConfigMetric label="Live models" value={runtimeModels.length} />
+                    <ConfigMetric label="Providers ready" value={configuredProviderCount} />
+                    <ConfigMetric
+                      label="Default route"
+                      tone="success"
+                      value={defaultRuntimeModel ? defaultRuntimeModel.name : "Not set"}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
 
-          {runtimeManagedEntries.length ? (
-            <Card>
-              <CardContent className="panel-stack">
-                <div>
-                  <strong>{copy.runtimeModelsTitle}</strong>
-                  <p className="card__description">{copy.runtimeModelsBody}</p>
-                </div>
-                <div className="panel-stack">
+              {runtimeManagedEntries.length ? (
+                <section className="config-page__section">
+                  <div className="config-page__section-header">
+                    <div>
+                      <span className="config-page__eyebrow">Managed entries</span>
+                      <h2>{copy.runtimeModelsTitle}</h2>
+                      <p>{copy.runtimeModelsBody}</p>
+                    </div>
+                    <Badge tone="accent">{runtimeManagedEntries.length}</Badge>
+                  </div>
+                  <div className="config-page__entry-list">
                   {runtimeManagedEntries.map((entry) => {
                     const provider = modelConfig?.providers.find((item) => item.id === entry.providerId);
                     const authLabel = entryAuthLabel(entry);
@@ -1120,284 +1408,364 @@ export default function ConfigPage() {
                     const fallbackTag = runtimeModel?.tags.find((item) => item.startsWith("fallback#"));
 
                     return (
-                      <div className="configured-model-card" key={entry.id}>
-                        <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
-                          <div className="actions-row">
-                            <ProviderLogo label={provider?.label ?? entry.providerId} providerId={entry.providerId} />
-                            <div className="provider-details">
-                              <strong>{entry.label}</strong>
-                              <span className="card__description">{provider?.label ?? entry.providerId}</span>
-                              <div className="actions-row">
+                      <article
+                        className="config-page__entry-card config-page__entry-card--model"
+                        key={entry.id}
+                        style={paletteStyle(providerPalette(entry.providerId))}
+                      >
+                        <div className="config-page__entry-shell">
+                          <div className="config-page__entry-media">
+                            <div className="config-page__entry-media-inner">
+                              <ProviderLogo label={provider?.label ?? entry.providerId} providerId={entry.providerId} />
+                            </div>
+                          </div>
+                          <div className="config-page__entry-body">
+                            <div className="config-page__entry-header">
+                              <div className="config-page__entry-copy">
+                                <span className="config-page__eyebrow">{provider?.label ?? entry.providerId}</span>
+                                <h3>{entry.label}</h3>
+                                <p>Managed by ChillClaw and mapped to the live OpenClaw model chain.</p>
+                              </div>
+                              <div className="config-page__badge-row">
                                 <Badge tone="info">{entry.modelKey}</Badge>
                                 {entry.isDefault ? <Badge tone="success">Default</Badge> : null}
-                                {entry.isFallback ? <Badge tone="info">Fallback</Badge> : null}
-                                {fallbackTag ? <Badge tone="info">{fallbackTag.replace("#", " #")}</Badge> : null}
+                                {entry.isFallback ? <Badge tone="accent">Fallback</Badge> : null}
+                                {fallbackTag ? <Badge tone="accent">{fallbackTag.replace("#", " #")}</Badge> : null}
                                 {authLabel ? <Badge tone="neutral">{authLabel}</Badge> : null}
                                 {runtimeModel?.local ? <Badge tone="neutral">Local</Badge> : null}
                               </div>
                             </div>
-                          </div>
-                          <div className="actions-row">
-                            {!entry.isDefault ? (
-                              <Button disabled={modelBusy && busy !== "models:gateway"} loading={busy === "models:gateway"} onClick={() => void handleSetDefaultEntry(entry)} variant="outline">
-                                Set Default
-                              </Button>
+                            <div className="config-page__meta-grid">
+                              <div className="config-page__meta-card">
+                                <span>Provider</span>
+                                <strong>{provider?.label ?? entry.providerId}</strong>
+                              </div>
+                              <div className="config-page__meta-card">
+                                <span>Authentication</span>
+                                <strong>{entry.profileLabel ? `${authLabel ?? "Configured"} • ${entry.profileLabel}` : authLabel ?? "Configured"}</strong>
+                              </div>
+                              <div className="config-page__meta-card">
+                                <span>Role</span>
+                                <strong>{entry.isDefault ? "Default route" : entry.isFallback ? "Fallback route" : "Managed route"}</strong>
+                              </div>
+                            </div>
+                            {duplicateActiveEntry && !entry.isDefault && !entry.isFallback ? (
+                              <p className="config-page__entry-note">
+                                Another managed entry with this same model is already active. Turning this one on will replace the active copy.
+                              </p>
                             ) : null}
-                            <Button
-                              disabled={entry.isDefault || (modelBusy && busy !== "models:gateway")}
-                              loading={busy === "models:gateway"}
-                              onClick={() => void handleToggleFallback(entry)}
-                              variant={entry.isFallback ? "secondary" : "outline"}
-                            >
-                              {entry.isFallback ? "Remove Fallback" : "Use as Fallback"}
-                            </Button>
-                            <Button
-                              onClick={() => {
-                                setSelectedModelEntry(entry);
-                                setModelDialogOpen(true);
-                              }}
-                              variant="outline"
-                            >
-                              Edit
-                            </Button>
-                            <Button disabled={modelBusy && busy !== `models:remove:${entry.id}`} loading={busy === `models:remove:${entry.id}`} onClick={() => void handleRemoveModelEntry(entry)} variant="outline">
-                              <Trash2 size={14} />
-                              {busy === `models:remove:${entry.id}` ? "Removing..." : "Remove"}
-                            </Button>
-                            {provider?.docsUrl ? (
-                              <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="outline">
-                                <ExternalLink size={14} />
-                                {copy.docs}
-                              </Button>
-                            ) : null}
+                            <div className="config-page__entry-footer">
+                              <p className="config-page__entry-hint">
+                                {runtimeModel?.local
+                                  ? "This model is running in local mode."
+                                  : "This route is available in the active OpenClaw runtime right now."}
+                              </p>
+                              <div className="config-page__entry-actions">
+                                {!entry.isDefault ? (
+                                  <Button disabled={modelBusy && busy !== "models:gateway"} loading={busy === "models:gateway"} onClick={() => void handleSetDefaultEntry(entry)} variant="secondary">
+                                    Set Default
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  disabled={entry.isDefault || (modelBusy && busy !== "models:gateway")}
+                                  loading={busy === "models:gateway"}
+                                  onClick={() => void handleToggleFallback(entry)}
+                                  variant={entry.isFallback ? "secondary" : "outline"}
+                                >
+                                  {entry.isFallback ? "Remove Fallback" : "Use as Fallback"}
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    setSelectedModelEntry(entry);
+                                    setModelDialogOpen(true);
+                                  }}
+                                  variant="outline"
+                                >
+                                  Edit
+                                </Button>
+                                {provider?.docsUrl ? (
+                                  <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="ghost">
+                                    <ExternalLink size={14} />
+                                    {copy.docs}
+                                  </Button>
+                                ) : null}
+                                <Button disabled={modelBusy && busy !== `models:remove:${entry.id}`} loading={busy === `models:remove:${entry.id}`} onClick={() => void handleRemoveModelEntry(entry)} variant="danger">
+                                  <Trash2 size={14} />
+                                  {busy === `models:remove:${entry.id}` ? "Removing..." : "Remove"}
+                                </Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <div className="field-grid field-grid--two" style={{ marginTop: 18 }}>
-                          <Card>
-                            <CardContent className="panel-stack">
-                              <span className="card__description">Provider</span>
-                              <strong>{provider?.label ?? entry.providerId}</strong>
-                            </CardContent>
-                          </Card>
-                          <Card>
-                            <CardContent className="panel-stack">
-                              <span className="card__description">Authentication</span>
-                              <strong>{entry.profileLabel ? `${authLabel ?? "Configured"} • ${entry.profileLabel}` : authLabel ?? "Configured"}</strong>
-                            </CardContent>
-                          </Card>
-                        </div>
-                        {duplicateActiveEntry && !entry.isDefault && !entry.isFallback ? (
-                          <p className="card__description" style={{ marginTop: 16 }}>
-                            Another saved entry with this same model is already active. Turning this one on will replace the active copy.
-                          </p>
-                        ) : null}
-                      </div>
+                      </article>
                     );
                   })}
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
+                  </div>
+                </section>
+              ) : null}
 
-          {runtimeOnlyModels.length ? (
-            <Card>
-              <CardContent className="panel-stack">
-                <div>
-                  <strong>{copy.runtimeOnlyTitle}</strong>
-                  <p className="card__description">{copy.runtimeOnlyBody}</p>
-                </div>
-                <div className="panel-stack">
+              {runtimeOnlyModels.length ? (
+                <section className="config-page__section">
+                  <div className="config-page__section-header">
+                    <div>
+                      <span className="config-page__eyebrow">Runtime-only</span>
+                      <h2>{copy.runtimeOnlyTitle}</h2>
+                      <p>{copy.runtimeOnlyBody}</p>
+                    </div>
+                    <Badge tone="info">{runtimeOnlyModels.length}</Badge>
+                  </div>
+                  <div className="config-page__entry-list config-page__entry-list--compact">
                   {runtimeOnlyModels.map((model) => {
                     const provider = modelConfig?.providers.find((item) =>
                       item.providerRefs.some((ref) => model.key.startsWith(ref))
                     );
                     const fallbackTag = model.tags.find((item) => item.startsWith("fallback#"));
+                    const runtimeEntry = runtimeDerivedModelEntry(allSavedEntries, model.key);
 
                     return (
-                      <div className="configured-model-card" key={model.key}>
-                        <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
-                          <div className="actions-row">
-                            <ProviderLogo label={provider?.label ?? model.key.split("/")[0]} providerId={provider?.id ?? model.key.split("/")[0] ?? "ai"} />
-                            <div className="provider-details">
-                              <strong>{model.name}</strong>
-                              <span className="card__description">{provider?.label ?? model.key.split("/")[0]}</span>
-                              <div className="actions-row">
+                      <article
+                        className="config-page__entry-card config-page__entry-card--runtime"
+                        key={model.key}
+                        style={paletteStyle(providerPalette(provider?.id ?? model.key.split("/")[0] ?? "ai"))}
+                      >
+                        <div className="config-page__entry-shell">
+                          <div className="config-page__entry-media">
+                            <div className="config-page__entry-media-inner">
+                              <ProviderLogo label={provider?.label ?? model.key.split("/")[0]} providerId={provider?.id ?? model.key.split("/")[0] ?? "ai"} />
+                            </div>
+                          </div>
+                          <div className="config-page__entry-body">
+                            <div className="config-page__entry-header">
+                              <div className="config-page__entry-copy">
+                                <span className="config-page__eyebrow">{provider?.label ?? model.key.split("/")[0]}</span>
+                                <h3>{model.name}</h3>
+                                <p>Live in OpenClaw right now, but not yet managed as a ChillClaw entry.</p>
+                              </div>
+                              <div className="config-page__badge-row">
                                 <Badge tone="info">{model.key}</Badge>
                                 {model.key === modelConfig?.defaultModel ? <Badge tone="success">Default</Badge> : null}
-                                {fallbackTag ? <Badge tone="info">{fallbackTag.replace("#", " #")}</Badge> : null}
+                                {fallbackTag ? <Badge tone="accent">{fallbackTag.replace("#", " #")}</Badge> : null}
                                 {model.local ? <Badge tone="neutral">Local</Badge> : null}
                                 <Badge tone="warning">{copy.sourceInstalled}</Badge>
                               </div>
                             </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {showSavedEntriesSection ? (
-            <Card>
-              <CardContent className="panel-stack">
-                <div>
-                  <strong>{copy.savedEntriesTitle}</strong>
-                  <p className="card__description">{copy.savedEntriesBody}</p>
-                </div>
-                <div className="panel-stack">
-                  {inactiveEntries.map((entry) => {
-                    const provider = modelConfig?.providers.find((item) => item.id === entry.providerId);
-                    const authLabel = entryAuthLabel(entry);
-
-                    return (
-                      <div className="configured-model-card" key={entry.id}>
-                        <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
-                          <div className="actions-row">
-                            <ProviderLogo label={provider?.label ?? entry.providerId} providerId={entry.providerId} />
-                            <div className="provider-details">
-                              <strong>{entry.label}</strong>
-                              <span className="card__description">{provider?.label ?? entry.providerId}</span>
-                              <div className="actions-row">
-                                <Badge tone="info">{entry.modelKey}</Badge>
-                                {authLabel ? <Badge tone="neutral">{authLabel}</Badge> : null}
+                            <div className="config-page__meta-grid">
+                              <div className="config-page__meta-card">
+                                <span>Provider</span>
+                                <strong>{provider?.label ?? model.key.split("/")[0]}</strong>
+                              </div>
+                              <div className="config-page__meta-card">
+                                <span>Context window</span>
+                                <strong>{model.contextWindow ? `${Intl.NumberFormat().format(model.contextWindow)} tokens` : "Unknown"}</strong>
+                              </div>
+                              <div className="config-page__meta-card">
+                                <span>Availability</span>
+                                <strong>{model.available ? "Available now" : "Unavailable"}</strong>
+                              </div>
+                            </div>
+                            <div className="config-page__entry-footer">
+                              <p className="config-page__entry-hint">
+                                This model is currently coming from the active OpenClaw runtime without a managed ChillClaw entry.
+                              </p>
+                              <div className="config-page__entry-actions">
+                                {runtimeEntry ? (
+                                  <Button disabled={modelBusy && busy !== `models:remove:${runtimeEntry.id}`} loading={busy === `models:remove:${runtimeEntry.id}`} onClick={() => void handleRemoveModelEntry(runtimeEntry)} variant="danger">
+                                    <Trash2 size={14} />
+                                    {busy === `models:remove:${runtimeEntry.id}` ? "Removing..." : "Remove"}
+                                  </Button>
+                                ) : null}
                               </div>
                             </div>
                           </div>
-                          <div className="actions-row">
-                            <Button
-                              onClick={() => {
-                                setSelectedModelEntry(entry);
-                                setModelDialogOpen(true);
-                              }}
-                              variant="outline"
-                            >
-                              Edit
-                            </Button>
-                            <Button disabled={modelBusy && busy !== `models:remove:${entry.id}`} loading={busy === `models:remove:${entry.id}`} onClick={() => void handleRemoveModelEntry(entry)} variant="outline">
-                              <Trash2 size={14} />
-                              {busy === `models:remove:${entry.id}` ? "Removing..." : "Remove"}
-                            </Button>
-                            {provider?.docsUrl ? (
-                              <Button onClick={() => window.open(provider.docsUrl, "_blank", "noopener,noreferrer")} variant="outline">
-                                <ExternalLink size={14} />
-                                {copy.docs}
-                              </Button>
-                            ) : null}
-                          </div>
                         </div>
-                      </div>
+                      </article>
                     );
                   })}
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
+                  </div>
+                </section>
+              ) : null}
 
-          {!runtimeManagedEntries.length && !runtimeOnlyModels.length && !inactiveEntries.length ? (
-            <EmptyState
-              title={copy.modelsEmptyTitle}
-              description={copy.modelsEmptyBody}
-            />
-          ) : null}
+              <ConfigAddCard
+                title={copy.addModel}
+                description="Create a new managed entry for a live provider or model."
+                onClick={() => {
+                  setSelectedModelEntry(undefined);
+                  setModelDialogOpen(true);
+                }}
+              />
+
+              {!runtimeManagedEntries.length && !runtimeOnlyModels.length ? (
+                <EmptyState
+                  title={copy.modelsEmptyTitle}
+                  description={copy.modelsEmptyBody}
+                />
+              ) : null}
 
             </>
           ) : null}
         </TabsContent>
 
-        <TabsContent value="channels" className="panel-stack">
+        <TabsContent value="channels" className="config-page__content">
           {channelsLoading && !channelConfig ? (
-            <LoadingPanel title="Loading channels" description="SlackClaw is reading channel accounts and live channel status from OpenClaw." />
+            <LoadingPanel title="Loading channels" description="ChillClaw is reading channel accounts and live channel status from OpenClaw." />
           ) : null}
 
           {!channelsLoading && channelConfig ? (
             <>
-          <InfoBanner icon={<MessageCircle size={22} />} title={copy.channelsInfoTitle} description={copy.channelsInfoBody} />
-          <Card>
-            <CardContent className="actions-row" style={{ justifyContent: "space-between" }}>
-              <div>
-                <strong>Current channel configuration</strong>
-                <p className="card__description">
-                  {channelMessage || channelConfig?.gatewaySummary || "SlackClaw manages configured channels through the installed OpenClaw runtime."}
-                </p>
-              </div>
-              <Button onClick={openAddChannelDialog}>
-                <Plus size={14} />
-                Add Channel
-              </Button>
-            </CardContent>
-          </Card>
+              <Card className="config-page__hero-card config-page__hero-card--channels">
+                <CardContent className="config-page__hero-card-content">
+                  <div className="config-page__hero-main">
+                    <div className="config-page__hero-icon config-page__hero-icon--channels">
+                      <MessageCircle size={28} />
+                    </div>
+                    <div className="config-page__hero-copy">
+                      <span className="config-page__eyebrow">Live runtime</span>
+                      <h2>{copy.channelsInfoTitle}</h2>
+                      <p>{copy.channelsInfoBody}</p>
+                      <div className="config-page__hero-points">
+                        <span>
+                          <CheckCircle2 size={14} />
+                          Only live configured channels appear here.
+                        </span>
+                        <span>
+                          <CheckCircle2 size={14} />
+                          Pairing and login progress stay visible while setup is active.
+                        </span>
+                        <span>
+                          <CheckCircle2 size={14} />
+                          Gateway truth comes directly from the active OpenClaw runtime.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="config-page__hero-metrics">
+                    <ConfigMetric label="Live channels" value={configuredChannels.length} />
+                    <ConfigMetric label="Channel types" value={channelConfig.capabilities.length} />
+                    <ConfigMetric
+                      label="Gateway state"
+                      tone="success"
+                      value={channelMessage || channelConfig.gatewaySummary || "Ready"}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
 
-          {channelConfig?.activeSession ? (
-            <Card>
-              <CardContent className="panel-stack">
-                <div className="actions-row" style={{ justifyContent: "space-between" }}>
-                  <strong>Active channel session</strong>
-                  <Badge tone="info">{channelConfig.activeSession.channelId}</Badge>
-                </div>
-                <p className="card__description">{channelConfig.activeSession.message}</p>
-                <Textarea readOnly value={channelConfig.activeSession.logs.join("\n")} />
-              </CardContent>
-            </Card>
-          ) : null}
+              {activeChannelSession ? (
+                <Card className="config-page__session-card">
+                  <CardContent className="config-page__session-card-content">
+                    <div className="config-page__section-header">
+                      <div>
+                        <span className="config-page__eyebrow">Active session</span>
+                        <h2>{activeChannelSession.channelId}</h2>
+                        <p>{activeChannelSession.message}</p>
+                      </div>
+                      <Badge tone="info">{activeChannelSession.channelId}</Badge>
+                    </div>
+                    <Textarea readOnly value={activeChannelSession.logs.join("\n")} />
+                  </CardContent>
+                </Card>
+              ) : null}
 
-          {configuredChannels.length ? (
-            <div className="panel-stack">
+              {configuredChannels.length ? (
+                <section className="config-page__section">
+                  <div className="config-page__section-header">
+                    <div>
+                      <span className="config-page__eyebrow">Configured now</span>
+                      <h2>Live channel entries</h2>
+                      <p>{channelMessage || channelConfig.gatewaySummary || "ChillClaw reads these configured channels directly from the current OpenClaw runtime."}</p>
+                    </div>
+                    <Badge tone="accent">{configuredChannels.length}</Badge>
+                  </div>
+                  <div className="config-page__entry-list">
               {configuredChannels.map((entry) => {
                 const capability = channelConfig?.capabilities.find((item) => item.id === entry.channelId);
+                const ChannelIcon = channelVisualIcon(entry.channelId);
 
                 return (
-                  <div className="configured-model-card" key={entry.id}>
-                    <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "start" }}>
-                      <div className="actions-row">
-                        <div className="provider-logo">{channelIcon(entry.channelId)}</div>
-                        <div className="provider-details">
-                          <strong>{entry.label}</strong>
-                          <span className="card__description">{capability?.label ?? entry.channelId}</span>
-                          <div className="actions-row">
-                            <Badge tone={channelStatusTone(entry.status)}>{entry.status}</Badge>
-                            {entry.pairingRequired ? <Badge tone="info">Pairing required</Badge> : null}
+                  <article
+                    className="config-page__entry-card config-page__entry-card--channel"
+                    key={entry.id}
+                    style={paletteStyle(channelPalette(entry.channelId))}
+                  >
+                    <div className="config-page__entry-shell">
+                      <div className="config-page__entry-media">
+                        <div className="config-page__entry-media-inner config-page__entry-media-inner--icon">
+                          <ChannelIcon size={30} />
+                        </div>
+                      </div>
+                      <div className="config-page__entry-body">
+                        <div className="config-page__entry-header">
+                          <div className="config-page__entry-copy">
+                            <span className="config-page__eyebrow">{capability?.label ?? entry.channelId}</span>
+                            <h3>{entry.label}</h3>
+                            <p>{entry.summary}</p>
+                          </div>
+                          <div className="config-page__badge-row">
+                            <ChannelStatusBadge status={entry.status} />
+                            {entry.pairingRequired ? <StatusBadge tone="info">Pairing required</StatusBadge> : null}
                             {capability?.officialSupport === false ? <Badge tone="warning">Workaround</Badge> : null}
                           </div>
                         </div>
-                      </div>
-                      <div className="actions-row">
-                        <Button
-                          onClick={() => openEditChannelDialog(entry)}
-                          variant="outline"
-                        >
-                          {entry.pairingRequired ? "Continue Setup" : "Edit"}
-                        </Button>
-                        <Button loading={busy === `remove:${entry.id}`} onClick={() => void handleRemoveChannel(entry)} variant="outline">
-                          <Trash2 size={14} />
-                          {busy === `remove:${entry.id}` ? "Removing..." : "Remove"}
-                        </Button>
+                        <div className="config-page__meta-grid">
+                          {entry.maskedConfigSummary.length ? (
+                            entry.maskedConfigSummary.map((item) => (
+                              <div className="config-page__meta-card" key={item.label}>
+                                <span>{item.label}</span>
+                                <strong>{item.value}</strong>
+                              </div>
+                            ))
+                          ) : (
+                            <>
+                              <div className="config-page__meta-card">
+                                <span>Capability</span>
+                                <strong>{capability?.label ?? entry.channelId}</strong>
+                              </div>
+                              <div className="config-page__meta-card">
+                                <span>Status</span>
+                                <strong>{entry.status ?? "pending"}</strong>
+                              </div>
+                              <div className="config-page__meta-card">
+                                <span>Last updated</span>
+                                <strong>{entry.lastUpdatedAt ? new Date(entry.lastUpdatedAt).toLocaleString() : "Unknown"}</strong>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <div className="config-page__entry-footer">
+                          <p className="config-page__entry-hint">
+                            {capability?.officialSupport === false
+                              ? "This channel uses the current workaround path supported by the active runtime."
+                              : "This channel is live in the current OpenClaw runtime."}
+                          </p>
+                          <ConfiguredChannelCardActions
+                            busy={busy}
+                            capability={capability}
+                            copy={copy}
+                            entry={entry}
+                            onApprove={() => openEditChannelDialog(entry)}
+                            onEdit={() => openEditChannelDialog(entry)}
+                            onRemove={() => void handleRemoveChannel(entry)}
+                          />
+                        </div>
                       </div>
                     </div>
-                    <p className="card__description" style={{ marginTop: 14 }}>{entry.summary}</p>
-                    {entry.maskedConfigSummary.length ? (
-                      <div className="field-grid field-grid--two" style={{ marginTop: 18 }}>
-                        {entry.maskedConfigSummary.map((item) => (
-                          <Card key={item.label}>
-                            <CardContent className="panel-stack">
-                              <span className="card__description">{item.label}</span>
-                              <strong>{item.value}</strong>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
+                  </article>
                 );
               })}
-            </div>
-          ) : (
-            <EmptyState
-              title="No channels are configured yet"
-              description="Add Telegram, WhatsApp, Feishu, or WeChat through the dialog to start managing communication channels in SlackClaw."
-            />
-          )}
+                  </div>
+                </section>
+              ) : (
+                <EmptyState
+                  title="No channels are configured yet"
+                  description="Add Telegram, WhatsApp, Feishu, or WeChat through the dialog to start managing communication channels in ChillClaw."
+                />
+              )}
+
+              <ConfigAddCard
+                title="Add Channel"
+                description="Start another live channel setup in the current OpenClaw runtime."
+                onClick={openAddChannelDialog}
+              />
             </>
           ) : null}
         </TabsContent>
@@ -1428,6 +1796,6 @@ export default function ConfigPage() {
         open={channelDialogOpen}
         reloadChannelConfig={reloadChannelConfig}
       />
-    </div>
+    </WorkspaceScaffold>
   );
 }

@@ -17,6 +17,7 @@ import {
   updateAIMember,
   updateTeam
 } from "../../shared/api/client.js";
+import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 
 interface AITeamContextValue {
   loading: boolean;
@@ -32,6 +33,10 @@ interface AITeamContextValue {
 }
 
 const AITeamContext = createContext<AITeamContextValue | null>(null);
+
+export function shouldRefreshAITeamForEvent(): boolean {
+  return false;
+}
 
 export function AITeamProvider(props: PropsWithChildren) {
   const [loading, setLoading] = useState(true);
@@ -57,6 +62,21 @@ export function AITeamProvider(props: PropsWithChildren) {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    return subscribeToDaemonEvents((event) => {
+      if (event.type === "ai-team.updated") {
+        setOverview(event.snapshot.data);
+        setLoading(false);
+        setError(undefined);
+        return;
+      }
+
+      if (shouldRefreshAITeamForEvent()) {
+        void refresh();
+      }
+    });
+  }, [refresh]);
+
   const value = useMemo<AITeamContextValue>(
     () => ({
       loading,
@@ -64,7 +84,7 @@ export function AITeamProvider(props: PropsWithChildren) {
       overview,
       refresh,
       async saveMember(memberId, request) {
-        const response = memberId ? await updateAIMember(memberId, request) : await createAIMember(request);
+        const response = await (memberId ? updateAIMember(memberId, request) : createAIMember(request));
         setOverview(response.overview);
         return response.overview;
       },
@@ -84,7 +104,7 @@ export function AITeamProvider(props: PropsWithChildren) {
         return response.overview;
       },
       async saveTeam(teamId, request) {
-        const response = teamId ? await updateTeam(teamId, request) : await createTeam(request);
+        const response = await (teamId ? updateTeam(teamId, request) : createTeam(request));
         setOverview(response.overview);
         return response.overview;
       },

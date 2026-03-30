@@ -15,23 +15,36 @@ import {
   fetchMarketplaceSkillDetail,
   fetchSkillConfig,
   installMarketplaceSkill,
+  repairPresetSkillSync,
   removeSkill,
   searchMarketplaceSkills,
   updateSkill
 } from "../../shared/api/client.js";
+import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent } from "../../shared/ui/Card.js";
 import { Dialog } from "../../shared/ui/Dialog.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
+import { ErrorState } from "../../shared/ui/ErrorState.js";
 import { FieldLabel, Input, Textarea } from "../../shared/ui/Field.js";
+import { LoadingState } from "../../shared/ui/LoadingState.js";
 import { MetricCard } from "../../shared/ui/MetricCard.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.js";
 
 export function skillReadinessTone(skill: Pick<InstalledSkillEntry, "readiness">): "success" | "warning" | "neutral" {
   return skill.readiness === "ready" ? "success" : skill.readiness === "missing" ? "warning" : "neutral";
+}
+
+function skillReadinessLabel(skill: Pick<InstalledSkillEntry, "readiness">): string {
+  return skill.readiness === "ready" ? "Ready" : "Needs setup";
+}
+
+export function SkillReadinessBadge(props: { skill: Pick<InstalledSkillEntry, "readiness"> }) {
+  return <StatusBadge tone={skillReadinessTone(props.skill)}>{skillReadinessLabel(props.skill)}</StatusBadge>;
 }
 
 export function skillSourceLabel(skill: Pick<InstalledSkillEntry, "source">): string {
@@ -78,6 +91,27 @@ export function filterMarketplaceSearchResults(results: SkillMarketplaceEntry[])
   });
 }
 
+export function presetSyncCounts(sync: SkillCatalogOverview["presetSkillSync"] | undefined) {
+  if (!sync) {
+    return { pending: 0, verified: 0, failed: 0 };
+  }
+
+  return sync.entries.reduce(
+    (accumulator, entry) => {
+      if (entry.status === "verified" || entry.status === "installed") {
+        accumulator.verified += 1;
+      } else if (entry.status === "failed") {
+        accumulator.failed += 1;
+      } else {
+        accumulator.pending += 1;
+      }
+
+      return accumulator;
+    },
+    { pending: 0, verified: 0, failed: 0 }
+  );
+}
+
 function MarketplaceSkillDialog(props: {
   open: boolean;
   slug?: string;
@@ -101,7 +135,7 @@ function MarketplaceSkillDialog(props: {
         setError(undefined);
       })
       .catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "SlackClaw could not inspect this marketplace skill.");
+        setError(loadError instanceof Error ? loadError.message : "ChillClaw could not inspect this marketplace skill.");
       });
   }, [props.open, props.slug]);
 
@@ -118,7 +152,7 @@ function MarketplaceSkillDialog(props: {
       props.onInstalled(response.skillConfig);
       props.onClose();
     } catch (installError) {
-      setError(installError instanceof Error ? installError.message : "SlackClaw could not install this skill.");
+      setError(installError instanceof Error ? installError.message : "ChillClaw could not install this skill.");
     } finally {
       setBusy(false);
     }
@@ -129,11 +163,11 @@ function MarketplaceSkillDialog(props: {
       open={props.open}
       onClose={props.onClose}
       title={detail?.name ?? props.slug ?? "Marketplace Skill"}
-      description="Review the marketplace skill before installing it into SlackClaw’s shared OpenClaw skills library."
+      description="Review the marketplace skill before installing it into ChillClaw’s shared OpenClaw skills library."
       wide
     >
       <div className="panel-stack">
-        {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
+        {error ? <ErrorState compact title="Could not inspect marketplace skill" description={error} /> : null}
         {detail ? (
           <>
             <div className="actions-row" style={{ justifyContent: "space-between" }}>
@@ -161,7 +195,7 @@ function MarketplaceSkillDialog(props: {
             ) : null}
 
             <p className="card__description">
-              SlackClaw installs third-party skills into the shared OpenClaw skills directory. Review the owner, changelog, and preview before you install.
+              ChillClaw installs third-party skills into the shared OpenClaw skills directory. Review the owner, changelog, and preview before you install.
             </p>
 
             <div className="actions-row" style={{ justifyContent: "flex-end" }}>
@@ -173,15 +207,12 @@ function MarketplaceSkillDialog(props: {
             </div>
           </>
         ) : (
-          <div className="skills-loading-card skills-loading-card--inline">
-            <div className="skills-loading-card__content">
-              <Loader2 className="skills-loading-card__spinner" size={20} />
-              <div className="skills-loading-card__meta">
-                <strong>Checking marketplace skill</strong>
-                <p className="card__description">SlackClaw is loading the ClawHub detail view for this skill.</p>
-              </div>
-            </div>
-          </div>
+          <LoadingState
+            compact
+            className="skills-loading-card skills-loading-card--inline"
+            title="Checking marketplace skill"
+            description="ChillClaw is loading the ClawHub detail view for this skill."
+          />
         )}
       </div>
     </Dialog>
@@ -208,14 +239,14 @@ function SkillDetailDialog(props: {
       open={props.open}
       onClose={props.onClose}
       title={props.skill.name}
-      description="Inspect the installed skill, its runtime requirements, and the safe actions SlackClaw can perform."
+      description="Inspect the installed skill, its runtime requirements, and the safe actions ChillClaw can perform."
       wide
     >
       <div className="panel-stack">
         <div className="actions-row" style={{ justifyContent: "space-between" }}>
           <div className="actions-row">
             <Badge tone="info">{skillSourceLabel(props.skill)}</Badge>
-            <Badge tone={skillReadinessTone(props.skill)}>{props.skill.readiness === "ready" ? "Ready" : "Needs setup"}</Badge>
+            <SkillReadinessBadge skill={props.skill} />
             {props.skill.version ? <Badge tone="neutral">v{props.skill.version}</Badge> : null}
           </div>
           <div className="actions-row">
@@ -292,14 +323,14 @@ function RemoveSkillDialog(props: {
       title={`Remove ${props.skill.name}?`}
       description={
         props.skill.source === "custom"
-          ? "SlackClaw will remove the custom skill folder from the shared OpenClaw skills directory."
-          : "SlackClaw will remove the installed ClawHub skill from the shared OpenClaw skills directory."
+          ? "ChillClaw will remove the custom skill folder from the shared OpenClaw skills directory."
+          : "ChillClaw will remove the installed ClawHub skill from the shared OpenClaw skills directory."
       }
     >
       <div className="panel-stack">
         <p className="card__description">
           {props.skill.source === "custom"
-            ? "This removes the custom skill from SlackClaw and OpenClaw."
+            ? "This removes the custom skill from ChillClaw and OpenClaw."
             : "This removes the third-party skill package from the shared OpenClaw skills directory."}
         </p>
         <div className="actions-row" style={{ justifyContent: "flex-end" }}>
@@ -342,7 +373,7 @@ function EditCustomSkillDialog(props: {
         setError(undefined);
       })
       .catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "SlackClaw could not load this custom skill.");
+        setError(loadError instanceof Error ? loadError.message : "ChillClaw could not load this custom skill.");
       });
   }, [props.open, props.skill]);
 
@@ -367,7 +398,7 @@ function EditCustomSkillDialog(props: {
       props.onSaved(response.skillConfig);
       props.onClose();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "SlackClaw could not save this custom skill.");
+      setError(saveError instanceof Error ? saveError.message : "ChillClaw could not save this custom skill.");
     } finally {
       setBusy(false);
     }
@@ -378,11 +409,11 @@ function EditCustomSkillDialog(props: {
       open={props.open}
       onClose={props.onClose}
       title="Edit Custom Skill"
-      description="Update the SlackClaw-managed custom skill that lives in the shared OpenClaw skills directory."
+      description="Update the ChillClaw-managed custom skill that lives in the shared OpenClaw skills directory."
       wide
     >
       <div className="panel-stack">
-        {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
+        {error ? <ErrorState compact title="Could not save custom skill" description={error} /> : null}
         <div className="field-grid">
           <div>
             <FieldLabel htmlFor="custom-skill-name">Skill name</FieldLabel>
@@ -465,7 +496,7 @@ function AddSkillDialog(props: {
         setSelectedDetail(detail);
       })
       .catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "SlackClaw could not inspect this marketplace skill.");
+        setError(loadError instanceof Error ? loadError.message : "ChillClaw could not inspect this marketplace skill.");
       });
   }, [props.open, selectedSlug]);
 
@@ -478,7 +509,7 @@ function AddSkillDialog(props: {
       setResults(next);
       setSelectedSlug(next[0]?.slug);
     } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : "SlackClaw could not search ClawHub.");
+      setError(searchError instanceof Error ? searchError.message : "ChillClaw could not search ClawHub.");
     } finally {
       setSearchBusy(false);
     }
@@ -493,7 +524,7 @@ function AddSkillDialog(props: {
       props.onSaved(response.skillConfig);
       props.onClose();
     } catch (installError) {
-      setError(installError instanceof Error ? installError.message : "SlackClaw could not install this skill.");
+      setError(installError instanceof Error ? installError.message : "ChillClaw could not install this skill.");
     } finally {
       setInstallBusy(false);
     }
@@ -514,7 +545,7 @@ function AddSkillDialog(props: {
       props.onSaved(response.skillConfig);
       props.onClose();
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "SlackClaw could not create this custom skill.");
+      setError(createError instanceof Error ? createError.message : "ChillClaw could not create this custom skill.");
     } finally {
       setCustomBusy(false);
     }
@@ -525,11 +556,11 @@ function AddSkillDialog(props: {
       open={props.open}
       onClose={props.onClose}
       title="Add Skill"
-      description="Search the latest ClawHub skills or create a SlackClaw-managed custom skill in the shared OpenClaw skills directory."
+      description="Search the latest ClawHub skills or create a ChillClaw-managed custom skill in the shared OpenClaw skills directory."
       wide
     >
       <div className="panel-stack">
-        {error ? <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p> : null}
+        {error ? <ErrorState compact title="Could not prepare skill setup" description={error} /> : null}
         <Tabs defaultValue="search" value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="search">Search Online</TabsTrigger>
@@ -600,7 +631,7 @@ function AddSkillDialog(props: {
                           </pre>
                         ) : null}
                         <p className="card__description">
-                          SlackClaw installs third-party skills into the shared OpenClaw skills directory. Review the owner, changelog, and preview before you install.
+                          ChillClaw installs third-party skills into the shared OpenClaw skills directory. Review the owner, changelog, and preview before you install.
                         </p>
                         <div className="actions-row" style={{ justifyContent: "flex-end" }}>
                           <Button onClick={() => void handleInstall(selectedDetail.slug)} disabled={installBusy || selectedDetail.installed}>
@@ -681,7 +712,7 @@ export default function SkillsPage() {
       setOverview(next);
       return next;
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "SlackClaw could not load skills.");
+      setError(loadError instanceof Error ? loadError.message : "ChillClaw could not load skills.");
       return undefined;
     } finally {
       setLoading(false);
@@ -693,6 +724,28 @@ export default function SkillsPage() {
   }, []);
 
   useEffect(() => {
+    return subscribeToDaemonEvents((event) => {
+      if (event.type === "skill-catalog.updated") {
+        setOverview(event.snapshot.data);
+        setLoading(false);
+        setError(undefined);
+        return;
+      }
+
+      if (event.type === "preset-skill-sync.updated") {
+        setOverview((current) =>
+          current
+            ? {
+                ...current,
+                presetSkillSync: event.snapshot.data
+              }
+            : current
+        );
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     if (!detailOpen || !detailSkill) {
       return;
     }
@@ -700,7 +753,7 @@ export default function SkillsPage() {
     void fetchInstalledSkillDetail(detailSkill.id)
       .then(setDetailData)
       .catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "SlackClaw could not load this skill.");
+        setError(loadError instanceof Error ? loadError.message : "ChillClaw could not load this skill.");
       });
   }, [detailOpen, detailSkill]);
 
@@ -721,7 +774,7 @@ export default function SkillsPage() {
           setMarketplaceResults(filterMarketplaceSearchResults(results));
         })
         .catch((searchError) => {
-          setMarketplaceError(searchError instanceof Error ? searchError.message : "SlackClaw could not search ClawHub.");
+          setMarketplaceError(searchError instanceof Error ? searchError.message : "ChillClaw could not search ClawHub.");
         })
         .finally(() => {
           setMarketplaceBusy(false);
@@ -732,6 +785,20 @@ export default function SkillsPage() {
       window.clearTimeout(timeoutId);
     };
   }, [overview?.marketplaceAvailable, search]);
+
+  async function handleRepairPresetSkills() {
+    setBusy("preset-skill-repair");
+    setError(undefined);
+
+    try {
+      const response = await repairPresetSkillSync();
+      setOverview(response.skillConfig);
+    } catch (repairError) {
+      setError(repairError instanceof Error ? repairError.message : "ChillClaw could not repair preset skills.");
+    } finally {
+      setBusy("");
+    }
+  }
 
   const filtered = useMemo(
     () =>
@@ -752,50 +819,42 @@ export default function SkillsPage() {
 
   if (loading && !overview) {
     return (
-      <div className="panel-stack">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} />
-        <Card className="skills-loading-card">
-          <CardContent className="skills-loading-card__content">
-            <Loader2 className="skills-loading-card__spinner" size={24} />
-            <div className="skills-loading-card__meta">
-              <strong>{copy.loadingTitle}</strong>
-              <p className="card__description">{copy.loadingBody}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
+        <LoadingState className="skills-loading-card" title={copy.loadingTitle} description={copy.loadingBody} />
+      </WorkspaceScaffold>
     );
   }
 
   if (error && !overview) {
     return (
-      <EmptyState
-        title="SlackClaw could not load skills"
-        description={error}
-        actionLabel="Retry"
-        onAction={() => void reloadSkills({ fresh: true })}
-      />
+      <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
+        <ErrorState
+          title="ChillClaw could not load skills"
+          description={error}
+          actionLabel="Retry"
+          onAction={() => void reloadSkills({ fresh: true })}
+        />
+      </WorkspaceScaffold>
     );
   }
 
   return (
-    <div className="panel-stack">
-      <PageHeader
-        title={copy.title}
-        subtitle={copy.subtitle}
-        actions={
-          <div className="actions-row">
-            <Button variant="outline" onClick={() => void reloadSkills({ fresh: true })} disabled={loading}>
-              {loading ? <Loader2 className="skills-inline-spinner" size={14} /> : <RefreshCw size={14} />}
-              {loading ? copy.refreshing : copy.refresh}
-            </Button>
-            <Button onClick={() => setAddDialogOpen(true)}>
-              <PackagePlus size={14} />
-              {copy.addSkill}
-            </Button>
-          </div>
-        }
-      />
+    <WorkspaceScaffold
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <div className="actions-row">
+          <Button variant="outline" onClick={() => void reloadSkills({ fresh: true })} disabled={loading}>
+            {loading ? <Loader2 className="skills-inline-spinner" size={14} /> : <RefreshCw size={14} />}
+            {loading ? copy.refreshing : copy.refresh}
+          </Button>
+          <Button onClick={() => setAddDialogOpen(true)}>
+            <PackagePlus size={14} />
+            {copy.addSkill}
+          </Button>
+        </div>
+      }
+    >
 
       <div className="grid--four">
         <MetricCard label={copy.total} value={overview?.installedSkills.length ?? 0} />
@@ -811,22 +870,56 @@ export default function SkillsPage() {
             <p className="card__description">{copy.infoBody}</p>
             <p className="card__description">{overview?.readiness.summary}</p>
           </div>
-          <Badge tone={overview?.marketplaceAvailable ? "success" : "warning"}>
+          <StatusBadge tone={overview?.marketplaceAvailable ? "success" : "warning"}>
             {overview?.marketplaceAvailable ? "ClawHub available" : "ClawHub unavailable"}
-          </Badge>
+          </StatusBadge>
         </CardContent>
       </Card>
 
-      {loading ? (
-        <Card className="skills-loading-card skills-loading-card--inline">
-          <CardContent className="skills-loading-card__content">
-            <Loader2 className="skills-loading-card__spinner" size={20} />
-            <div className="skills-loading-card__meta">
-              <strong>{copy.loadingTitle}</strong>
-              <p className="card__description">{copy.loadingBody}</p>
+      {overview?.presetSkillSync ? (
+        <Card>
+          <CardContent className="panel-stack">
+            <div className="actions-row" style={{ justifyContent: "space-between" }}>
+              <div className="panel-stack" style={{ gap: 4 }}>
+                <strong>Preset skill sync</strong>
+                <span className="card__description">{overview.presetSkillSync.summary}</span>
+              </div>
+              <StatusBadge tone={overview.presetSkillSync.repairRecommended ? "warning" : "success"}>
+                {overview.presetSkillSync.targetMode === "reused-install" ? "Reused install" : "Managed local"}
+              </StatusBadge>
+            </div>
+            <div className="actions-row">
+              {(() => {
+                const counts = presetSyncCounts(overview.presetSkillSync);
+                return (
+                  <>
+                    <StatusBadge tone="neutral">{counts.verified} verified</StatusBadge>
+                    <StatusBadge tone={counts.pending > 0 ? "info" : "success"}>{counts.pending} pending</StatusBadge>
+                    <StatusBadge tone={counts.failed > 0 ? "warning" : "neutral"}>{counts.failed} failed</StatusBadge>
+                  </>
+                );
+              })()}
+              {overview.presetSkillSync.repairRecommended ? (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleRepairPresetSkills()}
+                  disabled={busy === "preset-skill-repair"}
+                >
+                  {busy === "preset-skill-repair" ? "Repairing..." : "Repair preset skills"}
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>
+      ) : null}
+
+      {loading ? (
+        <LoadingState
+          compact
+          className="skills-loading-card skills-loading-card--inline"
+          title={copy.loadingTitle}
+          description={copy.loadingBody}
+        />
       ) : null}
 
       <div className="skills-search-row">
@@ -855,7 +948,7 @@ export default function SkillsPage() {
                     </div>
                     <div className="actions-row">
                       <Badge tone="neutral">{skillSourceLabel(skill)}</Badge>
-                      <Badge tone={skillReadinessTone(skill)}>{skill.readiness === "ready" ? "Ready" : "Needs setup"}</Badge>
+                      <SkillReadinessBadge skill={skill} />
                     </div>
                   </div>
                   <p className="card__description" style={{ marginTop: 12 }}>{skillMissingSummary(skill)}</p>
@@ -887,7 +980,7 @@ export default function SkillsPage() {
                             setBusy(`update:${skill.id}`);
                             void updateSkill(skill.id, { action: "update" })
                               .then((response) => setOverview(response.skillConfig))
-                              .catch((updateError) => setError(updateError instanceof Error ? updateError.message : "SlackClaw could not update this skill."))
+                              .catch((updateError) => setError(updateError instanceof Error ? updateError.message : "ChillClaw could not update this skill."))
                               .finally(() => setBusy(""));
                           }}
                           disabled={busy === `update:${skill.id}`}
@@ -939,22 +1032,14 @@ export default function SkillsPage() {
           </div>
 
           {marketplaceBusy ? (
-            <Card className="skills-loading-card skills-loading-card--inline">
-              <CardContent className="skills-loading-card__content">
-                <Loader2 className="skills-loading-card__spinner" size={20} />
-                <div className="skills-loading-card__meta">
-                  <strong>{copy.marketplaceSearchingTitle}</strong>
-                  <p className="card__description">{copy.marketplaceSearchingBody}</p>
-                </div>
-              </CardContent>
-            </Card>
+            <LoadingState
+              compact
+              className="skills-loading-card skills-loading-card--inline"
+              title={copy.marketplaceSearchingTitle}
+              description={copy.marketplaceSearchingBody}
+            />
           ) : marketplaceError ? (
-            <Card>
-              <CardContent className="panel-stack">
-                <strong>{copy.onlineSearchErrorTitle}</strong>
-                <p className="card__description">{marketplaceError}</p>
-              </CardContent>
-            </Card>
+            <ErrorState title={copy.onlineSearchErrorTitle} description={marketplaceError} />
           ) : marketplaceResults.length > 0 ? (
             <div className="skill-grid">
               {marketplaceResults.map((entry) => (
@@ -994,23 +1079,23 @@ export default function SkillsPage() {
       ) : null}
 
       <AddSkillDialog
-        open={addDialogOpen}
-        overview={overview}
-        onClose={() => setAddDialogOpen(false)}
-        onSaved={setOverview}
-      />
+      open={addDialogOpen}
+      overview={overview}
+      onClose={() => setAddDialogOpen(false)}
+      onSaved={setOverview}
+    />
       <EditCustomSkillDialog
-        open={Boolean(editSkillEntry)}
-        skill={editSkillEntry}
-        onClose={() => setEditSkillEntry(undefined)}
-        onSaved={setOverview}
-      />
+      open={Boolean(editSkillEntry)}
+      skill={editSkillEntry}
+      onClose={() => setEditSkillEntry(undefined)}
+      onSaved={setOverview}
+    />
       <MarketplaceSkillDialog
-        open={Boolean(marketplaceDetailSlug)}
-        slug={marketplaceDetailSlug}
-        onClose={() => setMarketplaceDetailSlug(undefined)}
-        onInstalled={setOverview}
-      />
+      open={Boolean(marketplaceDetailSlug)}
+      slug={marketplaceDetailSlug}
+      onClose={() => setMarketplaceDetailSlug(undefined)}
+      onInstalled={setOverview}
+    />
       <SkillDetailDialog
         open={detailOpen}
         skill={detailSkill}
@@ -1069,13 +1154,13 @@ export default function SkillsPage() {
             setOverview(response.skillConfig);
             setRemoveSkillEntry(undefined);
           } catch (removeError) {
-            setError(removeError instanceof Error ? removeError.message : "SlackClaw could not remove this skill.");
+            setError(removeError instanceof Error ? removeError.message : "ChillClaw could not remove this skill.");
           } finally {
             setBusy("");
           }
         }}
         busy={busy === "remove"}
       />
-    </div>
+    </WorkspaceScaffold>
   );
 }

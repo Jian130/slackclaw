@@ -325,7 +325,8 @@ ${knowledgePackCatalog(request.knowledgePacks)}
     await writeFileIfMissing(resolve(workspaceDir, "BOOTSTRAP.md"), buildBootstrapMarkdown(request));
   }
 
-  for (const skillId of request.skillIds) {
+  for (const skill of request.selectedSkills) {
+    const skillId = skill.id;
     await writeFile(resolve(skillsDir, `${skillId}.md`), buildSkillProfileMarkdown(request, skillId));
   }
 

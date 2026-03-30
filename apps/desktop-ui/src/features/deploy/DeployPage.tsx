@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { DeploymentTargetId, DeploymentTargetStatus, DeploymentTargetsResponse } from "@slackclaw/contracts";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DeploymentTargetId, DeploymentTargetStatus, DeploymentTargetsResponse, ProductOverview, SlackClawDeployPhase, SlackClawEvent } from "@slackclaw/contracts";
 import {
   AlertCircle,
   CheckCircle2,
@@ -14,12 +14,17 @@ import {
 import { fetchDeploymentTargets, installDeploymentTarget, restartGateway, uninstallDeploymentTarget, updateDeploymentTarget } from "../../shared/api/client.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
+import { subscribeToDaemonEvents } from "../../shared/api/events.js";
+import { settleAfterMutation } from "../../shared/data/settle.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../shared/ui/Card.js";
-import { Badge } from "../../shared/ui/Badge.js";
+import { TagBadge } from "../../shared/ui/Badge.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
+import { InfoBanner } from "../../shared/ui/InfoBanner.js";
 import { Progress } from "../../shared/ui/Progress.js";
+import { OperationsScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 
 type VariantMeta = {
   icon: string;
@@ -44,6 +49,17 @@ type ActivityState = {
   status: "idle" | "running" | "completed" | "failed";
 };
 
+type DeployActivityLabels = {
+  installTitle: string;
+  installSteps: string[];
+  updateTitle: string;
+  updateSteps: string[];
+  uninstallTitle: string;
+  uninstallSteps: string[];
+  restartTitle: string;
+  restartSteps: string[];
+};
+
 const variantMeta: Record<DeploymentTargetId, VariantMeta> = {
   standard: {
     icon: "🦞",
@@ -54,7 +70,7 @@ const variantMeta: Record<DeploymentTargetId, VariantMeta> = {
       "Reuses compatible OpenClaw installs",
       "Keeps existing OpenClaw settings",
       "Fastest path to first deploy",
-      "Uses the real SlackClaw setup flow"
+      "Uses the real ChillClaw setup flow"
     ]
   },
   "managed-local": {
@@ -63,10 +79,10 @@ const variantMeta: Record<DeploymentTargetId, VariantMeta> = {
     hoverBorderClass: "deploy-variant--green-hover",
     iconClass: "deploy-variant__icon--green",
     features: [
-      "Keeps engine files inside SlackClaw data",
+      "Keeps engine files inside ChillClaw data",
       "Cleaner isolation for desktop installs",
-      "Pinned SlackClaw-managed version",
-      "Uses the real SlackClaw setup flow"
+      "Pinned ChillClaw-managed version",
+      "Uses the real ChillClaw setup flow"
     ]
   },
   zeroclaw: {
@@ -173,11 +189,86 @@ export function createActivityState(
   };
 }
 
+function activityTemplateForPhase(
+  phase: SlackClawDeployPhase,
+  labels: DeployActivityLabels
+): { title: string; steps: string[]; stepIndex: number } | undefined {
+  switch (phase) {
+    case "detecting":
+      return { title: labels.installTitle, steps: labels.installSteps, stepIndex: 0 };
+    case "reusing":
+      return { title: labels.installTitle, steps: labels.installSteps, stepIndex: 1 };
+    case "installing":
+      return { title: labels.installTitle, steps: labels.installSteps, stepIndex: 2 };
+    case "verifying":
+      return { title: labels.installTitle, steps: labels.installSteps, stepIndex: labels.installSteps.length - 1 };
+    case "updating":
+      return { title: labels.updateTitle, steps: labels.updateSteps, stepIndex: 1 };
+    case "uninstalling":
+      return { title: labels.uninstallTitle, steps: labels.uninstallSteps, stepIndex: 1 };
+    case "restarting-gateway":
+      return { title: labels.restartTitle, steps: labels.restartSteps, stepIndex: 1 };
+    default:
+      return undefined;
+  }
+}
+
+export function shouldRefreshDeploymentTargetsForEvent(event: SlackClawEvent): boolean {
+  return event.type === "deploy.completed" || event.type === "gateway.status";
+}
+
+export function applyDeployEventToActivity(
+  currentActivity: ActivityState | null,
+  event: SlackClawEvent,
+  labels: DeployActivityLabels
+): ActivityState | null {
+  if (event.type === "deploy.progress") {
+    const template = activityTemplateForPhase(event.phase, labels);
+
+    if (!template) {
+      return currentActivity;
+    }
+
+    return createActivityState(template.title, template.steps, template.stepIndex, event.message, "running");
+  }
+
+  if (event.type === "deploy.completed") {
+    if (!currentActivity) {
+      return null;
+    }
+
+    return createActivityState(
+      currentActivity.title,
+      currentActivity.steps.map((step) => step.label),
+      currentActivity.steps.length - 1,
+      event.message,
+      event.status === "completed" ? "completed" : "failed"
+    );
+  }
+
+  if (event.type === "gateway.status" && currentActivity?.title === labels.restartTitle && event.reachable) {
+    return createActivityState(
+      currentActivity.title,
+      currentActivity.steps.map((step) => step.label),
+      currentActivity.steps.length - 1,
+      event.summary,
+      "completed"
+    );
+  }
+
+  return currentActivity;
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
+
+type DeploymentSettledState = {
+  targets: DeploymentTargetsResponse;
+  overview?: ProductOverview;
+};
 
 export async function waitForTargetInstalledState(
   fetcher: (options?: { fresh?: boolean }) => Promise<DeploymentTargetsResponse>,
@@ -250,13 +341,27 @@ export default function DeployPage() {
   const [targetsError, setTargetsError] = useState("");
   const [checkedAt, setCheckedAt] = useState<string>();
   const [targets, setTargets] = useState<DeploymentTargetStatus[]>([]);
+  const activityRef = useRef<ActivityState | null>(null);
+  const deployActivityLabels = useMemo<DeployActivityLabels>(
+    () => ({
+      installTitle: copy.progressInstallTitle,
+      installSteps: installStepLabels,
+      updateTitle: copy.progressUpdateTitle,
+      updateSteps: updateStepLabels,
+      uninstallTitle: copy.progressUninstallTitle,
+      uninstallSteps: uninstallStepLabels,
+      restartTitle: copy.progressRestartTitle,
+      restartSteps: restartStepLabels
+    }),
+    [copy, installStepLabels, restartStepLabels, uninstallStepLabels, updateStepLabels]
+  );
 
   function applyTargetsResult(result: DeploymentTargetsResponse) {
     setTargets(result.targets);
     setCheckedAt(result.checkedAt);
   }
 
-  async function loadTargets(options?: { fresh?: boolean }) {
+  const loadTargets = useCallback(async (options?: { fresh?: boolean }) => {
     setTargetsLoading(true);
     setTargetsError("");
 
@@ -264,15 +369,19 @@ export default function DeployPage() {
       const result = await fetchDeploymentTargets(options);
       applyTargetsResult(result);
     } catch (error) {
-      setTargetsError(error instanceof Error ? error.message : "SlackClaw could not load deployment targets.");
+      setTargetsError(error instanceof Error ? error.message : "ChillClaw could not load deployment targets.");
     } finally {
       setTargetsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadTargets();
-  }, []);
+  }, [loadTargets]);
+
+  useEffect(() => {
+    activityRef.current = activity;
+  }, [activity]);
 
   const deployTargets = useMemo(() => decorateTargets(targets), [targets]);
   const installedTargets = useMemo(() => deployTargets.filter((target) => target.installed), [deployTargets]);
@@ -282,6 +391,21 @@ export default function DeployPage() {
   );
   const plannedTargets = useMemo(() => deployTargets.filter((target) => target.planned), [deployTargets]);
   const actionBusy = Boolean(installingTargetId) || Boolean(updatingTargetId) || Boolean(uninstallingTargetId) || restartingGateway;
+
+  useEffect(() => {
+    return subscribeToDaemonEvents((event) => {
+      if (!actionBusy) {
+        const nextActivity = applyDeployEventToActivity(activityRef.current, event, deployActivityLabels);
+        if (nextActivity !== activityRef.current) {
+          setActivity(nextActivity);
+        }
+      }
+
+      if (shouldRefreshDeploymentTargetsForEvent(event)) {
+        void loadTargets({ fresh: true });
+      }
+    });
+  }, [actionBusy, deployActivityLabels, loadTargets]);
 
   function startActivity(title: string, stepLabels: string[]) {
     let stepIndex = 0;
@@ -304,20 +428,53 @@ export default function DeployPage() {
     };
   }
 
+  async function settleDeploymentAction<TMutation>(options: {
+    mutate: () => Promise<TMutation>;
+    getProvisionalState?: (mutation: TMutation) => DeploymentTargetsResponse | undefined;
+    isSettled: (state: DeploymentSettledState, mutation: TMutation) => boolean;
+  }) {
+    return settleAfterMutation<TMutation, DeploymentSettledState>({
+      mutate: options.mutate,
+      getProvisionalState: (mutation) => {
+        const provisionalTargets = options.getProvisionalState?.(mutation);
+        if (!provisionalTargets) {
+          return undefined;
+        }
+
+        return {
+          targets: provisionalTargets
+        };
+      },
+      applyState: (state) => {
+        applyTargetsResult(state.targets);
+      },
+      readFresh: async () => {
+        const [targetsResult, overviewResult] = await Promise.all([
+          fetchDeploymentTargets({ fresh: true }),
+          refresh({ fresh: true })
+        ]);
+
+        return {
+          targets: targetsResult,
+          overview: overviewResult
+        };
+      },
+      isSettled: options.isSettled,
+      attempts: 12,
+      delayMs: 750
+    });
+  }
+
   async function handleInstallTarget(targetId: "standard" | "managed-local") {
     setInstallingTargetId(targetId);
     const activityRun = startActivity(copy.progressInstallTitle, installStepLabels);
 
     try {
-      const result = await installDeploymentTarget(targetId);
-      activityRun.complete(result.message);
-      const [, refreshedTargets] = await Promise.all([
-        refresh({ fresh: true }),
-        waitForTargetInstalledState(fetchDeploymentTargets, targetId, true, {
-          onUpdate: applyTargetsResult
-        })
-      ]);
-      applyTargetsResult(refreshedTargets);
+      const result = await settleDeploymentAction({
+        mutate: () => installDeploymentTarget(targetId),
+        isSettled: (state) => state.targets.targets.some((target) => target.id === targetId && target.installed)
+      });
+      activityRun.complete(result.mutation.message);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
@@ -330,9 +487,27 @@ export default function DeployPage() {
     const activityRun = startActivity(copy.progressUpdateTitle, updateStepLabels);
 
     try {
-      const result = await updateDeploymentTarget(targetId);
-      activityRun.complete(result.message);
-      await Promise.all([refresh({ fresh: true }), loadTargets({ fresh: true })]);
+      const result = await settleDeploymentAction({
+        mutate: () => updateDeploymentTarget(targetId),
+        isSettled: (state, mutation) => {
+          const target = state.targets.targets.find((item) => item.id === targetId);
+
+          if (!target?.installed) {
+            return false;
+          }
+
+          if (mutation.status !== "completed") {
+            return true;
+          }
+
+          if (mutation.engineStatus.version && target.version !== mutation.engineStatus.version) {
+            return false;
+          }
+
+          return !target.updateAvailable;
+        }
+      });
+      activityRun.complete(result.mutation.message);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
@@ -345,20 +520,16 @@ export default function DeployPage() {
     const activityRun = startActivity(copy.progressUninstallTitle, uninstallStepLabels);
 
     try {
-      const result = await uninstallDeploymentTarget(targetId);
-      const summary = result.message;
-      if (result.status === "completed") {
+      const result = await settleDeploymentAction({
+        mutate: () => uninstallDeploymentTarget(targetId),
+        isSettled: (state) => state.targets.targets.some((target) => target.id === targetId && !target.installed)
+      });
+      const summary = result.mutation.message;
+      if (result.mutation.status === "completed") {
         activityRun.complete(summary);
       } else {
         activityRun.fail(summary);
       }
-      const [, refreshedTargets] = await Promise.all([
-        refresh({ fresh: true }),
-        waitForTargetInstalledState(fetchDeploymentTargets, targetId, false, {
-          onUpdate: applyTargetsResult
-        })
-      ]);
-      applyTargetsResult(refreshedTargets);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
@@ -371,13 +542,22 @@ export default function DeployPage() {
     const activityRun = startActivity(copy.progressRestartTitle, restartStepLabels);
 
     try {
-      const result = await restartGateway();
-      if (result.status === "completed") {
-        activityRun.complete(result.message);
+      const result = await settleDeploymentAction({
+        mutate: () => restartGateway(),
+        isSettled: (state, mutation) => {
+          if (mutation.status !== "completed") {
+            return true;
+          }
+
+          const engine = state.overview?.engine;
+          return Boolean(engine?.installed && engine.running);
+        }
+      });
+      if (result.mutation.status === "completed") {
+        activityRun.complete(result.mutation.message);
       } else {
-        activityRun.fail(result.message);
+        activityRun.fail(result.mutation.message);
       }
-      await Promise.all([refresh({ fresh: true }), loadTargets({ fresh: true })]);
     } catch (error) {
       activityRun.fail(error instanceof Error ? error.message : copy.progressFailed);
     } finally {
@@ -421,25 +601,25 @@ export default function DeployPage() {
             </div>
             <div className="deploy-variant-card__badges">
               {target.installed ? (
-                <Badge className="deploy-badge deploy-badge--installed" tone="success">
+                <StatusBadge className="deploy-badge deploy-badge--installed" tone="success">
                   {copy.installedBadge}
-                </Badge>
+                </StatusBadge>
               ) : null}
               {target.active ? (
-                <Badge className="deploy-badge deploy-badge--current" tone="info">
+                <StatusBadge className="deploy-badge deploy-badge--current" tone="info">
                   {copy.currentBadge}
-                </Badge>
+                </StatusBadge>
               ) : null}
               {target.updateAvailable ? (
-                <Badge className="deploy-badge deploy-badge--update" tone="warning">
+                <StatusBadge className="deploy-badge deploy-badge--update" tone="warning">
                   {copy.updateBadge}
-                </Badge>
+                </StatusBadge>
               ) : null}
               {target.recommended && !target.installed ? (
-                <Badge className="deploy-badge deploy-badge--recommended">{copy.recommendedBadge}</Badge>
+                <TagBadge className="deploy-badge deploy-badge--recommended" tone="success">{copy.recommendedBadge}</TagBadge>
               ) : null}
               {target.planned ? (
-                <Badge className="deploy-badge deploy-badge--planned">{common.comingSoon}</Badge>
+                <TagBadge className="deploy-badge deploy-badge--planned" tone="neutral">{common.comingSoon}</TagBadge>
               ) : null}
             </div>
           </div>
@@ -568,102 +748,97 @@ export default function DeployPage() {
   }
 
   return (
-    <div className="deploy-page">
-      <div className="deploy-header">
-        <h1>{copy.title}</h1>
-        <p>{copy.subtitle}</p>
-      </div>
-
-      {activity ? (
-        <Card
-          className={[
-            "deploy-progress-card",
-            activity.status === "failed" ? "deploy-progress-card--failed" : ""
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <CardContent className="deploy-progress-card__content">
-            <div className="deploy-progress-card__row">
-              {activity.status === "running" ? (
-                <Loader2 className="deploy-progress-card__spinner" size={24} />
-              ) : (
-                <Rocket className="deploy-progress-card__icon" size={24} />
-              )}
-              <div className="deploy-progress-card__meta">
-                <h3>{activity.title}</h3>
-                <p>{activity.summary}</p>
-              </div>
-              <span className="deploy-progress-card__value">{activity.progress}%</span>
-            </div>
-            <Progress value={activity.progress} />
-            <div className="deploy-progress-steps">
-              {activity.steps.map((step) => (
-                <div className="deploy-progress-step" key={step.label}>
-                  <span
-                    className={[
-                      "deploy-progress-step__indicator",
-                      `deploy-progress-step__indicator--${step.state}`
-                    ].join(" ")}
-                  />
-                  <span className="deploy-progress-step__label">{step.label}</span>
+    <OperationsScaffold
+      className="deploy-page"
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <>
+          <Button disabled={actionBusy} onClick={() => void loadTargets({ fresh: true })} size="sm" variant="outline">
+            <RefreshCw size={16} />
+            {targetsLoading ? copy.detectingTargets : common.refresh}
+          </Button>
+          <Button
+            disabled={actionBusy || installedTargets.length === 0}
+            onClick={() => void handleRestartGateway()}
+            size="sm"
+            variant="outline"
+          >
+            {restartingGateway ? (
+              <>
+                <Loader2 className="deploy-cta-button__spinner" size={16} />
+                {copy.restartingGatewayLabel}
+              </>
+            ) : (
+              <>
+                <Zap size={16} />
+                {copy.restartGatewayButton}
+              </>
+            )}
+          </Button>
+        </>
+      }
+      activity={
+        activity ? (
+          <Card
+            className={[
+              "deploy-progress-card",
+              activity.status === "failed" ? "deploy-progress-card--failed" : ""
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <CardContent className="deploy-progress-card__content">
+              <div className="deploy-progress-card__row">
+                {activity.status === "running" ? (
+                  <Loader2 className="deploy-progress-card__spinner" size={24} />
+                ) : (
+                  <Rocket className="deploy-progress-card__icon" size={24} />
+                )}
+                <div className="deploy-progress-card__meta">
+                  <h3>{activity.title}</h3>
+                  <p>{activity.summary}</p>
                 </div>
-              ))}
+                <span className="deploy-progress-card__value">{activity.progress}%</span>
+              </div>
+              <Progress value={activity.progress} />
+              <div className="deploy-progress-steps">
+                {activity.steps.map((step) => (
+                  <div className="deploy-progress-step" key={step.label}>
+                    <span
+                      className={[
+                        "deploy-progress-step__indicator",
+                        `deploy-progress-step__indicator--${step.state}`
+                      ].join(" ")}
+                    />
+                    <span className="deploy-progress-step__label">{step.label}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null
+      }
+      hero={
+        <InfoBanner icon={<Rocket size={24} />} title={copy.infoTitle} description={copy.infoBody} accent="blue">
+          <div className="deploy-info-card__checks">
+            <div>
+              <CheckCircle2 size={16} />
+              <span>{copy.detectInstalled}</span>
             </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card className="deploy-info-card">
-        <CardContent className="deploy-info-card__content">
-          <div className="deploy-info-card__icon">
-            <Rocket size={24} />
-          </div>
-          <div className="deploy-info-card__copy">
-            <h3>{copy.infoTitle}</h3>
-            <p>{copy.infoBody}</p>
-            <div className="deploy-info-card__checks">
-              <div>
-                <CheckCircle2 size={16} />
-                <span>{copy.detectInstalled}</span>
-              </div>
-              <div>
-                <CheckCircle2 size={16} />
-                <span>{copy.showVersions}</span>
-              </div>
-              <div>
-                <CheckCircle2 size={16} />
-                <span>{copy.checkUpdates}</span>
-              </div>
+            <div>
+              <CheckCircle2 size={16} />
+              <span>{copy.showVersions}</span>
+            </div>
+            <div>
+              <CheckCircle2 size={16} />
+              <span>{copy.checkUpdates}</span>
             </div>
           </div>
-          <div className="deploy-info-card__actions">
-            <Button disabled={actionBusy} onClick={() => void loadTargets({ fresh: true })} size="sm" variant="outline">
-              <RefreshCw size={16} />
-              {targetsLoading ? copy.detectingTargets : common.refresh}
-            </Button>
-            <Button
-              disabled={actionBusy || installedTargets.length === 0}
-              onClick={() => void handleRestartGateway()}
-              size="sm"
-              variant="outline"
-            >
-              {restartingGateway ? (
-                <>
-                  <Loader2 className="deploy-cta-button__spinner" size={16} />
-                  {copy.restartingGatewayLabel}
-                </>
-              ) : (
-                <>
-                  <Zap size={16} />
-                  {copy.restartGatewayButton}
-                </>
-              )}
-            </Button>
-            {checkedAt ? <p>{copy.lastChecked.replace("{time}", formatCheckedAt(checkedAt) ?? checkedAt)}</p> : null}
-          </div>
-        </CardContent>
-      </Card>
+          {checkedAt ? <p>{copy.lastChecked.replace("{time}", formatCheckedAt(checkedAt) ?? checkedAt)}</p> : null}
+        </InfoBanner>
+      }
+    >
 
       {targetsError ? (
         <Card className="deploy-section-card">
@@ -779,6 +954,6 @@ export default function DeployPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </OperationsScaffold>
   );
 }

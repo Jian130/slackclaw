@@ -13,7 +13,9 @@ import type {
   MemberAvatar,
   MemberBindingSummary,
   MemberCapabilitySettings,
+  PluginConfigOverview,
   SendChatMessageRequest,
+  SupportedChannelId,
   ChannelSession,
   ChannelSessionInputRequest,
   ConfiguredChannelEntry,
@@ -54,13 +56,28 @@ import type {
   WechatSetupRequest
 } from "@slackclaw/contracts";
 import { resolveReadableMemberAgentId } from "./member-agent-id.js";
+import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
+import { OpenClawConfigManager } from "./openclaw-config-manager.js";
+import { OpenClawGatewayManager } from "./openclaw-gateway-manager.js";
+import { OpenClawInstanceManager } from "./openclaw-instance-manager.js";
+import { OpenClawPluginManager } from "./openclaw-plugin-manager.js";
+import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
+import { listManagedPluginDefinitions, managedPluginDefinitionById, managedPluginDefinitionForFeature } from "../config/managed-plugins.js";
 
 import type { EngineAdapter } from "./adapter.js";
 import type {
+  AIEmployeeManager,
   AIMemberRuntimeCandidate,
   AIMemberRuntimeRequest,
   AIMemberRuntimeState,
   EngineChatLiveEvent,
+  EngineReadCacheResource,
+  GatewayManager,
+  InstanceManager,
+  PluginManager,
+  ManagedSkillInstallRequest,
+  ManagedSkillInstallResult,
+  ConfigManager,
   SkillRuntimeCatalog,
   SkillRuntimeEntry
 } from "./adapter.js";
@@ -79,9 +96,14 @@ const MOCK_MANAGED_OPENCLAW_REQUIREMENTS = [
 ];
 
 export class MockAdapter implements EngineAdapter {
+  readonly instances: InstanceManager;
+  readonly config: ConfigManager;
+  readonly aiEmployees: AIEmployeeManager;
+  readonly gateway: GatewayManager;
+  readonly plugins: PluginManager;
   readonly installSpec: EngineInstallSpec = {
     engine: "openclaw",
-    desiredVersion: "mock-compatible",
+    desiredVersion: "latest",
     installSource: "mock",
     prerequisites: ["None in mock mode"]
   };
@@ -98,9 +120,11 @@ export class MockAdapter implements EngineAdapter {
     futureLocalModelFamilies: ["qwen", "minimax", "llama", "mistral", "custom-openai-compatible"]
   };
 
-  invalidateReadCaches(): void {}
+  invalidateReadCaches(_resources?: EngineReadCacheResource[]): void {}
 
   private installed = true;
+  private pendingGatewayApply = false;
+  private pendingGatewayApplySummary?: string;
   private profileId = "email-admin";
   private savedEntries: SavedModelEntry[] = [
     {
@@ -109,7 +133,7 @@ export class MockAdapter implements EngineAdapter {
       providerId: "openai",
       modelKey: "openai/gpt-4o-mini",
       agentId: "main",
-      authMethodId: "api-key",
+      authMethodId: "openai-api-key",
       authModeLabel: "API key",
       profileLabel: "default",
       isDefault: true,
@@ -123,7 +147,7 @@ export class MockAdapter implements EngineAdapter {
       providerId: "openai",
       modelKey: "openai/gpt-5",
       agentId: "mock-agent-2",
-      authMethodId: "api-key",
+      authMethodId: "openai-api-key",
       authModeLabel: "API key",
       profileLabel: "default",
       isDefault: false,
@@ -134,12 +158,55 @@ export class MockAdapter implements EngineAdapter {
   ];
   private readonly providerCatalog: ModelProviderConfig[] = [
     {
+      id: "minimax",
+      label: "MiniMax",
+      description: "Mock MiniMax provider.",
+      docsUrl: "https://docs.openclaw.ai/providers/docs/minimax",
+      providerRefs: ["minimax/"],
+      authMethods: [
+        {
+          id: "minimax-api-key",
+          label: "API Key",
+          kind: "api-key",
+          description: "Paste a MiniMax API key.",
+          interactive: false,
+          fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }]
+        }
+      ],
+      configured: false,
+      modelCount: 1,
+      sampleModels: ["minimax/MiniMax-M2.7"]
+    },
+    {
+      id: "modelstudio",
+      label: "Model Studio",
+      description: "Mock Alibaba Cloud Model Studio provider.",
+      docsUrl: "https://docs.openclaw.ai/providers/docs/modelstudio",
+      providerRefs: ["modelstudio/"],
+      authMethods: [
+        {
+          id: "modelstudio-api-key-cn",
+          label: "API Key",
+          kind: "api-key",
+          description: "Paste a Model Studio API key.",
+          interactive: false,
+          fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }]
+        }
+      ],
+      configured: false,
+      modelCount: 1,
+      sampleModels: ["modelstudio/qwen3.5-plus"]
+    },
+    {
       id: "openai",
       label: "OpenAI",
       description: "Mock OpenAI provider.",
       docsUrl: "https://docs.openclaw.ai/providers/docs/openai",
-      providerRefs: ["openai/"],
-      authMethods: [{ id: "api-key", label: "API Key", kind: "api-key", description: "Paste an API key.", interactive: false, fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }] }],
+      providerRefs: ["openai/", "openai-codex/"],
+      authMethods: [
+        { id: "openai-api-key", label: "API Key", kind: "api-key", description: "Paste an API key.", interactive: false, fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }] },
+        { id: "openai-codex", label: "OAuth", kind: "oauth", description: "Connect with your OpenAI account.", interactive: true, fields: [] }
+      ],
       configured: true,
       modelCount: 2,
       sampleModels: ["openai/gpt-4o-mini", "openai/gpt-5"]
@@ -170,16 +237,36 @@ export class MockAdapter implements EngineAdapter {
       summary: "Mock Feishu setup has not started yet.",
       detail: "Mock mode simulates the official OpenClaw Feishu plugin setup flow."
     },
+    "wechat-work": {
+      id: "wechat-work",
+      title: "WeChat Work (WeCom)",
+      officialSupport: true,
+      status: "not-started",
+      summary: "Mock WeChat Work setup has not started yet.",
+      detail: "Mock mode simulates the managed WeCom plugin setup flow."
+    },
     wechat: {
       id: "wechat",
-      title: "WeChat workaround",
+      title: "WeChat",
       officialSupport: false,
       status: "not-started",
-      summary: "Mock WeChat workaround has not started yet.",
-      detail: "Mock mode simulates a community plugin workaround."
+      summary: "Mock WeChat setup has not started yet.",
+      detail: "Mock mode keeps personal WeChat distinct from WeChat Work."
     }
   };
   private activeChannelSession?: ChannelSession;
+  private readonly managedPlugins = new Map(
+    listManagedPluginDefinitions().map((definition) => [
+      definition.id,
+      {
+        installed: false,
+        enabled: false,
+        hasUpdate: false,
+        hasError: false,
+        detail: "Plugin is not installed yet."
+      }
+    ])
+  );
   private skillRuntimeCatalog: SkillRuntimeCatalog = {
     workspaceDir: "/mock/openclaw/workspace",
     managedSkillsDir: "/mock/openclaw/workspace/skills",
@@ -299,12 +386,98 @@ export class MockAdapter implements EngineAdapter {
       brain: BrainAssignment;
     }
   >();
+  private primaryMemberAgentId?: string;
   private readonly chatSessions = new Map<string, ChatMessage[]>();
   private readonly chatListeners = new Set<(event: EngineChatLiveEvent) => void>();
   private readonly activeChatTimers = new Map<string, NodeJS.Timeout[]>();
 
+  constructor() {
+    this.instances = new OpenClawInstanceManager(this);
+    this.config = new OpenClawConfigManager({
+      getModelConfig: () => this.getModelConfig(),
+      createSavedModelEntry: (request) => this.createSavedModelEntry(request),
+      updateSavedModelEntry: (entryId, request) => this.updateSavedModelEntry(entryId, request),
+      removeSavedModelEntry: (entryId) => this.removeSavedModelEntry(entryId),
+      setDefaultModelEntry: (request) => this.setDefaultModelEntry(request),
+      replaceFallbackModelEntries: (request) => this.replaceFallbackModelEntries(request),
+      authenticateModelProvider: (request) => this.authenticateModelProvider(request),
+      getModelAuthSession: (sessionId) => this.getModelAuthSession(sessionId),
+      submitModelAuthSessionInput: (sessionId, request) => this.submitModelAuthSessionInput(sessionId, request),
+      setDefaultModel: (modelKey) => this.setDefaultModel(modelKey),
+      getChannelState: (channelId) => this.getChannelState(channelId),
+      getConfiguredChannelEntries: () => this.getConfiguredChannelEntries(),
+      saveChannelEntry: (request) => this.saveChannelEntry(request),
+      removeChannelEntry: (request) => this.removeChannelEntry(request),
+      getSkillRuntimeCatalog: () => this.getSkillRuntimeCatalog(),
+      getInstalledSkillDetail: (skillId) => this.getInstalledSkillDetail(skillId),
+      listMarketplaceInstalledSkills: () => this.listMarketplaceInstalledSkills(),
+      exploreSkillMarketplace: (limit) => this.exploreSkillMarketplace(limit),
+      searchSkillMarketplace: (query, limit) => this.searchSkillMarketplace(query, limit),
+      getSkillMarketplaceDetail: (slug) => this.getSkillMarketplaceDetail(slug),
+      installMarketplaceSkill: (request) => this.installMarketplaceSkill(request),
+      updateMarketplaceSkill: (slug, request) => this.updateMarketplaceSkill(slug, request),
+      saveCustomSkill: (skillId, request) => this.saveCustomSkill(skillId, request),
+      removeInstalledSkill: (slug, request) => this.removeInstalledSkill(slug, request),
+      installManagedSkill: (request) => this.installManagedSkill(request),
+      verifyManagedSkill: (slug) => this.verifyManagedSkill(slug)
+    });
+    this.aiEmployees = new OpenClawAIEmployeeManager({
+      listAIMemberRuntimeCandidates: () => this.listAIMemberRuntimeCandidates(),
+      saveAIMemberRuntime: (request) => this.saveAIMemberRuntime(request),
+      getPrimaryAIMemberAgentId: () => this.getPrimaryAIMemberAgentId(),
+      setPrimaryAIMemberAgent: (agentId) => this.setPrimaryAIMemberAgent(agentId),
+      getAIMemberBindings: (agentId) => this.getAIMemberBindings(agentId),
+      bindAIMemberChannel: (agentId, request) => this.bindAIMemberChannel(agentId, request),
+      unbindAIMemberChannel: (agentId, request) => this.unbindAIMemberChannel(agentId, request),
+      deleteAIMemberRuntime: (agentId, request) => this.deleteAIMemberRuntime(agentId, request)
+    });
+    this.gateway = new OpenClawGatewayManager({
+      restartGateway: () => this.restartGateway(),
+      healthCheck: (selectedProfileId) => this.healthCheck(selectedProfileId),
+      getActiveChannelSession: () => this.getActiveChannelSession(),
+      getChannelSession: (sessionId) => this.getChannelSession(sessionId),
+      submitChannelSessionInput: (sessionId, request) => this.submitChannelSessionInput(sessionId, request),
+      runTask: (request) => this.runTask(request),
+      getChatThreadDetail: (request) => this.getChatThreadDetail(request),
+      subscribeToLiveChatEvents: (listener) => this.subscribeToLiveChatEvents(listener),
+      sendChatMessage: (request) => this.sendChatMessage(request),
+      abortChatMessage: (request) => this.abortChatMessage(request),
+      startWhatsappLogin: () => this.startWhatsappLogin(),
+      approvePairing: (channelId, request) => this.approvePairing(channelId, request),
+      prepareFeishu: () => this.prepareFeishu(),
+      finalizeOnboardingSetup: () => this.finalizeOnboardingSetup(),
+      startGatewayAfterChannels: () => this.startGatewayAfterChannels()
+    });
+    this.plugins = new OpenClawPluginManager({
+      getConfigOverview: () => this.getPluginConfigOverview(),
+      ensureFeatureRequirements: (featureId, options) => this.ensureFeatureRequirements(featureId, options),
+      installPlugin: (pluginId) => this.installPlugin(pluginId),
+      updatePlugin: (pluginId) => this.updatePlugin(pluginId),
+      removePlugin: (pluginId) => this.removePlugin(pluginId)
+    });
+  }
+
+  private markGatewayApplyPending(summary = summarizePendingGatewayApply()): void {
+    this.pendingGatewayApply = true;
+    this.pendingGatewayApplySummary = summary;
+  }
+
+  private clearGatewayApplyPending(): void {
+    this.pendingGatewayApply = false;
+    this.pendingGatewayApplySummary = undefined;
+  }
+
+  private mutationSyncMeta(settled = true) {
+    return {
+      epoch: "mock-daemon",
+      revision: 0,
+      settled
+    } as const;
+  }
+
   async install(_autoConfigure = true, _options?: { forceLocal?: boolean }): Promise<InstallResponse> {
     this.installed = true;
+    this.clearGatewayApplyPending();
     return {
       status: "already-installed",
       message: "Mock OpenClaw runtime is deployed and ready for onboarding.",
@@ -314,6 +487,7 @@ export class MockAdapter implements EngineAdapter {
 
   async installDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
     this.installed = true;
+    this.clearGatewayApplyPending();
     return {
       targetId,
       status: "completed",
@@ -327,6 +501,7 @@ export class MockAdapter implements EngineAdapter {
 
   async uninstall(): Promise<EngineActionResponse> {
     this.installed = false;
+    this.clearGatewayApplyPending();
     return {
       action: "uninstall-engine",
       status: "completed",
@@ -337,6 +512,7 @@ export class MockAdapter implements EngineAdapter {
 
   async uninstallDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
     this.installed = false;
+    this.clearGatewayApplyPending();
     return {
       targetId,
       status: "completed",
@@ -401,7 +577,7 @@ export class MockAdapter implements EngineAdapter {
     return { ...entry };
   }
 
-  async installMarketplaceSkill(request: InstallSkillRequest): Promise<void> {
+  async installMarketplaceSkill(request: InstallSkillRequest): Promise<{ requiresGatewayApply?: boolean }> {
     const detail = this.marketplaceCatalog.find((entry) => entry.slug === request.slug);
     if (!detail) {
       throw new Error("Marketplace skill not found.");
@@ -440,18 +616,23 @@ export class MockAdapter implements EngineAdapter {
         }
       };
     }
+
+    this.markGatewayApplyPending();
+    return { requiresGatewayApply: true };
   }
 
-  async updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<void> {
+  async updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<{ requiresGatewayApply?: boolean }> {
     const latestVersion = request.version ?? this.marketplaceCatalog.find((entry) => entry.slug === slug)?.latestVersion ?? "1.0.0";
     this.marketplaceInstalled = this.marketplaceInstalled.map((entry) => entry.slug === slug ? { ...entry, version: latestVersion } : entry);
     this.skillRuntimeCatalog = {
       ...this.skillRuntimeCatalog,
       skills: this.skillRuntimeCatalog.skills.map((entry) => entry.slug === slug ? { ...entry, version: latestVersion } : entry)
     };
+    this.markGatewayApplyPending();
+    return { requiresGatewayApply: true };
   }
 
-  async saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string }> {
+  async saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string; requiresGatewayApply?: boolean }> {
     const slug = request.slug?.trim() || request.name.toLowerCase().replace(/\s+/g, "-");
     const nextSkill: SkillRuntimeEntry = {
       id: request.name,
@@ -485,10 +666,14 @@ export class MockAdapter implements EngineAdapter {
           }
     };
 
-    return { slug };
+    this.markGatewayApplyPending();
+    return { slug, requiresGatewayApply: true };
   }
 
-  async removeInstalledSkill(slug: string, _request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }): Promise<void> {
+  async removeInstalledSkill(
+    slug: string,
+    _request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+  ): Promise<{ requiresGatewayApply?: boolean }> {
     const removed = this.skillRuntimeCatalog.skills.find((entry) => entry.slug === slug);
     this.skillRuntimeCatalog = {
       ...this.skillRuntimeCatalog,
@@ -502,9 +687,75 @@ export class MockAdapter implements EngineAdapter {
         : this.skillRuntimeCatalog.readiness
     };
     this.marketplaceInstalled = this.marketplaceInstalled.filter((entry) => entry.slug !== slug);
+    this.markGatewayApplyPending();
+    return { requiresGatewayApply: true };
   }
 
-  async getModelConfig(): Promise<ModelConfigOverview> {
+  async installManagedSkill(request: ManagedSkillInstallRequest): Promise<ManagedSkillInstallResult> {
+    const existing = this.skillRuntimeCatalog.skills.find((entry) => entry.slug === request.slug);
+    if (existing) {
+      return {
+        runtimeSkillId: existing.id,
+        version: existing.version,
+        requiresGatewayApply: false
+      };
+    }
+
+    if (request.installSource === "bundled") {
+      const bundledSkill: SkillRuntimeEntry = {
+        id: request.slug,
+        slug: request.slug,
+        name: request.slug
+          .split("-")
+          .map((segment) => `${segment.slice(0, 1).toUpperCase()}${segment.slice(1)}`)
+          .join(" "),
+        description: `Bundled managed skill ${request.slug}.`,
+        source: "openclaw-workspace",
+        bundled: true,
+        eligible: true,
+        disabled: false,
+        blockedByAllowlist: false,
+        missing: { bins: [], anyBins: [], env: [], config: [], os: [] },
+        version: request.version ?? "1.0.0",
+        filePath: `/mock/openclaw/workspace/skills/${request.slug}/SKILL.md`,
+        baseDir: `/mock/openclaw/workspace/skills/${request.slug}`
+      };
+
+      this.skillRuntimeCatalog = {
+        ...this.skillRuntimeCatalog,
+        skills: [...this.skillRuntimeCatalog.skills, bundledSkill],
+        readiness: {
+          ...this.skillRuntimeCatalog.readiness,
+          total: this.skillRuntimeCatalog.readiness.total + 1,
+          eligible: this.skillRuntimeCatalog.readiness.eligible + 1
+        }
+      };
+      this.markGatewayApplyPending();
+      return {
+        runtimeSkillId: bundledSkill.id,
+        version: bundledSkill.version,
+        requiresGatewayApply: true
+      };
+    }
+
+    await this.installMarketplaceSkill({
+      slug: request.slug,
+      version: request.version
+    });
+    const installed = this.skillRuntimeCatalog.skills.find((entry) => entry.slug === request.slug);
+
+    return {
+      runtimeSkillId: installed?.id,
+      version: installed?.version,
+      requiresGatewayApply: true
+    };
+  }
+
+  async verifyManagedSkill(slug: string): Promise<SkillRuntimeEntry | undefined> {
+    return this.skillRuntimeCatalog.skills.find((entry) => entry.slug === slug && entry.eligible && !entry.disabled && !entry.blockedByAllowlist);
+  }
+
+  private async getModelConfig(): Promise<ModelConfigOverview> {
     const defaultEntry = this.savedEntries.find((entry) => entry.isDefault) ?? this.savedEntries[0];
     return {
       providers: this.providerCatalog,
@@ -560,11 +811,14 @@ export class MockAdapter implements EngineAdapter {
       ...entry,
       isDefault: request.makeDefault ? index === list.length - 1 : entry.isDefault
     }));
+    this.markGatewayApplyPending();
 
     return {
+      ...this.mutationSyncMeta(),
       status: "completed",
       message: "Mock saved model entry created.",
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -588,11 +842,14 @@ export class MockAdapter implements EngineAdapter {
           ? { ...entry, isDefault: false }
           : entry
     );
+    this.markGatewayApplyPending();
 
     return {
+      ...this.mutationSyncMeta(),
       status: "completed",
       message: "Mock saved model entry updated.",
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -624,11 +881,14 @@ export class MockAdapter implements EngineAdapter {
       isFallback: nextFallbackIds.includes(entry.id),
       updatedAt: entry.id === nextDefaultId || nextFallbackIds.includes(entry.id) ? new Date().toISOString() : entry.updatedAt
     }));
+    this.markGatewayApplyPending();
 
     return {
+      ...this.mutationSyncMeta(),
       status: "completed",
       message: "Mock saved model entry removed.",
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -639,11 +899,14 @@ export class MockAdapter implements EngineAdapter {
       isFallback: entry.id === request.entryId ? false : entry.isFallback,
       updatedAt: entry.id === request.entryId ? new Date().toISOString() : entry.updatedAt
     }));
+    this.markGatewayApplyPending();
 
     return {
+      ...this.mutationSyncMeta(),
       status: "completed",
       message: "Mock default entry updated.",
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
@@ -653,23 +916,29 @@ export class MockAdapter implements EngineAdapter {
       isFallback: request.entryIds.includes(entry.id) && !entry.isDefault,
       updatedAt: request.entryIds.includes(entry.id) ? new Date().toISOString() : entry.updatedAt
     }));
+    this.markGatewayApplyPending();
 
     return {
+      ...this.mutationSyncMeta(),
       status: "completed",
       message: "Mock fallback entries updated.",
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
   async authenticateModelProvider(_request: ModelAuthRequest): Promise<ModelConfigActionResponse> {
+    this.markGatewayApplyPending();
     return {
+      ...this.mutationSyncMeta(),
       status: "completed",
       message: "Mock provider authentication completed.",
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
   }
 
-  async getModelAuthSession(sessionId: string): Promise<ModelAuthSessionResponse> {
+  private async getModelAuthSession(sessionId: string): Promise<ModelAuthSessionResponse> {
     return {
       session: {
         id: sessionId,
@@ -694,18 +963,17 @@ export class MockAdapter implements EngineAdapter {
     }
 
     return {
+      ...this.mutationSyncMeta(),
       status: "completed",
       message: `Mock default model set to ${modelKey}.`,
-      modelConfig: await this.getModelConfig()
+      modelConfig: await this.getModelConfig(),
+      requiresGatewayApply: true
     };
-  }
-
-  async onboard(profileId: string): Promise<void> {
-    this.profileId = profileId;
   }
 
   async configure(profileId: string): Promise<void> {
     this.profileId = profileId;
+    this.markGatewayApplyPending("OpenClaw configuration was saved and is ready to apply.");
   }
 
   async status(): Promise<EngineStatus> {
@@ -714,8 +982,12 @@ export class MockAdapter implements EngineAdapter {
       installed: this.installed,
       running: this.installed,
       version: "mock",
-      summary: "SlackClaw is running with a mock engine adapter.",
-      lastCheckedAt: new Date().toISOString()
+      summary: this.pendingGatewayApply
+        ? appendGatewayApplyMessage("SlackClaw is running with a mock engine adapter.")
+        : "SlackClaw is running with a mock engine adapter.",
+      lastCheckedAt: new Date().toISOString(),
+      pendingGatewayApply: this.pendingGatewayApply,
+      pendingGatewayApplySummary: this.pendingGatewayApply ? this.pendingGatewayApplySummary : undefined
     };
   }
 
@@ -804,6 +1076,7 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async restartGateway(): Promise<GatewayActionResponse> {
+    this.clearGatewayApplyPending();
     return {
       action: "restart-gateway",
       status: "completed",
@@ -880,7 +1153,7 @@ export class MockAdapter implements EngineAdapter {
     };
   }
 
-  async getChannelState(channelId: "telegram" | "whatsapp" | "feishu" | "wechat"): Promise<ChannelSetupState> {
+  async getChannelState(channelId: SupportedChannelId): Promise<ChannelSetupState> {
     return this.channels[channelId];
   }
 
@@ -913,27 +1186,52 @@ export class MockAdapter implements EngineAdapter {
     return this.activeChannelSession;
   }
 
-  async submitChannelSessionInput(_sessionId: string, _request: ChannelSessionInputRequest): Promise<ChannelSession> {
-    throw new Error("Mock channel sessions do not accept direct input.");
+  async submitChannelSessionInput(sessionId: string, request: ChannelSessionInputRequest): Promise<ChannelSession> {
+    if (!this.activeChannelSession || this.activeChannelSession.id !== sessionId) {
+      throw new Error("Mock channel session not found.");
+    }
+
+    if (this.activeChannelSession.channelId === "whatsapp") {
+      await this.approvePairing("whatsapp", { code: request.value });
+      return this.activeChannelSession;
+    }
+
+    if (this.activeChannelSession.channelId === "wechat") {
+      this.activeChannelSession = {
+        ...this.activeChannelSession,
+        status: "completed",
+        message: "Mock WeChat login confirmed.",
+        logs: [...this.activeChannelSession.logs, `Mock WeChat input received: ${request.value}`]
+      };
+      this.channels.wechat = {
+        ...this.channels.wechat,
+        status: "completed",
+        summary: "Mock WeChat login completed.",
+        detail: "Mock mode marked the QR-first WeChat flow as completed."
+      };
+      return this.activeChannelSession;
+    }
+
+    throw new Error("Mock channel sessions only support WhatsApp or WeChat.");
   }
 
-  async saveChannelEntry(
+  private async saveChannelEntry(
     request: SaveChannelEntryRequest
-  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession }> {
+  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession; requiresGatewayApply?: boolean }> {
     switch (request.channelId) {
       case "telegram":
         if (request.action === "approve-pairing") {
-          return this.approvePairing("telegram", { code: request.values.code ?? "" });
+          return this.gateway.approvePairing("telegram", { code: request.values.code ?? "" });
         }
 
         return this.configureTelegram({ token: request.values.token ?? "", accountName: request.values.accountName });
       case "whatsapp":
         if (request.action === "approve-pairing") {
-          return this.approvePairing("whatsapp", { code: request.values.code ?? "" });
+          return this.gateway.approvePairing("whatsapp", { code: request.values.code ?? "" });
         }
 
         {
-          const result = await this.startWhatsappLogin();
+          const result = await this.gateway.startWhatsappLogin();
           return {
             ...result,
             session: this.activeChannelSession
@@ -941,11 +1239,11 @@ export class MockAdapter implements EngineAdapter {
         }
       case "feishu":
         if (request.action === "prepare") {
-          return this.prepareFeishu();
+          return this.gateway.prepareFeishu();
         }
 
         if (request.action === "approve-pairing") {
-          return this.approvePairing("feishu", { code: request.values.code ?? "" });
+          return this.gateway.approvePairing("feishu", { code: request.values.code ?? "" });
         }
 
         return this.configureFeishu({
@@ -954,15 +1252,27 @@ export class MockAdapter implements EngineAdapter {
           domain: request.values.domain,
           botName: request.values.botName
         });
-      case "wechat":
+      case "wechat-work":
+        if (request.action === "approve-pairing") {
+          return this.gateway.approvePairing("wechat-work", { code: request.values.code ?? "" });
+        }
+
         return this.configureWechatWorkaround({
-          pluginSpec: request.values.pluginSpec,
-          corpId: request.values.corpId ?? "",
-          agentId: request.values.agentId ?? "",
-          secret: request.values.secret ?? "",
-          token: request.values.token ?? "",
-          encodingAesKey: request.values.encodingAesKey ?? ""
+          botId: request.values.botId ?? "",
+          secret: request.values.secret ?? ""
         });
+      case "wechat":
+        if (request.action === "approve-pairing") {
+          return this.gateway.approvePairing("wechat", { code: request.values.code ?? "" });
+        }
+
+        {
+          const result = await this.startWechatLogin();
+          return {
+            ...result,
+            session: this.activeChannelSession
+          };
+        }
       default:
         throw new Error("Unsupported mock channel.");
     }
@@ -970,21 +1280,23 @@ export class MockAdapter implements EngineAdapter {
 
   async removeChannelEntry(
     request: RemoveChannelEntryRequest
-  ): Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat" }> {
-    const channelId = (request.channelId ?? request.entryId.split(":")[0]) as "telegram" | "whatsapp" | "feishu" | "wechat";
+  ): Promise<{ message: string; channelId: SupportedChannelId; requiresGatewayApply?: boolean }> {
+    const channelId = (request.channelId ?? request.entryId.split(":")[0]) as SupportedChannelId;
     const template = new MockAdapter().channels[channelId];
     this.channels[channelId] = { ...template };
     if (this.activeChannelSession?.channelId === channelId) {
       this.activeChannelSession = undefined;
     }
+    this.markGatewayApplyPending();
 
     return {
       message: `Mock ${template.title} configuration removed.`,
-      channelId
+      channelId,
+      requiresGatewayApply: true
     };
   }
 
-  async saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState> {
+  private async saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState & { requiresGatewayApply?: boolean }> {
     const agentId =
       request.existingAgentId ??
       resolveReadableMemberAgentId(
@@ -1011,8 +1323,24 @@ export class MockAdapter implements EngineAdapter {
       knowledgePacks: request.knowledgePacks,
       brain: request.brain
     });
+    this.markGatewayApplyPending();
 
-    return runtime;
+    return {
+      ...runtime,
+      requiresGatewayApply: true
+    };
+  }
+
+  async getPrimaryAIMemberAgentId(): Promise<string | undefined> {
+    return this.primaryMemberAgentId;
+  }
+
+  async setPrimaryAIMemberAgent(agentId: string | undefined): Promise<{ requiresGatewayApply?: boolean }> {
+    this.primaryMemberAgentId = agentId?.trim() || undefined;
+    this.markGatewayApplyPending();
+    return {
+      requiresGatewayApply: true
+    };
   }
 
   async listAIMemberRuntimeCandidates(): Promise<AIMemberRuntimeCandidate[]> {
@@ -1032,10 +1360,24 @@ export class MockAdapter implements EngineAdapter {
     return runtime?.bindings ?? [];
   }
 
-  async bindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]> {
+  async bindAIMemberChannel(
+    agentId: string,
+    request: BindAIMemberChannelRequest
+  ): Promise<{ bindings: MemberBindingSummary[]; requiresGatewayApply?: boolean }> {
     const entry = [...this.memberRuntimeState.entries()].find(([, value]) => value.agentId === agentId);
     if (!entry) {
-      return [];
+      return { bindings: [] };
+    }
+
+    for (const [memberId, runtime] of this.memberRuntimeState.entries()) {
+      if (memberId === entry[0]) {
+        continue;
+      }
+
+      this.memberRuntimeState.set(memberId, {
+        ...runtime,
+        bindings: runtime.bindings.filter((binding) => binding.target !== request.binding)
+      });
     }
 
     const bindings = entry[1].bindings.some((binding) => binding.target === request.binding)
@@ -1046,14 +1388,21 @@ export class MockAdapter implements EngineAdapter {
       ...entry[1],
       bindings
     });
+    this.markGatewayApplyPending();
 
-    return bindings;
+    return {
+      bindings,
+      requiresGatewayApply: true
+    };
   }
 
-  async unbindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]> {
+  async unbindAIMemberChannel(
+    agentId: string,
+    request: BindAIMemberChannelRequest
+  ): Promise<{ bindings: MemberBindingSummary[]; requiresGatewayApply?: boolean }> {
     const entry = [...this.memberRuntimeState.entries()].find(([, value]) => value.agentId === agentId);
     if (!entry) {
-      return [];
+      return { bindings: [] };
     }
 
     const bindings = entry[1].bindings.filter((binding) => binding.target !== request.binding);
@@ -1061,15 +1410,31 @@ export class MockAdapter implements EngineAdapter {
       ...entry[1],
       bindings
     });
+    this.markGatewayApplyPending();
 
-    return bindings;
+    return {
+      bindings,
+      requiresGatewayApply: true
+    };
   }
 
-  async deleteAIMemberRuntime(agentId: string, _request: DeleteAIMemberRequest): Promise<void> {
+  async deleteAIMemberRuntime(
+    agentId: string,
+    _request: DeleteAIMemberRequest
+  ): Promise<{ requiresGatewayApply?: boolean; wasPrimary?: boolean }> {
     const entry = [...this.memberRuntimeState.entries()].find(([, value]) => value.agentId === agentId);
+    const wasPrimary = this.primaryMemberAgentId === agentId;
     if (entry) {
       this.memberRuntimeState.delete(entry[0]);
+      this.markGatewayApplyPending();
     }
+    if (wasPrimary) {
+      this.primaryMemberAgentId = undefined;
+    }
+    return {
+      requiresGatewayApply: true,
+      wasPrimary
+    };
   }
 
   async getChatThreadDetail(request: { agentId: string; threadId: string; sessionKey: string }): Promise<ChatThreadDetail> {
@@ -1092,7 +1457,7 @@ export class MockAdapter implements EngineAdapter {
     };
   }
 
-  async subscribeToLiveChatEvents(listener: (event: EngineChatLiveEvent) => void): Promise<() => void> {
+  private async subscribeToLiveChatEvents(listener: (event: EngineChatLiveEvent) => void): Promise<() => void> {
     this.chatListeners.add(listener);
     listener({ type: "connected" });
     return () => {
@@ -1127,8 +1492,14 @@ export class MockAdapter implements EngineAdapter {
       setTimeout(() => {
         this.emitChatEvent({
           type: "assistant-tool-status",
+          sessionKey: request.sessionKey,
           runId,
-          activityLabel: "Using tools: mock-search"
+          activityLabel: "Using tools: mock-search",
+          toolActivity: {
+            id: "mock-search",
+            label: "mock-search",
+            status: "running"
+          }
         });
       }, 5),
       setTimeout(() => {
@@ -1152,7 +1523,7 @@ export class MockAdapter implements EngineAdapter {
           runId
         });
         this.activeChatTimers.delete(request.sessionKey);
-      }, 20)
+      }, 80)
     ];
     this.activeChatTimers.set(request.sessionKey, timers);
 
@@ -1171,23 +1542,165 @@ export class MockAdapter implements EngineAdapter {
     });
   }
 
+  async getPluginConfigOverview(): Promise<PluginConfigOverview> {
+    return {
+      entries: listManagedPluginDefinitions().map((definition) => {
+        const state = this.managedPlugins.get(definition.id) ?? {
+          installed: false,
+          enabled: false,
+          hasUpdate: false,
+          hasError: false,
+          detail: "Plugin is not installed yet."
+        };
+        const dependencies = definition.dependencies.map((dependency) => ({
+          ...dependency,
+          active: dependency.id === "channel:wechat-work" ? this.channels["wechat-work"].status !== "not-started" : false
+        }));
+        const activeDependentCount = dependencies.filter((dependency) => dependency.active).length;
+
+        return {
+          id: definition.id,
+          label: definition.label,
+          packageSpec: definition.packageSpec,
+          runtimePluginId: definition.runtimePluginId,
+          configKey: definition.configKey,
+          status: state.hasError
+            ? "error"
+            : !state.installed
+              ? "missing"
+              : state.hasUpdate
+                ? "update-available"
+                : state.enabled
+                  ? "ready"
+                  : "blocked",
+          summary: state.hasError
+            ? "Plugin is in an error state."
+            : !state.installed
+              ? "Plugin is not installed."
+              : state.hasUpdate
+                ? "A managed plugin update is available."
+                : state.enabled
+                  ? "Plugin is ready."
+                  : "Plugin is installed but disabled.",
+          detail: state.detail,
+          enabled: state.enabled,
+          installed: state.installed,
+          hasUpdate: state.hasUpdate,
+          hasError: state.hasError,
+          activeDependentCount,
+          dependencies
+        };
+      })
+    };
+  }
+
+  async ensureFeatureRequirements(_featureId: string, _options?: { deferGatewayRestart?: boolean }): Promise<PluginConfigOverview> {
+    const definition = managedPluginDefinitionForFeature(_featureId as "channel:wechat-work");
+    if (!definition) {
+      return this.getPluginConfigOverview();
+    }
+
+    const state = this.managedPlugins.get(definition.id);
+    if (state) {
+      state.installed = true;
+      state.enabled = true;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = `Mock mode ensured ${definition.label} is installed and enabled.`;
+    }
+
+    return this.getPluginConfigOverview();
+  }
+
+  async installPlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const state = this.managedPlugins.get(pluginId);
+    if (state) {
+      state.installed = true;
+      state.enabled = true;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = `Mock mode installed ${definition.packageSpec}.`;
+    }
+
+    return {
+      message: `Mock installed ${definition.label}.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
+  async updatePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const state = this.managedPlugins.get(pluginId);
+    if (state) {
+      state.installed = true;
+      state.enabled = true;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = `Mock mode updated ${definition.packageSpec}.`;
+    }
+
+    return {
+      message: `Mock updated ${definition.label}.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
+  async removePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }> {
+    const definition = managedPluginDefinitionById(pluginId);
+    if (!definition) {
+      throw new Error("Unknown managed plugin.");
+    }
+
+    const overview = await this.getPluginConfigOverview();
+    const entry = overview.entries.find((item) => item.id === pluginId);
+    if ((entry?.activeDependentCount ?? 0) > 0) {
+      throw new Error(`${definition.label} is still required by an active managed feature.`);
+    }
+
+    const state = this.managedPlugins.get(pluginId);
+    if (state) {
+      state.installed = false;
+      state.enabled = false;
+      state.hasUpdate = false;
+      state.hasError = false;
+      state.detail = "Plugin is not installed yet.";
+    }
+
+    return {
+      message: `Mock removed ${definition.label}.`,
+      pluginConfig: await this.getPluginConfigOverview()
+    };
+  }
+
   private emitChatEvent(event: EngineChatLiveEvent): void {
     for (const listener of this.chatListeners) {
       listener(event);
     }
   }
 
-  async configureTelegram(_request: TelegramSetupRequest): Promise<{ message: string; channel: ChannelSetupState }> {
+  private async configureTelegram(
+    _request: TelegramSetupRequest
+  ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
     this.channels.telegram = {
       ...this.channels.telegram,
       status: "awaiting-pairing",
       summary: "Mock Telegram token saved.",
       detail: "Send a message to the bot, then approve the pairing code."
     };
-    return { message: "Mock Telegram token saved.", channel: this.channels.telegram };
+    this.markGatewayApplyPending();
+    return { message: "Mock Telegram token saved.", channel: this.channels.telegram, requiresGatewayApply: true };
   }
 
-  async startWhatsappLogin(): Promise<{ message: string; channel: ChannelSetupState }> {
+  private async startWhatsappLogin(): Promise<{ message: string; channel: ChannelSetupState }> {
     this.channels.whatsapp = {
       ...this.channels.whatsapp,
       status: "awaiting-pairing",
@@ -1206,7 +1719,7 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async approvePairing(
-    channelId: "telegram" | "whatsapp" | "feishu",
+    channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work" | "wechat",
     _request: PairingApprovalRequest
   ): Promise<{ message: string; channel: ChannelSetupState }> {
     this.channels[channelId] = {
@@ -1236,33 +1749,65 @@ export class MockAdapter implements EngineAdapter {
     return { message: "Mock Feishu plugin installed.", channel: this.channels.feishu };
   }
 
-  async configureFeishu(
+  private async configureFeishu(
     request: FeishuSetupRequest
-  ): Promise<{ message: string; channel: ChannelSetupState }> {
+  ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
     this.channels.feishu = {
       ...this.channels.feishu,
       status: "awaiting-pairing",
       summary: "Mock Feishu channel configured.",
       detail: `Mock mode saved App ID ${request.appId} for the ${request.domain ?? "feishu"} tenant. Send a DM to the bot, then approve the pairing code.`
     };
-    return { message: "Mock Feishu channel configured.", channel: this.channels.feishu };
+    this.markGatewayApplyPending();
+    return { message: "Mock Feishu channel configured.", channel: this.channels.feishu, requiresGatewayApply: true };
   }
 
-  async configureWechatWorkaround(
+  private async configureWechatWorkaround(
     _request: WechatSetupRequest
-  ): Promise<{ message: string; channel: ChannelSetupState }> {
+  ): Promise<{ message: string; channel: ChannelSetupState; requiresGatewayApply?: boolean }> {
+    this.channels["wechat-work"] = {
+      ...this.channels["wechat-work"],
+      status: "awaiting-pairing",
+      summary: "Mock WeChat Work configured.",
+      detail: "Mock mode saved the WeCom credentials. Send a DM to the app, then approve the pairing code."
+    };
+    this.markGatewayApplyPending();
+    return { message: "Mock WeChat Work configured.", channel: this.channels["wechat-work"], requiresGatewayApply: true };
+  }
+
+  private async startWechatLogin(): Promise<{ message: string; channel: ChannelSetupState }> {
     this.channels.wechat = {
       ...this.channels.wechat,
-      status: "completed",
-      summary: "Mock WeChat workaround configured.",
-      detail: "Mock mode marked the community plugin workaround as configured."
+      status: "awaiting-pairing",
+      summary: "Mock WeChat login started.",
+      detail: "Pretend the installer printed a QR code, then optionally submit follow-up input through the session."
     };
-    return { message: "Mock WeChat workaround configured.", channel: this.channels.wechat };
+    this.activeChannelSession = {
+      id: "wechat:default:login",
+      channelId: "wechat",
+      entryId: "wechat:default",
+      status: "running",
+      message: "Mock WeChat login started.",
+      logs: [
+        "Mock WeChat installer started.",
+        "Scan the QR code from the installer output to continue."
+      ]
+    };
+    return { message: "Mock WeChat login started.", channel: this.channels.wechat };
   }
 
   async startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }> {
+    this.clearGatewayApplyPending();
     return {
       message: "Mock gateway started.",
+      engineStatus: await this.status()
+    };
+  }
+
+  async finalizeOnboardingSetup(): Promise<{ message: string; engineStatus: EngineStatus }> {
+    this.clearGatewayApplyPending();
+    return {
+      message: "Mock onboarding finalization completed.",
       engineStatus: await this.status()
     };
   }

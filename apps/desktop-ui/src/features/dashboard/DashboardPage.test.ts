@@ -1,9 +1,50 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelConfigOverview, ProductOverview } from "@slackclaw/contracts";
 
-import { connectedModelCount, connectedModelDetail } from "./DashboardPage.js";
+import DashboardPage, { connectedModelCount, connectedModelDetail } from "./DashboardPage.js";
+
+vi.mock("../../app/providers/LocaleProvider.js", () => ({
+  useLocale: () => ({ locale: "en" })
+}));
+
+vi.mock("../../app/providers/OverviewProvider.js", () => ({
+  useOverview: () => ({
+    overview: {
+      engine: {
+        installed: true,
+        running: true,
+        version: "2026.3.13",
+        summary: "Ready"
+      },
+      installSpec: {
+        desiredVersion: "latest"
+      },
+      channelSetup: {
+        channels: [],
+        gatewaySummary: "Gateway ready"
+      },
+      healthChecks: []
+    }
+  })
+}));
+
+vi.mock("../../app/providers/AITeamProvider.js", () => ({
+  useAITeam: () => ({
+    overview: {
+      members: [],
+      activity: []
+    }
+  })
+}));
 
 describe("DashboardPage model metrics", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("counts connected models from configured model keys, not install checks", () => {
     const modelConfig: ModelConfigOverview = {
       providers: [],
@@ -76,5 +117,12 @@ describe("DashboardPage model metrics", () => {
     };
 
     expect(connectedModelDetail(overview, undefined)).toBe("OpenClaw is not installed.");
+  });
+
+  it("renders the dashboard scaffold in the full-width mode", () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, undefined, createElement(DashboardPage)));
+
+    expect(html).toContain("workspace-scaffold--full");
+    expect(html).not.toContain("workspace-scaffold--centered");
   });
 });

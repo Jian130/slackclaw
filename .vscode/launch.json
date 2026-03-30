@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:slackclaw}/apps/macos-native",
+            "name": "Debug SlackClawNative (apps/macos-native)",
+            "target": "SlackClawNative",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug SlackClawNative (apps/macos-native)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:slackclaw}/apps/macos-native",
+            "name": "Release SlackClawNative (apps/macos-native)",
+            "target": "SlackClawNative",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release SlackClawNative (apps/macos-native)"
+        }
+    ]
+}

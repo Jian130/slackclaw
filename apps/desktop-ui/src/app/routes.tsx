@@ -7,12 +7,17 @@ import DashboardPage from "../features/dashboard/DashboardPage.js";
 import OnboardingPage from "../features/onboarding/OnboardingPage.js";
 import DeployPage from "../features/deploy/DeployPage.js";
 import ConfigPage from "../features/config/ConfigPage.js";
+import PluginsPage from "../features/plugins/PluginsPage.js";
 import SkillsPage from "../features/skills/SkillsPage.js";
 import MembersPage from "../features/members/MembersPage.js";
 import ChatPage from "../features/chat/ChatPage.js";
 import TeamPage from "../features/team/TeamPage.js";
 import SettingsPage from "../features/settings/SettingsPage.js";
 import { EmptyState } from "../shared/ui/EmptyState.js";
+
+export function shouldRedirectToOnboarding(setupCompleted: boolean, pathname: string): boolean {
+  return !setupCompleted && pathname !== "/onboarding";
+}
 
 function AppBoundary() {
   const location = useLocation();
@@ -39,14 +44,13 @@ function AppBoundary() {
     return null;
   }
 
-  const introCompleted = overview.firstRun.introCompleted;
-  const needsOnboarding = !introCompleted && location.pathname !== "/onboarding";
+  const needsOnboarding = shouldRedirectToOnboarding(overview.firstRun.setupCompleted, location.pathname);
 
   if (needsOnboarding) {
     return <Navigate to="/onboarding" replace />;
   }
 
-  if (introCompleted && location.pathname === "/onboarding" && overview.firstRun.setupCompleted) {
+  if (overview.firstRun.setupCompleted && location.pathname === "/onboarding") {
     return <Navigate to="/deploy" replace />;
   }
 
@@ -76,6 +80,7 @@ export function AppRoutes() {
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/deploy" element={<DeployPage />} />
         <Route path="/config" element={<ConfigPage />} />
+        <Route path="/plugins" element={<PluginsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route element={<AITeamBoundary />}>

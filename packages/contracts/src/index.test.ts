@@ -6,9 +6,17 @@ import {
   type DeploymentTargetsResponse,
   type AITeamOverview,
   type ChatActionResponse,
+  type ChatBridgeState,
+  type ChatToolActivity,
+  type PluginConfigOverview,
+  type SlackClawEvent,
   type ChatOverview,
   type ChannelConfigOverview,
   type ModelConfigOverview,
+  type MutationSyncMeta,
+  type OnboardingStateResponse,
+  type PresetSkillSyncOverview,
+  type RevisionedSnapshot,
   type SkillCatalogOverview,
   type SkillMarketplaceDetail
 } from "./index.js";
@@ -21,6 +29,10 @@ test("default product overview starts with OpenClaw not installed", () => {
   assert.equal(overview.installSpec.desiredVersion, "latest");
   assert.equal(overview.templates.length > 4, true);
   assert.equal(overview.recoveryActions.some((action) => action.id === "reinstall-engine"), true);
+  assert.deepEqual(
+    overview.channelSetup.channels.map((channel) => channel.id),
+    ["telegram", "whatsapp", "feishu", "wechat-work", "wechat"]
+  );
 });
 
 test("deployment target shapes serialize installed and available claw runtime targets", () => {
@@ -174,7 +186,161 @@ test("generic channel config shapes serialize with masked summaries and capabili
   assert.equal(parsed.entries[0].pairingRequired, true);
 });
 
+test("onboarding state response distinguishes wechat-work and wechat setup kinds", () => {
+  const response: OnboardingStateResponse = {
+    firstRun: {
+      introCompleted: true,
+      setupCompleted: false
+    },
+    draft: {
+      currentStep: "channel"
+    },
+    config: {
+      modelProviders: [],
+      channels: [
+        {
+          id: "wechat-work",
+          label: "WeChat Work (WeCom)",
+          secondaryLabel: "企业微信",
+          description: "Set up WeChat Work credentials for your digital employees.",
+          theme: "wechat-work",
+          setupKind: "wechat-work-guided",
+          docsUrl: "https://work.weixin.qq.com/"
+        },
+        {
+          id: "wechat",
+          label: "WeChat",
+          secondaryLabel: "微信",
+          description: "Set up personal WeChat with a QR-first login flow.",
+          theme: "wechat",
+          setupKind: "wechat-guided"
+        }
+      ],
+      employeePresets: []
+    },
+    summary: {}
+  };
+
+  assert.deepEqual(response.config.channels.map((channel) => channel.id), ["wechat-work", "wechat"]);
+  assert.deepEqual(response.config.channels.map((channel) => channel.setupKind), ["wechat-work-guided", "wechat-guided"]);
+});
+
+test("plugin config overview serializes managed plugin entries and dependencies", () => {
+  const overview: PluginConfigOverview = {
+    entries: [
+      {
+        id: "wecom",
+        label: "WeCom Plugin",
+        packageSpec: "@wecom/wecom-openclaw-plugin",
+        runtimePluginId: "wecom-openclaw-plugin",
+        configKey: "wecom",
+        status: "update-available",
+        summary: "A newer managed plugin version is available.",
+        detail: "WeChat depends on this plugin.",
+        enabled: true,
+        installed: true,
+        hasUpdate: true,
+        hasError: false,
+        activeDependentCount: 1,
+        dependencies: [
+          {
+            id: "channel:wechat",
+            label: "WeChat Work",
+            kind: "channel",
+            active: true,
+            summary: "Configured through ChillClaw."
+          }
+        ]
+      }
+    ]
+  };
+
+  const parsed = JSON.parse(JSON.stringify(overview)) as PluginConfigOverview;
+
+  assert.equal(parsed.entries[0]?.id, "wecom");
+  assert.equal(parsed.entries[0]?.packageSpec, "@wecom/wecom-openclaw-plugin");
+  assert.equal(parsed.entries[0]?.dependencies[0]?.id, "channel:wechat");
+  assert.equal(parsed.entries[0]?.activeDependentCount, 1);
+});
+
+test("revisioned snapshot events serialize authoritative resource updates", () => {
+  const snapshot: RevisionedSnapshot<ModelConfigOverview> = {
+    epoch: "daemon-epoch-1",
+    revision: 4,
+    data: {
+      providers: [],
+      models: [],
+      configuredModelKeys: [],
+      savedEntries: [],
+      fallbackEntryIds: []
+    }
+  };
+  const event: SlackClawEvent = {
+    type: "model-config.updated",
+    snapshot
+  };
+
+  const parsed = JSON.parse(JSON.stringify(event)) as SlackClawEvent;
+
+  assert.equal(parsed.type, "model-config.updated");
+  assert.equal(parsed.snapshot.epoch, "daemon-epoch-1");
+  assert.equal(parsed.snapshot.revision, 4);
+  assert.deepEqual(parsed.snapshot.data.savedEntries, []);
+});
+
+test("plugin config events serialize authoritative plugin resource updates", () => {
+  const snapshot: RevisionedSnapshot<PluginConfigOverview> = {
+    epoch: "daemon-epoch-plugins",
+    revision: 2,
+    data: {
+      entries: [
+        {
+          id: "wecom",
+          label: "WeCom Plugin",
+          packageSpec: "@wecom/wecom-openclaw-plugin",
+          runtimePluginId: "wecom-openclaw-plugin",
+          configKey: "wecom",
+          status: "ready",
+          summary: "Plugin is ready.",
+          detail: "Managed by ChillClaw.",
+          enabled: true,
+          installed: true,
+          hasUpdate: false,
+          hasError: false,
+          activeDependentCount: 0,
+          dependencies: []
+        }
+      ]
+    }
+  };
+  const event: SlackClawEvent = {
+    type: "plugin-config.updated",
+    snapshot
+  };
+
+  const parsed = JSON.parse(JSON.stringify(event)) as SlackClawEvent;
+
+  assert.equal(parsed.type, "plugin-config.updated");
+  assert.equal(parsed.snapshot.data.entries[0]?.runtimePluginId, "wecom-openclaw-plugin");
+  assert.equal(parsed.snapshot.data.entries[0]?.status, "ready");
+});
+
 test("AI team overview serializes brain assignments and team membership", () => {
+  const presetSkillSync: PresetSkillSyncOverview = {
+    targetMode: "managed-local",
+    entries: [
+      {
+        presetSkillId: "preset-research-brief",
+        runtimeSlug: "research-brief",
+        targetMode: "managed-local",
+        status: "verified",
+        installedVersion: "1.0.0",
+        updatedAt: new Date().toISOString()
+      }
+    ],
+    summary: "1 preset skill verified.",
+    repairRecommended: false
+  };
   const overview: AITeamOverview = {
     teamVision: "AI members help the team move routine work forward.",
     members: [
@@ -207,6 +373,7 @@ test("AI team overview serializes brain assignments and team membership", () => 
         personality: "Analytical and calm",
         soul: "Turn scattered requests into crisp next steps.",
         workStyles: ["Methodical"],
+        presetSkillIds: ["research-brief"],
         skillIds: ["research-brief"],
         knowledgePackIds: ["company-handbook"],
         capabilitySettings: {
@@ -227,6 +394,22 @@ test("AI team overview serializes brain assignments and team membership", () => 
     ],
     activity: [],
     availableBrains: [],
+    memberPresets: [
+      {
+        id: "general-assistant",
+        label: "General Assistant",
+        description: "Start with a reliable default kit for everyday work.",
+        avatarPresetId: "operator",
+        jobTitle: "General Assistant",
+        personality: "Clear, practical, and dependable",
+        soul: "Turn requests into useful next steps without extra overhead.",
+        workStyles: ["Methodical", "Structured"],
+        presetSkillIds: ["research-brief"],
+        skillIds: ["research-brief"],
+        knowledgePackIds: ["company-handbook"],
+        defaultMemoryEnabled: true
+      }
+    ],
     knowledgePacks: [
       {
         id: "company-handbook",
@@ -241,17 +424,22 @@ test("AI team overview serializes brain assignments and team membership", () => 
         label: "Research brief",
         description: "Turn notes into a structured brief."
       }
-    ]
+    ],
+    presetSkillSync
   };
 
   const parsed = JSON.parse(JSON.stringify(overview)) as AITeamOverview;
 
   assert.equal(parsed.members[0].brain?.entryId, "brain-1");
+  assert.equal(parsed.memberPresets[0].id, "general-assistant");
+  assert.equal(parsed.memberPresets[0].jobTitle, "General Assistant");
+  assert.deepEqual(parsed.members[0].presetSkillIds, ["research-brief"]);
   assert.equal(parsed.members[0].source, "slackclaw");
   assert.equal(parsed.members[0].hasManagedMetadata, true);
   assert.equal(parsed.members[0].bindingCount, 1);
   assert.equal(parsed.members[0].bindings[0]?.target, "telegram:support");
   assert.equal(parsed.teams[0].memberCount, 1);
+  assert.equal(parsed.presetSkillSync?.entries[0]?.presetSkillId, "preset-research-brief");
 });
 
 test("AI member delete request serializes retention mode", () => {
@@ -260,6 +448,13 @@ test("AI member delete request serializes retention mode", () => {
 });
 
 test("chat overview and action responses serialize thread state and messages", () => {
+  const toolActivity: ChatToolActivity = {
+    id: "tool-1",
+    label: "Reading workspace files",
+    status: "running",
+    detail: "Inspecting the current thread context."
+  };
+  const bridgeState: ChatBridgeState = "reconnecting";
   const overview: ChatOverview = {
     threads: [
       {
@@ -277,7 +472,9 @@ test("chat overview and action responses serialize thread state and messages", (
         composerState: {
           status: "idle",
           canSend: true,
-          canAbort: false
+          canAbort: false,
+          bridgeState,
+          toolActivities: [toolActivity]
         }
       }
     ]
@@ -287,6 +484,9 @@ test("chat overview and action responses serialize thread state and messages", (
     status: "completed",
     message: "Started a new chat.",
     overview,
+    epoch: "daemon-epoch-1",
+    revision: 9,
+    settled: true,
     thread: {
       ...overview.threads[0],
       messages: [
@@ -313,9 +513,121 @@ test("chat overview and action responses serialize thread state and messages", (
   assert.equal(parsed.thread?.messages[1]?.role, "assistant");
   assert.equal(parsed.thread?.messages[0]?.clientMessageId, "client-1");
   assert.equal(parsed.thread?.composerState.canSend, true);
+  assert.equal(parsed.thread?.composerState.bridgeState, "reconnecting");
+  assert.equal(parsed.thread?.composerState.toolActivities?.[0]?.label, "Reading workspace files");
+  assert.equal(parsed.epoch, "daemon-epoch-1");
+  assert.equal(parsed.revision, 9);
+  assert.equal(parsed.settled, true);
+});
+
+test("daemon event envelope serializes deploy, gateway, task, and chat updates", () => {
+  const events: SlackClawEvent[] = [
+    {
+      type: "deploy.progress",
+      correlationId: "corr-1",
+      targetId: "managed-local",
+      phase: "installing",
+      percent: 50,
+      message: "Installing OpenClaw."
+    },
+    {
+      type: "gateway.status",
+      reachable: true,
+      pendingGatewayApply: false,
+      summary: "Gateway is healthy."
+    },
+    {
+      type: "task.progress",
+      taskId: "task-1",
+      status: "running",
+      message: "Generating task summary."
+    },
+    {
+      type: "chat.stream",
+      threadId: "thread-1",
+      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      payload: {
+        type: "assistant-tool-status",
+        threadId: "thread-1",
+        sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+        activityLabel: "Inspecting files",
+        toolActivity: {
+          id: "tool-1",
+          label: "Inspecting files",
+          status: "running"
+        }
+      }
+    },
+    {
+      type: "overview.updated",
+      snapshot: {
+        epoch: "daemon-epoch-1",
+        revision: 2,
+        data: createDefaultProductOverview()
+      }
+    },
+    {
+      type: "chat.stream",
+      threadId: "thread-1",
+      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      payload: {
+        type: "connection-state",
+        threadId: "thread-1",
+        state: "polling",
+        detail: "Falling back to daemon polling."
+      }
+    },
+    {
+      type: "chat.stream",
+      threadId: "thread-1",
+      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      payload: {
+        type: "assistant-delta",
+        threadId: "thread-1",
+        message: {
+          id: "message-1",
+          role: "assistant",
+          text: "hello",
+          status: "streaming"
+        }
+      }
+    }
+  ];
+
+  const parsed = JSON.parse(JSON.stringify(events)) as SlackClawEvent[];
+  assert.equal(parsed[0]?.type, "deploy.progress");
+  assert.equal(parsed[0]?.targetId, "managed-local");
+  assert.equal(parsed[1]?.type, "gateway.status");
+  assert.equal(parsed[1]?.reachable, true);
+  assert.equal(parsed[2]?.type, "task.progress");
+  assert.equal(parsed[2]?.status, "running");
+  assert.equal(parsed[3]?.type, "chat.stream");
+  assert.equal(parsed[3]?.payload.type, "assistant-tool-status");
+  assert.equal(parsed[3]?.payload.toolActivity.status, "running");
+  assert.equal(parsed[4]?.type, "overview.updated");
+  assert.equal(parsed[4]?.snapshot.revision, 2);
+  assert.equal(parsed[5]?.type, "chat.stream");
+  assert.equal(parsed[5]?.payload.type, "connection-state");
+  assert.equal(parsed[6]?.type, "chat.stream");
+  assert.equal(parsed[6]?.payload.type, "assistant-delta");
 });
 
 test("skill catalog overview serializes installed entries and readiness", () => {
+  const presetSkillSync: PresetSkillSyncOverview = {
+    targetMode: "reused-install",
+    entries: [
+      {
+        presetSkillId: "preset-status-writer",
+        runtimeSlug: "status-writer",
+        targetMode: "reused-install",
+        status: "failed",
+        lastError: "Missing runtime package.",
+        updatedAt: new Date().toISOString()
+      }
+    ],
+    summary: "1 preset skill needs repair.",
+    repairRecommended: true
+  };
   const overview: SkillCatalogOverview = {
     managedSkillsDir: "/Users/home/.openclaw/workspace/skills",
     workspaceDir: "/Users/home/.openclaw/workspace",
@@ -357,12 +669,115 @@ test("skill catalog overview serializes installed entries and readiness", () => 
       warnings: [],
       summary: "1 ready"
     },
-    marketplacePreview: []
+    marketplacePreview: [],
+    presetSkillSync
   };
 
   const parsed = JSON.parse(JSON.stringify(overview)) as SkillCatalogOverview;
   assert.equal(parsed.installedSkills[0]?.managedBy, "openclaw");
   assert.equal(parsed.readiness.total, 1);
+  assert.equal(parsed.presetSkillSync?.repairRecommended, true);
+});
+
+test("onboarding response serializes preset skill sync summary", () => {
+  const response: OnboardingStateResponse = {
+    firstRun: {
+      introCompleted: false,
+      setupCompleted: false
+    },
+    draft: {
+      currentStep: "welcome"
+    },
+    config: {
+      modelProviders: [],
+      channels: [],
+      employeePresets: []
+    },
+    summary: {
+      install: {
+        installed: true,
+        version: "2026.3.11",
+        disposition: "installed-managed"
+      },
+      model: {
+        providerId: "openai",
+        modelKey: "openai/gpt-5"
+      },
+      channel: {
+        channelId: "telegram"
+      },
+      employee: {
+        name: "Alex Morgan",
+        jobTitle: "Research Lead",
+        avatarPresetId: "operator"
+      }
+    },
+    presetSkillSync: {
+      targetMode: "managed-local",
+      entries: [],
+      summary: "No preset skills selected.",
+      repairRecommended: false
+    }
+  };
+
+  const parsed = JSON.parse(JSON.stringify(response)) as OnboardingStateResponse;
+  assert.equal(parsed.presetSkillSync?.summary, "No preset skills selected.");
+});
+
+test("onboarding employee preset presentation carries daemon-owned avatar preset ids", () => {
+  const response: OnboardingStateResponse = {
+    firstRun: {
+      introCompleted: false,
+      setupCompleted: false
+    },
+    draft: {
+      currentStep: "employee"
+    },
+    config: {
+      modelProviders: [],
+      channels: [],
+      employeePresets: [
+        {
+          id: "research-analyst",
+          label: "Research Analyst",
+          description: "Research quickly, write crisp summaries, and keep answers grounded in the right context.",
+          theme: "analyst",
+          avatarPresetId: "onboarding-analyst",
+          starterSkillLabels: ["Research Brief", "Status Writer"],
+          toolLabels: ["Company handbook", "Delivery playbook"],
+          presetSkillIds: ["research-brief", "status-writer"],
+          knowledgePackIds: ["company-handbook", "delivery-playbook"],
+          workStyles: ["Analytical", "Concise"],
+          defaultMemoryEnabled: true
+        }
+      ]
+    },
+    summary: {}
+  };
+
+  const parsed = JSON.parse(JSON.stringify(response)) as OnboardingStateResponse;
+  assert.equal(parsed.config.employeePresets[0]?.avatarPresetId, "onboarding-analyst");
+});
+
+test("mutation sync metadata serializes on action responses", () => {
+  const sync: MutationSyncMeta = {
+    epoch: "daemon-epoch-1",
+    revision: 3,
+    settled: false
+  };
+
+  const response: ChatActionResponse = {
+    status: "completed",
+    message: "Message sent.",
+    overview: { threads: [] },
+    ...sync
+  };
+
+  const parsed = JSON.parse(JSON.stringify(response)) as ChatActionResponse;
+
+  assert.equal(parsed.epoch, "daemon-epoch-1");
+  assert.equal(parsed.revision, 3);
+  assert.equal(parsed.settled, false);
 });
 
 test("skill marketplace detail serializes install metadata", () => {

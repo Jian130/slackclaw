@@ -1,11 +1,11 @@
 import { startServer } from "./server.js";
-import { errorToLogDetails, writeErrorLog } from "./services/logger.js";
+import { errorToLogDetails, formatConsoleLine, writeErrorLog } from "./services/logger.js";
 
 const port = Number(process.env.SLACKCLAW_PORT ?? "4545");
 const server = startServer(port);
 
 server.on("listening", () => {
-  console.log(`${new Date().toISOString()} SlackClaw daemon listening on http://127.0.0.1:${port}`);
+  console.log(formatConsoleLine(`SlackClaw daemon listening on http://127.0.0.1:${port}`));
 });
 
 process.on("uncaughtException", (error) => {

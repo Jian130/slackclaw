@@ -3,6 +3,7 @@ import type {
   BindAIMemberChannelRequest,
   BrainAssignment,
   ChatMessage,
+  ChatToolActivity,
   ChatThreadDetail,
   DeleteAIMemberRequest,
   InstallSkillRequest,
@@ -11,6 +12,7 @@ import type {
   MemberAvatar,
   MemberBindingSummary,
   MemberCapabilitySettings,
+  PluginConfigOverview,
   SendChatMessageRequest,
   ChannelSessionInputRequest,
   ChannelSession,
@@ -36,6 +38,7 @@ import type {
   ReplaceFallbackModelEntriesRequest,
   SkillReadinessSummary,
   SaveModelEntryRequest,
+  SupportedChannelId,
   SkillOption,
   SetDefaultModelEntryRequest,
   EngineStatus,
@@ -46,10 +49,7 @@ import type {
   PairingApprovalRequest,
   RecoveryAction,
   RecoveryRunResponse,
-  FeishuSetupRequest,
-  TelegramSetupRequest,
-  UpdateSkillRequest,
-  WechatSetupRequest
+  UpdateSkillRequest
 } from "@slackclaw/contracts";
 
 export type EngineChatLiveEvent =
@@ -84,9 +84,26 @@ export type EngineChatLiveEvent =
     }
   | {
       type: "assistant-tool-status";
+      sessionKey: string;
       runId?: string;
       activityLabel: string;
+      toolActivity: ChatToolActivity;
     };
+
+export type EngineReadCacheResource = "engine" | "models" | "channels" | "plugins" | "skills" | "ai-members";
+
+export interface ManagedSkillInstallRequest {
+  slug: string;
+  installSource: "bundled" | "clawhub";
+  version?: string;
+  bundledAssetPath?: string;
+}
+
+export interface ManagedSkillInstallResult {
+  runtimeSkillId?: string;
+  version?: string;
+  requiresGatewayApply?: boolean;
+}
 
 export interface AIMemberRuntimeRequest {
   memberId: string;
@@ -154,17 +171,20 @@ export interface SkillRuntimeCatalog {
   skills: SkillRuntimeEntry[];
 }
 
-export interface EngineAdapter {
-  readonly installSpec: EngineInstallSpec;
-  readonly capabilities: EngineCapabilities;
-
-  invalidateReadCaches(): void;
-
+export interface InstanceManager {
   install(autoConfigure: boolean, options?: { forceLocal?: boolean }): Promise<InstallResponse>;
   uninstall(): Promise<EngineActionResponse>;
+  status(): Promise<EngineStatus>;
+  getDeploymentTargets(): Promise<DeploymentTargetsResponse>;
   installDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
   uninstallDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
-  restartGateway(): Promise<GatewayActionResponse>;
+  updateDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
+  update(): Promise<{ message: string; engineStatus: EngineStatus }>;
+  repair(action: RecoveryAction): Promise<RecoveryRunResponse>;
+  exportDiagnostics(): Promise<{ filename: string; content: string }>;
+}
+
+export interface ConfigManager {
   getModelConfig(): Promise<ModelConfigOverview>;
   createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse>;
   updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest): Promise<ModelConfigActionResponse>;
@@ -175,52 +195,90 @@ export interface EngineAdapter {
   getModelAuthSession(sessionId: string): Promise<ModelAuthSessionResponse>;
   submitModelAuthSessionInput(sessionId: string, request: ModelAuthSessionInputRequest): Promise<ModelAuthSessionResponse>;
   setDefaultModel(modelKey: string): Promise<ModelConfigActionResponse>;
-  onboard(profileId: string): Promise<void>;
-  configure(profileId: string): Promise<void>;
-  status(): Promise<EngineStatus>;
-  getDeploymentTargets(): Promise<DeploymentTargetsResponse>;
-  updateDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse>;
-  healthCheck(selectedProfileId?: string): Promise<HealthCheckResult[]>;
-  runTask(request: EngineTaskRequest): Promise<EngineTaskResult>;
-  update(): Promise<{ message: string; engineStatus: EngineStatus }>;
-  repair(action: RecoveryAction): Promise<RecoveryRunResponse>;
-  exportDiagnostics(): Promise<{ filename: string; content: string }>;
-  getChannelState(channelId: "telegram" | "whatsapp" | "feishu" | "wechat"): Promise<ChannelSetupState>;
+  getChannelState(channelId: SupportedChannelId): Promise<ChannelSetupState>;
   getConfiguredChannelEntries(): Promise<ConfiguredChannelEntry[]>;
-  getActiveChannelSession(): Promise<ChannelSession | undefined>;
-  getChannelSession(sessionId: string): Promise<ChannelSession>;
-  submitChannelSessionInput(sessionId: string, request: ChannelSessionInputRequest): Promise<ChannelSession>;
   saveChannelEntry(
     request: SaveChannelEntryRequest
-  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession }>;
-  removeChannelEntry(request: RemoveChannelEntryRequest): Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat" }>;
+  ): Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession; requiresGatewayApply?: boolean }>;
+  removeChannelEntry(
+    request: RemoveChannelEntryRequest
+  ): Promise<{ message: string; channelId: SupportedChannelId; requiresGatewayApply?: boolean }>;
   getSkillRuntimeCatalog(): Promise<SkillRuntimeCatalog>;
   getInstalledSkillDetail(skillId: string): Promise<InstalledSkillDetail>;
   listMarketplaceInstalledSkills(): Promise<Array<{ slug: string; version?: string }>>;
   exploreSkillMarketplace(limit?: number): Promise<SkillMarketplaceEntry[]>;
   searchSkillMarketplace(query: string, limit?: number): Promise<SkillMarketplaceEntry[]>;
   getSkillMarketplaceDetail(slug: string): Promise<SkillMarketplaceDetail>;
-  installMarketplaceSkill(request: InstallSkillRequest): Promise<void>;
-  updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<void>;
-  saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string }>;
-  removeInstalledSkill(slug: string, request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }): Promise<void>;
+  installMarketplaceSkill(request: InstallSkillRequest): Promise<{ requiresGatewayApply?: boolean }>;
+  updateMarketplaceSkill(slug: string, request: UpdateSkillRequest): Promise<{ requiresGatewayApply?: boolean }>;
+  saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string; requiresGatewayApply?: boolean }>;
+  removeInstalledSkill(
+    slug: string,
+    request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+  ): Promise<{ requiresGatewayApply?: boolean }>;
+  installManagedSkill(request: ManagedSkillInstallRequest): Promise<ManagedSkillInstallResult>;
+  verifyManagedSkill(slug: string): Promise<SkillRuntimeEntry | undefined>;
+}
+
+export interface AIEmployeeManager {
   listAIMemberRuntimeCandidates(): Promise<AIMemberRuntimeCandidate[]>;
-  saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState>;
+  saveAIMemberRuntime(request: AIMemberRuntimeRequest): Promise<AIMemberRuntimeState & { requiresGatewayApply?: boolean }>;
+  getPrimaryAIMemberAgentId(): Promise<string | undefined>;
+  setPrimaryAIMemberAgent(agentId: string | undefined): Promise<{ requiresGatewayApply?: boolean }>;
   getAIMemberBindings(agentId: string): Promise<MemberBindingSummary[]>;
-  bindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]>;
-  unbindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<MemberBindingSummary[]>;
-  deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<void>;
+  bindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<{
+    bindings: MemberBindingSummary[];
+    requiresGatewayApply?: boolean;
+  }>;
+  unbindAIMemberChannel(agentId: string, request: BindAIMemberChannelRequest): Promise<{
+    bindings: MemberBindingSummary[];
+    requiresGatewayApply?: boolean;
+  }>;
+  deleteAIMemberRuntime(agentId: string, request: DeleteAIMemberRequest): Promise<{
+    requiresGatewayApply?: boolean;
+    wasPrimary?: boolean;
+  }>;
+}
+
+export interface GatewayManager {
+  restartGateway(): Promise<GatewayActionResponse>;
+  healthCheck(selectedProfileId?: string): Promise<HealthCheckResult[]>;
+  getActiveChannelSession(): Promise<ChannelSession | undefined>;
+  getChannelSession(sessionId: string): Promise<ChannelSession>;
+  submitChannelSessionInput(sessionId: string, request: ChannelSessionInputRequest): Promise<ChannelSession>;
+  runTask(request: EngineTaskRequest): Promise<EngineTaskResult>;
   getChatThreadDetail(request: { agentId: string; threadId: string; sessionKey: string }): Promise<ChatThreadDetail>;
   subscribeToLiveChatEvents(listener: (event: EngineChatLiveEvent) => void): Promise<() => void>;
   sendChatMessage(
     request: SendChatMessageRequest & { agentId: string; threadId: string; sessionKey: string }
   ): Promise<{ runId?: string }>;
   abortChatMessage(request: AbortChatRequest & { agentId: string; threadId: string; sessionKey: string }): Promise<void>;
-  configureTelegram(request: TelegramSetupRequest): Promise<{ message: string; channel: ChannelSetupState }>;
   startWhatsappLogin(): Promise<{ message: string; channel: ChannelSetupState }>;
-  approvePairing(channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest): Promise<{ message: string; channel: ChannelSetupState }>;
+  approvePairing(
+    channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work" | "wechat",
+    request: PairingApprovalRequest
+  ): Promise<{ message: string; channel: ChannelSetupState }>;
   prepareFeishu(): Promise<{ message: string; channel: ChannelSetupState }>;
-  configureFeishu(request: FeishuSetupRequest): Promise<{ message: string; channel: ChannelSetupState }>;
-  configureWechatWorkaround(request: WechatSetupRequest): Promise<{ message: string; channel: ChannelSetupState }>;
+  finalizeOnboardingSetup(): Promise<{ message: string; engineStatus: EngineStatus }>;
   startGatewayAfterChannels(): Promise<{ message: string; engineStatus: EngineStatus }>;
+}
+
+export interface PluginManager {
+  getConfigOverview(): Promise<PluginConfigOverview>;
+  ensureFeatureRequirements(featureId: string, options?: { deferGatewayRestart?: boolean }): Promise<PluginConfigOverview>;
+  installPlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
+  updatePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
+  removePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
+}
+
+export interface EngineAdapter {
+  readonly installSpec: EngineInstallSpec;
+  readonly capabilities: EngineCapabilities;
+  readonly instances: InstanceManager;
+  readonly config: ConfigManager;
+  readonly aiEmployees: AIEmployeeManager;
+  readonly gateway: GatewayManager;
+  readonly plugins: PluginManager;
+
+  invalidateReadCaches(resources?: EngineReadCacheResource[]): void;
 }

@@ -8,3 +8,7 @@ coverage
 apps/desktop-ui/.vite
 apps/daemon/.data
 **/.data
+**/.build
+**/.swiftpm
+**/xcuserdata
+*.xcuserstate

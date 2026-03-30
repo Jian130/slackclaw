@@ -1,9 +1,11 @@
 import { Download, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   exportDiagnostics,
   installAppService,
+  redoOnboarding,
   restartAppService,
   runUpdate,
   stopSlackClawApp,
@@ -17,12 +19,13 @@ import { t } from "../../shared/i18n/messages.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../../shared/ui/Card.js";
 import { FieldLabel, Input, Select } from "../../shared/ui/Field.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 import { Switch } from "../../shared/ui/Switch.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.js";
-import { Badge } from "../../shared/ui/Badge.js";
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
   const { locale } = useLocale();
   const copy = t(locale).settings;
   const { overview, refresh } = useOverview();
@@ -41,9 +44,20 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleRedoOnboarding() {
+    setBusy("redo-onboarding");
+    try {
+      await redoOnboarding();
+      await refresh();
+      setMessage(copy.redoOnboardingDone);
+      navigate("/onboarding", { replace: true });
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
-    <div className="panel-stack">
-      <PageHeader title={copy.title} subtitle={copy.subtitle} />
+    <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
       {message ? <p className="card__description">{message}</p> : null}
 
       <Tabs defaultValue="general">
@@ -55,32 +69,49 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="general">
-          <Card>
-            <CardHeader>
-              <CardTitle>{copy.general}</CardTitle>
-            </CardHeader>
-            <CardContent className="field-grid">
-              <div>
-                <FieldLabel htmlFor="instance-name">Instance Name</FieldLabel>
-                <Input
-                  id="instance-name"
-                  onChange={(event) =>
-                    update((current) => ({
-                      ...current,
-                      settings: {
-                        ...current.settings,
-                        general: { ...current.settings.general, instanceName: event.target.value }
-                      }
-                    }))
-                  }
-                  value={state.settings.general.instanceName}
-                />
-              </div>
-              <div className="check-row"><div className="check-row__meta"><strong>Auto-start on boot</strong><p>Stored locally for the current SlackClaw workspace.</p></div><Switch checked={state.settings.general.autoStart} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, autoStart: checked } } }))} /></div>
-              <div className="check-row"><div className="check-row__meta"><strong>Check for updates</strong><p>Keep SlackClaw aware of product updates.</p></div><Switch checked={state.settings.general.checkUpdates} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, checkUpdates: checked } } }))} /></div>
-              <div className="check-row"><div className="check-row__meta"><strong>Send telemetry</strong><p>Frontend-local preference only until a daemon-backed setting exists.</p></div><Switch checked={state.settings.general.telemetry} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, telemetry: checked } } }))} /></div>
-            </CardContent>
-          </Card>
+          <div className="panel-stack">
+            <Card>
+              <CardHeader>
+                <CardTitle>{copy.permissionsTitle}</CardTitle>
+              </CardHeader>
+              <CardContent className="panel-stack">
+                <p className="card__description">{copy.permissionsBody}</p>
+                <div className="card card--muted">
+                  <div className="panel-stack" style={{ gap: 8 }}>
+                    <strong>{copy.permissionsNativeTitle}</strong>
+                    <p className="card__description">{copy.permissionsNativeBody}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{copy.general}</CardTitle>
+              </CardHeader>
+              <CardContent className="field-grid">
+                <div>
+                  <FieldLabel htmlFor="instance-name">Instance Name</FieldLabel>
+                  <Input
+                    id="instance-name"
+                    onChange={(event) =>
+                      update((current) => ({
+                        ...current,
+                        settings: {
+                          ...current.settings,
+                          general: { ...current.settings.general, instanceName: event.target.value }
+                        }
+                      }))
+                    }
+                    value={state.settings.general.instanceName}
+                  />
+                </div>
+                <div className="check-row"><div className="check-row__meta"><strong>Auto-start on boot</strong><p>Stored locally for the current ChillClaw workspace.</p></div><Switch checked={state.settings.general.autoStart} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, autoStart: checked } } }))} /></div>
+                <div className="check-row"><div className="check-row__meta"><strong>Check for updates</strong><p>Keep ChillClaw aware of product updates.</p></div><Switch checked={state.settings.general.checkUpdates} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, checkUpdates: checked } } }))} /></div>
+                <div className="check-row"><div className="check-row__meta"><strong>Send telemetry</strong><p>Frontend-local preference only until a daemon-backed setting exists.</p></div><Switch checked={state.settings.general.telemetry} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, telemetry: checked } } }))} /></div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="deployment">
@@ -91,9 +122,9 @@ export default function SettingsPage() {
                   <strong>App service</strong>
                   <p className="card__description">{overview?.appService.summary}</p>
                 </div>
-                <Badge tone={overview?.appService.running ? "success" : "warning"}>
+                <StatusBadge tone={overview?.appService.running ? "success" : "warning"}>
                   {overview?.appService.running ? "Running" : "Stopped"}
-                </Badge>
+                </StatusBadge>
               </CardContent>
             </Card>
             <Card>
@@ -179,6 +210,10 @@ export default function SettingsPage() {
               <CardContent className="panel-stack">
                 <strong>Danger Zone</strong>
                 <p className="card__description">These actions are real daemon-backed controls, not mock buttons.</p>
+                <Button loading={busy === "redo-onboarding"} onClick={() => void handleRedoOnboarding()} variant="outline">
+                  {busy === "redo-onboarding" ? copy.redoOnboardingRunning : copy.redoOnboarding}
+                </Button>
+                <p className="card__description">{copy.redoOnboardingBody}</p>
                 <Button loading={busy === "uninstall-app"} onClick={() => void runAction("uninstall-app", uninstallSlackClawApp)} variant="danger">
                   <Trash2 size={14} />
                   {busy === "uninstall-app" ? "Uninstalling..." : copy.uninstallApp}
@@ -188,6 +223,6 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
       </Tabs>
-    </div>
+    </WorkspaceScaffold>
   );
 }

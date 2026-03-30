@@ -4,17 +4,25 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
+import { EventBusService } from "./event-bus-service.js";
+import { EventPublisher } from "./event-publisher.js";
+import { PresetSkillService } from "./preset-skill-service.js";
 import { SkillService } from "./skill-service.js";
 import { StateStore } from "./state-store.js";
 
-function createService(testName: string, adapter = new MockAdapter()) {
+function createService(testName: string, adapter = new MockAdapter(), options?: { withEvents?: boolean }) {
   const filePath = resolve(process.cwd(), `apps/daemon/.data/${testName}-${randomUUID()}.json`);
   const store = new StateStore(filePath);
+  const bus = options?.withEvents ? new EventBusService() : undefined;
+  const eventPublisher = bus ? new EventPublisher(bus) : undefined;
+  const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
 
   return {
     adapter,
     store,
-    service: new SkillService(adapter, store)
+    presetSkillService,
+    service: new SkillService(adapter, store, eventPublisher, presetSkillService),
+    bus
   };
 }
 
@@ -73,4 +81,37 @@ test("skill service updates and removes marketplace skills", async () => {
   await service.removeSkill(installed!.id);
   overview = await service.getConfigOverview();
   assert.equal(overview.installedSkills.some((skill) => skill.slug === "weather-api"), false);
+});
+
+test("skill service publishes snapshot events for install, update, and remove", async () => {
+  const { service, bus } = createService("skills-events", new MockAdapter(), { withEvents: true });
+  const events: string[] = [];
+  bus?.subscribe((event) => {
+    events.push(event.type);
+  });
+
+  await service.installMarketplaceSkill({ slug: "weather-api" });
+
+  let overview = await service.getConfigOverview();
+  const installed = overview.installedSkills.find((skill) => skill.slug === "weather-api");
+  assert.ok(installed);
+
+  await service.updateSkill(installed!.id, { action: "update", version: "1.0.2" });
+  await service.removeSkill(installed!.id);
+
+  assert.deepEqual(events, [
+    "skill-catalog.updated",
+    "skill-catalog.updated",
+    "skill-catalog.updated"
+  ]);
+});
+
+test("skill service can repair preset skill sync and returns the updated overview", async () => {
+  const { service, presetSkillService } = createService("skills-preset-repair");
+
+  await presetSkillService.setDesiredPresetSkillIds("onboarding", ["research-brief"]);
+  const response = await service.repairPresetSkillSync();
+
+  assert.equal(response.status, "completed");
+  assert.equal(response.skillConfig.presetSkillSync?.entries[0]?.status, "verified");
 });

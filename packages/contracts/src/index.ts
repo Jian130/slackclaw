@@ -2,6 +2,18 @@ export type EngineKind = "openclaw" | "zeroclaw" | "ironclaw";
 
 export type Severity = "ok" | "info" | "warning" | "error";
 export type RecoverySafety = "safe" | "review" | "destructive";
+export interface RevisionedSnapshot<T> {
+  epoch: string;
+  revision: number;
+  data: T;
+}
+
+export interface MutationSyncMeta {
+  epoch: string;
+  revision: number;
+  settled: boolean;
+}
+
 export type RecoveryActionType =
   | "restart-engine"
   | "repair-config"
@@ -35,6 +47,8 @@ export interface EngineStatus {
   running: boolean;
   version?: string;
   summary: string;
+  pendingGatewayApply?: boolean;
+  pendingGatewayApplySummary?: string;
   lastCheckedAt: string;
 }
 
@@ -221,6 +235,163 @@ export interface FirstRunState {
   selectedProfileId?: string;
 }
 
+export type OnboardingStep = "welcome" | "install" | "permissions" | "model" | "channel" | "employee";
+export type OnboardingDestination = "team" | "dashboard" | "chat";
+
+export interface OnboardingInstallState {
+  installed: boolean;
+  version?: string;
+  disposition?: "reused-existing" | "installed-managed" | "installed-system" | "not-installed";
+  updateAvailable?: boolean;
+  latestVersion?: string;
+  updateSummary?: string;
+}
+
+export interface OnboardingPermissionsState {
+  confirmed: boolean;
+  confirmedAt?: string;
+}
+
+export interface OnboardingModelState {
+  providerId: string;
+  modelKey: string;
+  methodId?: string;
+  entryId?: string;
+}
+
+export interface OnboardingChannelState {
+  channelId: SupportedChannelId;
+  entryId?: string;
+}
+
+export type OnboardingChannelProgressStatus = "idle" | "capturing" | "staged";
+
+export interface OnboardingChannelProgressState {
+  status: OnboardingChannelProgressStatus;
+  sessionId?: string;
+  message?: string;
+  requiresGatewayApply?: boolean;
+}
+
+export interface OnboardingEmployeeState {
+  memberId?: string;
+  name: string;
+  jobTitle: string;
+  avatarPresetId: string;
+  presetId?: string;
+  personalityTraits?: string[];
+  presetSkillIds?: string[];
+  knowledgePackIds?: string[];
+  workStyles?: string[];
+  memoryEnabled?: boolean;
+}
+
+export interface OnboardingDraftState {
+  currentStep: OnboardingStep;
+  install?: OnboardingInstallState;
+  permissions?: OnboardingPermissionsState;
+  model?: OnboardingModelState;
+  channel?: OnboardingChannelState;
+  channelProgress?: OnboardingChannelProgressState;
+  employee?: OnboardingEmployeeState;
+  activeModelAuthSessionId?: string;
+  activeChannelSessionId?: string;
+}
+
+export interface OnboardingCompletionSummary {
+  install?: OnboardingInstallState;
+  model?: OnboardingModelState;
+  channel?: OnboardingChannelState;
+  employee?: OnboardingEmployeeState;
+}
+
+export type OnboardingModelProviderTheme = "minimax" | "qwen" | "chatgpt";
+export type OnboardingChannelTheme = "wechat-work" | "wechat" | "feishu" | "telegram";
+export type OnboardingChannelSetupKind =
+  | "wechat-work-guided"
+  | "wechat-guided"
+  | "feishu-guided"
+  | "telegram-guided";
+export type OnboardingEmployeePresetTheme = "analyst" | "support" | "operator";
+
+export interface OnboardingModelProviderPresentation {
+  id: string;
+  label: string;
+  description: string;
+  theme: OnboardingModelProviderTheme;
+  platformUrl: string;
+  tutorialVideoUrl?: string;
+  defaultModelKey: string;
+  authMethods: ModelAuthMethod[];
+}
+
+export interface OnboardingChannelPresentation {
+  id: SupportedChannelId;
+  label: string;
+  secondaryLabel?: string;
+  description: string;
+  theme: OnboardingChannelTheme;
+  setupKind: OnboardingChannelSetupKind;
+  platformUrl?: string;
+  docsUrl?: string;
+  tutorialVideoUrl?: string;
+}
+
+export interface OnboardingEmployeePresetPresentation {
+  id: string;
+  label: string;
+  description: string;
+  theme: OnboardingEmployeePresetTheme;
+  avatarPresetId: string;
+  starterSkillLabels: string[];
+  toolLabels: string[];
+  presetSkillIds?: string[];
+  knowledgePackIds: string[];
+  workStyles: string[];
+  defaultMemoryEnabled?: boolean;
+}
+
+export interface OnboardingUiConfig {
+  modelProviders: OnboardingModelProviderPresentation[];
+  channels: OnboardingChannelPresentation[];
+  employeePresets: OnboardingEmployeePresetPresentation[];
+}
+
+export interface OnboardingStateResponse {
+  firstRun: FirstRunState;
+  draft: OnboardingDraftState;
+  config: OnboardingUiConfig;
+  summary: OnboardingCompletionSummary;
+  presetSkillSync?: PresetSkillSyncOverview;
+}
+
+export interface UpdateOnboardingStateRequest {
+  currentStep?: OnboardingStep;
+  install?: OnboardingInstallState;
+  permissions?: OnboardingPermissionsState;
+  model?: OnboardingModelState;
+  channel?: OnboardingChannelState;
+  channelProgress?: OnboardingChannelProgressState;
+  employee?: OnboardingEmployeeState;
+  activeModelAuthSessionId?: string;
+  activeChannelSessionId?: string;
+}
+
+export interface CompleteOnboardingRequest {
+  destination?: OnboardingDestination;
+}
+
+export interface CompleteOnboardingResponse {
+  status: "completed";
+  destination?: OnboardingDestination;
+  summary: OnboardingCompletionSummary;
+  overview: ProductOverview;
+}
+
+export interface OnboardingStepNavigationRequest {
+  step: OnboardingStep;
+}
+
 export interface SetupStepResult {
   id: string;
   title: string;
@@ -228,7 +399,7 @@ export interface SetupStepResult {
   detail: string;
 }
 
-export type SupportedChannelId = "telegram" | "whatsapp" | "feishu" | "wechat";
+export type SupportedChannelId = "telegram" | "whatsapp" | "feishu" | "wechat-work" | "wechat";
 
 export interface ChannelSetupState {
   id: SupportedChannelId;
@@ -279,7 +450,7 @@ export interface ChannelCapability {
   supportsRemove: boolean;
   supportsPairing: boolean;
   supportsLogin: boolean;
-  guidedSetupKind?: "feishu" | "wechat";
+  guidedSetupKind?: "feishu" | "wechat-work" | "wechat";
 }
 
 export interface ChannelFieldSummary {
@@ -317,6 +488,46 @@ export interface ChannelConfigOverview {
   entries: ConfiguredChannelEntry[];
   activeSession?: ChannelSession;
   gatewaySummary: string;
+}
+
+export type ManagedPluginStatus =
+  | "missing"
+  | "installing"
+  | "updating"
+  | "ready"
+  | "update-available"
+  | "blocked"
+  | "error";
+
+export type ManagedPluginAction = "install" | "update" | "remove";
+
+export interface ManagedPluginDependency {
+  id: string;
+  label: string;
+  kind: "channel" | "model" | "skill" | "feature";
+  active: boolean;
+  summary: string;
+}
+
+export interface ManagedPluginEntry {
+  id: string;
+  label: string;
+  packageSpec: string;
+  runtimePluginId: string;
+  configKey: string;
+  status: ManagedPluginStatus;
+  summary: string;
+  detail: string;
+  enabled: boolean;
+  installed: boolean;
+  hasUpdate: boolean;
+  hasError: boolean;
+  activeDependentCount: number;
+  dependencies: ManagedPluginDependency[];
+}
+
+export interface PluginConfigOverview {
+  entries: ManagedPluginEntry[];
 }
 
 export interface BrainAssignment {
@@ -357,6 +568,38 @@ export interface SkillRequirementSummary {
   env: string[];
   config: string[];
   os: string[];
+}
+
+export type PresetSkillInstallSource = "bundled" | "clawhub";
+export type PresetSkillTargetMode = "managed-local" | "reused-install";
+export type PresetSkillSyncStatus = "pending" | "installing" | "installed" | "verified" | "failed";
+
+export interface PresetSkillDefinition {
+  id: string;
+  label: string;
+  description: string;
+  onboardingSafe: boolean;
+  runtimeSlug: string;
+  installSource: PresetSkillInstallSource;
+  pinnedVersion?: string;
+  bundledAssetPath?: string;
+}
+
+export interface PresetSkillSyncEntry {
+  presetSkillId: string;
+  runtimeSlug: string;
+  targetMode: PresetSkillTargetMode;
+  status: PresetSkillSyncStatus;
+  installedVersion?: string;
+  lastError?: string;
+  updatedAt: string;
+}
+
+export interface PresetSkillSyncOverview {
+  targetMode: PresetSkillTargetMode;
+  entries: PresetSkillSyncEntry[];
+  summary: string;
+  repairRecommended: boolean;
 }
 
 export type InstalledSkillSource = "bundled" | "workspace" | "extra" | "clawhub" | "custom";
@@ -431,6 +674,7 @@ export interface SkillCatalogOverview {
   installedSkills: InstalledSkillEntry[];
   readiness: SkillReadinessSummary;
   marketplacePreview: SkillMarketplaceEntry[];
+  presetSkillSync?: PresetSkillSyncOverview;
 }
 
 export interface MemberBindingSummary {
@@ -460,6 +704,7 @@ export interface AIMemberDetail extends AIMemberSummary {
   personality: string;
   soul: string;
   workStyles: string[];
+  presetSkillIds?: string[];
   skillIds: string[];
   knowledgePackIds: string[];
   capabilitySettings: MemberCapabilitySettings;
@@ -489,14 +734,31 @@ export interface AITeamActivityItem {
   tone: "completed" | "started" | "generated" | "updated" | "assigned";
 }
 
+export interface AIMemberPreset {
+  id: string;
+  label: string;
+  description: string;
+  avatarPresetId?: string;
+  jobTitle: string;
+  personality: string;
+  soul: string;
+  workStyles: string[];
+  presetSkillIds?: string[];
+  skillIds: string[];
+  knowledgePackIds: string[];
+  defaultMemoryEnabled?: boolean;
+}
+
 export interface AITeamOverview {
   teamVision: string;
   members: AIMemberDetail[];
   teams: TeamDetail[];
   activity: AITeamActivityItem[];
   availableBrains: SavedModelEntry[];
+  memberPresets: AIMemberPreset[];
   knowledgePacks: KnowledgePack[];
   skillOptions: SkillOption[];
+  presetSkillSync?: PresetSkillSyncOverview;
 }
 
 export interface MemberBindingsResponse {
@@ -507,6 +769,14 @@ export interface MemberBindingsResponse {
 export type ChatThreadStatus = "idle" | "sending" | "thinking" | "streaming" | "aborting" | "error";
 export type ChatHistoryStatus = "ready" | "unavailable";
 export type ChatMessageStatus = "pending" | "sent" | "streaming" | "failed";
+export type ChatBridgeState = "connected" | "reconnecting" | "polling" | "disconnected";
+
+export interface ChatToolActivity {
+  id: string;
+  label: string;
+  status: "queued" | "running" | "completed" | "failed";
+  detail?: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -528,6 +798,8 @@ export interface ChatComposerState {
   canAbort: boolean;
   activityLabel?: string;
   error?: string;
+  bridgeState?: ChatBridgeState;
+  toolActivities?: ChatToolActivity[];
 }
 
 export interface ChatThreadSummary {
@@ -569,6 +841,12 @@ export interface AbortChatRequest {}
 
 export type ChatStreamEvent =
   | {
+      type: "connection-state";
+      threadId: string;
+      state: ChatBridgeState;
+      detail?: string;
+    }
+  | {
       type: "thread-created";
       thread: ChatThreadSummary;
     }
@@ -596,7 +874,10 @@ export type ChatStreamEvent =
   | {
       type: "assistant-tool-status";
       threadId: string;
+      sessionKey: string;
+      runId?: string;
       activityLabel: string;
+      toolActivity: ChatToolActivity;
     }
   | {
       type: "assistant-delta";
@@ -625,6 +906,91 @@ export type ChatStreamEvent =
   | {
       type: "thread-updated";
       thread: ChatThreadSummary;
+    };
+
+export type SlackClawTaskProgressStatus = "pending" | "running" | "completed" | "failed";
+export type SlackClawDeployPhase =
+  | "detecting"
+  | "reusing"
+  | "installing"
+  | "updating"
+  | "uninstalling"
+  | "verifying"
+  | "restarting-gateway";
+export type SlackClawConfigResource = "models" | "channels" | "skills" | "ai-employees" | "onboarding" | "gateway";
+
+export type SlackClawEvent =
+  | {
+      type: "overview.updated";
+      snapshot: RevisionedSnapshot<ProductOverview>;
+    }
+  | {
+      type: "ai-team.updated";
+      snapshot: RevisionedSnapshot<AITeamOverview>;
+    }
+  | {
+      type: "model-config.updated";
+      snapshot: RevisionedSnapshot<ModelConfigOverview>;
+    }
+  | {
+      type: "channel-config.updated";
+      snapshot: RevisionedSnapshot<ChannelConfigOverview>;
+    }
+  | {
+      type: "plugin-config.updated";
+      snapshot: RevisionedSnapshot<PluginConfigOverview>;
+    }
+  | {
+      type: "skill-catalog.updated";
+      snapshot: RevisionedSnapshot<SkillCatalogOverview>;
+    }
+  | {
+      type: "preset-skill-sync.updated";
+      snapshot: RevisionedSnapshot<PresetSkillSyncOverview>;
+    }
+  | {
+      type: "deploy.progress";
+      correlationId: string;
+      targetId: DeploymentTargetId;
+      phase: SlackClawDeployPhase;
+      percent?: number;
+      message: string;
+    }
+  | {
+      type: "deploy.completed";
+      correlationId: string;
+      targetId: DeploymentTargetId;
+      status: "completed" | "failed";
+      message: string;
+      engineStatus: EngineStatus;
+    }
+  | {
+      type: "gateway.status";
+      reachable: boolean;
+      pendingGatewayApply: boolean;
+      summary: string;
+    }
+  | {
+      type: "task.progress";
+      taskId: string;
+      status: SlackClawTaskProgressStatus;
+      message: string;
+    }
+  | {
+      type: "chat.stream";
+      threadId: string;
+      sessionKey: string;
+      payload: ChatStreamEvent;
+    }
+  | {
+      type: "channel.session.updated";
+      channelId: SupportedChannelId;
+      session: ChannelSession;
+    }
+  | {
+      type: "config.applied";
+      resource: SlackClawConfigResource;
+      summary: string;
     };
 
 export interface ProductOverview {
@@ -688,6 +1054,7 @@ export interface ModelAuthSessionInputRequest {
 export interface ModelAuthSessionResponse {
   session: ModelAuthSession;
   modelConfig: ModelConfigOverview;
+  onboarding?: OnboardingStateResponse;
 }
 
 export interface SetDefaultModelRequest {
@@ -712,11 +1079,13 @@ export interface ReplaceFallbackModelEntriesRequest {
   entryIds: string[];
 }
 
-export interface ModelConfigActionResponse {
+export interface ModelConfigActionResponse extends MutationSyncMeta {
   status: "completed" | "failed" | "interactive";
   message: string;
   modelConfig: ModelConfigOverview;
   authSession?: ModelAuthSession;
+  requiresGatewayApply?: boolean;
+  onboarding?: OnboardingStateResponse;
 }
 
 export interface RecoveryRunResponse {
@@ -731,6 +1100,7 @@ export interface SetupRunResponse {
   steps: SetupStepResult[];
   overview: ProductOverview;
   install?: InstallResponse;
+  onboarding?: OnboardingStateResponse;
 }
 
 export interface AppServiceActionResponse {
@@ -769,14 +1139,12 @@ export interface PairingApprovalRequest {
   code: string;
 }
 
-export interface WechatSetupRequest {
-  pluginSpec?: string;
-  corpId: string;
-  agentId: string;
+export interface WechatWorkSetupRequest {
+  botId: string;
   secret: string;
-  token: string;
-  encodingAesKey: string;
 }
+
+export type WechatSetupRequest = WechatWorkSetupRequest;
 
 export interface FeishuSetupRequest {
   appId: string;
@@ -802,16 +1170,25 @@ export interface ChannelSessionInputRequest {
   value: string;
 }
 
-export interface ChannelConfigActionResponse {
+export interface ChannelConfigActionResponse extends MutationSyncMeta {
   status: "completed" | "failed" | "interactive";
   message: string;
   channelConfig: ChannelConfigOverview;
   session?: ChannelSession;
+  requiresGatewayApply?: boolean;
+  onboarding?: OnboardingStateResponse;
 }
 
 export interface ChannelSessionResponse {
   session: ChannelSession;
   channelConfig: ChannelConfigOverview;
+  onboarding?: OnboardingStateResponse;
+}
+
+export interface PluginActionResponse extends MutationSyncMeta {
+  status: "completed" | "failed";
+  message: string;
+  pluginConfig: PluginConfigOverview;
 }
 
 export interface SaveAIMemberRequest {
@@ -822,6 +1199,7 @@ export interface SaveAIMemberRequest {
   personality: string;
   soul: string;
   workStyles: string[];
+  presetSkillIds?: string[];
   skillIds: string[];
   knowledgePackIds: string[];
   capabilitySettings: MemberCapabilitySettings;
@@ -866,23 +1244,25 @@ export interface UpdateSkillRequest {
 
 export interface RemoveSkillRequest {}
 
-export interface AITeamActionResponse {
+export interface AITeamActionResponse extends MutationSyncMeta {
   status: "completed" | "failed";
   message: string;
   overview: AITeamOverview;
+  requiresGatewayApply?: boolean;
 }
 
-export interface ChatActionResponse {
+export interface ChatActionResponse extends MutationSyncMeta {
   status: "completed" | "failed";
   message: string;
   overview: ChatOverview;
   thread?: ChatThreadDetail;
 }
 
-export interface SkillCatalogActionResponse {
+export interface SkillCatalogActionResponse extends MutationSyncMeta {
   status: "completed" | "failed";
   message: string;
   skillConfig: SkillCatalogOverview;
+  requiresGatewayApply?: boolean;
 }
 
 export interface ChannelActionResponse {
@@ -987,6 +1367,8 @@ export function createDefaultProductOverview(): ProductOverview {
       running: false,
       version: undefined,
       summary: "OpenClaw is not installed yet.",
+      pendingGatewayApply: false,
+      pendingGatewayApplySummary: undefined,
       lastCheckedAt: now
     },
     installSpec: {
@@ -1059,12 +1441,20 @@ export function createDefaultProductOverview(): ProductOverview {
           detail: "SlackClaw can guide you through the official OpenClaw Feishu plugin setup: app creation, credentials, gateway restart, long-connection event subscription, and pairing."
         },
         {
+          id: "wechat-work",
+          title: "WeChat Work (WeCom)",
+          officialSupport: true,
+          status: "not-started",
+          summary: "WeChat Work setup has not started yet.",
+          detail: "SlackClaw will install the managed WeCom plugin, then save the bot credentials."
+        },
+        {
           id: "wechat",
-          title: "WeChat workaround",
+          title: "WeChat",
           officialSupport: false,
           status: "not-started",
-          summary: "WeChat requires a workaround plugin path.",
-          detail: "SlackClaw can install and enable a community plugin path, but this is not official OpenClaw support."
+          summary: "Personal WeChat setup has not started yet.",
+          detail: "SlackClaw will start the QR-first installer flow, then wait for login confirmation."
         }
       ],
       nextChannelId: "telegram",

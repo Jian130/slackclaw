@@ -1,15 +1,113 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DeploymentTargetStatus, DeploymentTargetsResponse } from "@slackclaw/contracts";
+import type { DeploymentTargetStatus, DeploymentTargetsResponse, SlackClawEvent } from "@slackclaw/contracts";
 
 import {
+  applyDeployEventToActivity,
   createActivityState,
   decorateTargets,
   getTargetActionKinds,
+  shouldRefreshDeploymentTargetsForEvent,
   waitForInstalledTarget,
   waitForTargetInstalledState
 } from "./DeployPage.js";
 
 describe("DeployPage helpers", () => {
+  it("refreshes deploy targets for deploy completion and gateway status events", () => {
+    const deployCompleted: SlackClawEvent = {
+      type: "deploy.completed",
+      correlationId: "deploy-1",
+      targetId: "managed-local",
+      status: "completed",
+      message: "Installed.",
+      engineStatus: {
+        engine: "openclaw",
+        installed: true,
+        running: true,
+        summary: "Installed",
+        lastCheckedAt: new Date().toISOString()
+      }
+    };
+    const gatewayStatus: SlackClawEvent = {
+      type: "gateway.status",
+      reachable: true,
+      pendingGatewayApply: false,
+      summary: "Gateway ready."
+    };
+    const deployProgress: SlackClawEvent = {
+      type: "deploy.progress",
+      correlationId: "deploy-1",
+      targetId: "managed-local",
+      phase: "installing",
+      percent: 10,
+      message: "Installing."
+    };
+
+    expect(shouldRefreshDeploymentTargetsForEvent(deployCompleted)).toBe(true);
+    expect(shouldRefreshDeploymentTargetsForEvent(gatewayStatus)).toBe(true);
+    expect(shouldRefreshDeploymentTargetsForEvent(deployProgress)).toBe(false);
+  });
+
+  it("maps deploy progress and completion events into activity state", () => {
+    const running = applyDeployEventToActivity(
+      null,
+      {
+        type: "deploy.progress",
+        correlationId: "deploy-1",
+        targetId: "managed-local",
+        phase: "updating",
+        percent: 20,
+        message: "Updating OpenClaw."
+      },
+      {
+        installTitle: "Install OpenClaw",
+        installSteps: ["Detect", "Prepare", "Install", "Verify"],
+        updateTitle: "Update OpenClaw",
+        updateSteps: ["Inspect", "Request", "Sync", "Restart", "Verify"],
+        uninstallTitle: "Uninstall OpenClaw",
+        uninstallSteps: ["Stop", "Remove", "Verify"],
+        restartTitle: "Restart Gateway",
+        restartSteps: ["Restart", "Wait", "Verify"]
+      }
+    );
+
+    expect(running?.title).toBe("Update OpenClaw");
+    expect(running?.summary).toBe("Updating OpenClaw.");
+    expect(running?.status).toBe("running");
+    expect(running?.steps.map((step) => step.state)).toEqual(["done", "running", "pending", "pending", "pending"]);
+
+    const completed = applyDeployEventToActivity(
+      running ?? null,
+      {
+        type: "deploy.completed",
+        correlationId: "deploy-1",
+        targetId: "managed-local",
+        status: "completed",
+        message: "OpenClaw updated.",
+        engineStatus: {
+          engine: "openclaw",
+          installed: true,
+          running: true,
+          summary: "Healthy",
+          lastCheckedAt: new Date().toISOString()
+        }
+      },
+      {
+        installTitle: "Install OpenClaw",
+        installSteps: ["Detect", "Prepare", "Install", "Verify"],
+        updateTitle: "Update OpenClaw",
+        updateSteps: ["Inspect", "Request", "Sync", "Restart", "Verify"],
+        uninstallTitle: "Uninstall OpenClaw",
+        uninstallSteps: ["Stop", "Remove", "Verify"],
+        restartTitle: "Restart Gateway",
+        restartSteps: ["Restart", "Wait", "Verify"]
+      }
+    );
+
+    expect(completed?.status).toBe("completed");
+    expect(completed?.summary).toBe("OpenClaw updated.");
+    expect(completed?.progress).toBe(100);
+  });
+
   it("decorates deployment targets with variant metadata", () => {
     const targets: DeploymentTargetStatus[] = [
       {
