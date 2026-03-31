@@ -1,19 +1,31 @@
 import type {
   OnboardingChannelPresentation,
   OnboardingEmployeePresetPresentation,
+  OnboardingModelProviderTheme,
   OnboardingModelProviderPresentation,
   OnboardingUiConfig
 } from "@chillclaw/contracts";
 
 import { onboardingEmployeePresetPresentationById } from "./ai-member-presets.js";
+import { providerDefinitionById, toPublicAuthMethod } from "./openclaw-model-provider-catalog.js";
+
+interface OnboardingModelProviderSelection {
+  id: string;
+  label?: string;
+  description?: string;
+  theme: OnboardingModelProviderTheme;
+  platformUrl?: string;
+  tutorialVideoUrl?: string;
+  defaultModelKey: string;
+}
 
 export interface OnboardingUiConfigSelection {
-  modelProviders: OnboardingModelProviderPresentation[];
+  modelProviders: OnboardingModelProviderSelection[];
   channels: OnboardingChannelPresentation[];
   employeePresetIds: string[];
 }
 
-const onboardingModelProviders: OnboardingModelProviderPresentation[] = [
+const onboardingModelProviders: OnboardingModelProviderSelection[] = [
   {
     id: "minimax",
     label: "MiniMax",
@@ -21,25 +33,7 @@ const onboardingModelProviders: OnboardingModelProviderPresentation[] = [
     theme: "minimax",
     platformUrl: "https://platform.minimaxi.com/login",
     tutorialVideoUrl: "https://platform.minimaxi.com/login",
-    defaultModelKey: "minimax/MiniMax-M2.7",
-    authMethods: [
-      {
-        id: "minimax-api",
-        label: "Global API Key",
-        kind: "api-key",
-        description: "Use the international MiniMax endpoint (api.minimax.io).",
-        interactive: false,
-        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true, placeholder: "Paste your API key here" }]
-      },
-      {
-        id: "minimax-api-key-cn",
-        label: "China API Key",
-        kind: "api-key",
-        description: "Use the China MiniMax endpoint (api.minimaxi.com).",
-        interactive: false,
-        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true, placeholder: "Paste your API key here" }]
-      }
-    ]
+    defaultModelKey: "minimax/MiniMax-M2.7"
   },
   {
     id: "modelstudio",
@@ -47,17 +41,7 @@ const onboardingModelProviders: OnboardingModelProviderPresentation[] = [
     description: "Qwen models for fast onboarding.",
     theme: "qwen",
     platformUrl: "https://www.alibabacloud.com/help/en/model-studio/get-api-key",
-    defaultModelKey: "modelstudio/qwen3.5-plus",
-    authMethods: [
-      {
-        id: "modelstudio-api-key-cn",
-        label: "API Key",
-        kind: "api-key",
-        description: "Paste a Model Studio API key.",
-        interactive: false,
-        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true, placeholder: "Paste your API key here" }]
-      }
-    ]
+    defaultModelKey: "modelstudio/qwen3.5-plus"
   },
   {
     id: "openai",
@@ -65,25 +49,7 @@ const onboardingModelProviders: OnboardingModelProviderPresentation[] = [
     description: "OpenAI ChatGPT models for fast onboarding.",
     theme: "chatgpt",
     platformUrl: "https://platform.openai.com/api-keys",
-    defaultModelKey: "openai/gpt-5.1-codex",
-    authMethods: [
-      {
-        id: "openai-api-key",
-        label: "API Key",
-        kind: "api-key",
-        description: "Paste an OpenAI API key.",
-        interactive: false,
-        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true, placeholder: "Paste your API key here" }]
-      },
-      {
-        id: "openai-codex",
-        label: "OAuth",
-        kind: "oauth",
-        description: "Connect securely with your account.",
-        interactive: true,
-        fields: []
-      }
-    ]
+    defaultModelKey: "openai/gpt-5.1-codex"
   }
 ];
 
@@ -143,15 +109,29 @@ export function resolveOnboardingEmployeePresets(presetIds: string[]): Onboardin
   });
 }
 
+function buildOnboardingModelProvider(
+  selection: OnboardingModelProviderSelection
+): OnboardingModelProviderPresentation {
+  const provider = providerDefinitionById(selection.id);
+  if (!provider) {
+    throw new Error(`Unknown onboarding model provider: ${selection.id}`);
+  }
+
+  return {
+    id: selection.id,
+    label: selection.label ?? provider.label,
+    description: selection.description ?? provider.description,
+    theme: selection.theme,
+    platformUrl: selection.platformUrl ?? provider.docsUrl,
+    tutorialVideoUrl: selection.tutorialVideoUrl,
+    defaultModelKey: selection.defaultModelKey,
+    authMethods: provider.authMethods.map(toPublicAuthMethod)
+  };
+}
+
 export function buildOnboardingUiConfig(selection: OnboardingUiConfigSelection = onboardingUiConfigSelection): OnboardingUiConfig {
   return {
-    modelProviders: selection.modelProviders.map((provider) => ({
-      ...provider,
-      authMethods: provider.authMethods.map((method) => ({
-        ...method,
-        fields: method.fields.map((field) => ({ ...field }))
-      }))
-    })),
+    modelProviders: selection.modelProviders.map((provider) => buildOnboardingModelProvider(provider)),
     channels: selection.channels.map((channel) => ({ ...channel })),
     employeePresets: resolveOnboardingEmployeePresets(selection.employeePresetIds)
   };

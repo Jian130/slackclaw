@@ -1352,10 +1352,22 @@ test("onboarding state exposes the curated model providers for step 3", async ()
     ["MiniMax", "Qwen (通义千问)", "ChatGPT"]
   );
   assert.equal(state.config?.modelProviders?.[0]?.defaultModelKey, "minimax/MiniMax-M2.7");
-  assert.deepEqual(state.config?.modelProviders?.[0]?.authMethods.map((method) => method.id), ["minimax-api", "minimax-api-key-cn"]);
+  assert.deepEqual(
+    state.config?.modelProviders?.[0]?.authMethods.map((method) => method.id),
+    ["minimax-api", "minimax-api-key-cn", "minimax-portal"]
+  );
   assert.equal(state.config?.modelProviders?.[1]?.defaultModelKey, "modelstudio/qwen3.5-plus");
-  assert.deepEqual(state.config?.modelProviders?.[1]?.authMethods.map((method) => method.id), ["modelstudio-api-key-cn"]);
+  assert.deepEqual(
+    state.config?.modelProviders?.[1]?.authMethods.map((method) => method.id),
+    [
+      "modelstudio-standard-api-key-cn",
+      "modelstudio-standard-api-key",
+      "modelstudio-api-key-cn",
+      "modelstudio-api-key"
+    ]
+  );
   assert.deepEqual(state.config?.modelProviders?.[2]?.authMethods.map((method) => method.id), ["openai-api-key", "openai-codex"]);
+  assert.equal(state.config?.modelProviders?.[2]?.authMethods[1]?.label, "OpenAI Codex OAuth");
   assert.deepEqual(
     state.config?.channels?.map((channel) => channel.id),
     ["wechat-work", "wechat", "feishu", "telegram"]
