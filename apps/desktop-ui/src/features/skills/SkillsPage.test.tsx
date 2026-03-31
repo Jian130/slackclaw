@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { InstalledSkillEntry } from "@slackclaw/contracts";
+import type { InstalledSkillEntry } from "@chillclaw/contracts";
 
 import {
   filterMarketplaceSearchResults,

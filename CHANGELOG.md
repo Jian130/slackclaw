@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### 2026-03-31 16:20 CST
+
+- changed the GitHub Pages website deployment workflow to publish from `main` instead of `dev` so the repo can align with the current `github-pages` environment branch protections
+
+### 2026-03-31 16:02 CST
+
+- added a separate static `apps/website` marketing site with GitHub Pages deployment workflow support, root build and test wiring, bundled assets, and updated repo guidance in `README.md` and `AGENTS.md`
+- improved onboarding auth-method presentation across web and native macOS by keeping provider auth cards aligned to shared width and height rules, keeping the native macOS chooser in a single row, and preventing stale OAuth session popups before the user explicitly continues the flow
+- added explicit traceable scope names to shared daemon logs and repo-managed script console logs so runtime, config, onboarding, installer, and developer command output can be traced back to stable call sites more easily
+
+### 2026-03-31 12:32 CST
+
+- refreshed project documentation to match the current ChillClaw codebase, including the main README plus daemon routes, onboarding design, and OpenClaw command references
+- added a workflow code-path reference that maps the main startup, onboarding, deploy, models, channels, chat, skills, task, and native integration flows back to their source files and service seams
+- documented the current AI-team route split so the repo references reflect that overview reads are live while legacy member and team mutation routes remain temporarily unsupported
+
 ### 2026-03-31 02:08 CST
 
 - moved more OpenClaw model-runtime ownership out of `OpenClawAdapter` and into the models config coordinator, including auth-profile sync, runtime-derived model cleanup, and config-write helpers, with refreshed architecture assertions and coordinator regression coverage
@@ -55,7 +71,7 @@
 ### 2026-03-27 00:51 CST
 
 - refactored the macOS and React clients around shared UI primitives and approved page scaffolds so dashboard, deploy, settings, onboarding, chat, team, members, skills, and configuration now reuse the same design-system contract
-- added a native shared UI layer under `apps/macos-native/Sources/SlackClawNative/UI` and migrated the native shell, onboarding, permissions, and main product screens onto shared surfaces, badges, buttons, metrics, and scaffold layouts
+- added a native shared UI layer under `apps/macos-native/Sources/ChillClawNative/UI` and migrated the native shell, onboarding, permissions, and main product screens onto shared surfaces, badges, buttons, metrics, and scaffold layouts
 - added shared React `StatusBadge` and scaffold components, removed the broken `StatusPill` path, and moved the shared web styling layer to semantic token-driven variants instead of page-local status and scaffold drift
 - added shared UI contract coverage for native badge/scaffold semantics and React status rendering, and normalized touched product-facing UI copy to `ChillClaw`
 - documented shared UI reuse rules in `AGENTS.md` and now require timestamped changelog updates for future changelog entries
@@ -63,7 +79,7 @@
 ### Native macOS client
 
 - added a new daemon-backed native macOS client under `apps/macos-native`
-- added `apps/shared/SlackClawKit` with shared Swift protocol, daemon client, and chat UI packages
+- added `apps/shared/ChillClawKit` with shared Swift protocol, daemon client, and chat UI packages
 - changed the macOS installer build so the packaged app launches the native SwiftUI client by default while still bundling the React UI as an explicit fallback
 - added `npm run build:mac-native` and `npm run test:mac-native` for native-client development
 - added the same daemon-backed seven-step onboarding flow to the native macOS client, including first-run gating, draft resume, settled install/permissions/model/channel/employee mutations, and native onboarding avatar resources
@@ -81,9 +97,9 @@
   - `aiEmployees` for OpenClaw agent-backed AI employee config and per-agent workspaces
   - `gateway` for live gateway lifecycle, health, chat, pairing, and apply/restart flows
 - changed daemon services and routes to delegate through the composed manager boundary while keeping the existing HTTP route surface stable
-- added pending gateway-apply signals so SlackClaw can distinguish staged config from live/applied runtime state
+- added pending gateway-apply signals so ChillClaw can distinguish staged config from live/applied runtime state
 - added the first hybrid daemon event-bus foundation:
-  - shared `SlackClawEvent` contracts in TypeScript and Swift
+  - shared `ChillClawEvent` contracts in TypeScript and Swift
   - one client-facing daemon WebSocket endpoint at `/api/events`
   - browser and native client event-stream primitives for incremental adoption
   - first live event publishing for first-run install/setup, deploy actions, gateway restart, and chat stream mirroring
@@ -110,17 +126,17 @@
 - added deploy/update progress tracking in the UI
 - changed OpenClaw install and bootstrap flows to target the latest available release by default instead of a hardcoded base version
 - changed install/deploy summaries and install metadata to describe latest-version reuse/install behavior instead of a pinned-version floor
-- changed install/reuse to normalize inherited OpenClaw gateway config back to SlackClaw's local baseline so a stale remote gateway override cannot silently poison first-run health checks
+- changed install/reuse to normalize inherited OpenClaw gateway config back to ChillClaw's local baseline so a stale remote gateway override cannot silently poison first-run health checks
 
 ### Model management
 
 - replaced provider-only configuration with saved model entries
 - added create and edit flows for saved model entries
 - added default and fallback role management for saved entries
-- changed normal saved entries so they stay as SlackClaw metadata until promoted into the runtime chain
+- changed normal saved entries so they stay as ChillClaw metadata until promoted into the runtime chain
 - aligned model auth/setup commands with the current OpenClaw CLI `models auth` surface instead of relying on onboarding flows for single-secret provider auth
 - added config-backed fallback recovery for safe model-chain mutations such as setting the default model when the OpenClaw CLI command shape drifts
-- reconciled SlackClaw saved entries against the live OpenClaw runtime model chain so the UI reflects `openclaw models list --json`
+- reconciled ChillClaw saved entries against the live OpenClaw runtime model chain so the UI reflects `openclaw models list --json`
 - cleaned the Models page so it primarily shows configured models and runtime-detected models instead of exposing a separate saved-entry concept in the main UI
 - clear stale configured-model state when the live OpenClaw runtime is clean or uninstalled, so a fresh install starts with an empty Models page
 
@@ -131,13 +147,13 @@
 - improved Telegram, WhatsApp, Feishu, and WeChat setup flows and recovery messaging
 - added config-backed fallback recovery for known OpenClaw CLI drift on safe channel mutations such as Telegram, Feishu, and WeChat config writes and removals
 - restored the Feishu setup guide in-product with direct links to the official OpenClaw and platform docs
-- changed channel management to detect and show existing live OpenClaw channel accounts in addition to SlackClaw-managed entries
+- changed channel management to detect and show existing live OpenClaw channel accounts in addition to ChillClaw-managed entries
 - added reusable approve-pairing actions for configured channels in the React Configuration page and fixed the dialog so successful pairing approval closes cleanly instead of leaving the modal open
 
 ### AI members and teams
 
 - added real daemon-backed AI member and AI team management
-- map each SlackClaw AI member to one OpenClaw agent with live detection of existing agents
+- map each ChillClaw AI member to one OpenClaw agent with live detection of existing agents
 - added member create, edit, remove, bind, and retention-aware delete flows
 - generate richer per-agent workspaces with identity, soul, user, brain, tools, memory, bootstrap, knowledge, and skill files
 - switched new member agent ids to readable `name + datetime` identifiers
@@ -147,7 +163,7 @@
 
 - replaced the demo Skills page with a live installed-skill manager backed by OpenClaw
 - added ClawHub explore, search, inspect, install, update, and remove flows
-- added SlackClaw-managed custom skill create and edit flows
+- added ChillClaw-managed custom skill create and edit flows
 - changed AI member skill selection to use the shared live runtime skill library
 
 ### Chat
@@ -178,7 +194,7 @@
 
 - added development-mode logging for executed OpenClaw commands from the daemon
 - changed the mac installer build to stage the `.app` bundle outside `dist/macos`, so a stale root-owned app bundle no longer blocks `npm run build:mac-installer`
-- clarified packaged-app detection and cleanup behavior around SlackClaw-managed runtimes stored under `~/Library/Application Support/SlackClaw`
+- clarified packaged-app detection and cleanup behavior around ChillClaw-managed runtimes stored under `~/Library/Application Support/ChillClaw`
 - changed `npm start` so local dev startup no longer auto-runs OpenClaw bootstrap or installation; use the in-product install flow or `npm run bootstrap:openclaw` when you want to install it explicitly
 - expanded development-mode command logging so daemon-side `npm`, `brew`, `launchctl`, helper shell commands, and bootstrap commands are echoed to the console, not just `openclaw`
 - added `npm restart` as the one-command managed dev restart path on top of the existing `npm stop` and `npm start` scripts
@@ -201,5 +217,5 @@
 - refreshed the native macOS shell to use the lighter branded sidebar/status layout instead of the older dark developer-style chrome, so dashboard and deploy now sit much closer to the React/Figma product design
 - rebuilt the native macOS Deploy page around the React/Figma hierarchy with the one-click deployment hero, grouped variant cards, badges, feature lists, requirements, and summary cards
 - changed the native macOS client to gate startup on overview first and lazily load the active section afterward, avoiding cold-start failures caused by blasting every `fresh=1` page endpoint at once
-- fixed managed-local first-run installs so SlackClaw re-detects the freshly installed OpenClaw CLI before verifying it, instead of failing against a stale cached “not installed” result
+- fixed managed-local first-run installs so ChillClaw re-detects the freshly installed OpenClaw CLI before verifying it, instead of failing against a stale cached “not installed” result
 - extended native macOS client timeouts for long-running setup and deploy/install requests so real OpenClaw installs are less likely to fail with `The request timed out.`

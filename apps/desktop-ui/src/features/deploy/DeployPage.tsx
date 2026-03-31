@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DeploymentTargetId, DeploymentTargetStatus, DeploymentTargetsResponse, ProductOverview, SlackClawDeployPhase, SlackClawEvent } from "@slackclaw/contracts";
+import type { DeploymentTargetId, DeploymentTargetStatus, DeploymentTargetsResponse, ProductOverview, ChillClawDeployPhase, ChillClawEvent } from "@chillclaw/contracts";
 import {
   AlertCircle,
   CheckCircle2,
@@ -190,7 +190,7 @@ export function createActivityState(
 }
 
 function activityTemplateForPhase(
-  phase: SlackClawDeployPhase,
+  phase: ChillClawDeployPhase,
   labels: DeployActivityLabels
 ): { title: string; steps: string[]; stepIndex: number } | undefined {
   switch (phase) {
@@ -213,13 +213,13 @@ function activityTemplateForPhase(
   }
 }
 
-export function shouldRefreshDeploymentTargetsForEvent(event: SlackClawEvent): boolean {
+export function shouldRefreshDeploymentTargetsForEvent(event: ChillClawEvent): boolean {
   return event.type === "deploy.completed" || event.type === "gateway.status";
 }
 
 export function applyDeployEventToActivity(
   currentActivity: ActivityState | null,
-  event: SlackClawEvent,
+  event: ChillClawEvent,
   labels: DeployActivityLabels
 ): ActivityState | null {
   if (event.type === "deploy.progress") {

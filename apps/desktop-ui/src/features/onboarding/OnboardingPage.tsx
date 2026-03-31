@@ -18,7 +18,7 @@ import {
   Sparkles,
   Users
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   AITeamOverview,
@@ -30,7 +30,7 @@ import type {
   OnboardingStateResponse,
   SaveChannelEntryRequest,
   SaveModelEntryRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
@@ -181,6 +181,12 @@ function requiredModelFieldsMissing(method: ModelAuthMethod | undefined, values:
   return method.fields.some((field) => field.required && !values[field.id]?.trim());
 }
 
+function onboardingAuthMethodGridStyle(methodCount: number): CSSProperties {
+  return {
+    ["--onboarding-auth-method-count" as "--onboarding-auth-method-count"]: String(Math.max(methodCount, 1))
+  };
+}
+
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const { locale } = useLocale();
@@ -267,6 +273,10 @@ export default function OnboardingPage() {
     providerId: selectedProviderPresentation?.id ?? "",
     methodKind: selectedMethod?.kind
   });
+  const authMethodGridStyle = useMemo(
+    () => onboardingAuthMethodGridStyle(selectedAuthMethods.length),
+    [selectedAuthMethods.length]
+  );
 
   const channelPickerChannels = useMemo(() => {
     const channels = resolveOnboardingChannelPresentations(onboardingState);
@@ -837,24 +847,44 @@ export default function OnboardingPage() {
       return;
     }
 
-    const timer = window.setInterval(async () => {
-      const nextSession = await fetchOnboardingModelAuthSession(modelSession.id);
-      setModelSession(
-        nextSession.session.status === "completed" || nextSession.session.status === "failed"
-          ? undefined
-          : nextSession.session
-      );
-      setModelConfig(nextSession.modelConfig);
-      if (nextSession.onboarding) {
-        await applyOnboardingState(nextSession.onboarding);
-      }
+    const sessionId = modelSession.id;
+    let cancelled = false;
 
-      if (nextSession.session.status === "completed" || nextSession.session.status === "failed") {
-        return;
+    const poll = async () => {
+      try {
+        const nextSession = await fetchOnboardingModelAuthSession(sessionId);
+        if (cancelled) {
+          return;
+        }
+
+        setModelSession(
+          nextSession.session.status === "completed" || nextSession.session.status === "failed"
+            ? undefined
+            : nextSession.session
+        );
+        setModelConfig(nextSession.modelConfig);
+        if (nextSession.onboarding) {
+          await applyOnboardingState(nextSession.onboarding);
+        }
+
+        if (nextSession.session.status === "failed") {
+          setPageError(nextSession.session.message);
+        }
+      } catch {
+        if (!cancelled) {
+          setModelSession(undefined);
+        }
       }
+    };
+
+    const timer = window.setInterval(() => {
+      void poll();
     }, 1600);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [modelSession?.id]);
 
   async function handleAdvanceToInstall() {
@@ -1361,6 +1391,7 @@ export default function OnboardingPage() {
                               setModelKey(providerOption.defaultModelKey);
                               setModelLabel(providerOption.label);
                               setModelValues({});
+                              setPageError(undefined);
                               setModelSession(undefined);
                               setModelSessionInput("");
                             }}
@@ -1397,9 +1428,8 @@ export default function OnboardingPage() {
                             <div className="onboarding-model-connect">
                               <h3>{copy.authTitle}</h3>
                               <div
-                                className={`onboarding-auth-method-grid ${
-                                  selectedAuthMethods.length <= 1 ? "onboarding-auth-method-grid--single" : ""
-                                }`}
+                                className="onboarding-auth-method-grid"
+                                style={authMethodGridStyle}
                                 role="group"
                                 aria-label={copy.authTitle}
                               >
@@ -1412,6 +1442,7 @@ export default function OnboardingPage() {
                                     }`}
                                     onClick={() => {
                                       setMethodId(method.id);
+                                      setPageError(undefined);
                                       setModelSession(undefined);
                                       setModelSessionInput("");
                                     }}

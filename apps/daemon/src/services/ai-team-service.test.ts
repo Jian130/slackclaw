@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
-import type { DeleteAIMemberRequest } from "@slackclaw/contracts";
+import type { DeleteAIMemberRequest } from "@chillclaw/contracts";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { EventBusService } from "./event-bus-service.js";

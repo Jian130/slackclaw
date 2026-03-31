@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { KnowledgePack } from "@slackclaw/contracts";
+import type { KnowledgePack } from "@chillclaw/contracts";
 
 import type { AIMemberRuntimeRequest } from "./adapter.js";
 
@@ -86,7 +86,7 @@ function buildUserMarkdown(request: AIMemberRuntimeRequest): string {
   return `# User
 
 Primary people I help:
-- SlackClaw users and operators who want plain-language help.
+- ChillClaw users and operators who want plain-language help.
 - Teammates who need clear updates, concrete next steps, and useful execution.
 
 How to work with them:
@@ -314,7 +314,7 @@ export async function writeMemberWorkspaceFiles(
   await writeFileIfMissing(resolve(scratchDir, "README.md"), buildFolderReadme("Scratch", "Use this folder for temporary working files and disposable experiments."));
   await writeFileIfMissing(
     resolve(knowledgeDir, "README.md"),
-    buildFolderReadme("Knowledge", "SlackClaw copies selected preset knowledge packs into this folder for this agent.")
+    buildFolderReadme("Knowledge", "ChillClaw copies selected preset knowledge packs into this folder for this agent.")
   );
   await writeFile(resolve(knowledgeDir, "INDEX.md"), `# Knowledge Index
 

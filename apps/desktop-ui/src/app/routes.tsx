@@ -31,7 +31,7 @@ function AppBoundary() {
     return (
       <AppShell>
         <EmptyState
-          title="SlackClaw could not load"
+          title="ChillClaw could not load"
           description={error}
           actionLabel="Retry"
           onAction={() => window.location.reload()}

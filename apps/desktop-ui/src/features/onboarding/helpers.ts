@@ -15,9 +15,9 @@ import type {
   ProductOverview,
   SaveAIMemberRequest,
   SavedModelEntry,
-  SlackClawDeployPhase,
-  SlackClawEvent
-} from "@slackclaw/contracts";
+  ChillClawDeployPhase,
+  ChillClawEvent
+} from "@chillclaw/contracts";
 
 import { resolveMemberAvatarPreset } from "../../shared/avatar-presets.js";
 import type { OnboardingCopy } from "./copy.js";
@@ -201,7 +201,7 @@ export interface ResolvedOnboardingModelProvider {
 }
 
 export interface OnboardingInstallProgressSnapshot {
-  phase?: SlackClawDeployPhase;
+  phase?: ChillClawDeployPhase;
   percent?: number;
   message?: string;
 }
@@ -265,7 +265,7 @@ interface ResolveOnboardingModelViewStateArgs {
   activeModelAuthSessionId?: string;
 }
 
-const INSTALL_PROGRESS_FALLBACKS: Record<SlackClawDeployPhase, number> = {
+const INSTALL_PROGRESS_FALLBACKS: Record<ChillClawDeployPhase, number> = {
   detecting: 16,
   reusing: 34,
   installing: 58,
@@ -521,7 +521,7 @@ export type OnboardingRefreshResource = "overview" | "model" | "channel" | "team
 
 export function onboardingRefreshResourceForEvent(
   step: OnboardingStep,
-  event: SlackClawEvent
+  event: ChillClawEvent
 ): OnboardingRefreshResource | undefined {
   switch (step) {
     case "install":

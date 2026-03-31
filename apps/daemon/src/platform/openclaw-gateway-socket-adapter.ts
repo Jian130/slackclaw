@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { ChatMessage } from "@slackclaw/contracts";
+import type { ChatMessage } from "@chillclaw/contracts";
 
 import type { EngineChatLiveEvent } from "../engine/adapter.js";
 
@@ -63,7 +63,7 @@ export function buildGatewaySocketConnectParams(params: {
     maxProtocol: 3,
     client: {
       id: "gateway-client",
-      displayName: "SlackClaw daemon",
+      displayName: "ChillClaw daemon",
       version: params.clientVersion ?? process.env.npm_package_version ?? "0.1.2",
       platform: params.platform ?? process.platform,
       mode: "backend"
@@ -250,11 +250,11 @@ export class OpenClawGatewaySocketAdapter {
         ((globalThis as typeof globalThis & { WebSocket?: GatewaySocketConstructor }).WebSocket);
 
       if (!GatewaySocket) {
-        throw new Error("This SlackClaw runtime does not provide WebSocket support.");
+        throw new Error("This ChillClaw runtime does not provide WebSocket support.");
       }
 
       if (!connection) {
-        throw new Error("SlackClaw could not resolve the OpenClaw gateway socket URL or auth token.");
+        throw new Error("ChillClaw could not resolve the OpenClaw gateway socket URL or auth token.");
       }
 
       this.state.intentionalClose = false;
@@ -326,7 +326,7 @@ export class OpenClawGatewaySocketAdapter {
             if (envelope.ok === false) {
               const detail =
                 (typeof envelope.error === "string" ? envelope.error : envelope.error?.message) ??
-                "OpenClaw rejected the SlackClaw chat bridge connection.";
+                "OpenClaw rejected the ChillClaw chat bridge connection.";
               fail(new Error(detail));
               return;
             }
@@ -420,7 +420,7 @@ export class OpenClawGatewaySocketAdapter {
 
         socket.onerror = () => {
           if (!authenticated) {
-            fail(new Error("SlackClaw could not open the OpenClaw chat event bridge."));
+            fail(new Error("ChillClaw could not open the OpenClaw chat event bridge."));
           }
         };
 
@@ -430,7 +430,7 @@ export class OpenClawGatewaySocketAdapter {
           this.state.connectPromise = undefined;
 
           if (!authenticated) {
-            fail(new Error(event.reason || "OpenClaw closed the chat bridge before SlackClaw connected."));
+            fail(new Error(event.reason || "OpenClaw closed the chat bridge before ChillClaw connected."));
             return;
           }
 

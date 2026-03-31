@@ -2,7 +2,7 @@
 
 ## Purpose
 
-SlackClaw is a macOS-first, local-first product layer on top of OpenClaw. Its job is to make OpenClaw usable for non-technical users through guided install, onboarding, daily task flows, health checks, updates, and recovery.
+ChillClaw is a macOS-first, local-first product layer on top of OpenClaw. Its job is to make OpenClaw usable for non-technical users through guided install, onboarding, daily task flows, health checks, updates, and recovery.
 
 This file captures the important operating rules for agents working in this repository.
 
@@ -25,8 +25,8 @@ This file captures the important operating rules for agents working in this repo
 
 ## Native macOS client rules
 
-- The native macOS app is a full SwiftUI client on top of the local SlackClaw daemon, not a direct OpenClaw client.
-- Preserve the `native UI -> SlackClaw daemon -> EngineAdapter -> engine` boundary for all native features, including onboarding, chat, install, config, and recovery.
+- The native macOS app is a full SwiftUI client on top of the local ChillClaw daemon, not a direct OpenClaw client.
+- Preserve the `native UI -> ChillClaw daemon -> EngineAdapter -> engine` boundary for all native features, including onboarding, chat, install, config, and recovery.
 - Keep React as the fallback and developer surface. Do not move product logic out of the daemon just to satisfy one client.
 - Treat the native app as a second client of the same daemon APIs. React and SwiftUI should render the same backend truth.
 - Keep the native client OpenClaw-agnostic. Do not let SwiftUI code depend on OpenClaw CLI shapes, gateway internals, or engine-specific runtime assumptions.
@@ -35,11 +35,11 @@ This file captures the important operating rules for agents working in this repo
   - central `AppState` for shell, window, and client lifecycle state
   - `DaemonEndpointStore` for daemon endpoint/auth/reachability resolution
   - `DaemonProcessManager` and `LaunchAgentManager` for packaged daemon lifecycle
-  - reusable native client/chat packages in `apps/shared/SlackClawKit`
+  - reusable native client/chat packages in `apps/shared/ChillClawKit`
 - Keep the shared Swift packages split by responsibility:
-  - `SlackClawProtocol` for daemon DTOs
-  - `SlackClawClient` for HTTP + WebSocket event transport
-  - `SlackClawChatUI` for native chat transport, transcript, and view models
+  - `ChillClawProtocol` for daemon DTOs
+  - `ChillClawClient` for HTTP + WebSocket event transport
+  - `ChillClawChatUI` for native chat transport, transcript, and view models
 - Do not embed browser views for core product flows when a native screen exists. Native chat should stay native, not a web wrapper.
 - Keep daemon routes stable when possible. Add only the minimum daemon metadata needed for native parity rather than inventing native-only backend behavior.
 - Use HTTP for command/query APIs and the daemon WebSocket event bus for live client updates. Keep the OpenClaw gateway socket daemon-internal.
@@ -51,12 +51,12 @@ This file captures the important operating rules for agents working in this repo
 
 ## OpenClaw integration rules
 
-- SlackClaw installs the latest available OpenClaw version by default for users.
+- ChillClaw installs the latest available OpenClaw version by default for users.
 - Only use an explicit OpenClaw version override for compatibility testing or controlled diagnostics.
 - Always check for an existing compatible OpenClaw install before reinstalling.
 - Reuse an existing compatible install when possible.
-- During install or reuse, normalize the OpenClaw gateway config back to SlackClaw's safe local baseline: local mode, loopback bind, token auth, and no inherited remote override.
-- If OpenClaw is missing or incompatible, use SlackClaw’s bootstrap/install path rather than inventing a second installer path.
+- During install or reuse, normalize the OpenClaw gateway config back to ChillClaw's safe local baseline: local mode, loopback bind, token auth, and no inherited remote override.
+- If OpenClaw is missing or incompatible, use ChillClaw’s bootstrap/install path rather than inventing a second installer path.
 - Distinguish between:
   - OpenClaw CLI installed
   - OpenClaw gateway/service reachable
@@ -73,7 +73,7 @@ This file captures the important operating rules for agents working in this repo
 - Surface recommended recovery actions first.
 - When there is a failure, explain:
   - what is broken
-  - what SlackClaw can do automatically
+  - what ChillClaw can do automatically
   - what the user should do next if auto-repair is insufficient
 - Avoid adding advanced settings by default.
 
@@ -116,8 +116,8 @@ This file captures the important operating rules for agents working in this repo
 - The packaged macOS app is a native SwiftUI client backed by the bundled local daemon.
 - Keep the React UI as the fallback and developer surface; do not let it become a second product backend.
 - The packaged macOS app should prefer a per-user `LaunchAgent` for daemon lifecycle instead of ad hoc background shell processes.
-- Packaged runtime data should live under `~/Library/Application Support/SlackClaw`.
-- Operational errors must be written to log files, not only returned to the UI. When adding new install, startup, shutdown, recovery, or external-command paths, make sure failures are persisted under the SlackClaw logs directory.
+- Packaged runtime data should live under `~/Library/Application Support/ChillClaw`.
+- Operational errors must be written to log files, not only returned to the UI. When adding new install, startup, shutdown, recovery, or external-command paths, make sure failures are persisted under the ChillClaw logs directory.
 - The installed app must not assume it is running from the repo checkout.
 - When changing paths, use runtime path helpers instead of `process.cwd()` assumptions.
 - Keep the macOS installer build reproducible through `npm run build:mac-installer`.
@@ -126,7 +126,7 @@ This file captures the important operating rules for agents working in this repo
 
 - `apps/desktop-ui`: first-party user experience only
 - `apps/macos-native`: native macOS client only; keep it daemon-backed and OpenClaw-agnostic
-- `apps/shared/SlackClawKit`: shared Swift protocol, client, and chat packages for native clients
+- `apps/shared/ChillClawKit`: shared Swift protocol, client, and chat packages for native clients
 - `apps/daemon`: orchestration, policy, health, recovery, diagnostics, static asset serving in packaged mode
 - `apps/daemon/src/config/onboarding-config.ts`: the single source of truth for curated onboarding-only provider and channel presentation, ordering, and guided setup metadata
 - `packages/contracts`: shared product/domain contracts; keep these stable and explicit
@@ -141,7 +141,7 @@ This file captures the important operating rules for agents working in this repo
 - Do not chase full OpenClaw feature parity.
 - Do not add multi-user, team admin, hosted sync, or channel-sprawl features to the MVP path unless explicitly requested.
 - Do not widen the engine adapter contract unless a concrete product need justifies it.
-- Avoid turning SlackClaw into a generic developer control panel.
+- Avoid turning ChillClaw into a generic developer control panel.
 - If future local-LLM support is added, keep it inside the install/lifecycle/health/task abstraction instead of adding raw model-provider configuration screens everywhere.
 
 ## Testing expectations
@@ -152,7 +152,7 @@ This file captures the important operating rules for agents working in this repo
 - If changing local startup behavior, verify `npm start` still waits for the daemon and UI before reporting readiness.
 - If changing local startup behavior, preserve clear step-by-step console output so `npm start` shows exactly what it is doing and what it is waiting for.
 - If changing local startup or teardown behavior, verify `npm stop` removes the managed dev processes and clears `.data/dev-processes.json`.
-- In development mode, external commands SlackClaw executes must be echoed to the console before they run so install, update, repair, and bootstrap behavior stays observable.
+- In development mode, external commands ChillClaw executes must be echoed to the console before they run so install, update, repair, and bootstrap behavior stays observable.
 - Prefer validating real OpenClaw status/health behavior through the adapter when possible.
 
 ## When making changes

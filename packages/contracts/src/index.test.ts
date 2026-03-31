@@ -9,7 +9,7 @@ import {
   type ChatBridgeState,
   type ChatToolActivity,
   type PluginConfigOverview,
-  type SlackClawEvent,
+  type ChillClawEvent,
   type ChatOverview,
   type ChannelConfigOverview,
   type ModelConfigOverview,
@@ -59,7 +59,7 @@ test("deployment target shapes serialize installed and available claw runtime ta
       {
         id: "managed-local",
         title: "OpenClaw Managed Local",
-        description: "SlackClaw-managed local runtime.",
+        description: "ChillClaw-managed local runtime.",
         installMode: "managed-local",
         installed: false,
         installable: true,
@@ -88,7 +88,7 @@ test("model config overview serializes providers, runtime models, and saved entr
         id: "openai",
         label: "OpenAI",
         description: "OpenAI models.",
-        docsUrl: "https://docs.openclaw.ai/providers/docs/openai",
+        docsUrl: "https://docs.openclaw.ai/providers/openai",
         providerRefs: ["openai/"],
         authMethods: [
           {
@@ -100,6 +100,12 @@ test("model config overview serializes providers, runtime models, and saved entr
             fields: [{ id: "apiKey", label: "API key", required: true, secret: true }]
           }
         ],
+        exampleModels: ["openai/gpt-5.4", "openai/gpt-5.4-pro"],
+        authEnvVars: ["OPENAI_API_KEY", "OPENAI_API_KEYS"],
+        setupNotes: ["Default transport is auto (WebSocket-first, SSE fallback)."],
+        warnings: [],
+        providerType: "built-in",
+        supportsNoAuth: false,
         configured: true,
         modelCount: 2,
         sampleModels: ["openai/gpt-5"]
@@ -141,6 +147,11 @@ test("model config overview serializes providers, runtime models, and saved entr
 
   const parsed = JSON.parse(JSON.stringify(payload)) as ModelConfigOverview;
   assert.equal(parsed.providers[0]?.id, "openai");
+  assert.deepEqual(parsed.providers[0]?.exampleModels, ["openai/gpt-5.4", "openai/gpt-5.4-pro"]);
+  assert.deepEqual(parsed.providers[0]?.authEnvVars, ["OPENAI_API_KEY", "OPENAI_API_KEYS"]);
+  assert.deepEqual(parsed.providers[0]?.setupNotes, ["Default transport is auto (WebSocket-first, SSE fallback)."]);
+  assert.equal(parsed.providers[0]?.providerType, "built-in");
+  assert.equal(parsed.providers[0]?.supportsNoAuth, false);
   assert.equal(parsed.defaultModel, "openai/gpt-5");
   assert.equal(parsed.savedEntries[0]?.isDefault, true);
 });
@@ -275,12 +286,12 @@ test("revisioned snapshot events serialize authoritative resource updates", () =
       fallbackEntryIds: []
     }
   };
-  const event: SlackClawEvent = {
+  const event: ChillClawEvent = {
     type: "model-config.updated",
     snapshot
   };
 
-  const parsed = JSON.parse(JSON.stringify(event)) as SlackClawEvent;
+  const parsed = JSON.parse(JSON.stringify(event)) as ChillClawEvent;
 
   assert.equal(parsed.type, "model-config.updated");
   assert.equal(parsed.snapshot.epoch, "daemon-epoch-1");
@@ -313,12 +324,12 @@ test("plugin config events serialize authoritative plugin resource updates", () 
       ]
     }
   };
-  const event: SlackClawEvent = {
+  const event: ChillClawEvent = {
     type: "plugin-config.updated",
     snapshot
   };
 
-  const parsed = JSON.parse(JSON.stringify(event)) as SlackClawEvent;
+  const parsed = JSON.parse(JSON.stringify(event)) as ChillClawEvent;
 
   assert.equal(parsed.type, "plugin-config.updated");
   assert.equal(parsed.snapshot.data.entries[0]?.runtimePluginId, "wecom-openclaw-plugin");
@@ -346,8 +357,8 @@ test("AI team overview serializes brain assignments and team membership", () => 
     members: [
       {
         id: "member-1",
-        agentId: "slackclaw-member-member-1",
-        source: "slackclaw",
+        agentId: "chillclaw-member-member-1",
+        source: "chillclaw",
         hasManagedMetadata: true,
         name: "Alex Morgan",
         jobTitle: "Research Lead",
@@ -434,7 +445,7 @@ test("AI team overview serializes brain assignments and team membership", () => 
   assert.equal(parsed.memberPresets[0].id, "general-assistant");
   assert.equal(parsed.memberPresets[0].jobTitle, "General Assistant");
   assert.deepEqual(parsed.members[0].presetSkillIds, ["research-brief"]);
-  assert.equal(parsed.members[0].source, "slackclaw");
+  assert.equal(parsed.members[0].source, "chillclaw");
   assert.equal(parsed.members[0].hasManagedMetadata, true);
   assert.equal(parsed.members[0].bindingCount, 1);
   assert.equal(parsed.members[0].bindings[0]?.target, "telegram:support");
@@ -461,7 +472,7 @@ test("chat overview and action responses serialize thread state and messages", (
         id: "thread-1",
         memberId: "member-1",
         agentId: "agent-1",
-        sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+        sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
         title: "Alex Morgan · Mar 14, 9:30 AM",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -508,7 +519,7 @@ test("chat overview and action responses serialize thread state and messages", (
   };
 
   const parsed = JSON.parse(JSON.stringify(response)) as ChatActionResponse;
-  assert.equal(parsed.overview.threads[0]?.sessionKey, "agent:agent-1:slackclaw-chat:thread-1");
+  assert.equal(parsed.overview.threads[0]?.sessionKey, "agent:agent-1:chillclaw-chat:thread-1");
   assert.equal(parsed.overview.threads[0]?.unreadCount, 0);
   assert.equal(parsed.thread?.messages[1]?.role, "assistant");
   assert.equal(parsed.thread?.messages[0]?.clientMessageId, "client-1");
@@ -521,7 +532,7 @@ test("chat overview and action responses serialize thread state and messages", (
 });
 
 test("daemon event envelope serializes deploy, gateway, task, and chat updates", () => {
-  const events: SlackClawEvent[] = [
+  const events: ChillClawEvent[] = [
     {
       type: "deploy.progress",
       correlationId: "corr-1",
@@ -545,11 +556,11 @@ test("daemon event envelope serializes deploy, gateway, task, and chat updates",
     {
       type: "chat.stream",
       threadId: "thread-1",
-      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
       payload: {
         type: "assistant-tool-status",
         threadId: "thread-1",
-        sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+        sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
         activityLabel: "Inspecting files",
         toolActivity: {
           id: "tool-1",
@@ -569,7 +580,7 @@ test("daemon event envelope serializes deploy, gateway, task, and chat updates",
     {
       type: "chat.stream",
       threadId: "thread-1",
-      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
       payload: {
         type: "connection-state",
         threadId: "thread-1",
@@ -580,7 +591,7 @@ test("daemon event envelope serializes deploy, gateway, task, and chat updates",
     {
       type: "chat.stream",
       threadId: "thread-1",
-      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
       payload: {
         type: "assistant-delta",
         threadId: "thread-1",
@@ -594,7 +605,7 @@ test("daemon event envelope serializes deploy, gateway, task, and chat updates",
     }
   ];
 
-  const parsed = JSON.parse(JSON.stringify(events)) as SlackClawEvent[];
+  const parsed = JSON.parse(JSON.stringify(events)) as ChillClawEvent[];
   assert.equal(parsed[0]?.type, "deploy.progress");
   assert.equal(parsed[0]?.targetId, "managed-local");
   assert.equal(parsed[1]?.type, "gateway.status");

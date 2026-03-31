@@ -1,6 +1,6 @@
 import { AlertTriangle, Package, Plug, RefreshCw, Trash2, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { ManagedPluginEntry, ManagedPluginStatus, PluginConfigOverview } from "@slackclaw/contracts";
+import type { ManagedPluginEntry, ManagedPluginStatus, PluginConfigOverview } from "@chillclaw/contracts";
 
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { fetchPluginConfig, installPlugin, removePlugin, updatePlugin } from "../../shared/api/client.js";

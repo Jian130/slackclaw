@@ -5,7 +5,7 @@ import type {
   ChatMessage,
   ChatThreadDetail,
   SendChatMessageRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { CommandResult } from "../platform/cli-runner.js";
 import { readGatewayChatText } from "../platform/openclaw-gateway-socket-adapter.js";
@@ -123,7 +123,7 @@ export class OpenClawChatService {
     );
 
     if (result.code !== 0 || !payload) {
-      throw new Error(result.stderr || result.stdout || "SlackClaw could not load chat history from OpenClaw.");
+      throw new Error(result.stderr || result.stdout || "ChillClaw could not load chat history from OpenClaw.");
     }
 
     return {
@@ -171,7 +171,7 @@ export class OpenClawChatService {
     );
 
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `SlackClaw could not send the message for ${request.threadId}.`);
+      throw new Error(result.stderr || result.stdout || `ChillClaw could not send the message for ${request.threadId}.`);
     }
 
     return {
@@ -192,7 +192,7 @@ export class OpenClawChatService {
     );
 
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `SlackClaw could not stop the active reply for ${request.threadId}.`);
+      throw new Error(result.stderr || result.stdout || `ChillClaw could not stop the active reply for ${request.threadId}.`);
     }
   }
 }

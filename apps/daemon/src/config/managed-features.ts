@@ -1,4 +1,4 @@
-import type { SupportedChannelId } from "@slackclaw/contracts";
+import type { SupportedChannelId } from "@chillclaw/contracts";
 
 export type ManagedFeatureId = "channel:wechat-work" | "channel:wechat";
 export type ManagedFeatureSetupKind = "credential-form" | "session";

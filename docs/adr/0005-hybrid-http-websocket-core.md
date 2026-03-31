@@ -6,11 +6,11 @@ Accepted
 
 ## Context
 
-SlackClaw now has multiple first-party clients:
+ChillClaw now has multiple first-party clients:
 
 - `apps/desktop-ui` as the browser-based and fallback React client
 - `apps/macos-native` as the packaged SwiftUI macOS client
-- `apps/shared/SlackClawKit` as the shared Swift protocol/client layer for native clients
+- `apps/shared/ChillClawKit` as the shared Swift protocol/client layer for native clients
 
 Those clients all talk to the same daemon-backed product surface in `apps/daemon`.
 
@@ -20,7 +20,7 @@ The missing piece was a single client-facing push channel that could deliver fas
 
 ## Decision
 
-SlackClaw will use a hybrid transport model:
+ChillClaw will use a hybrid transport model:
 
 - UI clients use HTTP for commands, authoritative reads, and fresh reloads.
 - UI clients use one daemon WebSocket endpoint at `/api/events` for live push updates.
@@ -60,7 +60,7 @@ These adapters stay daemon-internal. UI clients do not use them directly.
 
 ### Negative
 
-- SlackClaw must maintain both HTTP and WebSocket client libraries.
+- ChillClaw must maintain both HTTP and WebSocket client libraries.
 - Some product flows now have two surfaces:
   - authoritative HTTP reads
   - push-oriented event updates

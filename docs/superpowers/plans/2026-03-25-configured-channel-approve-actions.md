@@ -17,7 +17,7 @@
 - Modify: `apps/desktop-ui/src/features/config/ConfigPage.tsx`
 
 - [ ] **Step 1: Write the failing helper tests**
-- [ ] **Step 2: Run `npm test --workspace @slackclaw/desktop-ui -- ConfigPage.test.tsx` to verify they fail**
+- [ ] **Step 2: Run `npm test --workspace @chillclaw/desktop-ui -- ConfigPage.test.tsx` to verify they fail**
 - [ ] **Step 3: Implement the minimal helper state for edit vs. approve actions**
 - [ ] **Step 4: Re-run the focused test and verify it passes**
 
@@ -30,5 +30,5 @@
 - [ ] **Step 1: Add a reusable configured-channel action block to the channel card**
 - [ ] **Step 2: Open the existing channel dialog when the new approve action is clicked**
 - [ ] **Step 3: Add copy for the new approve action label**
-- [ ] **Step 4: Run `npm test --workspace @slackclaw/desktop-ui`**
-- [ ] **Step 5: Run `npm run build --workspace @slackclaw/desktop-ui`**
+- [ ] **Step 4: Run `npm test --workspace @chillclaw/desktop-ui`**
+- [ ] **Step 5: Run `npm run build --workspace @chillclaw/desktop-ui`**

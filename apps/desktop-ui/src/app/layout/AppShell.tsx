@@ -41,7 +41,7 @@ export function AppShell(props: PropsWithChildren<{ loading?: boolean }>) {
             <Sparkles size={22} />
           </div>
           <div>
-            <h1>SlackClaw</h1>
+            <h1>ChillClaw</h1>
             <p>OpenClaw Made Easy</p>
           </div>
         </NavLink>

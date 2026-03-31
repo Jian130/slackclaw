@@ -28,7 +28,7 @@ This file defines the operating rules for agents working in this repository.
 
 - Use **ChillClaw** in product-facing copy, docs, and new code.
 - Use `openclaw` only for upstream CLI commands, binaries, package names, config keys, and filesystem paths.
-- If legacy **SlackClaw** names still exist in the repo, do not introduce new ones. Rename only when it is safe and in scope.
+- If legacy **ChillClaw** names still exist in the repo, do not introduce new ones. Rename only when it is safe and in scope.
 
 ## Architecture boundaries
 
@@ -78,6 +78,18 @@ This file defines the operating rules for agents working in this repository.
 - Do not move business logic into React for convenience.
 - Treat the local web interface as another view of the same daemon truth, not as a separate product model.
 - All web UI changes must remain responsive across desktop and narrow-screen layouts.
+
+### Public website rules
+
+- `apps/website` is a separate public marketing app, not another daemon client.
+- Do not call the daemon, OpenClaw, or any runtime API from the website.
+- Keep the website fully static and GitHub Pages compatible.
+- Treat the approved Figma website design as the source of truth for layout, section order, copy direction, and visual tone. Keep divergence minimal and intentional.
+- Replace `figma:asset` references with repo-owned local assets before shipping.
+- The website may use website-local components and styles instead of product-app primitives when fidelity or static-site simplicity requires it.
+- Keep website dependencies trimmed. Do not pull product-layer packages or heavy UI libraries into the website without a clear need.
+- Keep the website responsive across desktop and mobile layouts.
+- If a future custom domain is introduced, preserve the existing path-aware build setup instead of hardcoding repo-relative assumptions into page code.
 
 ## UI system rules
 

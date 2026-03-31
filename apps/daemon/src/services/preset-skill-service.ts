@@ -3,7 +3,7 @@ import type {
   PresetSkillSyncEntry,
   PresetSkillSyncOverview,
   PresetSkillTargetMode
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter } from "../engine/adapter.js";
 import { normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";
@@ -266,7 +266,7 @@ export class PresetSkillService {
             definition.id,
             createEntry(definition, targetMode, "failed", new Date().toISOString(), {
               installedVersion: installResult.version,
-              lastError: `SlackClaw installed ${definition.runtimeSlug}, but verification did not find a usable skill in the active runtime.`
+              lastError: `ChillClaw installed ${definition.runtimeSlug}, but verification did not find a usable skill in the active runtime.`
             })
           );
           await this.commitSyncOverview(presetSkills, buildSyncOverview(targetMode, [...entryMap.values()]));
@@ -284,7 +284,7 @@ export class PresetSkillService {
         entryMap.set(
           definition.id,
           createEntry(definition, targetMode, "failed", new Date().toISOString(), {
-            lastError: error instanceof Error ? error.message : `SlackClaw could not install ${definition.runtimeSlug}.`
+            lastError: error instanceof Error ? error.message : `ChillClaw could not install ${definition.runtimeSlug}.`
           })
         );
         await this.commitSyncOverview(presetSkills, buildSyncOverview(targetMode, [...entryMap.values()]));

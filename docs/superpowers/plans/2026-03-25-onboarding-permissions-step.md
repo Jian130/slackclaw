@@ -16,11 +16,11 @@
 
 **Files:**
 - Modify: `packages/contracts/src/index.ts`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Requests.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Requests.swift`
 - Modify: `apps/daemon/src/services/state-store.ts`
 - Modify: `apps/daemon/src/services/onboarding-service.test.ts`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/OnboardingTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/OnboardingTests.swift`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -51,10 +51,10 @@ Expected: PASS for the new ordering assertions.
 ### Task 2: Port macOS permission logic and build reusable permission views
 
 **Files:**
-- Create: `apps/macos-native/Sources/SlackClawNative/PermissionSupport.swift`
-- Create: `apps/macos-native/Sources/SlackClawNative/PermissionsView.swift`
+- Create: `apps/macos-native/Sources/ChillClawNative/PermissionSupport.swift`
+- Create: `apps/macos-native/Sources/ChillClawNative/PermissionsView.swift`
 - Modify: `apps/macos-native/Package.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/OnboardingTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/OnboardingTests.swift`
 - Modify: `scripts/build-macos-installer.mjs`
 
 - [ ] **Step 1: Write the failing tests**
@@ -68,7 +68,7 @@ Expected: FAIL because the new permission helpers/components do not exist.
 
 - [ ] **Step 3: Implement the native permission layer**
 
-Port the OpenClaw-style permission manager/monitoring support into SlackClaw native, define reusable permission metadata, and add shared SwiftUI row/list components for onboarding and settings. Add macOS usage-description keys in the generated `Info.plist`.
+Port the OpenClaw-style permission manager/monitoring support into ChillClaw native, define reusable permission metadata, and add shared SwiftUI row/list components for onboarding and settings. Add macOS usage-description keys in the generated `Info.plist`.
 
 - [ ] **Step 4: Run the focused native tests to verify they pass**
 
@@ -80,11 +80,11 @@ Expected: PASS
 ### Task 3: Insert the permissions step into native onboarding and reuse it in settings
 
 **Files:**
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingSupport.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingView.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingViewModel.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/OnboardingTests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingSupport.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingViewModel.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/OnboardingTests.swift`
 
 - [ ] **Step 1: Write the failing tests**
 

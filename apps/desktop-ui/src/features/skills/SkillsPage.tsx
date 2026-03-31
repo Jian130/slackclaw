@@ -6,7 +6,7 @@ import type {
   SkillCatalogOverview,
   SkillMarketplaceDetail,
   SkillMarketplaceEntry
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import {

@@ -131,6 +131,12 @@ export interface ModelProviderConfig {
   docsUrl: string;
   providerRefs: string[];
   authMethods: ModelAuthMethod[];
+  exampleModels?: string[];
+  authEnvVars?: string[];
+  setupNotes?: string[];
+  warnings?: string[];
+  providerType?: "built-in" | "custom" | "local" | "gateway" | "community";
+  supportsNoAuth?: boolean;
   configured: boolean;
   modelCount: number;
   sampleModels: string[];
@@ -603,7 +609,7 @@ export interface PresetSkillSyncOverview {
 }
 
 export type InstalledSkillSource = "bundled" | "workspace" | "extra" | "clawhub" | "custom";
-export type SkillManagerKind = "openclaw" | "clawhub" | "slackclaw-custom";
+export type SkillManagerKind = "openclaw" | "clawhub" | "chillclaw-custom";
 
 export interface InstalledSkillEntry {
   id: string;
@@ -685,7 +691,7 @@ export interface MemberBindingSummary {
 export interface AIMemberSummary {
   id: string;
   agentId: string;
-  source: "slackclaw" | "detected";
+  source: "chillclaw" | "detected";
   hasManagedMetadata: boolean;
   name: string;
   jobTitle: string;
@@ -908,8 +914,8 @@ export type ChatStreamEvent =
       thread: ChatThreadSummary;
     };
 
-export type SlackClawTaskProgressStatus = "pending" | "running" | "completed" | "failed";
-export type SlackClawDeployPhase =
+export type ChillClawTaskProgressStatus = "pending" | "running" | "completed" | "failed";
+export type ChillClawDeployPhase =
   | "detecting"
   | "reusing"
   | "installing"
@@ -917,9 +923,9 @@ export type SlackClawDeployPhase =
   | "uninstalling"
   | "verifying"
   | "restarting-gateway";
-export type SlackClawConfigResource = "models" | "channels" | "skills" | "ai-employees" | "onboarding" | "gateway";
+export type ChillClawConfigResource = "models" | "channels" | "skills" | "ai-employees" | "onboarding" | "gateway";
 
-export type SlackClawEvent =
+export type ChillClawEvent =
   | {
       type: "overview.updated";
       snapshot: RevisionedSnapshot<ProductOverview>;
@@ -952,7 +958,7 @@ export type SlackClawEvent =
       type: "deploy.progress";
       correlationId: string;
       targetId: DeploymentTargetId;
-      phase: SlackClawDeployPhase;
+      phase: ChillClawDeployPhase;
       percent?: number;
       message: string;
     }
@@ -973,7 +979,7 @@ export type SlackClawEvent =
   | {
       type: "task.progress";
       taskId: string;
-      status: SlackClawTaskProgressStatus;
+      status: ChillClawTaskProgressStatus;
       message: string;
     }
   | {
@@ -989,7 +995,7 @@ export type SlackClawEvent =
     }
   | {
       type: "config.applied";
-      resource: SlackClawConfigResource;
+      resource: ChillClawConfigResource;
       summary: string;
     };
 
@@ -1299,7 +1305,7 @@ export const defaultTemplates: TaskTemplate[] = [
     title: "Summarize a thread",
     category: "Communication",
     description: "Condense a long conversation into a short action-oriented summary.",
-    promptHint: "Paste the thread and tell SlackClaw who the summary is for."
+    promptHint: "Paste the thread and tell ChillClaw who the summary is for."
   },
   {
     id: "draft-email",
@@ -1344,7 +1350,7 @@ export function createDefaultProductOverview(): ProductOverview {
   const now = new Date().toISOString();
 
   return {
-    appName: "SlackClaw",
+    appName: "ChillClaw",
     appVersion: "0.1.2",
     platformTarget: "macOS first",
     firstRun: {
@@ -1358,7 +1364,7 @@ export function createDefaultProductOverview(): ProductOverview {
       running: false,
       managedAtLogin: false,
       label: undefined,
-      summary: "SlackClaw background service is not managed yet.",
+      summary: "ChillClaw background service is not managed yet.",
       detail: "The packaged app can install a LaunchAgent for login-time startup."
     },
     engine: {
@@ -1398,13 +1404,13 @@ export function createDefaultProductOverview(): ProductOverview {
         id: "platform",
         label: "Supported macOS version",
         status: "pending",
-        detail: "SlackClaw will check your OS version on first launch."
+        detail: "ChillClaw will check your OS version on first launch."
       },
       {
         id: "disk",
         label: "Free disk space",
         status: "pending",
-        detail: "SlackClaw will verify enough space for the engine and starter assets."
+        detail: "ChillClaw will verify enough space for the engine and starter assets."
       },
       {
         id: "permissions",
@@ -1422,7 +1428,7 @@ export function createDefaultProductOverview(): ProductOverview {
           officialSupport: true,
           status: "not-started",
           summary: "Telegram setup has not started yet.",
-          detail: "SlackClaw will add the bot token, then help approve the first pairing code."
+          detail: "ChillClaw will add the bot token, then help approve the first pairing code."
         },
         {
           id: "whatsapp",
@@ -1430,7 +1436,7 @@ export function createDefaultProductOverview(): ProductOverview {
           officialSupport: true,
           status: "not-started",
           summary: "WhatsApp setup has not started yet.",
-          detail: "SlackClaw will start the login flow, then wait for pairing approval."
+          detail: "ChillClaw will start the login flow, then wait for pairing approval."
         },
         {
           id: "feishu",
@@ -1438,7 +1444,7 @@ export function createDefaultProductOverview(): ProductOverview {
           officialSupport: true,
           status: "not-started",
           summary: "Feishu bot setup has not started yet.",
-          detail: "SlackClaw can guide you through the official OpenClaw Feishu plugin setup: app creation, credentials, gateway restart, long-connection event subscription, and pairing."
+          detail: "ChillClaw can guide you through the official OpenClaw Feishu plugin setup: app creation, credentials, gateway restart, long-connection event subscription, and pairing."
         },
         {
           id: "wechat-work",
@@ -1446,7 +1452,7 @@ export function createDefaultProductOverview(): ProductOverview {
           officialSupport: true,
           status: "not-started",
           summary: "WeChat Work setup has not started yet.",
-          detail: "SlackClaw will install the managed WeCom plugin, then save the bot credentials."
+          detail: "ChillClaw will install the managed WeCom plugin, then save the bot credentials."
         },
         {
           id: "wechat",
@@ -1454,7 +1460,7 @@ export function createDefaultProductOverview(): ProductOverview {
           officialSupport: false,
           status: "not-started",
           summary: "Personal WeChat setup has not started yet.",
-          detail: "SlackClaw will start the QR-first installer flow, then wait for login confirmation."
+          detail: "ChillClaw will start the QR-first installer flow, then wait for login confirmation."
         }
       ],
       nextChannelId: "telegram",
@@ -1469,7 +1475,7 @@ export function createDefaultProductOverview(): ProductOverview {
         title: "Engine service",
         severity: "warning",
         summary: "OpenClaw is not running yet.",
-        detail: "Install SlackClaw's bundled OpenClaw setup to enable tasks.",
+        detail: "Install ChillClaw's bundled OpenClaw setup to enable tasks.",
         remediationActionIds: ["reinstall-engine"]
       },
       {
@@ -1477,7 +1483,7 @@ export function createDefaultProductOverview(): ProductOverview {
         title: "Configuration",
         severity: "info",
         summary: "Default profile has not been selected.",
-        detail: "Choose a default SlackClaw workflow profile so tasks start with sane defaults.",
+        detail: "Choose a default ChillClaw workflow profile so tasks start with sane defaults.",
         remediationActionIds: ["repair-config"]
       }
     ],
@@ -1494,7 +1500,7 @@ export function createDefaultProductOverview(): ProductOverview {
         id: "repair-config",
         type: "repair-config",
         title: "Repair setup defaults",
-        description: "Restore the recommended profile and default SlackClaw settings.",
+        description: "Restore the recommended profile and default ChillClaw settings.",
         safetyLevel: "safe",
         expectedImpact: "Keeps your history but resets product preferences to defaults."
       },
@@ -1510,7 +1516,7 @@ export function createDefaultProductOverview(): ProductOverview {
         id: "reinstall-engine",
         type: "reinstall-engine",
         title: "Reinstall engine",
-        description: "Reinstall OpenClaw with SlackClaw's recommended version.",
+        description: "Reinstall OpenClaw with ChillClaw's recommended version.",
         safetyLevel: "review",
         expectedImpact: "Rebuilds the engine installation without removing your task history."
       },

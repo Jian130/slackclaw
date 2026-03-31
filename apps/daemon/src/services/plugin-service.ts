@@ -1,4 +1,4 @@
-import type { PluginActionResponse, PluginConfigOverview } from "@slackclaw/contracts";
+import type { PluginActionResponse, PluginConfigOverview } from "@chillclaw/contracts";
 
 import { listManagedPluginDefinitions } from "../config/managed-plugins.js";
 import type { EngineAdapter } from "../engine/adapter.js";

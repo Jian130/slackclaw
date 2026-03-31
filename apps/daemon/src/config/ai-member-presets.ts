@@ -4,7 +4,7 @@ import type {
   OnboardingEmployeePresetTheme,
   PresetSkillDefinition,
   SkillOption
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 interface ManagedAIMemberPresetDefinition extends AIMemberPreset {
   memberBuilderVisible?: boolean;

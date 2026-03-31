@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the existing daemon-owned OpenClaw plugin manager, but move it under a broader daemon-owned feature workflow orchestration layer. Reuse the current `ChannelSession` transport for channel QR/login flows in this pass, and keep the new workflow layer internally generic so later model workflows can add different prerequisites without reworking clients again.
 
-**Tech Stack:** TypeScript, Node.js, React 19, Vitest, SwiftUI, Swift Testing, shared SlackClaw contracts, local daemon services
+**Tech Stack:** TypeScript, Node.js, React 19, Vitest, SwiftUI, Swift Testing, shared ChillClaw contracts, local daemon services
 
 ---
 
@@ -16,11 +16,11 @@
 
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/src/index.test.ts`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/EventModels.swift`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Requests.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/SlackClawProtocolTests.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/OnboardingClientTests.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/EventModels.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Requests.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/ChillClawProtocolTests.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/OnboardingClientTests.swift`
 
 **Daemon config, migration, and workflow orchestration**
 
@@ -64,15 +64,15 @@
 
 **Native macOS client**
 
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingSupport.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingViewModel.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingView.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/ConfigurationSupport.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/AppState.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/OnboardingTests.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/ConfigurationScreenTests.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/AppStateEventTests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingSupport.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingViewModel.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/ConfigurationSupport.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/AppState.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/OnboardingTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/ConfigurationScreenTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/AppStateEventTests.swift`
 
 ---
 
@@ -82,29 +82,29 @@
 
 **Files:**
 - Modify: `packages/contracts/src/index.test.ts`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/SlackClawProtocolTests.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/OnboardingClientTests.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/ChillClawProtocolTests.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/OnboardingClientTests.swift`
 
 - [ ] **Step 1: Add a failing TypeScript contract test that expects `SupportedChannelId`-backed payloads to accept both `wechat-work` and `wechat`**
 - [ ] **Step 2: Add a failing TypeScript contract test that expects onboarding channel setup kinds to distinguish WeChat Work from personal WeChat**
 - [ ] **Step 3: Add a failing Swift protocol decoding test that expects the onboarding payload to decode both channel ids and both setup kinds**
-- [ ] **Step 4: Run `npm test --workspace @slackclaw/contracts` and verify the new contract assertions fail**
-- [ ] **Step 5: Run `swift test --package-path apps/shared/SlackClawKit --filter SlackClawProtocolTests` and verify the new Swift decoding assertions fail**
+- [ ] **Step 4: Run `npm test --workspace @chillclaw/contracts` and verify the new contract assertions fail**
+- [ ] **Step 5: Run `swift test --package-path apps/shared/ChillClawKit --filter ChillClawProtocolTests` and verify the new Swift decoding assertions fail**
 
 ### Task 2: Implement the shared contract split
 
 **Files:**
 - Modify: `packages/contracts/src/index.ts`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/EventModels.swift`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Requests.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/EventModels.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Requests.swift`
 
 - [ ] **Step 1: Change `SupportedChannelId` so it includes both `wechat-work` and `wechat`**
 - [ ] **Step 2: Update onboarding channel theme and setup-kind types so WeChat Work and personal WeChat are distinct products**
 - [ ] **Step 3: Rename the current WeChat Work request shape so it no longer exposes `corpId` in the shared contract and instead carries `botId` and `secret`**
 - [ ] **Step 4: Update Swift protocol models and request types to match the TypeScript contract changes**
-- [ ] **Step 5: Re-run `npm test --workspace @slackclaw/contracts` and verify the contracts pass**
-- [ ] **Step 6: Re-run `swift test --package-path apps/shared/SlackClawKit --filter SlackClawProtocolTests` and verify the protocol tests pass**
+- [ ] **Step 5: Re-run `npm test --workspace @chillclaw/contracts` and verify the contracts pass**
+- [ ] **Step 6: Re-run `swift test --package-path apps/shared/ChillClawKit --filter ChillClawProtocolTests` and verify the protocol tests pass**
 
 ### Task 3: Add failing migration tests for old `wechat` state
 
@@ -130,11 +130,11 @@
 
 ```bash
 git add packages/contracts/src/index.ts packages/contracts/src/index.test.ts \
-  apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift \
-  apps/shared/SlackClawKit/Sources/SlackClawProtocol/EventModels.swift \
-  apps/shared/SlackClawKit/Sources/SlackClawProtocol/Requests.swift \
-  apps/shared/SlackClawKit/Tests/SlackClawKitTests/SlackClawProtocolTests.swift \
-  apps/shared/SlackClawKit/Tests/SlackClawKitTests/OnboardingClientTests.swift \
+  apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift \
+  apps/shared/ChillClawKit/Sources/ChillClawProtocol/EventModels.swift \
+  apps/shared/ChillClawKit/Sources/ChillClawProtocol/Requests.swift \
+  apps/shared/ChillClawKit/Tests/ChillClawKitTests/ChillClawProtocolTests.swift \
+  apps/shared/ChillClawKit/Tests/ChillClawKitTests/OnboardingClientTests.swift \
   apps/daemon/src/config/onboarding-config.ts \
   apps/daemon/src/services/state-store.ts \
   apps/daemon/src/services/state-store.test.ts \
@@ -293,7 +293,7 @@ git commit -m "feat: split wechat-work and personal wechat flows"
 - [ ] **Step 2: Add a failing onboarding-helper test that expects WeChat Work hidden save values to carry `botId` and `secret` semantics and no `corpId`**
 - [ ] **Step 3: Add a failing config-page test that expects WeChat Work and WeChat to render distinct actions, with WeChat personal using login/session behavior instead of a credential form**
 - [ ] **Step 4: Add a failing plugins-page test that expects only WeChat Work to remain in the plugin screen**
-- [ ] **Step 5: Run `npm test --workspace @slackclaw/desktop-ui -- src/features/onboarding/helpers.test.ts src/features/config/ConfigPage.test.tsx src/features/plugins/PluginsPage.test.tsx` and verify the new assertions fail**
+- [ ] **Step 5: Run `npm test --workspace @chillclaw/desktop-ui -- src/features/onboarding/helpers.test.ts src/features/config/ConfigPage.test.tsx src/features/plugins/PluginsPage.test.tsx` and verify the new assertions fail**
 
 ### Task 13: Implement the React onboarding and config split
 
@@ -311,7 +311,7 @@ git commit -m "feat: split wechat-work and personal wechat flows"
 - [ ] **Step 4: Update the config dialog so WeChat Work remains form-based while WeChat personal is login/session based**
 - [ ] **Step 5: Update API helpers and UI copy to use the renamed ids and labels consistently**
 - [ ] **Step 6: Keep the plugins page scoped to WeChat Work and other true plugins only**
-- [ ] **Step 7: Re-run `npm test --workspace @slackclaw/desktop-ui -- src/features/onboarding/helpers.test.ts src/features/config/ConfigPage.test.tsx src/features/plugins/PluginsPage.test.tsx` and verify the web split tests pass**
+- [ ] **Step 7: Re-run `npm test --workspace @chillclaw/desktop-ui -- src/features/onboarding/helpers.test.ts src/features/config/ConfigPage.test.tsx src/features/plugins/PluginsPage.test.tsx` and verify the web split tests pass**
 
 ### Task 14: Verify the web client end to end
 
@@ -320,8 +320,8 @@ git commit -m "feat: split wechat-work and personal wechat flows"
 - Modify: `apps/desktop-ui/src/features/config/ConfigPage.tsx`
 - Modify: `apps/desktop-ui/src/shared/i18n/messages.ts`
 
-- [ ] **Step 1: Run `npm test --workspace @slackclaw/desktop-ui`**
-- [ ] **Step 2: Run `npm run build --workspace @slackclaw/desktop-ui`**
+- [ ] **Step 1: Run `npm test --workspace @chillclaw/desktop-ui`**
+- [ ] **Step 2: Run `npm run build --workspace @chillclaw/desktop-ui`**
 - [ ] **Step 3: Manually verify the local web UI shows separate WeChat Work and WeChat onboarding cards and that only WeChat Work appears in the Plugins page**
 - [ ] **Step 4: Commit this chunk**
 
@@ -345,9 +345,9 @@ git commit -m "feat: split wechat onboarding and config flows on web"
 ### Task 15: Add failing native tests for the channel split
 
 **Files:**
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/OnboardingTests.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/ConfigurationScreenTests.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/AppStateEventTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/OnboardingTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/ConfigurationScreenTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/AppStateEventTests.swift`
 
 - [ ] **Step 1: Add a failing onboarding test that expects curated channels to include both WeChat Work and WeChat in the daemon-owned order**
 - [ ] **Step 2: Add a failing onboarding test that expects WeChat Work hidden values to stop requiring `corpId`**
@@ -358,12 +358,12 @@ git commit -m "feat: split wechat onboarding and config flows on web"
 ### Task 16: Implement the native macOS onboarding and config split
 
 **Files:**
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingSupport.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingViewModel.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingView.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/ConfigurationSupport.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/AppState.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingSupport.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingViewModel.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/ConfigurationSupport.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/AppState.swift`
 
 - [ ] **Step 1: Update native onboarding helpers to distinguish WeChat Work and WeChat setup kinds**
 - [ ] **Step 2: Change the WeChat Work native form to `Bot ID` and `Secret` only**
@@ -375,30 +375,30 @@ git commit -m "feat: split wechat onboarding and config flows on web"
 ### Task 17: Run full shared Swift and native verification
 
 **Files:**
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawClient/APIClient.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/AppState.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawClient/APIClient.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/AppState.swift`
 
 - [ ] **Step 1: Update any remaining Swift API client or app-state call sites to the renamed ids and session behavior**
-- [ ] **Step 2: Run `swift test --package-path apps/shared/SlackClawKit`**
+- [ ] **Step 2: Run `swift test --package-path apps/shared/ChillClawKit`**
 - [ ] **Step 3: Run `swift test --package-path apps/macos-native`**
 - [ ] **Step 4: Commit this chunk**
 
 ```bash
-git add apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift \
-  apps/shared/SlackClawKit/Sources/SlackClawProtocol/EventModels.swift \
-  apps/shared/SlackClawKit/Sources/SlackClawProtocol/Requests.swift \
-  apps/shared/SlackClawKit/Sources/SlackClawClient/APIClient.swift \
-  apps/shared/SlackClawKit/Tests/SlackClawKitTests/SlackClawProtocolTests.swift \
-  apps/shared/SlackClawKit/Tests/SlackClawKitTests/OnboardingClientTests.swift \
-  apps/macos-native/Sources/SlackClawNative/OnboardingSupport.swift \
-  apps/macos-native/Sources/SlackClawNative/OnboardingViewModel.swift \
-  apps/macos-native/Sources/SlackClawNative/OnboardingView.swift \
-  apps/macos-native/Sources/SlackClawNative/Screens.swift \
-  apps/macos-native/Sources/SlackClawNative/ConfigurationSupport.swift \
-  apps/macos-native/Sources/SlackClawNative/AppState.swift \
-  apps/macos-native/Tests/SlackClawNativeTests/OnboardingTests.swift \
-  apps/macos-native/Tests/SlackClawNativeTests/ConfigurationScreenTests.swift \
-  apps/macos-native/Tests/SlackClawNativeTests/AppStateEventTests.swift
+git add apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift \
+  apps/shared/ChillClawKit/Sources/ChillClawProtocol/EventModels.swift \
+  apps/shared/ChillClawKit/Sources/ChillClawProtocol/Requests.swift \
+  apps/shared/ChillClawKit/Sources/ChillClawClient/APIClient.swift \
+  apps/shared/ChillClawKit/Tests/ChillClawKitTests/ChillClawProtocolTests.swift \
+  apps/shared/ChillClawKit/Tests/ChillClawKitTests/OnboardingClientTests.swift \
+  apps/macos-native/Sources/ChillClawNative/OnboardingSupport.swift \
+  apps/macos-native/Sources/ChillClawNative/OnboardingViewModel.swift \
+  apps/macos-native/Sources/ChillClawNative/OnboardingView.swift \
+  apps/macos-native/Sources/ChillClawNative/Screens.swift \
+  apps/macos-native/Sources/ChillClawNative/ConfigurationSupport.swift \
+  apps/macos-native/Sources/ChillClawNative/AppState.swift \
+  apps/macos-native/Tests/ChillClawNativeTests/OnboardingTests.swift \
+  apps/macos-native/Tests/ChillClawNativeTests/ConfigurationScreenTests.swift \
+  apps/macos-native/Tests/ChillClawNativeTests/AppStateEventTests.swift
 git commit -m "feat: split wechat onboarding and config flows on macos"
 ```
 
@@ -408,13 +408,13 @@ git commit -m "feat: split wechat onboarding and config flows on macos"
 - Modify: `apps/daemon/src/services/state-store.ts`
 - Modify: `apps/daemon/src/engine/openclaw-adapter.ts`
 - Modify: `apps/desktop-ui/src/features/onboarding/OnboardingPage.tsx`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingView.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift`
 
-- [ ] **Step 1: Run `npm test --workspace @slackclaw/contracts`**
+- [ ] **Step 1: Run `npm test --workspace @chillclaw/contracts`**
 - [ ] **Step 2: Run `node --import tsx --test apps/daemon/src/services/state-store.test.ts apps/daemon/src/services/feature-workflow-service.test.ts apps/daemon/src/services/channel-setup-service.test.ts apps/daemon/src/services/plugin-service.test.ts apps/daemon/src/server.test.ts apps/daemon/src/engine/openclaw-adapter.test.ts apps/daemon/src/engine/mock-adapter.test.ts`**
-- [ ] **Step 3: Run `npm test --workspace @slackclaw/desktop-ui`**
-- [ ] **Step 4: Run `npm run build --workspace @slackclaw/desktop-ui`**
-- [ ] **Step 5: Run `swift test --package-path apps/shared/SlackClawKit`**
+- [ ] **Step 3: Run `npm test --workspace @chillclaw/desktop-ui`**
+- [ ] **Step 4: Run `npm run build --workspace @chillclaw/desktop-ui`**
+- [ ] **Step 5: Run `swift test --package-path apps/shared/ChillClawKit`**
 - [ ] **Step 6: Run `swift test --package-path apps/macos-native`**
 - [ ] **Step 7: Manually verify an old saved `wechat` state is surfaced as `wechat-work` without losing data**
 - [ ] **Step 8: Manually verify WeChat Work setup only asks for `Bot ID` and `Secret`**

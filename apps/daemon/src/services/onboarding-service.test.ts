@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
-import type { OnboardingStateResponse } from "@slackclaw/contracts";
+import type { OnboardingStateResponse } from "@chillclaw/contracts";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
@@ -354,7 +354,7 @@ test("saving a model entry keeps the normalized live model key in the onboarding
           label: "MiniMax M2.7",
           providerId: request.providerId,
           modelKey: "minimax/MiniMax-M2.7",
-          agentId: "slackclaw-model-minimax",
+          agentId: "chillclaw-model-minimax",
           authMethodId: request.methodId,
           authModeLabel: "API key",
           profileLabel: "Default",
@@ -430,7 +430,7 @@ test("saving the first onboarding model clears legacy fallback entries from the 
           label: "MiniMax M2.7",
           providerId: request.providerId,
           modelKey: "minimax/MiniMax-M2.7",
-          agentId: "slackclaw-model-minimax",
+          agentId: "chillclaw-model-minimax",
           authMethodId: request.methodId,
           authModeLabel: "API key",
           profileLabel: "Default",
@@ -478,7 +478,7 @@ test("saving the first onboarding model clears legacy fallback entries from the 
             label: "MiniMax M2.7",
             providerId: "minimax",
             modelKey: "minimax/MiniMax-M2.7",
-            agentId: "slackclaw-model-minimax",
+            agentId: "chillclaw-model-minimax",
             authMethodId: "minimax-api",
             authModeLabel: "API key",
             profileLabel: "Default",
@@ -1352,10 +1352,22 @@ test("onboarding state exposes the curated model providers for step 3", async ()
     ["MiniMax", "Qwen (通义千问)", "ChatGPT"]
   );
   assert.equal(state.config?.modelProviders?.[0]?.defaultModelKey, "minimax/MiniMax-M2.7");
-  assert.deepEqual(state.config?.modelProviders?.[0]?.authMethods.map((method) => method.id), ["minimax-api", "minimax-api-key-cn"]);
+  assert.deepEqual(
+    state.config?.modelProviders?.[0]?.authMethods.map((method) => method.id),
+    ["minimax-api", "minimax-api-key-cn", "minimax-portal"]
+  );
   assert.equal(state.config?.modelProviders?.[1]?.defaultModelKey, "modelstudio/qwen3.5-plus");
-  assert.deepEqual(state.config?.modelProviders?.[1]?.authMethods.map((method) => method.id), ["modelstudio-api-key-cn"]);
+  assert.deepEqual(
+    state.config?.modelProviders?.[1]?.authMethods.map((method) => method.id),
+    [
+      "modelstudio-standard-api-key-cn",
+      "modelstudio-standard-api-key",
+      "modelstudio-api-key-cn",
+      "modelstudio-api-key"
+    ]
+  );
   assert.deepEqual(state.config?.modelProviders?.[2]?.authMethods.map((method) => method.id), ["openai-api-key", "openai-codex"]);
+  assert.equal(state.config?.modelProviders?.[2]?.authMethods[1]?.label, "OpenAI Codex OAuth");
   assert.deepEqual(
     state.config?.channels?.map((channel) => channel.id),
     ["wechat-work", "wechat", "feishu", "telegram"]

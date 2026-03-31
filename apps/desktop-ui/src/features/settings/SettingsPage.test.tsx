@@ -16,7 +16,7 @@ vi.mock("../../app/providers/OverviewProvider.js", () => ({
     overview: {
       appService: {
         running: true,
-        summary: "SlackClaw launches as a local background service."
+        summary: "ChillClaw launches as a local background service."
       }
     },
     refresh: async () => undefined

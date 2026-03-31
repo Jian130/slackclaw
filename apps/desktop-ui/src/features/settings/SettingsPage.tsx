@@ -8,9 +8,9 @@ import {
   redoOnboarding,
   restartAppService,
   runUpdate,
-  stopSlackClawApp,
+  stopChillClawApp,
   uninstallAppService,
-  uninstallSlackClawApp
+  uninstallChillClawApp
 } from "../../shared/api/client.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
 import { useWorkspace } from "../../app/providers/WorkspaceProvider.js";
@@ -201,7 +201,7 @@ export default function SettingsPage() {
                   <RefreshCw size={14} />
                   {busy === "updates" ? "Checking..." : copy.checkUpdates}
                 </Button>
-                <Button loading={busy === "stop-app"} onClick={() => void runAction("stop-app", stopSlackClawApp)} variant="outline">
+                <Button loading={busy === "stop-app"} onClick={() => void runAction("stop-app", stopChillClawApp)} variant="outline">
                   {busy === "stop-app" ? "Stopping..." : copy.stopApp}
                 </Button>
               </CardContent>
@@ -214,7 +214,7 @@ export default function SettingsPage() {
                   {busy === "redo-onboarding" ? copy.redoOnboardingRunning : copy.redoOnboarding}
                 </Button>
                 <p className="card__description">{copy.redoOnboardingBody}</p>
-                <Button loading={busy === "uninstall-app"} onClick={() => void runAction("uninstall-app", uninstallSlackClawApp)} variant="danger">
+                <Button loading={busy === "uninstall-app"} onClick={() => void runAction("uninstall-app", uninstallChillClawApp)} variant="danger">
                   <Trash2 size={14} />
                   {busy === "uninstall-app" ? "Uninstalling..." : copy.uninstallApp}
                 </Button>

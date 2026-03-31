@@ -65,11 +65,13 @@ async function serveStaticAsset(requestUrl: string, response: ServerResponse): P
       response.end(fallback);
       return true;
     } catch (error) {
-      void writeErrorLog("SlackClaw could not serve a static asset or the packaged UI fallback.", {
+      void writeErrorLog("ChillClaw could not serve a static asset or the packaged UI fallback.", {
         requestUrl,
         assetPath,
         fallbackPath,
         error: errorToLogDetails(error)
+      }, {
+        scope: "server.serveStaticAsset"
       });
       return false;
     }
@@ -118,13 +120,17 @@ export function startServer(port = 4545) {
         method: request.method,
         url: request.url,
         error: errorToLogDetails(error)
+      }, {
+        scope: "server.requestHandler.requestStreamError"
       });
     });
 
     if (!request.url || !request.method) {
-      void writeErrorLog("SlackClaw daemon received a malformed request.", {
+      void writeErrorLog("ChillClaw daemon received a malformed request.", {
         method: request.method,
         url: request.url
+      }, {
+        scope: "server.requestHandler.malformedRequest"
       });
       sendJson(response, 400, { error: "Malformed request." });
       return;
@@ -169,6 +175,8 @@ export function startServer(port = 4545) {
       void writeErrorLog("Daemon API route not found.", {
         method: request.method,
         url: request.url
+      }, {
+        scope: "server.requestHandler.routeNotFound"
       });
       sendJson(response, 404, { error: "Route not found." });
     } catch (error) {
@@ -177,17 +185,23 @@ export function startServer(port = 4545) {
         method: request.method,
         url: request.url,
         error: errorToLogDetails(error)
+      }, {
+        scope: "server.requestHandler.unhandledError"
       });
       sendJson(response, 500, { error: message });
     }
   });
 
   server.on("error", (error) => {
-    void writeErrorLog("SlackClaw daemon server emitted an error.", errorToLogDetails(error));
+    void writeErrorLog("ChillClaw daemon server emitted an error.", errorToLogDetails(error), {
+      scope: "server.startServer.serverError"
+    });
   });
 
   server.on("clientError", (error, socket) => {
-    void writeErrorLog("SlackClaw daemon rejected a malformed client connection.", errorToLogDetails(error));
+    void writeErrorLog("ChillClaw daemon rejected a malformed client connection.", errorToLogDetails(error), {
+      scope: "server.startServer.clientError"
+    });
     if (socket.writable) {
       socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
     }
@@ -210,9 +224,11 @@ export function startServer(port = 4545) {
   });
 
   server.listen(port, "127.0.0.1");
-  void writeInfoLog("SlackClaw daemon server started.", {
+  void writeInfoLog("ChillClaw daemon server started.", {
     port,
     appVersion: "0.1.2"
+  }, {
+    scope: "server.startServer"
   });
 
   return server;

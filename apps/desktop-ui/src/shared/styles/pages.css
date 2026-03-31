@@ -768,6 +768,61 @@
   gap: 8px;
 }
 
+.config-page__provider-guidance {
+  display: grid;
+  gap: 12px;
+}
+
+.config-page__provider-group {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--surface-muted) 0%, var(--surface) 100%);
+}
+
+.config-page__provider-group--warning {
+  border-color: var(--border-warning);
+  background: linear-gradient(180deg, var(--surface-warning-soft) 0%, var(--surface) 100%);
+}
+
+.config-page__provider-group-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.config-page__provider-group-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.config-page__provider-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.config-page__provider-note {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .split-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
@@ -3292,12 +3347,8 @@
   letter-spacing: -0.02em;
 }
 
-.onboarding-auth-method-grid--single {
-  width: min(100%, 360px);
-}
-
 .onboarding-auth-method-card--figma {
-  min-height: 156px;
+  min-height: 208px;
   padding: 24px 20px;
   border-radius: var(--radius-standard);
   justify-items: center;
@@ -3763,8 +3814,9 @@
 
 .onboarding-auth-method-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--onboarding-auth-method-count, 2), minmax(0, 1fr));
   gap: 12px;
+  align-items: stretch;
 }
 
 .onboarding-auth-method-card {
@@ -3772,6 +3824,8 @@
   gap: 8px;
   justify-items: center;
   padding: 18px 16px;
+  min-height: 208px;
+  height: 100%;
   border: 1px solid rgb(var(--slate-rgb) / 0.18);
   border-radius: var(--radius-panel);
   background: rgb(var(--white-rgb) / 0.9);
@@ -4188,7 +4242,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .onboarding-auth-method-grid--single,
   .onboarding-model-actions {
     width: 100%;
     grid-template-columns: minmax(0, 1fr);

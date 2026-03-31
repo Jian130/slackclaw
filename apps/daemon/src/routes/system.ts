@@ -9,7 +9,7 @@ import type {
   RemoveSkillRequest,
   SaveCustomSkillRequest,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { getDataDir } from "../runtime-paths.js";
 import { clearRuntimeUninstallState, shouldResetStateAfterDeploymentUninstall } from "./runtime-reset.js";
@@ -77,7 +77,7 @@ export const systemRoutes: RouteDefinition[] = [
         targetId,
         phase: "installing",
         percent: 10,
-        message: `SlackClaw is installing the ${targetId} OpenClaw runtime.`
+        message: `ChillClaw is installing the ${targetId} OpenClaw runtime.`
       });
 
       const result = await context.adapter.instances.installDeploymentTarget(targetId);
@@ -104,7 +104,7 @@ export const systemRoutes: RouteDefinition[] = [
         targetId,
         phase: "updating",
         percent: 10,
-        message: `SlackClaw is updating the ${targetId} OpenClaw runtime.`
+        message: `ChillClaw is updating the ${targetId} OpenClaw runtime.`
       });
 
       const result = await context.adapter.instances.updateDeploymentTarget(targetId);
@@ -131,7 +131,7 @@ export const systemRoutes: RouteDefinition[] = [
         targetId,
         phase: "uninstalling",
         percent: 10,
-        message: `SlackClaw is removing the ${targetId} OpenClaw runtime.`
+        message: `ChillClaw is removing the ${targetId} OpenClaw runtime.`
       });
 
       const result = await context.adapter.instances.uninstallDeploymentTarget(targetId);

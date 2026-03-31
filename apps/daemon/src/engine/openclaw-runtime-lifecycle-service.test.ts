@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { EngineStatus } from "@slackclaw/contracts";
+import type { EngineStatus } from "@chillclaw/contracts";
 
 import { OpenClawRuntimeLifecycleService } from "./openclaw-runtime-lifecycle-service.js";
 

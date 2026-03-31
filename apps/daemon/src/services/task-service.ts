@@ -1,4 +1,4 @@
-import type { EngineTaskRequest, EngineTaskResult } from "@slackclaw/contracts";
+import type { EngineTaskRequest, EngineTaskResult } from "@chillclaw/contracts";
 import { randomUUID } from "node:crypto";
 
 import type { EngineAdapter } from "../engine/adapter.js";
@@ -39,7 +39,7 @@ export class TaskService {
       this.eventPublisher?.publishTaskProgress({
         taskId: fallbackTaskId,
         status: "failed",
-        message: error instanceof Error ? error.message : "SlackClaw task failed."
+        message: error instanceof Error ? error.message : "ChillClaw task failed."
       });
       throw error;
     }

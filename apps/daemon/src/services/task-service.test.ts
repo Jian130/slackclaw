@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
 import type { EngineAdapter } from "../engine/adapter.js";
-import type { EngineTaskRequest } from "@slackclaw/contracts";
+import type { EngineTaskRequest } from "@chillclaw/contracts";
 import { EventBusService } from "./event-bus-service.js";
 import { EventPublisher } from "./event-publisher.js";
 import { StateStore } from "./state-store.js";

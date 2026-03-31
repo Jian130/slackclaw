@@ -9,7 +9,7 @@
         "officialSupport": true,
         "status": "not-started",
         "summary": "Telegram setup has not started yet.",
-        "detail": "SlackClaw will add the bot token, then help approve the first pairing code."
+        "detail": "ChillClaw will add the bot token, then help approve the first pairing code."
       },
       "whatsapp": {
         "id": "whatsapp",
@@ -17,7 +17,7 @@
         "officialSupport": true,
         "status": "not-started",
         "summary": "WhatsApp setup has not started yet.",
-        "detail": "SlackClaw will start the login flow, then wait for pairing approval."
+        "detail": "ChillClaw will start the login flow, then wait for pairing approval."
       },
       "feishu": {
         "id": "feishu",
@@ -25,7 +25,7 @@
         "officialSupport": true,
         "status": "not-started",
         "summary": "Feishu bot setup has not started yet.",
-        "detail": "SlackClaw can guide you through the official OpenClaw Feishu plugin setup: app creation, credentials, gateway restart, long-connection event subscription, and pairing."
+        "detail": "ChillClaw can guide you through the official OpenClaw Feishu plugin setup: app creation, credentials, gateway restart, long-connection event subscription, and pairing."
       },
       "wechat-work": {
         "id": "wechat-work",
@@ -33,7 +33,7 @@
         "officialSupport": true,
         "status": "not-started",
         "summary": "WeChat Work setup has not started yet.",
-        "detail": "SlackClaw will install the managed WeCom plugin, then save the bot credentials."
+        "detail": "ChillClaw will install the managed WeCom plugin, then save the bot credentials."
       },
       "wechat": {
         "id": "wechat",

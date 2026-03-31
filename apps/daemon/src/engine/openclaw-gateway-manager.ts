@@ -10,7 +10,7 @@ import type {
   HealthCheckResult,
   PairingApprovalRequest,
   SendChatMessageRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineChatLiveEvent, GatewayManager } from "./adapter.js";
 

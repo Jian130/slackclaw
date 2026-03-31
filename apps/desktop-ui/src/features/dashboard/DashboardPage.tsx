@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, ArrowRight, Brain, CheckCircle2, Shield, Sparkles, Users } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { ModelConfigOverview, ProductOverview } from "@slackclaw/contracts";
+import type { ModelConfigOverview, ProductOverview } from "@chillclaw/contracts";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";

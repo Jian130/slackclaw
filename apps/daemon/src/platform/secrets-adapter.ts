@@ -1,4 +1,4 @@
-import type { SupportedChannelId } from "@slackclaw/contracts";
+import type { SupportedChannelId } from "@chillclaw/contracts";
 
 export interface SecretsAdapter {
   get(name: string): Promise<string | undefined>;
@@ -33,9 +33,9 @@ export class InMemorySecretsAdapter implements SecretsAdapter {
 }
 
 export function channelSecretName(channelId: SupportedChannelId, entryId: string, fieldId: string): string {
-  return `slackclaw.channel.${channelId}.${entryId}.${fieldId}`;
+  return `chillclaw.channel.${channelId}.${entryId}.${fieldId}`;
 }
 
 export function modelAuthSecretName(providerId: string, methodId: string, fieldId: string): string {
-  return `slackclaw.model-auth.${providerId}.${methodId}.${fieldId}`;
+  return `chillclaw.model-auth.${providerId}.${methodId}.${fieldId}`;
 }

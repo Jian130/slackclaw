@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultTemplates } from "@slackclaw/contracts";
+import { defaultTemplates } from "@chillclaw/contracts";
 import { localeOptions, t } from "./shared/i18n/messages.js";
 import {
   defaultWorkspaceState,

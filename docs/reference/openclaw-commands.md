@@ -26,8 +26,8 @@ Primary upstream docs:
 
 Relevant ChillClaw integration files:
 
-- [apps/daemon/src/engine/openclaw-adapter.ts](/Users/home/Ryo/Projects/slackclaw/apps/daemon/src/engine/openclaw-adapter.ts)
-- [scripts/bootstrap-openclaw.mjs](/Users/home/Ryo/Projects/slackclaw/scripts/bootstrap-openclaw.mjs)
+- [apps/daemon/src/engine/openclaw-adapter.ts](/Users/home/Ryo/Projects/chillclaw/apps/daemon/src/engine/openclaw-adapter.ts)
+- [scripts/bootstrap-openclaw.mjs](/Users/home/Ryo/Projects/chillclaw/scripts/bootstrap-openclaw.mjs)
 
 ## Mental model
 
@@ -651,25 +651,42 @@ Remove config:
 openclaw config unset channels.feishu
 ```
 
-### WeChat workaround
+### WeChat Work (WeCom)
 
-Install and enable plugin:
+Install and enable the managed plugin:
 
 ```bash
-openclaw plugins install <pluginSpec>
-openclaw plugins enable <pluginId>
+openclaw plugins install @wecom/wecom-openclaw-plugin
+openclaw plugins enable wecom-openclaw-plugin
 ```
 
 Save config:
 
 ```bash
-openclaw config set --strict-json channels.<pluginId> <json>
+openclaw config set --strict-json channels.wecom <json>
 ```
 
 Remove config:
 
 ```bash
-openclaw config unset channels.<pluginId>
+openclaw config unset channels.wecom
+```
+
+ChillClaw also repairs legacy `wecom-openclaw-plugin` channel keys when it finds older runtime state, so both the canonical `wecom` key and the legacy plugin-shaped key may appear in migration/debug logs.
+
+### Personal WeChat
+
+Start login using the runtime-resolved personal WeChat channel key:
+
+```bash
+openclaw channels login --channel <wechatRuntimeChannel> --verbose
+openclaw pairing approve wechat <code> --notify
+```
+
+Remove config:
+
+```bash
+openclaw channels remove --channel <wechatRuntimeChannel> --account default --delete
 ```
 
 ### Gateway restart after channel changes

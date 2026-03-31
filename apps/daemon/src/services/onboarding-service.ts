@@ -17,7 +17,7 @@ import type {
   SaveChannelEntryRequest,
   SaveModelEntryRequest,
   UpdateOnboardingStateRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter } from "../engine/adapter.js";
 import { aiMemberPresetById, normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";

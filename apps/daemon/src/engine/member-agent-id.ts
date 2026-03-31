@@ -22,7 +22,7 @@ function localTimestamp(at: Date): string {
 }
 
 export function buildReadableMemberAgentId(name: string, at: Date = new Date()): string {
-  return `slackclaw-member-${slugifyMemberName(name)}-${localTimestamp(at)}`;
+  return `chillclaw-member-${slugifyMemberName(name)}-${localTimestamp(at)}`;
 }
 
 export function resolveReadableMemberAgentId(

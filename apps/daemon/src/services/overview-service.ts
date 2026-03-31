@@ -6,7 +6,7 @@ import {
   type InstallCheck,
   type ProductOverview,
   type RecoveryAction
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter } from "../engine/adapter.js";
 import { AppServiceManager } from "./app-service-manager.js";
@@ -63,7 +63,7 @@ export class OverviewService {
         nextChannelId,
         gatewayStarted: Boolean(state.channelOnboarding?.gatewayStartedAt),
         gatewaySummary: engine.pendingGatewayApply
-          ? engine.pendingGatewayApplySummary ?? "SlackClaw saved changes that are ready to apply to the gateway."
+          ? engine.pendingGatewayApplySummary ?? "ChillClaw saved changes that are ready to apply to the gateway."
           : nextChannelId
             ? `Next recommended channel: ${mergedChannels[nextChannelId].title}.`
             : "All channel setup steps are complete. Restart the gateway to load every channel."
@@ -89,25 +89,25 @@ export class OverviewService {
         status: process.platform === "darwin" ? "passed" : "action-required",
         detail:
           process.platform === "darwin"
-            ? `Running on macOS. SlackClaw is supported on this platform.`
-            : `SlackClaw currently targets macOS first, but this machine reports ${process.platform}.`
+            ? `Running on macOS. ChillClaw is supported on this platform.`
+            : `ChillClaw currently targets macOS first, but this machine reports ${process.platform}.`
       },
       {
         id: "disk",
         label: "Free disk space",
         status: "pending",
-        detail: "SlackClaw is checking available disk space."
+        detail: "ChillClaw is checking available disk space."
       },
       {
         id: "permissions",
         label: "Document access permission",
         status: "passed",
-        detail: "SlackClaw will request file access only when you explicitly choose local documents or folders."
+        detail: "ChillClaw will request file access only when you explicitly choose local documents or folders."
       }
     ];
 
     try {
-      const targetPath = process.env.SLACKCLAW_DATA_DIR ?? getDefaultAppSupportDir() ?? homedir();
+      const targetPath = process.env.CHILLCLAW_DATA_DIR ?? getDefaultAppSupportDir() ?? homedir();
       const stats = await statfs(targetPath);
       const availableBytes = stats.bavail * stats.bsize;
       const availableGb = availableBytes / 1024 / 1024 / 1024;
@@ -118,15 +118,15 @@ export class OverviewService {
         status: availableGb >= minimumDiskGb ? "passed" : "action-required",
         detail:
           availableGb >= minimumDiskGb
-            ? `${roundedGb} GB is available. SlackClaw has enough free space for OpenClaw and starter assets.`
-            : `${roundedGb} GB is available. SlackClaw recommends at least ${minimumDiskGb} GB free before deployment.`
+            ? `${roundedGb} GB is available. ChillClaw has enough free space for OpenClaw and starter assets.`
+            : `${roundedGb} GB is available. ChillClaw recommends at least ${minimumDiskGb} GB free before deployment.`
       };
     } catch {
       checks[1] = {
         id: "disk",
         label: "Free disk space",
         status: "action-required",
-        detail: "SlackClaw could not verify free disk space automatically. Deployment can still continue."
+        detail: "ChillClaw could not verify free disk space automatically. Deployment can still continue."
       };
     }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChannelConfigOverview, ChannelSession, OnboardingStep, SlackClawEvent } from "@slackclaw/contracts";
+import type { ChannelConfigOverview, ChannelSession, OnboardingStep, ChillClawEvent } from "@chillclaw/contracts";
 
 import {
   applyPresetSkillSyncToOnboardingState,
@@ -103,7 +103,7 @@ describe("onboarding helpers", () => {
           label: "WeChat",
           status: "completed",
           summary: "WeChat is configured in OpenClaw.",
-          detail: "SlackClaw detected an existing configuration from the installed OpenClaw runtime.",
+          detail: "ChillClaw detected an existing configuration from the installed OpenClaw runtime.",
           maskedConfigSummary: [],
           editableValues: {},
           pairingRequired: false
@@ -290,7 +290,7 @@ describe("onboarding helpers", () => {
   });
 
   it("maps daemon events to onboarding refresh resources by step", () => {
-    const installEvent: SlackClawEvent = {
+    const installEvent: ChillClawEvent = {
       type: "deploy.completed",
       correlationId: "install-1",
       targetId: "managed-local",
@@ -304,7 +304,7 @@ describe("onboarding helpers", () => {
         lastCheckedAt: "2026-03-21T00:00:00.000Z"
       }
     };
-    const modelEvent: SlackClawEvent = {
+    const modelEvent: ChillClawEvent = {
       type: "model-config.updated",
       snapshot: {
         epoch: "epoch-1",
@@ -318,7 +318,7 @@ describe("onboarding helpers", () => {
         }
       }
     };
-    const channelEvent: SlackClawEvent = {
+    const channelEvent: ChillClawEvent = {
       type: "channel-config.updated",
       snapshot: {
         epoch: "epoch-1",
@@ -331,7 +331,7 @@ describe("onboarding helpers", () => {
         }
       }
     };
-    const employeeEvent: SlackClawEvent = {
+    const employeeEvent: ChillClawEvent = {
       type: "ai-team.updated",
       snapshot: {
         epoch: "epoch-1",
@@ -348,7 +348,7 @@ describe("onboarding helpers", () => {
         }
       }
     };
-    const presetSyncEvent: SlackClawEvent = {
+    const presetSyncEvent: ChillClawEvent = {
       type: "preset-skill-sync.updated",
       snapshot: {
         epoch: "epoch-1",
@@ -370,7 +370,7 @@ describe("onboarding helpers", () => {
   });
 
   it("ignores unrelated daemon events during onboarding", () => {
-    const unrelatedEvent: SlackClawEvent = {
+    const unrelatedEvent: ChillClawEvent = {
       type: "task.progress",
       taskId: "task-1",
       status: "running",

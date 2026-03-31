@@ -15,7 +15,7 @@ import type {
   SaveTeamRequest,
   SkillOption,
   TeamDetail
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 import type { EngineAdapter } from "../engine/adapter.js";
 import type { AIMemberRuntimeCandidate, SkillRuntimeCatalog } from "../engine/adapter.js";
 import { aiMemberPresets, defaultAIMemberSkillOptions, normalizePresetSkillIds } from "../config/ai-member-presets.js";
@@ -117,8 +117,8 @@ function importedMemberSummary(candidate: AIMemberRuntimeCandidate, overview: AI
     jobTitle: "Imported OpenClaw agent",
     status: "ready" as const,
     currentStatus: candidate.modelKey
-      ? `Detected from OpenClaw with ${candidate.modelKey}. Add SlackClaw details to manage it here.`
-      : "Detected from OpenClaw. Add SlackClaw details to manage it here.",
+      ? `Detected from OpenClaw with ${candidate.modelKey}. Add ChillClaw details to manage it here.`
+      : "Detected from OpenClaw. Add ChillClaw details to manage it here.",
     activeTaskCount: 0,
     avatar: defaultMemberAvatar(candidate.emoji),
     brain: defaultBrainAssignment(candidate, overview.availableBrains),
@@ -311,7 +311,7 @@ export class AITeamService {
 
         return {
           ...(stored ?? inferred),
-          source: stored ? (stored.source ?? "slackclaw") : inferred.source,
+          source: stored ? (stored.source ?? "chillclaw") : inferred.source,
           hasManagedMetadata: stored ? (stored.hasManagedMetadata ?? true) : inferred.hasManagedMetadata,
           name: stored?.name?.trim() || inferred.name,
           jobTitle: stored?.jobTitle?.trim() || inferred.jobTitle,
@@ -428,7 +428,7 @@ export class AITeamService {
     const nextMember: AIMemberDetail = {
       id,
       agentId: runtime.agentId,
-      source: "slackclaw" as const,
+      source: "chillclaw" as const,
       hasManagedMetadata: true,
       name: request.name.trim(),
       jobTitle: request.jobTitle.trim(),
@@ -526,8 +526,8 @@ export class AITeamService {
               member.name,
               "Removed AI member",
               request.deleteMode === "keep-workspace"
-                ? `${member.name} was removed from SlackClaw and OpenClaw, and the workspace/history was kept in place.`
-                : `${member.name} was removed from SlackClaw, OpenClaw, and the workspace/history.`,
+                ? `${member.name} was removed from ChillClaw and OpenClaw, and the workspace/history was kept in place.`
+                : `${member.name} was removed from ChillClaw, OpenClaw, and the workspace/history.`,
               "updated"
             ),
             ...currentState.activity
@@ -782,7 +782,7 @@ export class AITeamService {
           teams: nextTeams,
           activity: deleted
             ? [
-                activityItem(undefined, undefined, "Deleted AI team", `${deleted.name} was removed from SlackClaw.`, "updated"),
+                activityItem(undefined, undefined, "Deleted AI team", `${deleted.name} was removed from ChillClaw.`, "updated"),
                 ...currentState.activity
               ].slice(0, 20)
             : currentState.activity

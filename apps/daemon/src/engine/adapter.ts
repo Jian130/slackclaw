@@ -50,7 +50,7 @@ import type {
   RecoveryAction,
   RecoveryRunResponse,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 export type EngineChatLiveEvent =
   | {
@@ -214,7 +214,7 @@ export interface ConfigManager {
   saveCustomSkill(skillId: string | undefined, request: SaveCustomSkillRequest): Promise<{ slug: string; requiresGatewayApply?: boolean }>;
   removeInstalledSkill(
     slug: string,
-    request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+    request: RemoveSkillRequest & { managedBy: "clawhub" | "chillclaw-custom" }
   ): Promise<{ requiresGatewayApply?: boolean }>;
   installManagedSkill(request: ManagedSkillInstallRequest): Promise<ManagedSkillInstallResult>;
   verifyManagedSkill(slug: string): Promise<SkillRuntimeEntry | undefined>;

@@ -15,7 +15,7 @@ import type {
   SavedModelEntry,
   SaveModelEntryRequest,
   SetDefaultModelEntryRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   buildBaseOnboardArgs,
@@ -168,7 +168,7 @@ type ModelsConfigAccess = {
     envOverrides?: Record<string, string | undefined>
   ) => InteractiveAuthChildLike;
   appendAuthSessionOutput: (session: RuntimeModelAuthSessionLike, chunk: string) => void;
-  writeErrorLog: (message: string, details: unknown) => Promise<void>;
+  writeErrorLog: (message: string, details: unknown, metadata?: { scope?: string }) => Promise<void>;
   errorToLogDetails: (error: unknown) => unknown;
   readOpenClawConfigSnapshot: () => Promise<OpenClawConfigSnapshotLike>;
   writeOpenClawConfigSnapshot: (configPath: string, config: OpenClawConfigSnapshotLike["config"]) => Promise<void>;
@@ -273,7 +273,7 @@ function shouldAuthenticateSavedModelEntry(
 }
 
 const OPENCLAW_MAIN_AGENT_ID = "main";
-const MANAGED_MODEL_AGENT_PREFIX = "slackclaw-model-";
+const MANAGED_MODEL_AGENT_PREFIX = "chillclaw-model-";
 
 function authModeLabelForCredentialType(type: unknown): string | undefined {
   if (type === "oauth") {
@@ -490,8 +490,8 @@ export class ModelsConfigCoordinator {
       methodId,
       entryId: pendingEntry?.entryId,
       status: "running",
-      message: "SlackClaw is starting the OpenClaw authentication flow.",
-      logs: [`[SlackClaw] Starting ${provider.label} ${method.label}...`],
+      message: "ChillClaw is starting the OpenClaw authentication flow.",
+      logs: [`[ChillClaw] Starting ${provider.label} ${method.label}...`],
       launchUrl: undefined,
       inputPrompt: undefined,
       child: undefined,
@@ -516,12 +516,14 @@ export class ModelsConfigCoordinator {
 
     child.on("error", (error) => {
       session.status = "failed";
-      session.message = "SlackClaw could not start the OpenClaw authentication flow.";
+      session.message = "ChillClaw could not start the OpenClaw authentication flow.";
       session.logs = trimLogLines([...session.logs, error instanceof Error ? error.message : String(error)]);
       void this.access.writeErrorLog("Failed to start interactive OpenClaw auth session.", {
         providerId,
         methodId,
         error: this.access.errorToLogDetails(error)
+      }, {
+        scope: "ModelsConfigCoordinator.startInteractiveAuth.childError"
       });
     });
 
@@ -548,6 +550,8 @@ export class ModelsConfigCoordinator {
                     methodId,
                     modelKey: session.setDefaultModel,
                     error: this.access.errorToLogDetails(error)
+                  }, {
+                    scope: "ModelsConfigCoordinator.startInteractiveAuth.setDefaultModel"
                   });
                 });
               }
@@ -560,17 +564,19 @@ export class ModelsConfigCoordinator {
             session.status = "failed";
             session.message =
               session.pendingEntry
-                ? `${provider.label} authentication completed, but SlackClaw could not finish the saved model entry setup.`
-                : `${provider.label} authentication completed, but SlackClaw could not save the staged configuration.`;
+                ? `${provider.label} authentication completed, but ChillClaw could not finish the saved model entry setup.`
+                : `${provider.label} authentication completed, but ChillClaw could not save the staged configuration.`;
             session.logs = trimLogLines([
               ...session.logs,
-              error instanceof Error ? error.message : "SlackClaw could not finish the interactive model setup."
+              error instanceof Error ? error.message : "ChillClaw could not finish the interactive model setup."
             ]);
             await this.access.writeErrorLog("Failed to finalize interactive OpenClaw model auth.", {
               providerId,
               methodId,
               entryId: session.pendingEntry?.entryId,
               error: this.access.errorToLogDetails(error)
+            }, {
+              scope: "ModelsConfigCoordinator.startInteractiveAuth.finalize"
             });
           }
         } else {
@@ -585,7 +591,7 @@ export class ModelsConfigCoordinator {
     return {
       ...this.access.mutationSyncMeta(false),
       status: "interactive",
-      message: `SlackClaw started the ${provider.label} ${method.label} flow.`,
+      message: `ChillClaw started the ${provider.label} ${method.label} flow.`,
       modelConfig: await this.getModelConfig(),
       authSession: toModelAuthSessionResponse(session)
     };
@@ -619,8 +625,8 @@ export class ModelsConfigCoordinator {
 
     session.child.stdin.write(`${value}\n`);
     session.status = "running";
-    session.message = "SlackClaw sent the pasted redirect URL / code to OpenClaw. Waiting for completion.";
-    session.logs = trimLogLines([...session.logs, "[SlackClaw] Submitted redirect URL / code to OpenClaw."]);
+    session.message = "ChillClaw sent the pasted redirect URL / code to OpenClaw. Waiting for completion.";
+    session.logs = trimLogLines([...session.logs, "[ChillClaw] Submitted redirect URL / code to OpenClaw."]);
     session.inputPrompt = undefined;
 
     return this.getModelAuthSession(sessionId);
@@ -692,7 +698,7 @@ export class ModelsConfigCoordinator {
     return {
       ...this.access.mutationSyncMeta(),
       status: "completed",
-      message: `${entry.label} was removed from SlackClaw.`,
+      message: `${entry.label} was removed from ChillClaw.`,
       modelConfig: await this.getModelConfig(),
       requiresGatewayApply: false
     };
@@ -758,7 +764,7 @@ export class ModelsConfigCoordinator {
 
     if (provider.id === "custom") {
       if (method.kind !== "custom") {
-        throw new Error("SlackClaw custom provider setup requires the custom endpoint method.");
+        throw new Error("ChillClaw custom provider setup requires the custom endpoint method.");
       }
 
       const baseUrl = request.values.baseUrl?.trim();
@@ -853,7 +859,7 @@ export class ModelsConfigCoordinator {
 
       return this.startInteractiveModelAuthSession(provider.id, method.id, args, request.setDefaultModel);
     } else {
-      throw new Error(`SlackClaw does not yet know how to authenticate ${provider.label} with ${method.label}.`);
+      throw new Error(`ChillClaw does not yet know how to authenticate ${provider.label} with ${method.label}.`);
     }
 
     if (request.setDefaultModel) {
@@ -890,7 +896,7 @@ export class ModelsConfigCoordinator {
     });
 
     if (!mutation.usedFallback && mutation.result.code !== 0) {
-      throw new Error(mutation.result.stderr || mutation.result.stdout || `SlackClaw could not set ${modelKey} as the default model.`);
+      throw new Error(mutation.result.stderr || mutation.result.stdout || `ChillClaw could not set ${modelKey} as the default model.`);
     }
 
     await this.access.markGatewayApplyPending();
@@ -1105,7 +1111,7 @@ export class ModelsConfigCoordinator {
     return {
       ...this.access.mutationSyncMeta(),
       status: "completed",
-      message: `${nextEntry.label} was added to SlackClaw. OpenClaw will only configure it when you set it as default or fallback.`,
+      message: `${nextEntry.label} was added to ChillClaw. OpenClaw will only configure it when you set it as default or fallback.`,
       modelConfig: await this.getModelConfig(),
       requiresGatewayApply: false
     };
@@ -1141,7 +1147,7 @@ export class ModelsConfigCoordinator {
       updatedAt: now
     };
     const nextEntry = entryDraft.agentId
-      ? entryDraft.agentId.startsWith("slackclaw-model-")
+      ? entryDraft.agentId.startsWith("chillclaw-model-")
         ? await this.replaceEntryProfileIds(snapshot.configPath, snapshot.config, entryDraft)
         : {
             ...entryDraft,
@@ -1187,7 +1193,7 @@ export class ModelsConfigCoordinator {
     }
 
     if (provider.id === "custom") {
-      throw new Error("SlackClaw hidden-agent model entries do not support custom providers yet.");
+      throw new Error("ChillClaw hidden-agent model entries do not support custom providers yet.");
     }
 
     if (method.onboardAuthChoice) {
@@ -1223,7 +1229,7 @@ export class ModelsConfigCoordinator {
             "--provider",
             authProvider,
             "--profile-id",
-            `${authProvider}:slackclaw-${operation.entryId}`
+            `${authProvider}:chillclaw-${operation.entryId}`
           ],
           operation.agentId
         ),
@@ -1275,7 +1281,7 @@ export class ModelsConfigCoordinator {
       );
     }
 
-    throw new Error(`SlackClaw does not yet know how to authenticate ${provider.label} with ${method.label}.`);
+    throw new Error(`ChillClaw does not yet know how to authenticate ${provider.label} with ${method.label}.`);
   }
 
   private async createOrUpdateSavedModelEntry(
@@ -1353,7 +1359,7 @@ export class ModelsConfigCoordinator {
     entry: SavedModelEntryLike
   ): Promise<SavedModelEntryLike> {
     if (!entry.agentDir) {
-      throw new Error(`SlackClaw could not find the hidden agent directory for ${entry.label}.`);
+      throw new Error(`ChillClaw could not find the hidden agent directory for ${entry.label}.`);
     }
 
     const provider = providerDefinitionById(entry.providerId);
@@ -1370,7 +1376,7 @@ export class ModelsConfigCoordinator {
     const providerPrefix = provider?.authProviderId ?? provider?.providerRefs[0]?.replace(/\/$/, "") ?? entry.providerId;
 
     sourceProfiles.forEach(([profileId, profile], index) => {
-      const nextProfileId = `${providerPrefix}:slackclaw-${entry.id}-${index + 1}`;
+      const nextProfileId = `${providerPrefix}:chillclaw-${entry.id}-${index + 1}`;
       nextProfiles[nextProfileId] = profile;
       if (store.usageStats?.[profileId]) {
         nextUsageStats[nextProfileId] = store.usageStats[profileId];
@@ -1520,7 +1526,7 @@ export class ModelsConfigCoordinator {
     if (result.code !== 0) {
       const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
       if (!output.includes("not found")) {
-        throw new Error(result.stderr || result.stdout || `SlackClaw could not delete the hidden model agent ${entry.agentId}.`);
+        throw new Error(result.stderr || result.stdout || `ChillClaw could not delete the hidden model agent ${entry.agentId}.`);
       }
     }
 

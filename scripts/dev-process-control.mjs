@@ -6,8 +6,8 @@ import { promisify } from "node:util";
 
 const STATE_FILE = resolve(process.cwd(), ".data", "dev-processes.json");
 const DEFAULT_PORTS = {
-  daemon: Number(process.env.SLACKCLAW_PORT ?? "4545"),
-  ui: Number(process.env.SLACKCLAW_UI_PORT ?? "4173")
+  daemon: Number(process.env.CHILLCLAW_PORT ?? "4545"),
+  ui: Number(process.env.CHILLCLAW_UI_PORT ?? "4173")
 };
 const execFileAsync = promisify(execFile);
 
@@ -246,7 +246,7 @@ export async function assertNoManagedProcessesRunning() {
   }
 
   const summary = active.map((entry) => `${entry.name}(${entry.pid})`).join(", ");
-  throw new Error(`SlackClaw dev processes are already running: ${summary}. Run \`npm stop\` first.`);
+  throw new Error(`ChillClaw dev processes are already running: ${summary}. Run \`npm stop\` first.`);
 }
 
 export async function stopRecoverableDevProcesses(signal = "SIGTERM", ports = DEFAULT_PORTS) {

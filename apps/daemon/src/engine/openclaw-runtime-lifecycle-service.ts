@@ -14,7 +14,7 @@ import type {
   InstallResponse,
   RecoveryAction,
   RecoveryRunResponse
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 type BootstrapResult = {
   status: "reused-existing" | "would-install" | "would-reinstall" | "installed" | "reinstalled" | "failed";
@@ -779,7 +779,7 @@ export class OpenClawRuntimeLifecycleService {
     ]);
 
     return {
-      filename: "slackclaw-diagnostics.json",
+      filename: "chillclaw-diagnostics.json",
       content: JSON.stringify(
         {
           generatedAt: new Date().toISOString(),

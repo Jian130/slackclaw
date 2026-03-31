@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { ChannelCapability, ConfiguredChannelEntry, ModelConfigOverview, ModelProviderConfig } from "@slackclaw/contracts";
+import type { ChannelCapability, ConfiguredChannelEntry, ModelConfigOverview, ModelProviderConfig } from "@chillclaw/contracts";
 
 import {
   activeSavedModelEntries,
@@ -18,6 +18,8 @@ import {
   modelOptions,
   providerActiveModel,
   providerConfiguredModels,
+  ProviderGuidance,
+  providerGuidanceGroups,
   providerIcon,
   runtimeConfiguredModels,
   runtimeDerivedModelEntry,
@@ -30,7 +32,7 @@ const provider: ModelProviderConfig = {
   id: "openai",
   label: "OpenAI",
   description: "Test provider",
-  docsUrl: "https://docs.openclaw.ai/providers/docs/openai",
+  docsUrl: "https://docs.openclaw.ai/providers/openai",
   providerRefs: ["openai/"],
   authMethods: [
     {
@@ -49,6 +51,12 @@ const provider: ModelProviderConfig = {
       ]
     }
   ],
+  exampleModels: ["openai/gpt-5.4", "openai/gpt-5.4-pro"],
+  authEnvVars: ["OPENAI_API_KEY", "OPENAI_API_KEYS"],
+  setupNotes: ["Direct API usage and Codex OAuth are both supported."],
+  warnings: ["Spark remains Codex-only on the OAuth path."],
+  providerType: "built-in",
+  supportsNoAuth: false,
   configured: true,
   modelCount: 2,
   sampleModels: ["openai/gpt-4o-mini", "openai/gpt-5"]
@@ -240,16 +248,72 @@ describe("ConfigPage helpers", () => {
     expect(runtimeDerivedModelEntry([runtimeEntry], "anthropic/claude-sonnet-4-6")).toBeUndefined();
   });
 
-  it("falls back to provider sample models when the runtime has none for that provider", () => {
+  it("falls back to curated example models when the runtime has none for that provider", () => {
     const anthropicProvider: ModelProviderConfig = {
       ...provider,
       id: "anthropic",
       label: "Anthropic",
       providerRefs: ["anthropic/"],
-      sampleModels: ["anthropic/claude-opus-4-6"]
+      exampleModels: ["anthropic/claude-opus-4-6"],
+      authEnvVars: undefined,
+      setupNotes: undefined,
+      warnings: undefined,
+      providerType: "built-in",
+      sampleModels: ["anthropic/legacy-sample"]
     };
 
     expect(modelOptions(modelConfig, anthropicProvider).map((model) => model.key)).toEqual(["anthropic/claude-opus-4-6"]);
+  });
+
+  it("prefers curated example models over runtime sample models in provider guidance", () => {
+    expect(
+      providerGuidanceGroups(provider).find((group) => group.id === "models")?.items
+    ).toEqual(["openai/gpt-5.4", "openai/gpt-5.4-pro"]);
+  });
+
+  it("renders auth env vars, setup notes, and warnings only when present", () => {
+    const html = renderToStaticMarkup(<ProviderGuidance provider={provider} />);
+    const minimalHtml = renderToStaticMarkup(
+      <ProviderGuidance
+        provider={{
+          ...provider,
+          exampleModels: undefined,
+          authEnvVars: undefined,
+          setupNotes: undefined,
+          warnings: undefined,
+          providerType: undefined
+        }}
+      />
+    );
+
+    expect(html).toContain("Auth env");
+    expect(html).toContain("OPENAI_API_KEY");
+    expect(html).toContain("Setup notes");
+    expect(html).toContain("Warnings");
+    expect(minimalHtml).not.toContain("Auth env");
+    expect(minimalHtml).not.toContain("Setup notes");
+    expect(minimalHtml).not.toContain("Warnings");
+  });
+
+  it("shows a local no-auth hint for providers that do not require credentials", () => {
+    const localProvider: ModelProviderConfig = {
+      ...provider,
+      id: "ollama",
+      label: "Ollama",
+      providerRefs: ["ollama/"],
+      exampleModels: ["ollama/llama3.3"],
+      authEnvVars: ["OLLAMA_API_KEY"],
+      setupNotes: [],
+      warnings: undefined,
+      providerType: "local",
+      supportsNoAuth: true,
+      sampleModels: ["ollama/llama3.3"]
+    };
+
+    const html = renderToStaticMarkup(<ProviderGuidance provider={localProvider} />);
+
+    expect(html).toContain("Local runtime");
+    expect(html).toContain("No provider credentials required for local mode.");
   });
 
   it("uses a real select value for known model keys and falls back to custom for unknown keys", () => {

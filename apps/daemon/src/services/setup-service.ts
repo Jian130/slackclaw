@@ -4,7 +4,7 @@ import type {
   InstallResponse,
   SetupRunResponse,
   SetupStepResult
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter } from "../engine/adapter.js";
 import { EventPublisher } from "./event-publisher.js";
@@ -45,16 +45,16 @@ export class SetupService {
       phase: "detecting",
       percent: 10,
       message: statusBefore.installed
-        ? `Found OpenClaw ${statusBefore.version ?? "installed"} and SlackClaw is checking whether it can be reused.`
-        : "SlackClaw is preparing a managed local OpenClaw install for this Mac."
+        ? `Found OpenClaw ${statusBefore.version ?? "installed"} and ChillClaw is checking whether it can be reused.`
+        : "ChillClaw is preparing a managed local OpenClaw install for this Mac."
     });
     steps.push({
       id: "check-existing-openclaw",
       title: "Check for an existing OpenClaw installation",
       status: "completed",
       detail: statusBefore.installed
-        ? `Found OpenClaw ${statusBefore.version ?? "installed"} on this Mac and SlackClaw can try to reuse it.`
-        : "No compatible OpenClaw installation was found yet. SlackClaw will deploy a managed local copy for this user."
+        ? `Found OpenClaw ${statusBefore.version ?? "installed"} on this Mac and ChillClaw can try to reuse it.`
+        : "No compatible OpenClaw installation was found yet. ChillClaw will deploy a managed local copy for this user."
     });
 
     this.eventPublisher?.publishDeployProgress({
@@ -63,8 +63,8 @@ export class SetupService {
       phase: statusBefore.installed ? "reusing" : "installing",
       percent: statusBefore.installed ? 34 : 46,
       message: statusBefore.installed
-        ? `SlackClaw is preparing the existing OpenClaw runtime for onboarding.`
-        : "SlackClaw is downloading and installing OpenClaw locally for this Mac."
+        ? `ChillClaw is preparing the existing OpenClaw runtime for onboarding.`
+        : "ChillClaw is downloading and installing OpenClaw locally for this Mac."
     });
     installResult = await this.adapter.instances.install(false, { forceLocal: options?.forceLocal ?? false });
     this.eventPublisher?.publishDeployProgress({
@@ -72,7 +72,7 @@ export class SetupService {
       targetId: "managed-local",
       phase: "verifying",
       percent: 84,
-      message: "SlackClaw is verifying the OpenClaw runtime and refreshing local status."
+      message: "ChillClaw is verifying the OpenClaw runtime and refreshing local status."
     });
     this.eventPublisher?.publishDeployCompleted({
       correlationId,
@@ -94,7 +94,7 @@ export class SetupService {
     return {
       status: failedStep ? "failed" : "completed",
       message: failedStep
-        ? "SlackClaw finished part of setup, but OpenClaw still needs attention."
+        ? "ChillClaw finished part of setup, but OpenClaw still needs attention."
         : "OpenClaw deployment is complete. Continue to Configuration for models and channels.",
       steps,
       overview,

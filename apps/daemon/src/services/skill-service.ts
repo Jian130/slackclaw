@@ -10,7 +10,7 @@ import type {
   SkillMarketplaceEntry,
   SkillOption,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter, SkillRuntimeEntry } from "../engine/adapter.js";
 import { EventPublisher } from "./event-publisher.js";
@@ -38,7 +38,7 @@ function mapInstalledSkill(
             : "workspace";
   const managedBy =
     custom
-      ? "slackclaw-custom"
+      ? "chillclaw-custom"
       : marketplace
         ? "clawhub"
         : "openclaw";
@@ -58,8 +58,8 @@ function mapInstalledSkill(
     homepage: custom?.homepage || skill.homepage,
     version: marketplace?.version || skill.version,
     managedBy,
-    editable: managedBy === "slackclaw-custom",
-    removable: managedBy === "slackclaw-custom" || managedBy === "clawhub",
+    editable: managedBy === "chillclaw-custom",
+    removable: managedBy === "chillclaw-custom" || managedBy === "clawhub",
     updatable: managedBy === "clawhub"
   };
 }
@@ -241,8 +241,8 @@ export class SkillService {
     }
 
     if (request.action === "edit-custom") {
-      if (skill.managedBy !== "slackclaw-custom") {
-        throw new Error("Only SlackClaw custom skills can be edited here.");
+      if (skill.managedBy !== "chillclaw-custom") {
+        throw new Error("Only ChillClaw custom skills can be edited here.");
       }
 
       return this.saveCustomSkill(skillId, {
@@ -255,7 +255,7 @@ export class SkillService {
     }
 
     if (skill.managedBy !== "clawhub" || !skill.slug) {
-      throw new Error("This skill cannot be updated from SlackClaw.");
+      throw new Error("This skill cannot be updated from ChillClaw.");
     }
 
     const result = await this.adapter.config.updateMarketplaceSkill(skill.slug, request);
@@ -278,13 +278,13 @@ export class SkillService {
       throw new Error("Skill not found.");
     }
 
-    if (!skill.removable || !skill.slug || (skill.managedBy !== "clawhub" && skill.managedBy !== "slackclaw-custom")) {
-      throw new Error("This skill cannot be removed from SlackClaw.");
+    if (!skill.removable || !skill.slug || (skill.managedBy !== "clawhub" && skill.managedBy !== "chillclaw-custom")) {
+      throw new Error("This skill cannot be removed from ChillClaw.");
     }
 
     const result = await this.adapter.config.removeInstalledSkill(skill.slug, { ...request, managedBy: skill.managedBy });
 
-    if (skill.managedBy === "slackclaw-custom") {
+    if (skill.managedBy === "chillclaw-custom") {
       await this.store.update((current) => {
         const next = { ...(current.skills?.customEntries ?? {}) };
         delete next[skill.slug!];

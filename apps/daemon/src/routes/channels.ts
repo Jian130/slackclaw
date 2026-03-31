@@ -2,7 +2,7 @@ import type {
   ChannelSessionInputRequest,
   RemoveChannelEntryRequest,
   SaveChannelEntryRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { jsonResponse, readJson } from "./http.js";
 import { createPathMatcher } from "./matchers.js";
@@ -65,7 +65,7 @@ export const channelsRoutes: RouteDefinition[] = [
     method: "GET",
     match: createPathMatcher("/api/channels/feishu/callback"),
     async handle() {
-      return jsonResponse({ ok: true, message: "SlackClaw Feishu callback is reachable." });
+      return jsonResponse({ ok: true, message: "ChillClaw Feishu callback is reachable." });
     }
   },
   {
@@ -80,7 +80,7 @@ export const channelsRoutes: RouteDefinition[] = [
             ? body.encrypt
             : undefined;
 
-      return jsonResponse(challenge ? { challenge } : { ok: true, message: "SlackClaw Feishu callback is reachable." });
+      return jsonResponse(challenge ? { challenge } : { ok: true, message: "ChillClaw Feishu callback is reachable." });
     }
   }
 ];

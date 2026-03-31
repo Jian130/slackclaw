@@ -4,11 +4,13 @@ import { spawn } from "node:child_process";
 import { chmod, copyFile, cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { writeScriptLogLine } from "./logging.mjs";
+
 const ROOT = process.cwd();
 const DIST_DIR = resolve(ROOT, "dist/macos");
 const STAGING_DIR = resolve(ROOT, "dist/.macos-staging");
 const BUILD_DIR = resolve(STAGING_DIR, ".build");
-const APP_NAME = "SlackClaw";
+const APP_NAME = "ChillClaw";
 const APP_VERSION = "0.1.2";
 const APP_BUNDLE = resolve(STAGING_DIR, `${APP_NAME}.app`);
 const APP_CONTENTS = resolve(APP_BUNDLE, "Contents");
@@ -18,13 +20,14 @@ const APP_RUNTIME = resolve(APP_RESOURCES, "runtime");
 const APP_RUNTIME_ROOT = resolve(APP_RESOURCES, "app");
 const APP_UI = resolve(APP_RUNTIME_ROOT, "ui");
 const APP_SCRIPTS = resolve(APP_RUNTIME_ROOT, "scripts");
-const PACKAGED_DAEMON_BUNDLE = resolve(BUILD_DIR, "slackclaw-daemon.cjs");
-const PACKAGED_DAEMON_BINARY = resolve(APP_RUNTIME, "slackclaw-daemon");
+const PACKAGED_DAEMON_BUNDLE = resolve(BUILD_DIR, "chillclaw-daemon.cjs");
+const PACKAGED_DAEMON_BINARY = resolve(APP_RUNTIME, "chillclaw-daemon");
 const MACOS_NATIVE_PACKAGE_DIR = resolve(ROOT, "apps/macos-native");
-const NATIVE_EXECUTABLE_NAME = "SlackClawNative";
+const NATIVE_EXECUTABLE_NAME = "ChillClawNative";
 const APP_NATIVE_EXECUTABLE = resolve(APP_MACOS, APP_NAME);
 const PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
-const LAUNCH_AGENT_LABEL = "ai.slackclaw.daemon";
+const LAUNCH_AGENT_LABEL = "ai.chillclaw.daemon";
+const SCRIPT_LABEL = "ChillClaw installer";
 
 function parseArgs(argv) {
   return {
@@ -161,13 +164,13 @@ function installLaunchAgentScript() {
 set -eu
 
 APP_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-APP_SUPPORT="$HOME/Library/Application Support/SlackClaw"
+APP_SUPPORT="$HOME/Library/Application Support/ChillClaw"
 DATA_DIR="$APP_SUPPORT/data"
 LOG_DIR="$APP_SUPPORT/logs"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 LABEL="${LAUNCH_AGENT_LABEL}"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$LABEL.plist"
-DAEMON_BIN="$APP_ROOT/runtime/slackclaw-daemon"
+DAEMON_BIN="$APP_ROOT/runtime/chillclaw-daemon"
 STATIC_DIR="$APP_ROOT/app/ui"
 BOOTSTRAP_SCRIPT="$APP_ROOT/app/scripts/bootstrap-openclaw.mjs"
 
@@ -189,17 +192,17 @@ cat >"$PLIST_PATH" <<EOF
     </array>
     <key>EnvironmentVariables</key>
     <dict>
-      <key>SLACKCLAW_APP_ROOT</key>
+      <key>CHILLCLAW_APP_ROOT</key>
       <string>$APP_ROOT</string>
-      <key>SLACKCLAW_PORT</key>
+      <key>CHILLCLAW_PORT</key>
       <string>4545</string>
-      <key>SLACKCLAW_DATA_DIR</key>
+      <key>CHILLCLAW_DATA_DIR</key>
       <string>$DATA_DIR</string>
-      <key>SLACKCLAW_STATIC_DIR</key>
+      <key>CHILLCLAW_STATIC_DIR</key>
       <string>$STATIC_DIR</string>
-      <key>SLACKCLAW_OPENCLAW_BOOTSTRAP_SCRIPT</key>
+      <key>CHILLCLAW_OPENCLAW_BOOTSTRAP_SCRIPT</key>
       <string>$BOOTSTRAP_SCRIPT</string>
-      <key>SLACKCLAW_LAUNCHAGENT_LABEL</key>
+      <key>CHILLCLAW_LAUNCHAGENT_LABEL</key>
       <string>$LABEL</string>
     </dict>
     <key>KeepAlive</key>
@@ -227,9 +230,9 @@ function runDaemonScript() {
 set -eu
 
 APP_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-APP_SUPPORT="$HOME/Library/Application Support/SlackClaw"
+APP_SUPPORT="$HOME/Library/Application Support/ChillClaw"
 LOG_DIR="$APP_SUPPORT/logs"
-DAEMON_BIN="$APP_ROOT/runtime/slackclaw-daemon"
+DAEMON_BIN="$APP_ROOT/runtime/chillclaw-daemon"
 START_MODE="\${1:-unknown}"
 
 mkdir -p "$LOG_DIR"
@@ -265,15 +268,15 @@ function infoPlist() {
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>SlackClaw</string>
+  <string>ChillClaw</string>
   <key>CFBundleExecutable</key>
-  <string>SlackClaw</string>
+  <string>ChillClaw</string>
   <key>CFBundleIdentifier</key>
-  <string>ai.slackclaw.desktop</string>
+  <string>ai.chillclaw.desktop</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>SlackClaw</string>
+  <string>ChillClaw</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -340,4 +343,8 @@ await ensureBuild(options.skipBuild);
 await stageBundle();
 await buildInstaller();
 
-console.log(`Built ${PKG_OUTPUT}`);
+writeScriptLogLine({
+  label: SCRIPT_LABEL,
+  scope: "build-macos-installer.main",
+  message: `Built ${PKG_OUTPUT}`
+});

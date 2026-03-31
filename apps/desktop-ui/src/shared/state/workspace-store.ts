@@ -58,7 +58,7 @@ export interface WorkspaceState {
   settings: WorkspaceSettingsState;
 }
 
-const STORAGE_KEY = "slackclaw.workspace";
+const STORAGE_KEY = "chillclaw.workspace";
 
 function resolveStorage(): Storage | undefined {
   if (typeof window !== "undefined" && window.localStorage) {

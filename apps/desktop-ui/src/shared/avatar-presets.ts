@@ -1,4 +1,4 @@
-import type { MemberAvatar } from "@slackclaw/contracts";
+import type { MemberAvatar } from "@chillclaw/contracts";
 
 import onboardingAnalyst from "./assets/avatars/onboarding-analyst.png";
 import onboardingBuilder from "./assets/avatars/onboarding-builder.png";

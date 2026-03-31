@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
-import type { ProductOverview, SlackClawEvent } from "@slackclaw/contracts";
+import type { ProductOverview, ChillClawEvent } from "@chillclaw/contracts";
 
 import { fetchOverview } from "../../shared/api/client.js";
 import { subscribeToDaemonEvents } from "../../shared/api/events.js";
@@ -14,7 +14,7 @@ interface OverviewContextValue {
 
 const OverviewContext = createContext<OverviewContextValue | null>(null);
 
-export function shouldRefreshOverviewForEvent(event: SlackClawEvent): boolean {
+export function shouldRefreshOverviewForEvent(event: ChillClawEvent): boolean {
   if (
     event.type === "overview.updated" ||
     event.type === "ai-team.updated" ||
@@ -46,7 +46,7 @@ export function OverviewProvider(props: PropsWithChildren) {
       setOverviewState(next);
       return next;
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load SlackClaw.");
+      setError(loadError instanceof Error ? loadError.message : "Unable to load ChillClaw.");
       return undefined;
     } finally {
       setLoading(false);

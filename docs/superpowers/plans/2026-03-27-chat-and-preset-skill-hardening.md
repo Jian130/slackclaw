@@ -63,9 +63,9 @@
 - Modify: `apps/daemon/src/services/ai-team-service.test.ts`
 - Modify: `apps/desktop-ui/src/features/members/MembersPage.tsx`
 - Modify: `apps/desktop-ui/src/features/members/MembersPage.test.tsx`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Requests.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Requests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
 
 - [ ] Add failing tests that member presets and save requests still collapse to raw runtime skill IDs.
 - [ ] Run the relevant daemon and web tests and confirm failure.
@@ -98,8 +98,8 @@
 - Modify: `apps/daemon/src/server.ts`
 - Modify: `apps/daemon/src/services/skill-service.ts`
 - Modify: `apps/desktop-ui/src/features/skills/SkillsPage.tsx`
-- Modify: `apps/macos-native/Sources/SlackClawNative/AppState.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/AppState.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
 - Modify: tests around setup, skills, and app state
 
 - [ ] Add failing tests for first-run setup missing preset reconcile and for repair actions not being surfaced.
@@ -113,10 +113,10 @@
 ### Task 7: Add optimistic send and richer active-run rendering on macOS
 
 **Files:**
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawChatUI/ChatViewModel.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/ChatViewModelTests.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/ChatPresentationTests.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawChatUI/ChatViewModel.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/ChatViewModelTests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/ChatPresentationTests.swift`
 
 - [ ] Add failing tests for optimistic local send state, pending assistant UI, and send-button disabled behavior on empty drafts.
 - [ ] Run the shared/native chat tests and confirm failure.
@@ -127,9 +127,9 @@
 ### Task 8: Implement explicit macOS composer semantics
 
 **Files:**
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
 - Create or modify: native chat input helper bridging AppKit key handling if needed
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/ChatPresentationTests.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/ChatPresentationTests.swift`
 
 - [ ] Add failing tests for `Enter sends`, `Shift+Enter` newline, and blocked send while a run is active.
 - [ ] Run the native chat tests and confirm failure.
@@ -144,9 +144,9 @@
 **Files:**
 - Modify only as needed based on failures above
 
-- [ ] Run `npm test --workspace @slackclaw/contracts`.
+- [ ] Run `npm test --workspace @chillclaw/contracts`.
 - [ ] Run focused daemon tests for preset skill, setup, AI team, and chat.
-- [ ] Run `npm test --workspace @slackclaw/desktop-ui`.
-- [ ] Run `swift test --package-path apps/shared/SlackClawKit`.
+- [ ] Run `npm test --workspace @chillclaw/desktop-ui`.
+- [ ] Run `swift test --package-path apps/shared/ChillClawKit`.
 - [ ] Run `swift test --package-path apps/macos-native`.
 - [ ] If failures appear, fix them with the same red-green loop before summarizing.
