@@ -42,4 +42,11 @@ describe("OnboardingPage CTA styling", () => {
     expect(onboardingAuthMethodLabel(copy, method)).toBe("API Key");
     expect(onboardingAuthMethodBody(copy, method)).toBe("Use your API key for quick setup");
   });
+
+  it("sizes auth method cards from the provider method count instead of a fixed single-column modifier", () => {
+    const source = readFileSync(fileURLToPath(new URL("./OnboardingPage.tsx", import.meta.url)), "utf8");
+
+    expect(source).toContain("--onboarding-auth-method-count");
+    expect(source).not.toContain("onboarding-auth-method-grid--single");
+  });
 });

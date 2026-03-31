@@ -84,7 +84,7 @@ type ChannelsConfigAccess = {
   ) => Promise<{ code: number; stdout: string; stderr: string }>;
   readWechatInstallerBinName: (packagePath: string) => Promise<string | undefined>;
   fileExists: (pathname: string) => Promise<boolean>;
-  writeErrorLog: (message: string, details: unknown) => Promise<void>;
+  writeErrorLog: (message: string, details: unknown, metadata?: { scope?: string }) => Promise<void>;
   errorToLogDetails: (error: unknown) => unknown;
   compareVersionStrings: (left: string, right: string) => number;
   personalWechatRuntimeChannelKey: string;
@@ -399,7 +399,9 @@ export class ChannelsConfigCoordinator {
 
       sessionState.status = "failed";
       sessionState.logs.push(`Failed to start WhatsApp login: ${error instanceof Error ? error.message : String(error)}`);
-      void this.access.writeErrorLog("WhatsApp login session failed to start.", this.access.errorToLogDetails(error));
+      void this.access.writeErrorLog("WhatsApp login session failed to start.", this.access.errorToLogDetails(error), {
+        scope: "ChannelsConfigCoordinator.startWhatsappLogin.childError"
+      });
     });
 
     child.on("exit", (code) => {
@@ -474,6 +476,8 @@ export class ChannelsConfigCoordinator {
         duplicate: feishuPlugin.duplicate,
         entries: feishuPlugin.entries,
         diagnostics: feishuPlugin.diagnostics
+      }, {
+        scope: "ChannelsConfigCoordinator.prepareFeishu"
       });
       throw new Error(
         `OpenClaw already has a Feishu plugin, but it failed to load: ${feishuPlugin.loadError}. ChillClaw did not install another copy because that would create duplicate plugin warnings. Repair the installed Feishu plugin first, then retry setup.`
@@ -763,7 +767,9 @@ export class ChannelsConfigCoordinator {
         sessionState.status = "failed";
         sessionState.logs.push(`Failed to start WeChat login: ${error instanceof Error ? error.message : String(error)}`);
         settleStartupNow();
-        void this.access.writeErrorLog("WeChat login session failed to start.", this.access.errorToLogDetails(error));
+        void this.access.writeErrorLog("WeChat login session failed to start.", this.access.errorToLogDetails(error), {
+          scope: "ChannelsConfigCoordinator.startWechatLogin.childError"
+        });
       });
 
       child.on("close", (code) => {
@@ -864,6 +870,8 @@ export class ChannelsConfigCoordinator {
         command: ensuredNpmInvocation.display,
         args: installArgs,
         result: installResult
+      }, {
+        scope: "ChannelsConfigCoordinator.ensureWechatInstallerCommand.install"
       });
       throw new Error(
         installResult.stderr ||

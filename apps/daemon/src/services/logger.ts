@@ -5,35 +5,45 @@ import { getAppRootDir, getLogDir } from "../runtime-paths.js";
 
 const ERROR_LOG_PATH = resolve(getLogDir(), "error.log");
 const filesystem = new FilesystemStateAdapter();
+const DEFAULT_COMPONENT = "ChillClaw daemon";
+
+export type LogMetadata = {
+  component?: string;
+  scope?: string;
+};
 
 function timestampPrefix(): string {
   return new Date().toISOString();
 }
 
-function formatMessage(level: "INFO" | "ERROR", message: string, details?: unknown): string {
+function formatScope(scope?: string): string {
+  return scope ? `[${scope}]` : "";
+}
+
+function formatMessage(level: "INFO" | "ERROR", message: string, details?: unknown, metadata?: LogMetadata): string {
   const payload =
     details === undefined
       ? ""
       : ` ${typeof details === "string" ? details : JSON.stringify(details, null, 2)}`;
 
-  return `${timestampPrefix()} [${level}] ${message}${payload}\n`;
+  return `${timestampPrefix()} [${level}]${formatScope(metadata?.scope)} ${message}${payload}\n`;
 }
 
-export function formatConsoleLine(message: string): string {
-  return `${timestampPrefix()} ${message}`;
+export function formatConsoleLine(message: string, metadata?: LogMetadata): string {
+  return `${timestampPrefix()} [${metadata?.component ?? DEFAULT_COMPONENT}]${formatScope(metadata?.scope)} ${message}`;
 }
 
-export async function writeErrorLog(message: string, details?: unknown): Promise<void> {
+export async function writeErrorLog(message: string, details?: unknown, metadata?: LogMetadata): Promise<void> {
   try {
-    await filesystem.appendLog(ERROR_LOG_PATH, formatMessage("ERROR", message, details));
+    await filesystem.appendLog(ERROR_LOG_PATH, formatMessage("ERROR", message, details, metadata));
   } catch {
     // Logging must never crash the app.
   }
 }
 
-export async function writeInfoLog(message: string, details?: unknown): Promise<void> {
+export async function writeInfoLog(message: string, details?: unknown, metadata?: LogMetadata): Promise<void> {
   try {
-    await filesystem.appendLog(ERROR_LOG_PATH, formatMessage("INFO", message, details));
+    await filesystem.appendLog(ERROR_LOG_PATH, formatMessage("INFO", message, details, metadata));
   } catch {
     // Logging must never crash the app.
   }
@@ -61,7 +71,12 @@ export function logDevelopmentCommand(scope: string, command: string, args: stri
   }
 
   const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
-  console.log(formatConsoleLine(`[ChillClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`));
+  console.log(
+    formatConsoleLine(`${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`, {
+      component: DEFAULT_COMPONENT,
+      scope
+    })
+  );
 }
 
 export function errorToLogDetails(error: unknown): Record<string, unknown> {

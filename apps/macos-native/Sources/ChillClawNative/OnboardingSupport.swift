@@ -52,6 +52,7 @@ let nativeOnboardingControlRadius: CGFloat = NativeUI.controlCornerRadius
 let nativeOnboardingIconTileRadius: CGFloat = NativeUI.iconCornerRadius
 let nativeOnboardingDisplayRadius: CGFloat = NativeUI.heroCornerRadius
 let nativeOnboardingCTAHeight: CGFloat = 50
+let nativeOnboardingAuthMethodCardHeight: CGFloat = 208
 
 enum NativeOnboardingActionButtonVariant: Sendable {
     case accent
@@ -65,6 +66,12 @@ struct NativeOnboardingActionButtonLayout: Sendable, Equatable {
     let minHeight: CGFloat
     let usesFullHitShape: Bool
     let cornerRadius: CGFloat
+}
+
+struct NativeOnboardingAuthMethodCardLayout: Sendable, Equatable {
+    let spacing: CGFloat
+    let cardWidth: CGFloat
+    let cardHeight: CGFloat
 }
 
 enum NativeOnboardingGuideTone {
@@ -150,6 +157,20 @@ func nativeOnboardingActionButtonLayout(
         minHeight: nativeOnboardingCTAHeight,
         usesFullHitShape: true,
         cornerRadius: nativeOnboardingControlRadius
+    )
+}
+
+func nativeOnboardingAuthMethodCardLayout(containerWidth: CGFloat, methodCount: Int) -> NativeOnboardingAuthMethodCardLayout {
+    let count = max(methodCount, 1)
+    let spacing: CGFloat = 16
+    let totalSpacing = CGFloat(max(count - 1, 0)) * spacing
+    let availableWidth = max(containerWidth - totalSpacing, 0)
+    let cardWidth = availableWidth / CGFloat(count)
+
+    return .init(
+        spacing: spacing,
+        cardWidth: cardWidth,
+        cardHeight: nativeOnboardingAuthMethodCardHeight
     )
 }
 

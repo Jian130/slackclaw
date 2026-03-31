@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, delimiter, dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 
 import type {
   BrainAssignment,
@@ -535,6 +535,8 @@ const gatewaySocketBridge = new OpenClawGatewaySocketAdapter({
   onReconnectError: async (error) => {
     await writeErrorLog("ChillClaw lost the live OpenClaw chat event bridge.", {
       error: errorToLogDetails(error)
+    }, {
+      scope: "openclawAdapter.gatewaySocketBridge.onReconnectError"
     });
   }
 });
@@ -695,10 +697,6 @@ function buildCommandEnv(command?: string, envOverrides?: Record<string, string 
   return env;
 }
 
-function isOpenClawCommand(command: string): boolean {
-  return basename(command) === "openclaw";
-}
-
 export function isGlobalNpmManagedOpenClawCommand(
   commandPath: string | undefined,
   npmPrefix: string | undefined,
@@ -713,7 +711,7 @@ export function isGlobalNpmManagedOpenClawCommand(
 }
 
 function logExternalCommand(command: string, args: string[]): void {
-  logDevelopmentCommand(isOpenClawCommand(command) ? "openclaw" : "exec", command, args);
+  logDevelopmentCommand("openclawAdapter.logExternalCommand", command, args);
 }
 
 function runtimeChannelKeys(channelId: SupportedChannelId): string[] {
@@ -879,6 +877,8 @@ async function repairLegacyWecomChannelConfigFromFailure(result: CommandResult):
     configPath,
     fromKey: LEGACY_WECOM_CHANNEL_KEY,
     toKey: CANONICAL_WECOM_CHANNEL_KEY
+  }, {
+    scope: "openclawAdapter.repairLegacyWecomChannelConfigFromFailure"
   });
   return true;
 }
@@ -929,6 +929,8 @@ async function runCommand(
         command,
         args,
         error: errorToLogDetails(error)
+      }, {
+        scope: "openclawAdapter.runCommand.onSpawnError"
       });
     }
   });
@@ -1617,7 +1619,9 @@ export function parseClawHubExploreOutput(output: string): SkillMarketplaceEntry
 }
 
 async function logSoftFailure(message: string, details?: unknown): Promise<void> {
-  await writeErrorLog(message, details);
+  await writeErrorLog(message, details, {
+    scope: "openclawAdapter.logSoftFailure"
+  });
 }
 
 function compareVersionStrings(left: string, right: string): number {
@@ -3539,6 +3543,8 @@ export class OpenClawAdapter implements EngineAdapter {
       gatewayMode: CHILLCLAW_OPENCLAW_GATEWAY_MODE,
       gatewayBind: CHILLCLAW_OPENCLAW_GATEWAY_BIND,
       gatewayAuthMode: CHILLCLAW_OPENCLAW_GATEWAY_AUTH_MODE
+    }, {
+      scope: "OpenClawAdapter.ensureChillClawGatewayConfigBaseline"
     });
     return true;
   }
@@ -3575,11 +3581,13 @@ export class OpenClawAdapter implements EngineAdapter {
       };
     }
 
-    logDevelopmentCommand("fallback", "openclaw-config", [options.fallbackDescription]);
+    logDevelopmentCommand("OpenClawAdapter.runMutationWithConfigFallback", "openclaw-config", [options.fallbackDescription]);
     await writeInfoLog("ChillClaw activated config-backed OpenClaw fallback.", {
       commandArgs: options.commandArgs,
       fallbackDescription: options.fallbackDescription,
       failure: commandFailureText(result)
+    }, {
+      scope: "OpenClawAdapter.runMutationWithConfigFallback"
     });
     await options.applyFallback();
 
@@ -4351,6 +4359,8 @@ export class OpenClawAdapter implements EngineAdapter {
         command: ensuredNpmInvocation.display,
         args: installArgs,
         result: installResult
+      }, {
+        scope: "OpenClawAdapter.ensurePinnedOpenClaw.install"
       });
       throw new Error(installResult.stderr || installResult.stdout || "OpenClaw installation failed.");
     }
@@ -4433,6 +4443,8 @@ export class OpenClawAdapter implements EngineAdapter {
     if (!brewCommand) {
       await writeErrorLog("ChillClaw could not install missing dependencies because Homebrew is unavailable.", {
         missingPackages: packages
+      }, {
+        scope: "OpenClawAdapter.ensureSystemDependencies.missingHomebrew"
       });
       return undefined;
     }
@@ -4444,6 +4456,8 @@ export class OpenClawAdapter implements EngineAdapter {
         command: brewCommand,
         args: ["install", ...packages],
         result: installResult
+      }, {
+        scope: "OpenClawAdapter.ensureSystemDependencies.install"
       });
       throw new Error(
         installResult.stderr ||
@@ -4455,6 +4469,8 @@ export class OpenClawAdapter implements EngineAdapter {
     await writeInfoLog("ChillClaw installed missing system dependencies with Homebrew.", {
       command: brewCommand,
       packages
+    }, {
+      scope: "OpenClawAdapter.ensureSystemDependencies"
     });
 
     return resolveNpmInvocation();

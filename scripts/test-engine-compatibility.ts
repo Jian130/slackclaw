@@ -21,6 +21,7 @@ import {
   openClawCompatibilitySources,
   parseJsonCommandOutput
 } from "../apps/daemon/src/engine/openclaw-compatibility.js";
+import { writeScriptLogLine } from "./logging.mjs";
 
 type Args = {
   engine: "openclaw";
@@ -37,6 +38,8 @@ type CommandResult = {
   stdout: string;
   stderr: string;
 };
+
+const SCRIPT_LABEL = "ChillClaw engine test";
 
 type RuntimeContext = {
   runtimeMode: EngineCompatibilityRuntimeMode;
@@ -1104,13 +1107,26 @@ async function main() {
   await writeFile(jsonPath, JSON.stringify(report, null, 2));
   await writeFile(markdownPath, renderMarkdown(report));
 
-  console.log(`Compatibility report written to ${jsonPath}`);
-  console.log(`Summary written to ${markdownPath}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "test-engine-compatibility.main",
+    message: `Compatibility report written to ${jsonPath}`
+  });
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "test-engine-compatibility.main",
+    message: `Summary written to ${markdownPath}`
+  });
 }
 
 void main().catch(async (error) => {
   const output = error instanceof Error ? error.stack ?? error.message : String(error);
   await mkdir(DEFAULT_REPORT_ROOT, { recursive: true }).catch(() => undefined);
-  console.error(output);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "test-engine-compatibility.main",
+    message: output,
+    stream: "stderr"
+  });
   process.exitCode = 1;
 });

@@ -741,15 +741,16 @@ struct NativeOnboardingView: View {
                                         .font(.system(size: 20, weight: .semibold))
                                         .foregroundStyle(nativeOnboardingTextPrimary)
 
-                                    let cardWidth = authMethods.count <= 1 ? 320.0 : 260.0
+                                    GeometryReader { proxy in
+                                        let layout = nativeOnboardingAuthMethodCardLayout(
+                                            containerWidth: proxy.size.width,
+                                            methodCount: authMethods.count
+                                        )
 
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 16) {
+                                        HStack(spacing: layout.spacing) {
                                             ForEach(authMethods) { method in
                                                 OnboardingSelectCard(selected: viewModel.methodId == method.id) {
-                                                    viewModel.methodId = method.id
-                                                    viewModel.modelSession = nil
-                                                    viewModel.modelSessionInput = ""
+                                                    viewModel.selectModelAuthMethod(method.id)
                                                 } content: {
                                                     VStack(spacing: 10) {
                                                         ZStack {
@@ -773,12 +774,14 @@ struct NativeOnboardingView: View {
                                                             .multilineTextAlignment(.center)
                                                             .fixedSize(horizontal: false, vertical: true)
                                                     }
+                                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                                                 }
-                                                .frame(width: cardWidth)
+                                                .frame(width: layout.cardWidth)
+                                                .frame(minHeight: layout.cardHeight, maxHeight: layout.cardHeight)
                                             }
                                         }
-                                        .padding(.vertical, 2)
                                     }
+                                    .frame(height: nativeOnboardingAuthMethodCardHeight)
                                 }
                             }
 

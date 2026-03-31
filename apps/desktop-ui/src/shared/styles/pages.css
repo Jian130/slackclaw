@@ -3347,12 +3347,8 @@
   letter-spacing: -0.02em;
 }
 
-.onboarding-auth-method-grid--single {
-  width: min(100%, 360px);
-}
-
 .onboarding-auth-method-card--figma {
-  min-height: 156px;
+  min-height: 208px;
   padding: 24px 20px;
   border-radius: var(--radius-standard);
   justify-items: center;
@@ -3818,8 +3814,9 @@
 
 .onboarding-auth-method-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--onboarding-auth-method-count, 2), minmax(0, 1fr));
   gap: 12px;
+  align-items: stretch;
 }
 
 .onboarding-auth-method-card {
@@ -3827,6 +3824,8 @@
   gap: 8px;
   justify-items: center;
   padding: 18px 16px;
+  min-height: 208px;
+  height: 100%;
   border: 1px solid rgb(var(--slate-rgb) / 0.18);
   border-radius: var(--radius-panel);
   background: rgb(var(--white-rgb) / 0.9);
@@ -4243,7 +4242,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .onboarding-auth-method-grid--single,
   .onboarding-model-actions {
     width: 100%;
     grid-template-columns: minmax(0, 1fr);

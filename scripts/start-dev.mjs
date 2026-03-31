@@ -13,11 +13,13 @@ import {
   stopRecoverableDevProcesses,
   writeDevProcessState
 } from "./dev-process-control.mjs";
+import { writeScriptLogLine } from "./logging.mjs";
 
 const rootDir = process.cwd();
 const daemonPort = Number(process.env.CHILLCLAW_PORT ?? "4545");
 const uiPort = Number(process.env.CHILLCLAW_UI_PORT ?? "4173");
 const viteBinPath = resolve(rootDir, "node_modules", "vite", "bin", "vite.js");
+const SCRIPT_LABEL = "ChillClaw start";
 
 let daemonProcess = null;
 let uiProcess = null;
@@ -26,7 +28,11 @@ let stepCounter = 0;
 
 function logStep(message, options = {}) {
   const prefix = options.step ? `${String(++stepCounter).padStart(2, "0")}. ` : "";
-  console.log(`[ChillClaw start] ${prefix}${message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.logStep",
+    message: `${prefix}${message}`
+  });
 }
 
 function shellQuote(value) {
@@ -38,7 +44,12 @@ function shellQuote(value) {
 }
 
 function fail(message) {
-  console.error(`[ChillClaw start] ${message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.fail",
+    message,
+    stream: "stderr"
+  });
   process.exit(1);
 }
 
@@ -132,7 +143,12 @@ function runBackgroundStep(label, command, args, options = {}) {
       return;
     }
 
-    console.error(`[ChillClaw start] ${label} error: ${error.message}`);
+    writeScriptLogLine({
+      label: SCRIPT_LABEL,
+      scope: "start-dev.runBackgroundStep.childError",
+      message: `${label} error: ${error.message}`,
+      stream: "stderr"
+    });
     void shutdown(1);
   });
 
@@ -141,9 +157,12 @@ function runBackgroundStep(label, command, args, options = {}) {
       return;
     }
 
-    console.error(
-      `[ChillClaw start] ${label} exited unexpectedly (${signal ? `signal ${signal}` : `code ${code ?? "unknown"}`}).`
-    );
+    writeScriptLogLine({
+      label: SCRIPT_LABEL,
+      scope: "start-dev.runBackgroundStep.childExit",
+      message: `${label} exited unexpectedly (${signal ? `signal ${signal}` : `code ${code ?? "unknown"}`}).`,
+      stream: "stderr"
+    });
     void shutdown(code ?? 1);
   });
 
@@ -263,13 +282,23 @@ process.on("SIGTERM", () => {
 });
 
 process.on("uncaughtException", (error) => {
-  console.error(`[ChillClaw start] ${error.message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.processUncaughtException",
+    message: error.message,
+    stream: "stderr"
+  });
   void shutdown(1);
 });
 
 process.on("unhandledRejection", (error) => {
   const message = error instanceof Error ? error.message : "Unhandled promise rejection.";
-  console.error(`[ChillClaw start] ${message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.processUnhandledRejection",
+    message,
+    stream: "stderr"
+  });
   void shutdown(1);
 });
 

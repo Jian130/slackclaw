@@ -3,6 +3,7 @@
 ChillClaw is a macOS-first, local-first desktop product that makes OpenClaw usable for non-technical users. This repository currently contains:
 
 - a React + TypeScript desktop UI for deploy, configuration, task routing, health, and recovery
+- a separate React + Vite static website for the public ChillClaw landing page
 - a local TypeScript daemon with an engine adapter seam
 - an `OpenClawAdapter` implementation that manages deploy targets, model entries, channels, chat sessions, updates, and gateway health
 - shared contracts for deployment, model/channel management, AI members, chat, onboarding, task execution, recovery, and updates
@@ -10,6 +11,7 @@ ChillClaw is a macOS-first, local-first desktop product that makes OpenClaw usab
 ## Workspace layout
 
 - `apps/desktop-ui`: React UI for install, onboarding, tasks, health, and recovery
+- `apps/website`: static public website for GitHub Pages and future custom-domain hosting
 - `apps/daemon`: local API and orchestration layer
 - `packages/contracts`: shared domain types and defaults
 - `docs/adr`: architecture decisions for v0.1
@@ -20,6 +22,28 @@ ChillClaw is a macOS-first, local-first desktop product that makes OpenClaw usab
 This is an active MVP implementation, not a blank scaffold. It intentionally keeps the engine abstraction narrow and the first-party UX opinionated.
 
 The packaged product now centers on a native SwiftUI macOS client over the local daemon. The React UI remains in the repo and app bundle as the browser-based developer surface, fallback packaged surface, and parity reference.
+
+The repo also now includes a separate static website workspace for the public marketing site. That website is intentionally not another product client. It has no daemon dependency, no OpenClaw dependency, and no runtime API calls.
+
+## Website app
+
+`apps/website` is the public ChillClaw landing page. It is a standalone React + Vite app that stays close to the approved Figma Make design while being cleaned up for production and GitHub Pages deployment.
+
+Website assumptions:
+
+- it is a single-page marketing site, not a second product shell
+- it stays fully static and does not talk to the daemon, OpenClaw, or any runtime API
+- it follows a Figma-first implementation policy: preserve the approved section order, copy direction, color system, and layout rhythm, then make only the minimum changes needed for production readiness
+- Figma `figma:asset` references must be replaced with repo-owned local assets before shipping
+- the Vite base path auto-switches between local `/` and GitHub Pages `/<repo>/`; set `VITE_BASE_PATH=/` when preparing a future custom-domain deployment
+
+Website commands:
+
+- `npm run dev:website`
+- `npm run build:website`
+- `npm run test:website`
+
+The root `npm run build` and `npm test` commands now include the website workspace too.
 
 ## What Works Today
 

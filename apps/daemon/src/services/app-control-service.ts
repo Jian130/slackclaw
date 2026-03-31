@@ -21,7 +21,7 @@ function scheduleExit(serverClose: () => void, delayMs = 400): void {
 
 async function spawnDetachedShell(scriptPath: string): Promise<void> {
   try {
-    logDevelopmentCommand("app-control", "/bin/sh", [scriptPath]);
+    logDevelopmentCommand("AppControlService.spawnDetachedShell", "/bin/sh", [scriptPath]);
     const child = spawn("/bin/sh", [scriptPath], {
       detached: true,
       stdio: "ignore",
@@ -35,6 +35,8 @@ async function spawnDetachedShell(scriptPath: string): Promise<void> {
       void writeErrorLog("ChillClaw could not start a detached app control script.", {
         scriptPath,
         error: errorToLogDetails(error)
+      }, {
+        scope: "AppControlService.spawnDetachedShell.childError"
       });
     });
 
@@ -43,6 +45,8 @@ async function spawnDetachedShell(scriptPath: string): Promise<void> {
     await writeErrorLog("ChillClaw could not spawn a detached app control script.", {
       scriptPath,
       error: errorToLogDetails(error)
+    }, {
+      scope: "AppControlService.spawnDetachedShell"
     });
     throw error;
   }

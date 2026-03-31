@@ -237,6 +237,8 @@ export class ChatService {
         threadId,
         sessionKey: thread.sessionKey,
         error: errorToLogDetails(error)
+      }, {
+        scope: "ChatService.getThreadDetail"
       });
 
       const fallbackDetail = this.applyDetailOverride(
@@ -384,6 +386,8 @@ export class ChatService {
         threadId,
         sessionKey: thread.sessionKey,
         error: errorToLogDetails(error)
+      }, {
+        scope: "ChatService.abortThread"
       });
       throw error;
     }
@@ -418,6 +422,8 @@ export class ChatService {
         this.liveBridgeReady = false;
         await writeErrorLog("ChillClaw could not start the live OpenClaw chat event bridge.", {
           error: errorToLogDetails(error)
+        }, {
+          scope: "ChatService.ensureLiveBridge"
         });
         return false;
       })
@@ -563,6 +569,8 @@ export class ChatService {
         threadId: activeRun.threadId,
         sessionKey: activeRun.sessionKey,
         error: errorToLogDetails(error)
+      }, {
+        scope: "ChatService.runSendLoop"
       });
       const recovered = await this.recoverRunFromHistory(
         activeRun,

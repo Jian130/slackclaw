@@ -20,7 +20,7 @@ function missingSecret(result: CommandResult): boolean {
 }
 
 async function runSecurityCommand(args: string[]): Promise<CommandResult> {
-  logDevelopmentCommand("exec", "security", args);
+  logDevelopmentCommand("MacOSKeychainSecretsAdapter.runSecurityCommand", "security", args);
 
   return await new Promise<CommandResult>((resolve) => {
     const child = spawn("security", args, {

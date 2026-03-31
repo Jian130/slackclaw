@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 import { chmod, copyFile, cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { writeScriptLogLine } from "./logging.mjs";
+
 const ROOT = process.cwd();
 const DIST_DIR = resolve(ROOT, "dist/macos");
 const STAGING_DIR = resolve(ROOT, "dist/.macos-staging");
@@ -25,6 +27,7 @@ const NATIVE_EXECUTABLE_NAME = "ChillClawNative";
 const APP_NATIVE_EXECUTABLE = resolve(APP_MACOS, APP_NAME);
 const PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
 const LAUNCH_AGENT_LABEL = "ai.chillclaw.daemon";
+const SCRIPT_LABEL = "ChillClaw installer";
 
 function parseArgs(argv) {
   return {
@@ -340,4 +343,8 @@ await ensureBuild(options.skipBuild);
 await stageBundle();
 await buildInstaller();
 
-console.log(`Built ${PKG_OUTPUT}`);
+writeScriptLogLine({
+  label: SCRIPT_LABEL,
+  scope: "build-macos-installer.main",
+  message: `Built ${PKG_OUTPUT}`
+});

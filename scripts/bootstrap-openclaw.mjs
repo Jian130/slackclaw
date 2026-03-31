@@ -5,10 +5,13 @@ import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve } from "node:path";
 
+import { writeScriptLogLine } from "./logging.mjs";
+
 const OPENCLAW_VERSION_OVERRIDE = process.env.CHILLCLAW_OPENCLAW_VERSION?.trim() || undefined;
 const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
 const OPENCLAW_PACKAGE = `openclaw@${OPENCLAW_INSTALL_TARGET}`;
 const LOCAL_INSTALL_PREFIX = process.env.CHILLCLAW_OPENCLAW_INSTALL_PREFIX;
+const SCRIPT_LABEL = "ChillClaw bootstrap";
 
 function compareOpenClawVersions(left, right) {
   if (!left || !right) {
@@ -124,7 +127,11 @@ function logBootstrapCommand(command, args) {
   }
 
   const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
-  console.log(`[ChillClaw bootstrap] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "bootstrap-openclaw.logBootstrapCommand",
+    message: `${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`
+  });
 }
 
 function run(command, args, options = {}) {
@@ -273,7 +280,11 @@ const result = await ensureOpenClaw(options);
 if (options.json) {
   console.log(JSON.stringify(result, null, 2));
 } else {
-  console.log(result.message);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "bootstrap-openclaw.main",
+    message: result.message
+  });
 }
 
 if (result.status === "failed") {

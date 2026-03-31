@@ -30,7 +30,7 @@ async function fileExists(pathname: string): Promise<boolean> {
 
 async function run(command: string, args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
-    logDevelopmentCommand("service", command, args);
+    logDevelopmentCommand("AppServiceManager.run", command, args);
     const child = spawn(command, args, {
       env: {
         ...process.env,
@@ -163,6 +163,8 @@ export class AppServiceManager {
         scriptName,
         platform: process.platform,
         packaged: Boolean(scriptsDir)
+      }, {
+        scope: "AppServiceManager.runAction.unavailable"
       });
 
       return {
@@ -184,6 +186,8 @@ export class AppServiceManager {
         code: result.code,
         stdout: result.stdout,
         stderr: result.stderr
+      }, {
+        scope: "AppServiceManager.runAction.failed"
       });
     }
 

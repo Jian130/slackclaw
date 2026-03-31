@@ -168,7 +168,7 @@ type ModelsConfigAccess = {
     envOverrides?: Record<string, string | undefined>
   ) => InteractiveAuthChildLike;
   appendAuthSessionOutput: (session: RuntimeModelAuthSessionLike, chunk: string) => void;
-  writeErrorLog: (message: string, details: unknown) => Promise<void>;
+  writeErrorLog: (message: string, details: unknown, metadata?: { scope?: string }) => Promise<void>;
   errorToLogDetails: (error: unknown) => unknown;
   readOpenClawConfigSnapshot: () => Promise<OpenClawConfigSnapshotLike>;
   writeOpenClawConfigSnapshot: (configPath: string, config: OpenClawConfigSnapshotLike["config"]) => Promise<void>;
@@ -522,6 +522,8 @@ export class ModelsConfigCoordinator {
         providerId,
         methodId,
         error: this.access.errorToLogDetails(error)
+      }, {
+        scope: "ModelsConfigCoordinator.startInteractiveAuth.childError"
       });
     });
 
@@ -548,6 +550,8 @@ export class ModelsConfigCoordinator {
                     methodId,
                     modelKey: session.setDefaultModel,
                     error: this.access.errorToLogDetails(error)
+                  }, {
+                    scope: "ModelsConfigCoordinator.startInteractiveAuth.setDefaultModel"
                   });
                 });
               }
@@ -571,6 +575,8 @@ export class ModelsConfigCoordinator {
               methodId,
               entryId: session.pendingEntry?.entryId,
               error: this.access.errorToLogDetails(error)
+            }, {
+              scope: "ModelsConfigCoordinator.startInteractiveAuth.finalize"
             });
           }
         } else {

@@ -1,7 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { logDevelopmentCommand } from "./logger.js";
+import { formatConsoleLine, logDevelopmentCommand } from "./logger.js";
+
+test("console formatting includes the component and explicit scope when provided", () => {
+  const line = formatConsoleLine("ChillClaw daemon listening on http://127.0.0.1:4545", {
+    component: "ChillClaw daemon",
+    scope: "index.serverListening"
+  });
+
+  assert.match(
+    line,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \[ChillClaw daemon\]\[index\.serverListening\] ChillClaw daemon listening on http:\/\/127\.0\.0\.1:4545$/
+  );
+});
 
 test("development command logging prefixes console output with an ISO timestamp", () => {
   const originalConsoleLog = console.log;
@@ -14,7 +26,7 @@ test("development command logging prefixes console output with an ISO timestamp"
   };
 
   try {
-    logDevelopmentCommand("openclaw", "/opt/homebrew/bin/openclaw", ["status", "--json"]);
+    logDevelopmentCommand("openclaw.spawnCommand", "/opt/homebrew/bin/openclaw", ["status", "--json"]);
   } finally {
     console.log = originalConsoleLog;
     if (originalLogDevCommands === undefined) {
@@ -27,6 +39,6 @@ test("development command logging prefixes console output with an ISO timestamp"
   assert.equal(lines.length, 1);
   assert.match(
     lines[0] ?? "",
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \[ChillClaw daemon\]\[openclaw\] \/opt\/homebrew\/bin\/openclaw status --json$/
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \[ChillClaw daemon\]\[openclaw\.spawnCommand\] \/opt\/homebrew\/bin\/openclaw status --json$/
   );
 });

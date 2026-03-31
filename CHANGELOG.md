@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 2026-03-31 16:02 CST
+
+- added a separate static `apps/website` marketing site with GitHub Pages deployment workflow support, root build and test wiring, bundled assets, and updated repo guidance in `README.md` and `AGENTS.md`
+- improved onboarding auth-method presentation across web and native macOS by keeping provider auth cards aligned to shared width and height rules, keeping the native macOS chooser in a single row, and preventing stale OAuth session popups before the user explicitly continues the flow
+- added explicit traceable scope names to shared daemon logs and repo-managed script console logs so runtime, config, onboarding, installer, and developer command output can be traced back to stable call sites more easily
+
 ### 2026-03-31 12:32 CST
 
 - refreshed project documentation to match the current ChillClaw codebase, including the main README plus daemon routes, onboarding design, and OpenClaw command references

@@ -1231,7 +1231,7 @@ struct OnboardingTests {
     }
 
     @Test
-    func nativeModelAuthMethodsStayInSingleHorizontalRow() throws {
+    func nativeModelAuthMethodCardsUseDynamicFullWidthLayout() throws {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1245,9 +1245,12 @@ struct OnboardingTests {
                 .components(separatedBy: "if setupVariant == .oauth {").first
         )
 
-        #expect(authChooser.contains("ScrollView(.horizontal, showsIndicators: false)"))
-        #expect(authChooser.contains("HStack(spacing: 16)"))
-        #expect(!authChooser.contains("LazyVGrid(columns: columns"))
+        #expect(authChooser.contains("GeometryReader"))
+        #expect(authChooser.contains("nativeOnboardingAuthMethodCardLayout("))
+        #expect(authChooser.contains(".frame(width: layout.cardWidth)"))
+        #expect(authChooser.contains(".frame(minHeight: layout.cardHeight, maxHeight: layout.cardHeight)"))
+        #expect(!authChooser.contains("ScrollView(.horizontal, showsIndicators: false)"))
+        #expect(!authChooser.contains("let cardWidth ="))
     }
 
     @Test
@@ -1464,7 +1467,7 @@ struct OnboardingTests {
     }
 
     @Test
-    func savingOAuthModelOpensTheOpenClawAuthLaunchURL() async throws {
+    func savingOAuthModelWaitsForExplicitAuthWindowLaunch() async throws {
         let recorder = NativeRequestRecorder()
         let openedURLs = OpenedURLRecorder()
         let authSession = ModelAuthSession(
@@ -1552,9 +1555,97 @@ struct OnboardingTests {
         viewModel.methodId = "openai-codex"
 
         await viewModel.saveModel()
+        #expect(await openedURLs.urls().isEmpty)
+
+        viewModel.openModelAuthWindow()
         try? await Task.sleep(nanoseconds: 50_000_000)
 
         #expect(await openedURLs.urls() == ["https://auth.openai.example/authorize"])
+    }
+
+    @Test
+    func switchingModelAuthMethodSuppressesStaleAuthSessionErrors() async throws {
+        let recorder = NativeRequestRecorder()
+        let pollGate = AsyncGate()
+        let authSession = ModelAuthSession(
+            id: "auth-session-1",
+            providerId: "openai",
+            methodId: "openai-codex",
+            status: "running",
+            message: "Complete OpenAI authentication in your browser.",
+            logs: [],
+            launchUrl: "https://auth.openai.example/authorize",
+            inputPrompt: nil
+        )
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/model/entries"):
+                let body = try JSONEncoder.chillClaw.encode(
+                    ModelConfigActionResponse(
+                        status: "interactive",
+                        message: "Authentication required.",
+                        modelConfig: emptyModelConfig(),
+                        authSession: authSession,
+                        requiresGatewayApply: false,
+                        onboarding: makeOnboardingStateResponse(step: .model)
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            case ("GET", "/api/onboarding/model/auth/session/auth-session-1"):
+                await pollGate.wait()
+                let response = HTTPURLResponse(
+                    url: url,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (response, Data(#"{"error":"Auth session not found."}"#.utf8))
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: { true }),
+            processManager: DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true }),
+            chatViewModel: ChillClawChatViewModel(transport: FakeChatTransport()),
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model)
+        viewModel.selectProvider(try #require(viewModel.modelPickerProviders.first(where: { $0.id == "openai" })))
+        viewModel.methodId = "openai-codex"
+
+        await viewModel.saveModel()
+        await waitForRecordedURLCount(recorder, expectedCount: 2)
+
+        viewModel.selectModelAuthMethod("openai-api-key")
+        await pollGate.open()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(viewModel.pageError == nil)
+        #expect(viewModel.modelSession == nil)
     }
 
     @Test

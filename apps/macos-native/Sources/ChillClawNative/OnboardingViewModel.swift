@@ -446,23 +446,29 @@ final class NativeOnboardingViewModel {
     }
 
     func selectProvider(_ provider: OnboardingModelProviderPresentation) {
+        pageError = nil
         providerId = provider.id
         methodId = provider.authMethods.first?.id ?? ""
         modelKey = provider.defaultModelKey
         modelLabel = provider.label
         modelValues = [:]
-        modelSession = nil
-        modelSessionInput = ""
+        clearModelAuthSessionState()
+    }
+
+    func selectModelAuthMethod(_ nextMethodId: String) {
+        pageError = nil
+        methodId = nextMethodId
+        clearModelAuthSessionState()
     }
 
     func clearProviderSelection() {
+        pageError = nil
         providerId = ""
         methodId = ""
         modelKey = ""
         modelLabel = ""
         modelValues = [:]
-        modelSession = nil
-        modelSessionInput = ""
+        clearModelAuthSessionState()
     }
 
     func updateLocale(_ localeIdentifier: String) {
@@ -692,9 +698,6 @@ final class NativeOnboardingViewModel {
             let result = try await appState.client.saveOnboardingModelEntry(request)
             appState.modelConfig = result.modelConfig
             modelSession = result.authSession
-            if selectedMethod?.kind == "oauth" {
-                openModelAuthWindow()
-            }
             if let onboarding = result.onboarding {
                 applyOnboardingState(onboarding)
             }
@@ -1297,6 +1300,7 @@ final class NativeOnboardingViewModel {
             while !Task.isCancelled {
                 do {
                     let nextSession = try await self.appState.client.fetchOnboardingModelAuthSession(sessionId: sessionId)
+                    guard self.modelSession?.id == sessionId else { return }
                     self.modelSession =
                         nextSession.session.status == "completed" || nextSession.session.status == "failed"
                         ? nil
@@ -1316,6 +1320,7 @@ final class NativeOnboardingViewModel {
                         return
                     }
                 } catch {
+                    guard self.modelSession?.id == sessionId else { return }
                     self.presentErrorUnlessCancelled(error)
                     return
                 }
@@ -1323,6 +1328,13 @@ final class NativeOnboardingViewModel {
                 try? await Task.sleep(nanoseconds: 1_600_000_000)
             }
         }
+    }
+
+    private func clearModelAuthSessionState() {
+        modelSessionTask?.cancel()
+        modelSessionTask = nil
+        modelSession = nil
+        modelSessionInput = ""
     }
 
     private func applyChannelConfig(_ channelConfig: ChannelConfigOverview, activeSession: ChannelSession?) {
