@@ -3008,6 +3008,12 @@ function buildModelConfigOverview(
         docsUrl: provider.docsUrl,
         providerRefs: provider.providerRefs,
         authMethods: provider.authMethods.map(toPublicAuthMethod),
+        exampleModels: provider.exampleModels,
+        authEnvVars: provider.authEnvVars,
+        setupNotes: provider.setupNotes,
+        warnings: provider.warnings,
+        providerType: provider.providerType,
+        supportsNoAuth: provider.supportsNoAuth,
         configured,
         modelCount: matches.length,
         sampleModels: matches.slice(0, 5).map((model) => model.key)

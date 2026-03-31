@@ -27,6 +27,16 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Claude models through Anthropic.",
     docsUrl: `${PROVIDER_DOCS_BASE}/anthropic`,
     providerRefs: ["anthropic/"],
+    providerType: "built-in",
+    exampleModels: ["anthropic/claude-opus-4-6", "anthropic/claude-sonnet-4-6"],
+    authEnvVars: ["ANTHROPIC_API_KEY", "ANTHROPIC_API_KEYS"],
+    setupNotes: [
+      "Anthropic API key auth is the recommended path for standard usage-based access.",
+      "Setup-token auth is mainly for compatibility when you already use Claude Code."
+    ],
+    warnings: [
+      "Anthropic has blocked some subscription usage outside Claude Code in the past; verify current Anthropic terms before relying on setup-tokens."
+    ],
     authMethods: [
       {
         id: "anthropic-api-key",
@@ -63,8 +73,22 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "amazon-bedrock",
     label: "Amazon Bedrock",
     description: "AWS Bedrock-hosted model catalog.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/amazon-bedrock`,
+    docsUrl: `${PROVIDER_DOCS_BASE}/bedrock`,
     providerRefs: ["amazon-bedrock/"],
+    providerType: "built-in",
+    exampleModels: ["amazon-bedrock/us.anthropic.claude-opus-4-6-v1:0"],
+    authEnvVars: [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_REGION",
+      "AWS_PROFILE",
+      "AWS_BEARER_TOKEN_BEDROCK"
+    ],
+    setupNotes: [
+      "Bedrock uses the AWS SDK credential chain instead of a normal API key.",
+      "Automatic discovery needs `bedrock:ListFoundationModels` permission."
+    ],
+    warnings: ["EC2 instance-role setups may still need `AWS_PROFILE=default` so OpenClaw detects credentials."],
     authMethods: [
       {
         id: "amazon-bedrock-login",
@@ -82,8 +106,11 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "byteplus",
     label: "BytePlus",
     description: "BytePlus-hosted models.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/byteplus`,
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
     providerRefs: ["byteplus/", "byteplus-plan/"],
+    providerType: "built-in",
+    authEnvVars: ["BYTEPLUS_API_KEY"],
+    setupNotes: ["BytePlus is documented on the model-provider concepts page under BytePlus (International)."],
     authMethods: [
       {
         id: "byteplus-api-key",
@@ -103,6 +130,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Volcano Engine and Doubao-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/volcengine`,
     providerRefs: ["volcengine/", "volcengine-plan/"],
+    providerType: "built-in",
+    exampleModels: ["volcengine-plan/ark-code-latest", "volcengine/doubao-seed-1-6-flash-250715"],
+    authEnvVars: ["VOLCANO_ENGINE_API_KEY"],
+    setupNotes: ["OpenClaw treats `volcengine` as the general catalog and `volcengine-plan` as the coding catalog."],
     authMethods: [
       {
         id: "volcengine-api-key",
@@ -120,8 +151,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "chutes",
     label: "Chutes",
     description: "Chutes-hosted provider configuration.",
-    docsUrl: "https://docs.openclaw.ai/providers",
+    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
     providerRefs: ["chutes/"],
+    providerType: "built-in",
+    warnings: ["OpenClaw's public provider docs no longer describe Chutes in detail; confirm availability in your installed runtime."],
     authMethods: [
       {
         id: "chutes-login",
@@ -140,6 +173,13 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "OpenClaw through Cloudflare AI Gateway.",
     docsUrl: `${PROVIDER_DOCS_BASE}/cloudflare-ai-gateway`,
     providerRefs: ["cloudflare-ai-gateway/"],
+    providerType: "gateway",
+    exampleModels: ["cloudflare-ai-gateway/claude-sonnet-4-6"],
+    authEnvVars: ["CLOUDFLARE_AI_GATEWAY_API_KEY"],
+    setupNotes: [
+      "Needs your Cloudflare account ID, gateway ID, and upstream provider API key.",
+      "For Anthropic models, use your Anthropic API key behind the gateway."
+    ],
     authMethods: [
       {
         id: "cloudflare-ai-gateway-api-key",
@@ -167,6 +207,12 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "OpenAI-compatible or Anthropic-compatible custom endpoints.",
     docsUrl: `${PROVIDER_DOCS_BASE}/custom-providers`,
     providerRefs: ["custom/"],
+    providerType: "custom",
+    supportsNoAuth: true,
+    setupNotes: [
+      "Use this for OpenAI-compatible or Anthropic-compatible endpoints that OpenClaw does not bundle.",
+      "API key is optional if your endpoint accepts unauthenticated local traffic."
+    ],
     authMethods: [
       {
         id: "custom-api-key",
@@ -190,27 +236,58 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     ]
   },
   {
+    id: "deepseek",
+    label: "DeepSeek",
+    description: "DeepSeek models through DeepSeek's OpenAI-compatible API.",
+    docsUrl: `${PROVIDER_DOCS_BASE}/deepseek`,
+    providerRefs: ["deepseek/"],
+    providerType: "built-in",
+    exampleModels: ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
+    authEnvVars: ["DEEPSEEK_API_KEY"],
+    setupNotes: ["If the gateway runs as a daemon, make sure `DEEPSEEK_API_KEY` is available to that process."],
+    authMethods: [
+      {
+        id: "deepseek-api-key",
+        label: "API Key",
+        kind: "api-key",
+        description: "Paste a DeepSeek API key.",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
+        onboardAuthChoice: "deepseek-api-key",
+        onboardFieldFlags: { apiKey: "--deepseek-api-key" }
+      }
+    ]
+  },
+  {
     id: "gemini",
     label: "Google (Gemini / Vertex / CLI)",
     description: "Google Gemini, Google Vertex, Antigravity, and Gemini CLI model access.",
-    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    docsUrl: `${PROVIDER_DOCS_BASE}/google`,
     providerRefs: ["google/", "google-gemini-cli/", "google-antigravity/", "google-vertex/"],
+    providerType: "built-in",
+    exampleModels: ["google/gemini-3.1-pro-preview", "google/gemini-3.1-flash-preview"],
+    authEnvVars: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    setupNotes: [
+      "Google AI Studio API keys are the standard setup path.",
+      "Gemini CLI OAuth is available as a separate unofficial provider."
+    ],
+    warnings: ["Gemini CLI OAuth is unofficial and some users report account restrictions."],
     authMethods: [
       {
         id: "gemini-api-key",
-        label: "Gemini API Key",
+        label: "Google API Key",
         kind: "api-key",
-        description: "Paste a Gemini API key.",
+        description: "Paste a Gemini or Google API key for Google AI Studio.",
         interactive: false,
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
-        onboardAuthChoice: "gemini-api-key",
+        onboardAuthChoice: "google-api-key",
         onboardFieldFlags: { apiKey: "--gemini-api-key" }
       },
       {
         id: "google-gemini-cli",
         label: "Google Gemini CLI",
         kind: "oauth",
-        description: "Run the Google Gemini CLI login flow documented by OpenClaw.",
+        description: "Run the Gemini CLI OAuth flow documented by OpenClaw.",
         interactive: true,
         fields: [],
         loginProviderId: "google-gemini-cli"
@@ -223,6 +300,11 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Copilot-based model access.",
     docsUrl: `${PROVIDER_DOCS_BASE}/github-copilot`,
     providerRefs: ["github-copilot/"],
+    providerType: "built-in",
+    exampleModels: ["github-copilot/gpt-4o", "github-copilot/gpt-4.1"],
+    authEnvVars: ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"],
+    setupNotes: ["The device login stores a GitHub token, then exchanges it for Copilot runtime tokens when OpenClaw runs."],
+    warnings: ["Requires an interactive TTY. Model availability depends on your GitHub Copilot plan."],
     authMethods: [
       {
         id: "github-copilot-device",
@@ -239,8 +321,19 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "huggingface",
     label: "Hugging Face Inference",
     description: "Hugging Face Inference token-based model access.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/hugging-face`,
+    docsUrl: `${PROVIDER_DOCS_BASE}/huggingface`,
     providerRefs: ["huggingface/"],
+    providerType: "gateway",
+    exampleModels: [
+      "huggingface/deepseek-ai/DeepSeek-R1",
+      "huggingface/Qwen/Qwen3-8B",
+      "huggingface/meta-llama/Llama-3.3-70B-Instruct"
+    ],
+    authEnvVars: ["HUGGINGFACE_HUB_TOKEN", "HF_TOKEN"],
+    setupNotes: [
+      "OpenClaw can refresh the live model catalog from `https://router.huggingface.co/v1/models` when a token is present.",
+      "Suffixes like `:fastest`, `:cheapest`, or `:together` select router policies or backends."
+    ],
     authMethods: [
       {
         id: "huggingface-api-key",
@@ -258,8 +351,15 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "kilocode",
     label: "Kilo Gateway",
     description: "Kilo Gateway hosted provider.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/kilo-gateway`,
+    docsUrl: `${PROVIDER_DOCS_BASE}/kilocode`,
     providerRefs: ["kilocode/"],
+    providerType: "gateway",
+    exampleModels: ["kilocode/kilo/auto", "kilocode/anthropic/claude-opus-4.6"],
+    authEnvVars: ["KILOCODE_API_KEY"],
+    setupNotes: [
+      "`kilocode/kilo/auto` is the default smart-routing model.",
+      "One Kilo key unlocks the whole gateway catalog."
+    ],
     authMethods: [
       {
         id: "kilocode-api-key",
@@ -274,11 +374,38 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     ]
   },
   {
+    id: "groq",
+    label: "Groq",
+    description: "Groq-hosted open-source model catalog.",
+    docsUrl: `${PROVIDER_DOCS_BASE}/groq`,
+    providerRefs: ["groq/"],
+    providerType: "built-in",
+    exampleModels: ["groq/llama-3.3-70b-versatile"],
+    authEnvVars: ["GROQ_API_KEY"],
+    setupNotes: ["Groq is optimized for fast open-source inference."],
+    authMethods: [
+      {
+        id: "groq-api-key",
+        label: "API Key",
+        kind: "api-key",
+        description: "Paste a Groq API key.",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
+        onboardAuthChoice: "groq-api-key",
+        onboardFieldFlags: { apiKey: "--groq-api-key" }
+      }
+    ]
+  },
+  {
     id: "kimi-code",
     label: "Kimi Coding",
     description: "Kimi Coding model access through Moonshot AI.",
-    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    docsUrl: `${PROVIDER_DOCS_BASE}/moonshot`,
     providerRefs: ["kimi-coding/"],
+    providerType: "built-in",
+    exampleModels: ["kimi-coding/k2p5"],
+    authEnvVars: ["KIMI_CODE_API_KEY"],
+    setupNotes: ["Kimi Coding is a separate provider from Moonshot; keys and model refs are not interchangeable."],
     authMethods: [
       {
         id: "kimi-code-api-key",
@@ -296,8 +423,15 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "moonshot",
     label: "Moonshot AI",
     description: "Moonshot AI hosted models, including Kimi family access.",
-    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    docsUrl: `${PROVIDER_DOCS_BASE}/moonshot`,
     providerRefs: ["moonshot/", "moonshotai/"],
+    providerType: "built-in",
+    exampleModels: ["moonshot/kimi-k2.5", "moonshot/kimi-k2-thinking"],
+    authEnvVars: ["MOONSHOT_API_KEY"],
+    setupNotes: [
+      "Moonshot and Kimi Coding use separate endpoints and separate keys.",
+      "Moonshot uses `moonshot/...`; Kimi Coding uses `kimi-coding/...`."
+    ],
     authMethods: [
       {
         id: "moonshot-api-key",
@@ -327,6 +461,13 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "LiteLLM proxy or gateway.",
     docsUrl: `${PROVIDER_DOCS_BASE}/litellm`,
     providerRefs: ["litellm/"],
+    providerType: "gateway",
+    exampleModels: ["litellm/claude-opus-4-6", "litellm/gpt-4o"],
+    authEnvVars: ["LITELLM_API_KEY"],
+    setupNotes: [
+      "Point OpenClaw at a LiteLLM proxy base URL and keep your upstream routing inside LiteLLM.",
+      "Virtual keys are useful when you want spend limits or tenant isolation for OpenClaw."
+    ],
     authMethods: [
       {
         id: "litellm-api-key",
@@ -346,12 +487,19 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "MiniMax cloud and portal auth flows.",
     docsUrl: `${PROVIDER_DOCS_BASE}/minimax`,
     providerRefs: ["minimax/", "minimax-cn/"],
+    providerType: "built-in",
+    exampleModels: ["minimax/MiniMax-M2.7", "minimax/MiniMax-M2.7-highspeed", "minimax/image-01"],
+    authEnvVars: ["MINIMAX_API_KEY"],
+    setupNotes: [
+      "MiniMax OAuth via Coding Plan is the recommended path.",
+      "API-key setup uses the Anthropic-compatible endpoint `https://api.minimax.io/anthropic`."
+    ],
     authMethods: [
       {
         id: "minimax-api",
-        label: "MiniMax API Key",
+        label: "MiniMax API Key (Global)",
         kind: "api-key",
-        description: "Paste a MiniMax international API key for api.minimax.io.",
+        description: "Paste a MiniMax API key for the international endpoint at api.minimax.io.",
         interactive: false,
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
         onboardAuthChoice: "minimax-global-api",
@@ -359,41 +507,22 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
       },
       {
         id: "minimax-api-key-cn",
-        label: "MiniMax CN API Key",
+        label: "MiniMax API Key (China)",
         kind: "api-key",
-        description: "Paste a MiniMax China-region API key for api.minimaxi.com.",
+        description: "Paste a MiniMax API key for the China endpoint at api.minimaxi.com.",
         interactive: false,
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
         onboardAuthChoice: "minimax-cn-api",
         onboardFieldFlags: { apiKey: "--minimax-api-key" }
       },
       {
-        id: "minimax-api-lightning",
-        label: "MiniMax Lightning",
-        kind: "api-key",
-        description: "Use the MiniMax Lightning auth flow documented by OpenClaw.",
-        interactive: false,
-        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
-        onboardAuthChoice: "minimax-global-api",
-        onboardFieldFlags: { apiKey: "--minimax-api-key" }
-      },
-      {
         id: "minimax-portal",
-        label: "MiniMax Portal",
+        label: "MiniMax OAuth",
         kind: "oauth",
-        description: "Run the MiniMax portal login flow.",
+        description: "Run the MiniMax Coding Plan OAuth flow and choose the Global or China endpoint during setup.",
         interactive: true,
         fields: [],
         loginProviderId: "minimax-portal"
-      },
-      {
-        id: "minimax-cloud",
-        label: "MiniMax Cloud",
-        kind: "oauth",
-        description: "Run the MiniMax cloud login flow.",
-        interactive: true,
-        fields: [],
-        loginProviderId: "minimax-cloud"
       }
     ]
   },
@@ -403,6 +532,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Mistral-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/mistral`,
     providerRefs: ["mistral/"],
+    providerType: "built-in",
+    exampleModels: ["mistral/mistral-large-latest"],
+    authEnvVars: ["MISTRAL_API_KEY"],
+    setupNotes: ["Mistral can also power Voxtral audio transcription and memory embeddings in OpenClaw."],
     authMethods: [
       {
         id: "mistral-api-key",
@@ -420,14 +553,41 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "modelstudio",
     label: "Model Studio (Qwen)",
     description: "Alibaba Cloud Model Studio and Qwen-hosted models.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/modelstudio`,
+    docsUrl: `${PROVIDER_DOCS_BASE}/qwen_modelstudio`,
     providerRefs: ["modelstudio/"],
+    providerType: "built-in",
+    exampleModels: ["modelstudio/qwen3.5-plus", "modelstudio/glm-4.7", "modelstudio/kimi-k2.5"],
+    authEnvVars: ["MODELSTUDIO_API_KEY"],
+    setupNotes: [
+      "Supports Standard (pay-as-you-go) and Coding Plan billing.",
+      "Qwen OAuth is deprecated; new Qwen setups should use Model Studio."
+    ],
     authMethods: [
       {
-        id: "modelstudio-api-key-cn",
-        label: "Model Studio CN API Key",
+        id: "modelstudio-standard-api-key-cn",
+        label: "Standard API Key (China)",
         kind: "api-key",
-        description: "Paste an Alibaba Cloud Model Studio China-region API key.",
+        description: "Use a pay-as-you-go Model Studio API key against the China endpoint.",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
+        onboardAuthChoice: "modelstudio-standard-api-key-cn",
+        onboardFieldFlags: { apiKey: "--modelstudio-api-key-cn" }
+      },
+      {
+        id: "modelstudio-standard-api-key",
+        label: "Standard API Key (Global)",
+        kind: "api-key",
+        description: "Use a pay-as-you-go Model Studio API key against the global endpoint.",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
+        onboardAuthChoice: "modelstudio-standard-api-key",
+        onboardFieldFlags: { apiKey: "--modelstudio-api-key" }
+      },
+      {
+        id: "modelstudio-api-key-cn",
+        label: "Coding Plan API Key (China)",
+        kind: "api-key",
+        description: "Use a Model Studio Coding Plan key against the China endpoint.",
         interactive: false,
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
         onboardAuthChoice: "modelstudio-api-key-cn",
@@ -435,9 +595,9 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
       },
       {
         id: "modelstudio-api-key",
-        label: "Model Studio API Key",
+        label: "Coding Plan API Key (Global)",
         kind: "api-key",
-        description: "Paste an Alibaba Cloud Model Studio API key.",
+        description: "Use a Model Studio Coding Plan key against the global endpoint.",
         interactive: false,
         fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }],
         onboardAuthChoice: "modelstudio-api-key",
@@ -451,15 +611,18 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "NVIDIA-hosted model access.",
     docsUrl: `${PROVIDER_DOCS_BASE}/nvidia`,
     providerRefs: ["nvidia/"],
+    providerType: "built-in",
+    exampleModels: ["nvidia/nvidia/llama-3.1-nemotron-70b-instruct"],
+    authEnvVars: ["NVIDIA_API_KEY"],
+    setupNotes: ["The NVIDIA catalog uses the OpenAI-compatible base URL `https://integrate.api.nvidia.com/v1`."],
     authMethods: [
       {
-        id: "nvidia-login",
-        label: "NVIDIA Provider Login",
-        kind: "oauth",
-        description: "Run the NVIDIA provider login flow through OpenClaw.",
-        interactive: true,
-        fields: [],
-        loginProviderId: "nvidia"
+        id: "nvidia-api-key",
+        label: "API Key",
+        kind: "api-key",
+        description: "Paste an NVIDIA NGC API key.",
+        interactive: false,
+        fields: [{ id: "apiKey", label: "API Key", required: true, secret: true }]
       }
     ]
   },
@@ -469,6 +632,15 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Local Ollama runtime.",
     docsUrl: `${PROVIDER_DOCS_BASE}/ollama`,
     providerRefs: ["ollama/"],
+    providerType: "local",
+    exampleModels: ["ollama/llama3.3", "ollama/glm-4.7-flash"],
+    authEnvVars: ["OLLAMA_API_KEY"],
+    setupNotes: [
+      "Local mode needs no provider account.",
+      "Cloud + Local mode can open an `ollama.com` sign-in during onboarding."
+    ],
+    warnings: ["Use Ollama's native API base URL without `/v1` when connecting to remote servers."],
+    supportsNoAuth: true,
     authMethods: [
       {
         id: "ollama-local",
@@ -485,8 +657,15 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "opencode-zen",
     label: "OpenCode (Zen + Go)",
     description: "OpenCode Zen and OpenCode Go providers.",
-    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    docsUrl: `${PROVIDER_DOCS_BASE}/opencode`,
     providerRefs: ["opencode/", "opencode-zen/", "opencode-go/"],
+    providerType: "gateway",
+    exampleModels: ["opencode/claude-opus-4-6", "opencode-go/kimi-k2.5", "opencode-go/glm-5"],
+    authEnvVars: ["OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"],
+    setupNotes: [
+      "One OpenCode key covers both `opencode` and `opencode-go` runtime providers.",
+      "Zen and Go keep separate runtime prefixes so upstream routing stays correct."
+    ],
     authMethods: [
       {
         id: "opencode-zen",
@@ -504,8 +683,16 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "openai",
     label: "OpenAI (API + Codex)",
     description: "OpenAI GPT models and the OpenAI Codex login flow.",
-    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    docsUrl: `${PROVIDER_DOCS_BASE}/openai`,
     providerRefs: ["openai/", "openai-codex/"],
+    providerType: "built-in",
+    exampleModels: ["openai/gpt-5.4", "openai/gpt-5.4-pro", "openai-codex/gpt-5.4"],
+    authEnvVars: ["OPENAI_API_KEY", "OPENAI_API_KEYS", "OPENCLAW_LIVE_OPENAI_KEY"],
+    setupNotes: [
+      "Direct API usage and Codex OAuth are both supported.",
+      "The direct OpenAI provider defaults to auto transport (WebSocket first, SSE fallback)."
+    ],
+    warnings: ["`openai/gpt-5.3-codex-spark` is intentionally hidden on the direct API path because live OpenAI API calls reject it."],
     authMethods: [
       {
         id: "openai-api-key",
@@ -534,6 +721,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "OpenRouter-hosted provider catalog.",
     docsUrl: `${PROVIDER_DOCS_BASE}/openrouter`,
     providerRefs: ["openrouter/"],
+    providerType: "gateway",
+    exampleModels: ["openrouter/anthropic/claude-sonnet-4-6"],
+    authEnvVars: ["OPENROUTER_API_KEY"],
+    setupNotes: ["Model refs use `openrouter/<provider>/<model>`."],
     authMethods: [
       {
         id: "openrouter-api-key",
@@ -553,6 +744,11 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Baidu Qianfan hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/qianfan`,
     providerRefs: ["qianfan/"],
+    providerType: "gateway",
+    setupNotes: [
+      "Qianfan is Baidu's MaaS platform with an OpenAI-compatible endpoint.",
+      "Qianfan API keys use the `bce-v3/...` format."
+    ],
     authMethods: [
       {
         id: "qianfan-api-key",
@@ -567,20 +763,28 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     ]
   },
   {
-    id: "qwen",
-    label: "Qwen (OAuth)",
-    description: "Qwen OAuth and portal-based access.",
-    docsUrl: `${PROVIDER_DOCS_BASE}/qwen`,
-    providerRefs: ["qwen/", "qwen-portal/"],
+    id: "sglang",
+    label: "SGLang",
+    description: "Self-hosted SGLang via an OpenAI-compatible local server.",
+    docsUrl: `${PROVIDER_DOCS_BASE}/sglang`,
+    providerRefs: ["sglang/"],
+    providerType: "local",
+    exampleModels: ["sglang/your-model-id"],
+    authEnvVars: ["SGLANG_API_KEY"],
+    setupNotes: [
+      "Defaults to `http://127.0.0.1:30000/v1` and auto-discovers `/v1/models` when you opt in.",
+      "Any value works for `SGLANG_API_KEY` if your server does not enforce auth."
+    ],
+    supportsNoAuth: true,
     authMethods: [
       {
-        id: "qwen-portal",
-        label: "Qwen Portal",
-        kind: "oauth",
-        description: "Run the Qwen portal login flow.",
+        id: "sglang",
+        label: "SGLang Runtime",
+        kind: "local",
+        description: "Connect to a local or remote SGLang server.",
         interactive: true,
         fields: [],
-        loginProviderId: "qwen-portal"
+        loginProviderId: "sglang"
       }
     ]
   },
@@ -590,6 +794,10 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Synthetic-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/synthetic`,
     providerRefs: ["synthetic/"],
+    providerType: "built-in",
+    exampleModels: ["synthetic/hf:MiniMaxAI/MiniMax-M2.5", "synthetic/hf:deepseek-ai/DeepSeek-V3"],
+    authEnvVars: ["SYNTHETIC_API_KEY"],
+    setupNotes: ["Synthetic uses the Anthropic client path, so the base URL should stay `https://api.synthetic.new/anthropic` without `/v1`."],
     authMethods: [
       {
         id: "synthetic-api-key",
@@ -609,6 +817,9 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Together AI hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/together`,
     providerRefs: ["together/"],
+    providerType: "built-in",
+    exampleModels: ["together/moonshotai/Kimi-K2.5"],
+    authEnvVars: ["TOGETHER_API_KEY"],
     authMethods: [
       {
         id: "together-api-key",
@@ -628,6 +839,13 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Vercel AI Gateway model access.",
     docsUrl: `${PROVIDER_DOCS_BASE}/vercel-ai-gateway`,
     providerRefs: ["vercel-ai-gateway/"],
+    providerType: "gateway",
+    exampleModels: ["vercel-ai-gateway/anthropic/claude-opus-4.6", "vercel-ai-gateway/openai/gpt-5.4"],
+    authEnvVars: ["AI_GATEWAY_API_KEY"],
+    setupNotes: [
+      "OpenClaw can auto-discover `/v1/models` from the gateway.",
+      "Shorthand refs like `vercel-ai-gateway/claude-opus-4.6` normalize to Anthropic routes."
+    ],
     authMethods: [
       {
         id: "ai-gateway-api-key",
@@ -647,6 +865,13 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Venice AI-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/venice`,
     providerRefs: ["venice/"],
+    providerType: "gateway",
+    exampleModels: ["venice/llama-3.3-70b", "venice/claude-opus-45"],
+    authEnvVars: ["VENICE_API_KEY"],
+    setupNotes: [
+      "Private Venice models stay on Venice infrastructure.",
+      "Anonymized Venice models proxy requests to upstream providers like Anthropic or OpenAI."
+    ],
     authMethods: [
       {
         id: "venice-api-key",
@@ -666,6 +891,14 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Local or remote vLLM runtime.",
     docsUrl: `${PROVIDER_DOCS_BASE}/vllm`,
     providerRefs: ["vllm/"],
+    providerType: "local",
+    exampleModels: ["vllm/your-model-id"],
+    authEnvVars: ["VLLM_API_KEY"],
+    setupNotes: [
+      "Defaults to `http://127.0.0.1:8000/v1` and auto-discovers `/v1/models` when you opt in.",
+      "Any value works for `VLLM_API_KEY` if your server does not enforce auth."
+    ],
+    supportsNoAuth: true,
     authMethods: [
       {
         id: "vllm",
@@ -682,8 +915,16 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "xai",
     label: "xAI",
     description: "Grok and xAI model catalog.",
-    docsUrl: "https://docs.openclaw.ai/providers",
+    docsUrl: `${PROVIDER_DOCS_BASE}/xai`,
     providerRefs: ["xai/"],
+    providerType: "built-in",
+    exampleModels: ["xai/grok-4", "xai/grok-code-fast-1"],
+    authEnvVars: ["XAI_API_KEY"],
+    setupNotes: ["The same xAI key can also power Grok web-search and code-execution tooling in OpenClaw."],
+    warnings: [
+      "There is no xAI OAuth or device-login flow in OpenClaw today.",
+      "`grok-4.20-multi-agent-experimental-beta-0304` is not supported on the normal xAI provider path."
+    ],
     authMethods: [
       {
         id: "xai-api-key",
@@ -703,6 +944,9 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     description: "Xiaomi MiMo-hosted models.",
     docsUrl: `${PROVIDER_DOCS_BASE}/xiaomi`,
     providerRefs: ["xiaomi/"],
+    providerType: "built-in",
+    exampleModels: ["xiaomi/mimo-v2-flash", "xiaomi/mimo-v2-pro", "xiaomi/mimo-v2-omni"],
+    authEnvVars: ["XIAOMI_API_KEY"],
     authMethods: [
       {
         id: "xiaomi-api-key",
@@ -720,8 +964,15 @@ const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
     id: "zai",
     label: "Z.AI (GLM)",
     description: "Z.AI and GLM model catalog.",
-    docsUrl: MODEL_PROVIDER_CONCEPTS_URL,
+    docsUrl: `${PROVIDER_DOCS_BASE}/zai`,
     providerRefs: ["zai/"],
+    providerType: "built-in",
+    exampleModels: ["zai/glm-5", "zai/glm-4.7"],
+    authEnvVars: ["ZAI_API_KEY"],
+    setupNotes: [
+      "Coding Plan Global/CN and General API Global/CN are separate onboarding choices.",
+      "`tool_stream` is enabled by default for Z.AI tool-call streaming."
+    ],
     authMethods: [
       {
         id: "zai-api-key",

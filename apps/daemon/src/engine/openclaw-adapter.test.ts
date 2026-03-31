@@ -907,6 +907,9 @@ test("OpenClaw model config uses the full provider catalog and one status read p
   await withFakeOpenClaw(async ({ adapter, logPath }) => {
     const config = await adapter.config.getModelConfig();
     const commands = await readCommands(logPath);
+    const openai = config.providers.find((provider) => provider.id === "openai");
+    const cloudflare = config.providers.find((provider) => provider.id === "cloudflare-ai-gateway");
+    const ollama = config.providers.find((provider) => provider.id === "ollama");
 
     assert.equal(countCommands(commands, "models list --json"), 1);
     assert.equal(countCommands(commands, "models status --json"), 1);
@@ -916,6 +919,12 @@ test("OpenClaw model config uses the full provider catalog and one status read p
       "anthropic/claude-sonnet-4-6",
       "google/gemini-2.5-pro"
     ]);
+    assert.equal(openai?.providerType, "built-in");
+    assert.equal(openai?.authEnvVars?.includes("OPENAI_API_KEY"), true);
+    assert.equal(openai?.exampleModels?.some((model) => model.startsWith("openai/")), true);
+    assert.equal(cloudflare?.providerType, "gateway");
+    assert.equal(ollama?.providerType, "local");
+    assert.equal(ollama?.supportsNoAuth, true);
   });
 });
 
