@@ -147,7 +147,7 @@ export function modelOptions(modelConfig: ModelConfigOverview | undefined, provi
     return providerModels;
   }
 
-  return provider.sampleModels.map((modelKey) => ({
+  return providerDisplayModels(provider).map((modelKey) => ({
     key: modelKey,
     name: modelKey.split("/").pop() ?? modelKey,
     input: "text",
@@ -164,7 +164,152 @@ function modelKeyPlaceholder(provider: ModelProviderConfig | undefined) {
     return "provider/model-name";
   }
 
-  return provider.sampleModels[0] ?? `${provider.providerRefs[0]?.replace(/\/?$/, "/") ?? ""}model-name`;
+  return providerDisplayModels(provider)[0] ?? `${provider.providerRefs[0]?.replace(/\/?$/, "/") ?? ""}model-name`;
+}
+
+export type ProviderGuidanceGroup = {
+  id: string;
+  label: string;
+  items: string[];
+  tone: "neutral" | "warning";
+  format: "code" | "text";
+};
+
+export function providerTypeLabel(providerType: ModelProviderConfig["providerType"] | undefined) {
+  if (providerType === "built-in") {
+    return "Built-in provider";
+  }
+
+  if (providerType === "gateway") {
+    return "Gateway / router";
+  }
+
+  if (providerType === "local") {
+    return "Local runtime";
+  }
+
+  if (providerType === "custom") {
+    return "Custom endpoint";
+  }
+
+  if (providerType === "community") {
+    return "Community integration";
+  }
+
+  return undefined;
+}
+
+export function providerDisplayModels(provider: ModelProviderConfig | undefined) {
+  if (!provider) {
+    return [];
+  }
+
+  if (provider.exampleModels?.length) {
+    return provider.exampleModels;
+  }
+
+  return provider.sampleModels;
+}
+
+export function providerGuidanceGroups(provider: ModelProviderConfig | undefined): ProviderGuidanceGroup[] {
+  if (!provider) {
+    return [];
+  }
+
+  const groups: ProviderGuidanceGroup[] = [];
+  const providerType = providerTypeLabel(provider.providerType);
+  const exampleModels = providerDisplayModels(provider);
+  const setupItems = [...(provider.setupNotes ?? [])];
+
+  if (provider.supportsNoAuth) {
+    setupItems.unshift("No provider credentials required for local mode.");
+  }
+
+  if (providerType) {
+    groups.push({
+      id: "type",
+      label: "Provider type",
+      items: [providerType],
+      tone: "neutral",
+      format: "text"
+    });
+  }
+
+  if (exampleModels.length) {
+    groups.push({
+      id: "models",
+      label: provider.exampleModels?.length ? "Example models" : "Runtime examples",
+      items: exampleModels,
+      tone: "neutral",
+      format: "code"
+    });
+  }
+
+  if (provider.authEnvVars?.length) {
+    groups.push({
+      id: "env",
+      label: "Auth env",
+      items: provider.authEnvVars,
+      tone: "neutral",
+      format: "code"
+    });
+  }
+
+  if (setupItems.length) {
+    groups.push({
+      id: "setup",
+      label: "Setup notes",
+      items: setupItems,
+      tone: "neutral",
+      format: "text"
+    });
+  }
+
+  if (provider.warnings?.length) {
+    groups.push({
+      id: "warnings",
+      label: "Warnings",
+      items: provider.warnings,
+      tone: "warning",
+      format: "text"
+    });
+  }
+
+  return groups;
+}
+
+export function ProviderGuidance(props: { provider: ModelProviderConfig }) {
+  const groups = providerGuidanceGroups(props.provider);
+
+  if (!groups.length) {
+    return null;
+  }
+
+  return (
+    <div className="config-page__provider-guidance">
+      {groups.map((group) => (
+        <div
+          className={`config-page__provider-group${group.tone === "warning" ? " config-page__provider-group--warning" : ""}`}
+          key={group.id}
+        >
+          <span className="config-page__provider-group-label">{group.label}</span>
+          <div className="config-page__provider-group-values">
+            {group.items.map((item) =>
+              group.format === "code" ? (
+                <code className="config-page__provider-pill" key={item}>
+                  {item}
+                </code>
+              ) : (
+                <span className="config-page__provider-note" key={item}>
+                  {item}
+                </span>
+              )
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function providerConfiguredModels(modelConfig: ModelConfigOverview | undefined, provider: ModelProviderConfig | undefined) {
@@ -590,7 +735,7 @@ function ModelDialog(props: {
         return current;
       }
 
-      return props.initialEntry?.modelKey ?? providerActiveModel(props.modelConfig, provider) ?? provider.sampleModels[0] ?? models[0]?.key ?? "";
+      return props.initialEntry?.modelKey ?? providerActiveModel(props.modelConfig, provider) ?? providerDisplayModels(provider)[0] ?? models[0]?.key ?? "";
     });
   }, [models, props.initialEntry?.modelKey, props.modelConfig, props.open, provider]);
 
@@ -688,6 +833,8 @@ function ModelDialog(props: {
                 ) : null}
               </div>
             </InfoBanner>
+
+            <ProviderGuidance provider={provider} />
 
           <div className="field-grid field-grid--two">
             <div>
