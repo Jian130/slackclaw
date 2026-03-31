@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AIMemberDetail, ChatThreadDetail, ChatThreadSummary, SlackClawEvent } from "@slackclaw/contracts";
+import type { AIMemberDetail, ChatThreadDetail, ChatThreadSummary, ChillClawEvent } from "@chillclaw/contracts";
 
 import {
   applyChatEventToDetail,
@@ -16,7 +16,7 @@ const members: AIMemberDetail[] = [
   {
     id: "member-1",
     agentId: "agent-1",
-    source: "slackclaw",
+    source: "chillclaw",
     hasManagedMetadata: true,
     name: "Alex Morgan",
     jobTitle: "Research Lead",
@@ -48,7 +48,7 @@ const summary = (id: string, updatedAt: string): ChatThreadSummary => ({
   id,
   memberId: "member-1",
   agentId: "agent-1",
-  sessionKey: `agent:agent-1:slackclaw-chat:${id}`,
+  sessionKey: `agent:agent-1:chillclaw-chat:${id}`,
   title: `Thread ${id}`,
   createdAt: "2026-03-14T00:00:00.000Z",
   updatedAt,
@@ -134,7 +134,7 @@ describe("ChatPage helpers", () => {
     const withToolProgress = applyChatEventToDetail(streaming, {
       type: "assistant-tool-status",
       threadId: "thread-1",
-      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
       activityLabel: "Gathering sources…",
       toolActivity: {
         id: "tool-1",
@@ -209,10 +209,10 @@ describe("ChatPage helpers", () => {
   });
 
   it("extracts chat stream payloads from daemon events", () => {
-    const chatEvent: SlackClawEvent = {
+    const chatEvent: ChillClawEvent = {
       type: "chat.stream",
       threadId: "thread-1",
-      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
       payload: {
         type: "assistant-delta",
         threadId: "thread-1",
@@ -292,7 +292,7 @@ describe("ChatPage helpers", () => {
     const currentDetail = applyChatEventToDetail(detail(), {
       type: "assistant-tool-status",
       threadId: "thread-1",
-      sessionKey: "agent:agent-1:slackclaw-chat:thread-1",
+      sessionKey: "agent:agent-1:chillclaw-chat:thread-1",
       activityLabel: "Gathering sources…",
       toolActivity: {
         id: "tool-1",

@@ -17,8 +17,8 @@ import type {
   ChatToolActivity,
   ChatThreadDetail,
   ChatThreadSummary,
-  SlackClawEvent
-} from "@slackclaw/contracts";
+  ChillClawEvent
+} from "@chillclaw/contracts";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
@@ -90,7 +90,7 @@ export function sortChatThreads(threads: ChatThreadSummary[]): ChatThreadSummary
   return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export function chatStreamEventFromDaemonEvent(event: SlackClawEvent): ChatStreamEvent | undefined {
+export function chatStreamEventFromDaemonEvent(event: ChillClawEvent): ChatStreamEvent | undefined {
   if (event.type !== "chat.stream") {
     return undefined;
   }

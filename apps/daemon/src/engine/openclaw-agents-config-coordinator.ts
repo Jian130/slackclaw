@@ -6,7 +6,7 @@ import type {
   DeleteAIMemberRequest,
   MemberBindingSummary,
   ModelCatalogEntry
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   canUseTokenPasteAuth,
@@ -408,7 +408,7 @@ export class AgentsConfigCoordinator {
 
     const agents = await this.access.listOpenClawAgents();
     if (!agents.some((agent) => agent.id === agentId)) {
-      throw new Error(`SlackClaw could not verify the AI member agent ${agentId}.`);
+      throw new Error(`ChillClaw could not verify the AI member agent ${agentId}.`);
     }
 
     if (!(await this.access.getPrimaryAIMemberAgentId())) {
@@ -456,7 +456,7 @@ export class AgentsConfigCoordinator {
       allowFailure: true
     });
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `SlackClaw could not unbind ${request.binding} from ${agentId}.`);
+      throw new Error(result.stderr || result.stdout || `ChillClaw could not unbind ${request.binding} from ${agentId}.`);
     }
 
     this.access.invalidateMemberBindingCaches([agentId]);
@@ -487,7 +487,7 @@ export class AgentsConfigCoordinator {
     const result = await this.access.runOpenClaw(["agents", "delete", agentId, "--force", "--json"], { allowFailure: true });
 
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `SlackClaw could not delete the AI member agent ${agentId}.`);
+      throw new Error(result.stderr || result.stdout || `ChillClaw could not delete the AI member agent ${agentId}.`);
     }
 
     if (request.deleteMode === "full" && existing.workspace) {
@@ -513,7 +513,7 @@ export class AgentsConfigCoordinator {
 
     const remaining = await this.access.listOpenClawAgents();
     if (remaining.some((agent) => agent.id === agentId)) {
-      throw new Error(`SlackClaw could not verify deletion of AI member agent ${agentId}.`);
+      throw new Error(`ChillClaw could not verify deletion of AI member agent ${agentId}.`);
     }
 
     return {
@@ -545,7 +545,7 @@ export class AgentsConfigCoordinator {
     }
 
     const authProvider = resolveTokenAuthProvider(provider, method);
-    const profileId = method.tokenProfileId ?? `${authProvider}:slackclaw-${agentId}`;
+    const profileId = method.tokenProfileId ?? `${authProvider}:chillclaw-${agentId}`;
     const result = await this.access.runOpenClaw(
       this.access.buildModelsCommandArgs(
         [
@@ -568,7 +568,7 @@ export class AgentsConfigCoordinator {
       throw new Error(
         result.stderr ||
           result.stdout ||
-          `SlackClaw could not restore saved ${provider.label} credentials for ${agentId}.`
+          `ChillClaw could not restore saved ${provider.label} credentials for ${agentId}.`
       );
     }
 
@@ -677,7 +677,7 @@ export class AgentsConfigCoordinator {
     if (!sourceStore?.profiles || Object.keys(sourceStore.profiles).length === 0 || profileIdsToCopy.length === 0) {
       if (sourceEntry.authMethodId) {
         throw new Error(
-          `SlackClaw could not find saved ${sourceEntry.providerId} credentials for ${request.name}. Re-save that model in Configuration first.`
+          `ChillClaw could not find saved ${sourceEntry.providerId} credentials for ${request.name}. Re-save that model in Configuration first.`
         );
       }
 
@@ -776,7 +776,7 @@ export class AgentsConfigCoordinator {
         { allowFailure: true }
       );
       if (result.code !== 0) {
-        throw new Error(result.stderr || result.stdout || `SlackClaw could not unbind ${binding} from ${ownerAgentId}.`);
+        throw new Error(result.stderr || result.stdout || `ChillClaw could not unbind ${binding} from ${ownerAgentId}.`);
       }
     }
 
@@ -785,19 +785,19 @@ export class AgentsConfigCoordinator {
       { allowFailure: true }
     );
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `SlackClaw could not bind ${binding} to ${agentId}.`);
+      throw new Error(result.stderr || result.stdout || `ChillClaw could not bind ${binding} to ${agentId}.`);
     }
 
     this.access.invalidateMemberBindingCaches([...ownerAgentIds, agentId]);
     const bindings = await this.readMemberBindings(agentId);
 
     if (!bindings.some((entry) => entry.target === binding)) {
-      throw new Error(`SlackClaw could not verify that ${binding} is owned by ${agentId}.`);
+      throw new Error(`ChillClaw could not verify that ${binding} is owned by ${agentId}.`);
     }
 
     const lingeringOwners = await this.readBindingOwnerAgentIds(binding, agentId);
     if (lingeringOwners.length > 0) {
-      throw new Error(`SlackClaw could not clear ${binding} from ${lingeringOwners.join(", ")}.`);
+      throw new Error(`ChillClaw could not clear ${binding} from ${lingeringOwners.join(", ")}.`);
     }
 
     await this.access.markGatewayApplyPending();

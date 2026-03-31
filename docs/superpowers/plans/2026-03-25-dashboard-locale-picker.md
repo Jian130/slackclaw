@@ -13,8 +13,8 @@
 ### Task 1: Share locale picker selection logic
 
 **Files:**
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/OnboardingTests.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingSupport.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/OnboardingTests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingSupport.swift`
 
 - [ ] **Step 1: Write the failing test for shared locale-option resolution**
 - [ ] **Step 2: Run `swift test --package-path apps/macos-native --filter OnboardingTests/nativeLocalePickerResolvesSelectedOptionAndFallback` to verify it fails**
@@ -24,9 +24,9 @@
 ### Task 2: Extract the reusable picker and add it to the dashboard
 
 **Files:**
-- Create: `apps/macos-native/Sources/SlackClawNative/LocalePicker.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingView.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
+- Create: `apps/macos-native/Sources/ChillClawNative/LocalePicker.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
 
 - [ ] **Step 1: Move the onboarding locale picker into a reusable shared view**
 - [ ] **Step 2: Replace onboarding with the shared picker**

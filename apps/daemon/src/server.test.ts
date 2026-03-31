@@ -198,8 +198,8 @@ test("server keeps channel session transport instead of adding a workflow-sessio
 });
 
 test("server matches mutable skill routes from pathname instead of raw request.url", async () => {
-  const previousEngine = process.env.SLACKCLAW_ENGINE;
-  process.env.SLACKCLAW_ENGINE = "mock";
+  const previousEngine = process.env.CHILLCLAW_ENGINE;
+  process.env.CHILLCLAW_ENGINE = "mock";
 
   const server = startServer(0);
   await once(server, "listening");
@@ -219,16 +219,16 @@ test("server matches mutable skill routes from pathname instead of raw request.u
   } finally {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     if (previousEngine === undefined) {
-      delete process.env.SLACKCLAW_ENGINE;
+      delete process.env.CHILLCLAW_ENGINE;
     } else {
-      process.env.SLACKCLAW_ENGINE = previousEngine;
+      process.env.CHILLCLAW_ENGINE = previousEngine;
     }
   }
 });
 
 test("AI team overview route returns a daemon snapshot instead of an unsupported placeholder", async () => {
-  const previousEngine = process.env.SLACKCLAW_ENGINE;
-  process.env.SLACKCLAW_ENGINE = "mock";
+  const previousEngine = process.env.CHILLCLAW_ENGINE;
+  process.env.CHILLCLAW_ENGINE = "mock";
 
   const server = startServer(0);
   await once(server, "listening");
@@ -245,9 +245,9 @@ test("AI team overview route returns a daemon snapshot instead of an unsupported
   } finally {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     if (previousEngine === undefined) {
-      delete process.env.SLACKCLAW_ENGINE;
+      delete process.env.CHILLCLAW_ENGINE;
     } else {
-      process.env.SLACKCLAW_ENGINE = previousEngine;
+      process.env.CHILLCLAW_ENGINE = previousEngine;
     }
   }
 });

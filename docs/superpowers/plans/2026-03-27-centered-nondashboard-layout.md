@@ -21,7 +21,7 @@
 - [ ] **Step 1: Write a failing test that renders `WorkspaceScaffold` with default props and expects the centered width class to be present**
 - [ ] **Step 2: Write a failing test that renders `WorkspaceScaffold` with `contentWidth="full"` and expects the full-width class to be present instead**
 - [ ] **Step 3: Write a failing test that renders `SplitContentScaffold` with default props and expects the full-width class to remain the default**
-- [ ] **Step 4: Run `npm test --workspace @slackclaw/desktop-ui -- StatusBadge.test.tsx` and verify the new assertions fail for missing scaffold width behavior**
+- [ ] **Step 4: Run `npm test --workspace @chillclaw/desktop-ui -- StatusBadge.test.tsx` and verify the new assertions fail for missing scaffold width behavior**
 
 ### Task 2: Implement the web scaffold width mode
 
@@ -35,7 +35,7 @@
 - [ ] **Step 3: Introduce a semantic web token for centered page max width in `tokens.css`**
 - [ ] **Step 4: Add shared scaffold width classes in `layout.css` so centered mode uses full width plus max width and auto inline margins**
 - [ ] **Step 5: Keep scaffold children left-aligned inside the centered container**
-- [ ] **Step 6: Re-run `npm test --workspace @slackclaw/desktop-ui -- StatusBadge.test.tsx` and verify the scaffold width tests pass**
+- [ ] **Step 6: Re-run `npm test --workspace @chillclaw/desktop-ui -- StatusBadge.test.tsx` and verify the scaffold width tests pass**
 
 ---
 
@@ -52,7 +52,7 @@
 - [ ] **Step 2: Update `DashboardPage` so its `WorkspaceScaffold` explicitly uses `contentWidth="full"`**
 - [ ] **Step 3: Update `GuidedFlowScaffold` usage in onboarding only if needed so the outer shell is centered by scaffold while the existing onboarding shell still controls panel width**
 - [ ] **Step 4: Adjust page CSS only where necessary to avoid double-centering or width conflicts with `.onboarding-shell`**
-- [ ] **Step 5: Run `npm test --workspace @slackclaw/desktop-ui -- DashboardPage.test.ts` if a dashboard assertion was added, otherwise run the smallest affected desktop-ui test file**
+- [ ] **Step 5: Run `npm test --workspace @chillclaw/desktop-ui -- DashboardPage.test.ts` if a dashboard assertion was added, otherwise run the smallest affected desktop-ui test file**
 
 ### Task 4: Verify the web app layout contract end to end
 
@@ -62,8 +62,8 @@
 - Modify: `apps/desktop-ui/src/features/dashboard/DashboardPage.tsx`
 - Modify: `apps/desktop-ui/src/features/onboarding/OnboardingPage.tsx`
 
-- [ ] **Step 1: Run `npm test --workspace @slackclaw/desktop-ui`**
-- [ ] **Step 2: Run `npm run build --workspace @slackclaw/desktop-ui`**
+- [ ] **Step 1: Run `npm test --workspace @chillclaw/desktop-ui`**
+- [ ] **Step 2: Run `npm run build --workspace @chillclaw/desktop-ui`**
 - [ ] **Step 3: Manually verify in the local UI that deploy, config, skills, members, team, settings, and onboarding are visually centered while dashboard stays wide**
 
 ---
@@ -73,8 +73,8 @@
 ### Task 5: Add failing native contract tests for centered vs full page widths
 
 **Files:**
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/UIContractTests.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/UI/NativeUIContract.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/UIContractTests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/UI/NativeUIContract.swift`
 
 - [ ] **Step 1: Write a failing native contract test for the shared centered page max-width constant**
 - [ ] **Step 2: Write a failing native contract test for the scaffold width-mode defaults if the mode is exposed as a helper or enum**
@@ -83,8 +83,8 @@
 ### Task 6: Implement the native scaffold width mode
 
 **Files:**
-- Modify: `apps/macos-native/Sources/SlackClawNative/UI/NativeUIContract.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/UI/NativeUIScaffolds.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/UI/NativeUIContract.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/UI/NativeUIScaffolds.swift`
 
 - [ ] **Step 1: Add a semantic native centered page max-width constant to `NativeUI`**
 - [ ] **Step 2: Add a small native layout mode enum or equivalent max-width parameter for scaffolds**
@@ -100,8 +100,8 @@
 ### Task 7: Make native dashboard explicitly full width
 
 **Files:**
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
-- Modify: `apps/macos-native/Tests/SlackClawNativeTests/DashboardSupportTests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
+- Modify: `apps/macos-native/Tests/ChillClawNativeTests/DashboardSupportTests.swift`
 
 - [ ] **Step 1: Add a failing dashboard-focused native assertion if a helper or explicit width mode can be tested cleanly**
 - [ ] **Step 2: Update both native dashboard `WorkspaceScaffold` call sites to use the full-width mode explicitly**
@@ -110,9 +110,9 @@
 ### Task 8: Verify the native client and repository-level layout change
 
 **Files:**
-- Modify: `apps/macos-native/Sources/SlackClawNative/UI/NativeUIScaffolds.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/Screens.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/UI/NativeUIContract.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/UI/NativeUIScaffolds.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/Screens.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/UI/NativeUIContract.swift`
 
 - [ ] **Step 1: Run `swift test --package-path apps/macos-native`**
 - [ ] **Step 2: Run `npm run build:mac-native`**

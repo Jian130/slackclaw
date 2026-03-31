@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import type { ModelCatalogEntry } from "@slackclaw/contracts";
+import type { ModelCatalogEntry } from "@chillclaw/contracts";
 
 import {
   OpenClawAdapter,
@@ -22,7 +22,7 @@ import { InMemorySecretsAdapter, modelAuthSecretName } from "../platform/secrets
 test("reconcileSavedEntriesWithRuntime aligns saved entries with the live OpenClaw runtime chain", () => {
   const entries = [
     {
-      id: "slackclaw-main",
+      id: "chillclaw-main",
       label: "OpenAI GPT-5.4",
       providerId: "openai",
       modelKey: "openai-codex/gpt-5.4",
@@ -163,7 +163,7 @@ test("reconcileSavedEntriesWithRuntime aligns saved entries with the live OpenCl
 test("reconcileSavedEntriesWithRuntime converts implicit main entries into runtime-derived defaults", () => {
   const entries = [
     {
-      id: "slackclaw-main",
+      id: "chillclaw-main",
       label: "OpenAI GPT-5",
       providerId: "openai",
       modelKey: "openai/gpt-5",
@@ -294,7 +294,7 @@ test("resolveCatalogModelKey upgrades the stale MiniMax onboarding default to th
 
 test("AI member detection includes every real OpenClaw agent id", () => {
   assert.equal(isVisibleAIMemberAgentId("main"), false);
-  assert.equal(isVisibleAIMemberAgentId("slackclaw-model-openai"), false);
+  assert.equal(isVisibleAIMemberAgentId("chillclaw-model-openai"), false);
   assert.equal(isVisibleAIMemberAgentId("sales-partner"), true);
   assert.equal(isVisibleAIMemberAgentId(""), false);
 });
@@ -371,7 +371,7 @@ test("buildGatewaySocketConnectParams matches the current OpenClaw connect schem
     maxProtocol: 3,
     client: {
       id: "gateway-client",
-      displayName: "SlackClaw daemon",
+      displayName: "ChillClaw daemon",
       version: "0.1.2",
       platform: "darwin",
       mode: "backend"
@@ -417,7 +417,7 @@ test("summarizeTargetUpdateStatus prefers registry latest version when update lo
         latestVersion: null
       }
     },
-    "SlackClaw could not check for updates."
+    "ChillClaw could not check for updates."
   );
 
   assert.equal(status.updateAvailable, false);
@@ -479,7 +479,7 @@ async function withFakeOpenClaw(
   const dataDir = join(tempDir, "data");
   const binaryPath = join(dataDir, "openclaw-runtime", "node_modules", ".bin", "openclaw");
   const originalPath = process.env.PATH;
-  const originalDataDir = process.env.SLACKCLAW_DATA_DIR;
+  const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
   const originalLogPath = process.env.OPENCLAW_TEST_LOG;
   const originalVersionPath = process.env.OPENCLAW_TEST_VERSION_FILE;
   const originalUpdateMarkerPath = process.env.OPENCLAW_TEST_UPDATE_MARKER;
@@ -510,7 +510,7 @@ async function withFakeOpenClaw(
   const minimaxCatalog = options?.minimaxCatalog === true;
   const chatHistoryPayload =
     options?.chatHistoryPayload ??
-    '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
+    '{"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
 
   await writeFile(configPath, JSON.stringify({}));
   await writeFile(versionPath, "2026.3.7\n");
@@ -673,12 +673,12 @@ elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
 elif [ "$1" = "models" ] && [ "$2" = "--agent" ] && [ "$4" = "auth" ] && [ "$5" = "paste-token" ]; then
   mkdir -p /tmp/agent
   cat > /tmp/agent/auth-profiles.json <<'EOF'
-{"version":1,"profiles":{"minimax:slackclaw-existing-agent":{"provider":"minimax","type":"api_key","label":"MiniMax API"}},"usageStats":{},"order":{"minimax":["minimax:slackclaw-existing-agent"]},"lastGood":{"minimax":"minimax:slackclaw-existing-agent"}}
+{"version":1,"profiles":{"minimax:chillclaw-existing-agent":{"provider":"minimax","type":"api_key","label":"MiniMax API"}},"usageStats":{},"order":{"minimax":["minimax:chillclaw-existing-agent"]},"lastGood":{"minimax":"minimax:chillclaw-existing-agent"}}
 EOF
   echo '{"ok":true}'
 elif [ "$1" = "models" ] && [ "$2" = "auth" ] && [ "$3" = "login" ] && [ "$4" = "--provider" ] && [ "$5" = "openai-codex" ]; then
   cat > ${JSON.stringify(join(agentDirPath, "auth-profiles.json"))} <<'EOF'
-{"version":1,"profiles":{"openai-codex:slackclaw":{"provider":"openai-codex","type":"oauth","label":"OpenAI Codex OAuth"}},"usageStats":{},"order":{"openai-codex":["openai-codex:slackclaw"]},"lastGood":{"openai-codex":"openai-codex:slackclaw"}}
+{"version":1,"profiles":{"openai-codex:chillclaw":{"provider":"openai-codex","type":"oauth","label":"OpenAI Codex OAuth"}},"usageStats":{},"order":{"openai-codex":["openai-codex:chillclaw"]},"lastGood":{"openai-codex":"openai-codex:chillclaw"}}
 EOF
   echo 'Open this URL to continue sign-in: https://auth.openai.example/authorize'
   sleep 0.1
@@ -776,11 +776,11 @@ elif [ "$1" = "skills" ] && [ "$2" = "check" ]; then
 elif [ "$1" = "agents" ] && [ "$2" = "list" ] && [ "$3" = "--json" ] && [ "$4" = "--bindings" ]; then
   if [ "${agentsListJsonOnStderr ? "1" : "0"}" = "1" ]; then
     >&2 echo '[plugins] feishu_doc: Registered feishu_doc, feishu_app_scopes'
-    >&2 echo '[{"id":"main","identityName":"Maggie","bindings":0},{"id":"slackclaw-model-openai","identityName":"OpenAI Helper","bindings":0},{"id":"stderr-agent","identityName":"Stderr Agent","identityEmoji":"🦊","workspace":"/tmp/stderr-workspace","agentDir":"/tmp/stderr-agent","model":"openai/gpt-5","bindings":1}]'
+    >&2 echo '[{"id":"main","identityName":"Maggie","bindings":0},{"id":"chillclaw-model-openai","identityName":"OpenAI Helper","bindings":0},{"id":"stderr-agent","identityName":"Stderr Agent","identityEmoji":"🦊","workspace":"/tmp/stderr-workspace","agentDir":"/tmp/stderr-agent","model":"openai/gpt-5","bindings":1}]'
     >&2 echo '[plugins] feishu_chat: Registered feishu_chat tool'
   else
     echo '[plugins] feishu_doc: Registered feishu_doc, feishu_app_scopes'
-    echo '[{"id":"main","identityName":"Maggie","bindings":0},{"id":"slackclaw-model-openai","identityName":"OpenAI Helper","bindings":0},{"id":"existing-agent","identityName":"Existing Agent","identityEmoji":"🧭","workspace":"/tmp/workspace","agentDir":"/tmp/agent","model":"openai/gpt-5","bindings":2}]'
+    echo '[{"id":"main","identityName":"Maggie","bindings":0},{"id":"chillclaw-model-openai","identityName":"OpenAI Helper","bindings":0},{"id":"existing-agent","identityName":"Existing Agent","identityEmoji":"🧭","workspace":"/tmp/workspace","agentDir":"/tmp/agent","model":"openai/gpt-5","bindings":2}]'
     echo '[plugins] feishu_chat: Registered feishu_chat tool'
   fi
 elif [ "$1" = "agents" ] && [ "$2" = "bind" ] && [ "$3" = "--agent" ] && [ "$5" = "--bind" ]; then
@@ -833,7 +833,7 @@ fi
   await chmod(binaryPath, 0o755);
 
   process.env.PATH = originalPath ? `${binDir}:${originalPath}` : binDir;
-  process.env.SLACKCLAW_DATA_DIR = dataDir;
+  process.env.CHILLCLAW_DATA_DIR = dataDir;
   process.env.OPENCLAW_TEST_LOG = logPath;
   process.env.OPENCLAW_TEST_VERSION_FILE = versionPath;
   process.env.OPENCLAW_TEST_UPDATE_MARKER = updateMarkerPath;
@@ -855,9 +855,9 @@ fi
       process.env.PATH = originalPath;
     }
     if (originalDataDir === undefined) {
-      delete process.env.SLACKCLAW_DATA_DIR;
+      delete process.env.CHILLCLAW_DATA_DIR;
     } else {
-      process.env.SLACKCLAW_DATA_DIR = originalDataDir;
+      process.env.CHILLCLAW_DATA_DIR = originalDataDir;
     }
     if (originalLogPath === undefined) {
       delete process.env.OPENCLAW_TEST_LOG;
@@ -1028,7 +1028,7 @@ test("creating a normal OAuth saved model entry authenticates through models aut
     assert.match(session.session.message, /apply.*gateway|saved/i);
     assert.ok(session.modelConfig.savedEntries.some((entry) => entry.label === "OpenAI Codex"));
     assert.equal(
-      commands.some((command) => command.startsWith("agents add slackclaw-model-") || command.startsWith("agents set-identity --agent slackclaw-model-")),
+      commands.some((command) => command.startsWith("agents add chillclaw-model-") || command.startsWith("agents set-identity --agent chillclaw-model-")),
       false
     );
     assert.equal(countCommands(commands, "models auth login --provider openai-codex"), 1);
@@ -1041,7 +1041,7 @@ test("creating a normal OAuth saved model entry authenticates through models aut
 
 test("updating a token-auth runtime model without reusable credentials requires entering the token again", async () => {
   await withFakeOpenClaw(async ({ adapter }) => {
-    const statePath = resolve(process.env.SLACKCLAW_DATA_DIR ?? "", "openclaw-state.json");
+    const statePath = resolve(process.env.CHILLCLAW_DATA_DIR ?? "", "openclaw-state.json");
     await writeFile(
       statePath,
       JSON.stringify(
@@ -1365,7 +1365,7 @@ test("configureFeishu falls back to direct config writes when config set drifts"
         appId: "cli-app-id",
         appSecret: "cli-app-secret",
         domain: "feishu",
-        botName: "SlackClaw Feishu"
+        botName: "ChillClaw Feishu"
       }
     });
     const commands = await readCommands(logPath);
@@ -1716,7 +1716,7 @@ test("saveAIMemberRuntime upgrades stale MiniMax entries, avoids inherited fallb
     const secrets = new InMemorySecretsAdapter();
     await secrets.set(modelAuthSecretName("minimax", "minimax-api", "apiKey"), "sk-minimax");
     const adapter = new OpenClawAdapter(secrets);
-    const statePath = resolve(process.env.SLACKCLAW_DATA_DIR ?? "", "openclaw-state.json");
+    const statePath = resolve(process.env.CHILLCLAW_DATA_DIR ?? "", "openclaw-state.json");
     await writeFile(
       statePath,
       JSON.stringify(
@@ -1792,7 +1792,7 @@ test("saveAIMemberRuntime upgrades stale MiniMax entries, avoids inherited fallb
       primary: "minimax/MiniMax-M2.7",
       fallbacks: []
     });
-    assert.deepEqual(Object.keys(authStore.profiles ?? {}), ["minimax:slackclaw-existing-agent"]);
+    assert.deepEqual(Object.keys(authStore.profiles ?? {}), ["minimax:chillclaw-existing-agent"]);
   }, {
     minimaxCatalog: true
   });
@@ -1950,7 +1950,7 @@ test("install refreshes managed-local command resolution after npm creates the r
   const binDir = join(tempDir, "bin");
   const npmPath = join(binDir, "npm");
   const originalPath = process.env.PATH;
-  const originalDataDir = process.env.SLACKCLAW_DATA_DIR;
+  const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
 
   await mkdir(dataDir, { recursive: true });
   await mkdir(binDir, { recursive: true });
@@ -1995,7 +1995,7 @@ exit 1
   await chmod(npmPath, 0o755);
 
   process.env.PATH = originalPath ? `${binDir}:${originalPath}` : binDir;
-  process.env.SLACKCLAW_DATA_DIR = dataDir;
+  process.env.CHILLCLAW_DATA_DIR = dataDir;
 
   const adapter = new OpenClawAdapter();
   adapter.invalidateReadCaches();
@@ -2014,16 +2014,16 @@ exit 1
       process.env.PATH = originalPath;
     }
     if (originalDataDir === undefined) {
-      delete process.env.SLACKCLAW_DATA_DIR;
+      delete process.env.CHILLCLAW_DATA_DIR;
     } else {
-      process.env.SLACKCLAW_DATA_DIR = originalDataDir;
+      process.env.CHILLCLAW_DATA_DIR = originalDataDir;
     }
     await rm(tempDir, { recursive: true, force: true });
     releaseLock();
   }
 });
 
-test("install normalizes reused OpenClaw gateway config to SlackClaw's local baseline", async () => {
+test("install normalizes reused OpenClaw gateway config to ChillClaw's local baseline", async () => {
   const previousLock = fakeOpenClawLock;
   let releaseLock = () => {};
   fakeOpenClawLock = new Promise<void>((resolve) => {
@@ -2037,7 +2037,7 @@ test("install normalizes reused OpenClaw gateway config to SlackClaw's local bas
   const managedBinary = join(managedBinDir, "openclaw");
   const fakeHome = join(tempDir, "home");
   const configPath = join(fakeHome, ".openclaw", "openclaw.json");
-  const originalDataDir = process.env.SLACKCLAW_DATA_DIR;
+  const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
   const originalHome = process.env.HOME;
 
   await mkdir(managedBinDir, { recursive: true });
@@ -2086,7 +2086,7 @@ fi
   );
   await chmod(managedBinary, 0o755);
 
-  process.env.SLACKCLAW_DATA_DIR = dataDir;
+  process.env.CHILLCLAW_DATA_DIR = dataDir;
   process.env.HOME = fakeHome;
 
   const adapter = new OpenClawAdapter();
@@ -2114,9 +2114,9 @@ fi
   } finally {
     adapter.invalidateReadCaches();
     if (originalDataDir === undefined) {
-      delete process.env.SLACKCLAW_DATA_DIR;
+      delete process.env.CHILLCLAW_DATA_DIR;
     } else {
-      process.env.SLACKCLAW_DATA_DIR = originalDataDir;
+      process.env.CHILLCLAW_DATA_DIR = originalDataDir;
     }
     if (originalHome === undefined) {
       delete process.env.HOME;
@@ -2263,18 +2263,18 @@ test("sendChatMessage does not block on --expect-final", async () => {
     const result = await adapter.gateway.sendChatMessage({
       threadId: "thread-1",
       agentId: "existing-agent",
-      sessionKey: "agent:existing-agent:slackclaw-chat:thread-1",
+      sessionKey: "agent:existing-agent:chillclaw-chat:thread-1",
       message: "Hello",
       clientMessageId: "client-1"
     });
     const commands = await readCommands(logPath);
 
     assert.equal(result.runId, "run-123");
-    assert.equal(countCommands(commands, 'gateway call chat.send --json --params {"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","message":"Hello","idempotencyKey":"client-1"} --expect-final'), 0);
+    assert.equal(countCommands(commands, 'gateway call chat.send --json --params {"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","message":"Hello","idempotencyKey":"client-1"} --expect-final'), 0);
     assert.equal(
       countCommands(
         commands,
-        'gateway call chat.send --json --params {"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","message":"Hello","idempotencyKey":"client-1"} --timeout 30000'
+        'gateway call chat.send --json --params {"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","message":"Hello","idempotencyKey":"client-1"} --timeout 30000'
       ),
       1
     );
@@ -2286,7 +2286,7 @@ test("chat history maps assistant error messages into failed chat messages", asy
     const detail = await adapter.gateway.getChatThreadDetail({
       threadId: "thread-1",
       agentId: "existing-agent",
-      sessionKey: "agent:existing-agent:slackclaw-chat:thread-1"
+      sessionKey: "agent:existing-agent:chillclaw-chat:thread-1"
     });
 
     assert.equal(detail.messages[0]?.status, "failed");
@@ -2294,7 +2294,7 @@ test("chat history maps assistant error messages into failed chat messages", asy
     assert.match(detail.messages[0]?.error ?? "", /invalid x-api-key/i);
   }, {
     chatHistoryPayload:
-      '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"assistant","content":[],"timestamp":1773000000000,"stopReason":"error","errorMessage":"401 {\\"type\\":\\"error\\",\\"error\\":{\\"message\\":\\"invalid x-api-key\\"}}"}]}'
+      '{"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","messages":[{"role":"assistant","content":[],"timestamp":1773000000000,"stopReason":"error","errorMessage":"401 {\\"type\\":\\"error\\",\\"error\\":{\\"message\\":\\"invalid x-api-key\\"}}"}]}'
   });
 });
 
@@ -2303,7 +2303,7 @@ test("chat history hides internal tool messages and only exposes visible user an
     const detail = await adapter.gateway.getChatThreadDetail({
       threadId: "thread-1",
       agentId: "existing-agent",
-      sessionKey: "agent:existing-agent:slackclaw-chat:thread-1"
+      sessionKey: "agent:existing-agent:chillclaw-chat:thread-1"
     });
 
     assert.equal(detail.messages.length, 2);
@@ -2316,7 +2316,7 @@ test("chat history hides internal tool messages and only exposes visible user an
     );
   }, {
     chatHistoryPayload:
-      '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"user","content":[{"type":"text","text":"what\'s my name"}],"timestamp":1773000000000},{"role":"assistant","content":[{"type":"toolCall","name":"memory_search","partialJson":"{\\"query\\":\\"user name\\"}"}],"timestamp":1773000000001,"stopReason":"toolUse"},{"role":"toolResult","content":[{"type":"text","text":"{\\"results\\":[] ,\\"provider\\":\\"none\\",\\"citations\\":\\"auto\\",\\"mode\\":\\"fts-only\\"}"}],"timestamp":1773000000002},{"role":"assistant","content":[{"type":"text","text":"Ryo."}],"timestamp":1773000000003}]}'
+      '{"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","messages":[{"role":"user","content":[{"type":"text","text":"what\'s my name"}],"timestamp":1773000000000},{"role":"assistant","content":[{"type":"toolCall","name":"memory_search","partialJson":"{\\"query\\":\\"user name\\"}"}],"timestamp":1773000000001,"stopReason":"toolUse"},{"role":"toolResult","content":[{"type":"text","text":"{\\"results\\":[] ,\\"provider\\":\\"none\\",\\"citations\\":\\"auto\\",\\"mode\\":\\"fts-only\\"}"}],"timestamp":1773000000002},{"role":"assistant","content":[{"type":"text","text":"Ryo."}],"timestamp":1773000000003}]}'
   });
 });
 
@@ -2325,7 +2325,7 @@ test("chat history collapses consecutive assistant messages into one visible rep
     const detail = await adapter.gateway.getChatThreadDetail({
       threadId: "thread-1",
       agentId: "existing-agent",
-      sessionKey: "agent:existing-agent:slackclaw-chat:thread-1"
+      sessionKey: "agent:existing-agent:chillclaw-chat:thread-1"
     });
 
     assert.equal(detail.messages.length, 2);
@@ -2336,6 +2336,6 @@ test("chat history collapses consecutive assistant messages into one visible rep
     assert.match(detail.messages[1]?.text ?? "", /yep — i searched/i);
   }, {
     chatHistoryPayload:
-      '{"sessionKey":"agent:existing-agent:slackclaw-chat:thread-1","messages":[{"role":"user","content":[{"type":"text","text":"can you search my 小红书 skills"}],"timestamp":1773000000000},{"role":"assistant","content":[{"type":"text","text":"I don’t have a local skill-finder memory set up yet, so I’m initializing that first, then I’ll search for Xiaohongshu-related skills."}],"timestamp":1773000000001,"stopReason":"toolUse"},{"role":"toolResult","content":[{"type":"text","text":"(no output)"}],"timestamp":1773000000002},{"role":"assistant","content":[{"type":"text","text":"Quick heads-up: this creates a tiny local folder at `~/skill-finder/` and stores only skill-search prefs there. Nothing gets written outside that folder."}],"timestamp":1773000000003,"stopReason":"toolUse"},{"role":"toolResult","content":[{"type":"text","text":"Successfully wrote 142 bytes to /Users/home/skill-finder/memory.md"}],"timestamp":1773000000004},{"role":"assistant","content":[{"type":"text","text":"Yep — I searched for Xiaohongshu/小红书-related skills."}],"timestamp":1773000000005,"stopReason":"stop"}]}'
+      '{"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","messages":[{"role":"user","content":[{"type":"text","text":"can you search my 小红书 skills"}],"timestamp":1773000000000},{"role":"assistant","content":[{"type":"text","text":"I don’t have a local skill-finder memory set up yet, so I’m initializing that first, then I’ll search for Xiaohongshu-related skills."}],"timestamp":1773000000001,"stopReason":"toolUse"},{"role":"toolResult","content":[{"type":"text","text":"(no output)"}],"timestamp":1773000000002},{"role":"assistant","content":[{"type":"text","text":"Quick heads-up: this creates a tiny local folder at `~/skill-finder/` and stores only skill-search prefs there. Nothing gets written outside that folder."}],"timestamp":1773000000003,"stopReason":"toolUse"},{"role":"toolResult","content":[{"type":"text","text":"Successfully wrote 142 bytes to /Users/home/skill-finder/memory.md"}],"timestamp":1773000000004},{"role":"assistant","content":[{"type":"text","text":"Yep — I searched for Xiaohongshu/小红书-related skills."}],"timestamp":1773000000005,"stopReason":"stop"}]}'
   });
 });

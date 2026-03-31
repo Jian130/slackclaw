@@ -1,4 +1,4 @@
-import type { DeploymentTargetActionResponse } from "@slackclaw/contracts";
+import type { DeploymentTargetActionResponse } from "@chillclaw/contracts";
 
 import { StateStore, type AppState } from "../services/state-store.js";
 

@@ -54,7 +54,7 @@ import type {
   TelegramSetupRequest,
   UpdateSkillRequest,
   WechatSetupRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 import { resolveReadableMemberAgentId } from "./member-agent-id.js";
 import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
 import { OpenClawConfigManager } from "./openclaw-config-manager.js";
@@ -542,7 +542,7 @@ export class MockAdapter implements EngineAdapter {
       managedBy: this.marketplaceInstalled.some((entry) => entry.slug === skill.slug)
         ? "clawhub"
         : skill.source === "openclaw-workspace"
-          ? "slackclaw-custom"
+          ? "chillclaw-custom"
           : "openclaw",
       editable: skill.source === "openclaw-workspace" && !this.marketplaceInstalled.some((entry) => entry.slug === skill.slug),
       removable: skill.source === "openclaw-workspace",
@@ -672,7 +672,7 @@ export class MockAdapter implements EngineAdapter {
 
   async removeInstalledSkill(
     slug: string,
-    _request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+    _request: RemoveSkillRequest & { managedBy: "clawhub" | "chillclaw-custom" }
   ): Promise<{ requiresGatewayApply?: boolean }> {
     const removed = this.skillRuntimeCatalog.skills.find((entry) => entry.slug === slug);
     this.skillRuntimeCatalog = {
@@ -983,8 +983,8 @@ export class MockAdapter implements EngineAdapter {
       running: this.installed,
       version: "mock",
       summary: this.pendingGatewayApply
-        ? appendGatewayApplyMessage("SlackClaw is running with a mock engine adapter.")
-        : "SlackClaw is running with a mock engine adapter.",
+        ? appendGatewayApplyMessage("ChillClaw is running with a mock engine adapter.")
+        : "ChillClaw is running with a mock engine adapter.",
       lastCheckedAt: new Date().toISOString(),
       pendingGatewayApply: this.pendingGatewayApply,
       pendingGatewayApplySummary: this.pendingGatewayApply ? this.pendingGatewayApplySummary : undefined
@@ -1018,7 +1018,7 @@ export class MockAdapter implements EngineAdapter {
         {
           id: "managed-local",
           title: "OpenClaw Managed Local",
-          description: "Deploy a SlackClaw-managed local runtime under the app data directory.",
+          description: "Deploy a ChillClaw-managed local runtime under the app data directory.",
           installMode: "managed-local",
           installed: false,
           installable: true,
@@ -1140,7 +1140,7 @@ export class MockAdapter implements EngineAdapter {
 
   async exportDiagnostics(): Promise<{ filename: string; content: string }> {
     return {
-      filename: "slackclaw-mock-diagnostics.json",
+      filename: "chillclaw-mock-diagnostics.json",
       content: JSON.stringify(
         {
           generatedAt: new Date().toISOString(),

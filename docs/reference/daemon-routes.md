@@ -116,19 +116,19 @@ This module is intentionally read-only.
 
 | Method | Path | Primary owner | Purpose |
 | --- | --- | --- | --- |
+| `GET` | `/api/ai-team/overview` | `AITeamService` | Return the daemon-owned AI team overview used by dashboard, team, members, and chat member pickers. |
 | `GET` | `/api/chat/overview` | `ChatService` | Return direct-chat thread summaries. |
 | `POST` | `/api/chat/threads` | `ChatService` | Create a new direct chat thread, or reuse a recent one when requested. |
 | `GET` | `/api/chat/threads/:threadId` | `ChatService` | Return one thread detail with history and current composer state. |
 | `POST` | `/api/chat/threads/:threadId/messages` | `ChatService` | Send a direct chat message into a thread. |
 | `POST` | `/api/chat/threads/:threadId/abort` | `ChatService` | Abort the active assistant reply for a thread. |
 
-### Temporarily unsupported legacy AI team routes
+### Temporarily unsupported legacy AI team mutation routes
 
-These routes are still registered so older clients fail explicitly instead of falling through to a generic `404`.
+These routes are still registered so older clients fail explicitly instead of falling through to a generic `404`. Read access for `/api/ai-team/overview` is still live; the mutation and binding routes below currently return `501`.
 
 | Method | Path | Current behavior |
 | --- | --- | --- |
-| `GET` | `/api/ai-team/overview` | Returns `501` because the old team backend was removed during the chat refactor. |
 | `GET` | `/api/ai-members/:memberId/bindings` | Returns `501`. |
 | `POST` | `/api/ai-members` | Returns `501`. |
 | `PATCH` | `/api/ai-members/:memberId` | Returns `501`. |

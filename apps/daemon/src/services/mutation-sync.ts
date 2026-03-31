@@ -1,4 +1,4 @@
-import type { MutationSyncMeta } from "@slackclaw/contracts";
+import type { MutationSyncMeta } from "@chillclaw/contracts";
 
 export function fallbackMutationSyncMeta(settled = true): MutationSyncMeta {
   return {

@@ -14,7 +14,7 @@ import type {
   SupportedChannelId,
   TelegramSetupRequest,
   WechatSetupRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   managedPluginConfigKeys,
@@ -834,7 +834,7 @@ export class ChannelsConfigCoordinator {
       this.activeLoginSession.logs.push("Submitted follow-up WeChat input to the installer.");
     } else {
       this.activeLoginSession.logs.push(
-        "SlackClaw recorded the WeChat follow-up input, but the installer is no longer accepting stdin."
+        "ChillClaw recorded the WeChat follow-up input, but the installer is no longer accepting stdin."
       );
     }
 

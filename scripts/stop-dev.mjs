@@ -3,14 +3,14 @@
 import { getDevProcessStatePath, stopManagedProcesses } from "./dev-process-control.mjs";
 
 function log(message) {
-  console.log(`[SlackClaw stop] ${message}`);
+  console.log(`[ChillClaw stop] ${message}`);
 }
 
 async function main() {
   const result = await stopManagedProcesses();
 
   if (result.stopped.length === 0) {
-    log(`No managed SlackClaw dev processes were running. State file: ${getDevProcessStatePath()}`);
+    log(`No managed ChillClaw dev processes were running. State file: ${getDevProcessStatePath()}`);
     return;
   }
 

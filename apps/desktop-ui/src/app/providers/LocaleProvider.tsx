@@ -17,7 +17,7 @@ export function LocaleProvider(props: PropsWithChildren) {
       locale,
       setLocale(next: Locale) {
         if (typeof window !== "undefined") {
-          window.localStorage.setItem("slackclaw.locale", next);
+          window.localStorage.setItem("chillclaw.locale", next);
         }
         setLocaleState(next);
       }

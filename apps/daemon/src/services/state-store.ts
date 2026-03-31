@@ -11,7 +11,7 @@ import type {
   PresetSkillTargetMode,
   TeamDetail,
   SupportedChannelId
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 import { normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";
 import { FilesystemStateAdapter } from "../platform/filesystem-state-adapter.js";
 import { getDataDir } from "../runtime-paths.js";

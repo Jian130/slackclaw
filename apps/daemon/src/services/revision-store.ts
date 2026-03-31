@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { MutationSyncMeta, RevisionedSnapshot } from "@slackclaw/contracts";
+import type { MutationSyncMeta, RevisionedSnapshot } from "@chillclaw/contracts";
 
 export type RevisionedResource =
   | "overview"

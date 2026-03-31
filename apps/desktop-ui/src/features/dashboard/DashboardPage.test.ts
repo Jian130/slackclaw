@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelConfigOverview, ProductOverview } from "@slackclaw/contracts";
+import type { ModelConfigOverview, ProductOverview } from "@chillclaw/contracts";
 
 import DashboardPage, { connectedModelCount, connectedModelDetail } from "./DashboardPage.js";
 
@@ -61,7 +61,7 @@ describe("DashboardPage model metrics", () => {
 
   it("shows missing detail when OpenClaw is not installed", () => {
     const overview: ProductOverview = {
-      appName: "SlackClaw",
+      appName: "ChillClaw",
       appVersion: "0.1.2",
       platformTarget: "macOS first",
       firstRun: {

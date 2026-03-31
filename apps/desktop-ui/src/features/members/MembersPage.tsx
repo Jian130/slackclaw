@@ -22,7 +22,7 @@ import {
   Zap
 } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { AIMemberDetail, AIMemberPreset, DeleteAIMemberRequest, MemberBindingSummary, SaveAIMemberRequest } from "@slackclaw/contracts";
+import type { AIMemberDetail, AIMemberPreset, DeleteAIMemberRequest, MemberBindingSummary, SaveAIMemberRequest } from "@chillclaw/contracts";
 import { useNavigate } from "react-router-dom";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
@@ -75,11 +75,11 @@ const quickActionTemplates = [
 ] as const;
 
 export function memberOriginTone(member: Pick<AIMemberDetail, "source" | "hasManagedMetadata">): "success" | "warning" {
-  return member.source === "slackclaw" && member.hasManagedMetadata ? "success" : "warning";
+  return member.source === "chillclaw" && member.hasManagedMetadata ? "success" : "warning";
 }
 
 export function memberOriginLabel(member: Pick<AIMemberDetail, "source" | "hasManagedMetadata">): string {
-  if (member.source === "slackclaw" && member.hasManagedMetadata) {
+  if (member.source === "chillclaw" && member.hasManagedMetadata) {
     return "Managed by ChillClaw";
   }
 

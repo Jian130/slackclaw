@@ -5,8 +5,8 @@ import { buildMemberPresetDraft, MemberStatusBadge, memberDeleteSummary, memberO
 
 describe("MembersPage helpers", () => {
   it("labels detected and ChillClaw-managed members distinctly", () => {
-    expect(memberOriginLabel({ source: "slackclaw", hasManagedMetadata: true })).toBe("Managed by ChillClaw");
-    expect(memberOriginTone({ source: "slackclaw", hasManagedMetadata: true })).toBe("success");
+    expect(memberOriginLabel({ source: "chillclaw", hasManagedMetadata: true })).toBe("Managed by ChillClaw");
+    expect(memberOriginTone({ source: "chillclaw", hasManagedMetadata: true })).toBe("success");
     expect(memberOriginLabel({ source: "detected", hasManagedMetadata: false })).toBe("Detected from OpenClaw");
     expect(memberOriginTone({ source: "detected", hasManagedMetadata: false })).toBe("warning");
   });

@@ -54,7 +54,7 @@ const request: AIMemberRuntimeRequest = {
 };
 
 test("writeMemberWorkspaceFiles seeds a personalized multi-agent workspace", async () => {
-  const workspaceDir = await mkdtemp(resolve(tmpdir(), "slackclaw-member-workspace-"));
+  const workspaceDir = await mkdtemp(resolve(tmpdir(), "chillclaw-member-workspace-"));
 
   try {
     await writeMemberWorkspaceFiles(request, workspaceDir, {
@@ -90,7 +90,7 @@ test("writeMemberWorkspaceFiles seeds a personalized multi-agent workspace", asy
     assert.match(soul, /Methodical/);
     assert.match(brain, /Primary AI model:/);
     assert.match(brain, /Research Brief \(research-brief\): Create concise research summaries\./);
-    assert.match(user, /SlackClaw users and operators/);
+    assert.match(user, /ChillClaw users and operators/);
     assert.match(user, /Keep my delivery aligned with these work styles/);
     assert.match(tools, /Research Brief \(research-brief\): Create concise research summaries\./);
     assert.match(tools, /Company handbook \(company-handbook\): Operating principles\./);
@@ -114,7 +114,7 @@ test("writeMemberWorkspaceFiles seeds a personalized multi-agent workspace", asy
 });
 
 test("writeMemberWorkspaceFiles skips BOOTSTRAP when not creating a fresh workspace", async () => {
-  const workspaceDir = await mkdtemp(resolve(tmpdir(), "slackclaw-member-workspace-"));
+  const workspaceDir = await mkdtemp(resolve(tmpdir(), "chillclaw-member-workspace-"));
 
   try {
     await writeMemberWorkspaceFiles(request, workspaceDir, {

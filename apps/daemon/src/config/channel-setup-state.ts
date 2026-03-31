@@ -1,5 +1,5 @@
-import type { ChannelSession, ChannelSetupState, SupportedChannelId } from "@slackclaw/contracts";
-import { createDefaultProductOverview } from "@slackclaw/contracts";
+import type { ChannelSession, ChannelSetupState, SupportedChannelId } from "@chillclaw/contracts";
+import { createDefaultProductOverview } from "@chillclaw/contracts";
 
 export interface ChannelLoginSessionSnapshot {
   channelId: "whatsapp" | "wechat";

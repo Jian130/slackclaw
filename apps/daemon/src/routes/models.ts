@@ -4,7 +4,7 @@ import type {
   ReplaceFallbackModelEntriesRequest,
   SaveModelEntryRequest,
   SetDefaultModelEntryRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { readJson, jsonResponse } from "./http.js";
 import { createPathMatcher } from "./matchers.js";

@@ -49,7 +49,7 @@ import type {
   SkillMarketplaceDetail,
   SkillMarketplaceEntry,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 import type {
   CreateChatThreadRequest,
   FeishuSetupRequest,
@@ -62,7 +62,7 @@ import type {
   SetupRunResponse,
   TelegramSetupRequest,
   WechatSetupRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 export function resolveApiBase() {
   return typeof window !== "undefined" && window.location.origin.includes("127.0.0.1:4545")
@@ -428,7 +428,7 @@ export function runFirstRunSetup(forceLocal = false): Promise<SetupRunResponse> 
   });
 }
 
-export function installSlackClaw(
+export function installChillClaw(
   autoConfigure = false,
   forceLocal = false
 ): Promise<{ install: InstallResponse; overview: ProductOverview }> {
@@ -692,13 +692,13 @@ export function uninstallAppService(): Promise<{ result: AppServiceActionRespons
   });
 }
 
-export function stopSlackClawApp(): Promise<AppControlResponse> {
+export function stopChillClawApp(): Promise<AppControlResponse> {
   return readJson<AppControlResponse>("/app/stop", {
     method: "POST"
   });
 }
 
-export function uninstallSlackClawApp(): Promise<AppControlResponse> {
+export function uninstallChillClawApp(): Promise<AppControlResponse> {
   return readJson<AppControlResponse>("/app/uninstall", {
     method: "POST"
   });

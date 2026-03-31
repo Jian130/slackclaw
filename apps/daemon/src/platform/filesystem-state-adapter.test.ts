@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 import { FilesystemStateAdapter } from "./filesystem-state-adapter.js";
 
 test("filesystem state adapter reads, writes, and creates parent directories", async () => {
-  const root = await mkdtemp(resolve(tmpdir(), "slackclaw-filesystem-state-"));
+  const root = await mkdtemp(resolve(tmpdir(), "chillclaw-filesystem-state-"));
   const adapter = new FilesystemStateAdapter();
   const statePath = resolve(root, "nested", "state.json");
   const logPath = resolve(root, "logs", "error.log");

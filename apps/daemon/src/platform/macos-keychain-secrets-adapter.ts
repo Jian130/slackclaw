@@ -59,7 +59,7 @@ async function runSecurityCommand(args: string[]): Promise<CommandResult> {
 
 export class MacOSKeychainSecretsAdapter implements SecretsAdapter {
   constructor(
-    private readonly serviceName = "ai.slackclaw.desktop",
+    private readonly serviceName = "ai.chillclaw.desktop",
     private readonly runner: SecretsCommandRunner = runSecurityCommand
   ) {}
 
@@ -74,7 +74,7 @@ export class MacOSKeychainSecretsAdapter implements SecretsAdapter {
       return undefined;
     }
 
-    throw new Error(result.stderr || result.stdout || `SlackClaw could not read the secret ${name} from the macOS keychain.`);
+    throw new Error(result.stderr || result.stdout || `ChillClaw could not read the secret ${name} from the macOS keychain.`);
   }
 
   async set(name: string, value: string): Promise<void> {
@@ -84,7 +84,7 @@ export class MacOSKeychainSecretsAdapter implements SecretsAdapter {
       return;
     }
 
-    throw new Error(result.stderr || result.stdout || `SlackClaw could not save the secret ${name} into the macOS keychain.`);
+    throw new Error(result.stderr || result.stdout || `ChillClaw could not save the secret ${name} into the macOS keychain.`);
   }
 
   async delete(name: string): Promise<void> {
@@ -94,7 +94,7 @@ export class MacOSKeychainSecretsAdapter implements SecretsAdapter {
       return;
     }
 
-    throw new Error(result.stderr || result.stdout || `SlackClaw could not delete the secret ${name} from the macOS keychain.`);
+    throw new Error(result.stderr || result.stdout || `ChillClaw could not delete the secret ${name} from the macOS keychain.`);
   }
 }
 

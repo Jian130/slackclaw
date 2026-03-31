@@ -46,7 +46,7 @@ class FakeWebSocket {
   }
 }
 
-test("buildGatewaySocketConnectParams matches the expected SlackClaw connect shape", () => {
+test("buildGatewaySocketConnectParams matches the expected ChillClaw connect shape", () => {
   const params = buildGatewaySocketConnectParams({
     token: "gateway-token",
     platform: "darwin",
@@ -58,7 +58,7 @@ test("buildGatewaySocketConnectParams matches the expected SlackClaw connect sha
     maxProtocol: 3,
     client: {
       id: "gateway-client",
-      displayName: "SlackClaw daemon",
+      displayName: "ChillClaw daemon",
       version: "0.1.2",
       platform: "darwin",
       mode: "backend"

@@ -65,7 +65,7 @@ async function serveStaticAsset(requestUrl: string, response: ServerResponse): P
       response.end(fallback);
       return true;
     } catch (error) {
-      void writeErrorLog("SlackClaw could not serve a static asset or the packaged UI fallback.", {
+      void writeErrorLog("ChillClaw could not serve a static asset or the packaged UI fallback.", {
         requestUrl,
         assetPath,
         fallbackPath,
@@ -122,7 +122,7 @@ export function startServer(port = 4545) {
     });
 
     if (!request.url || !request.method) {
-      void writeErrorLog("SlackClaw daemon received a malformed request.", {
+      void writeErrorLog("ChillClaw daemon received a malformed request.", {
         method: request.method,
         url: request.url
       });
@@ -183,11 +183,11 @@ export function startServer(port = 4545) {
   });
 
   server.on("error", (error) => {
-    void writeErrorLog("SlackClaw daemon server emitted an error.", errorToLogDetails(error));
+    void writeErrorLog("ChillClaw daemon server emitted an error.", errorToLogDetails(error));
   });
 
   server.on("clientError", (error, socket) => {
-    void writeErrorLog("SlackClaw daemon rejected a malformed client connection.", errorToLogDetails(error));
+    void writeErrorLog("ChillClaw daemon rejected a malformed client connection.", errorToLogDetails(error));
     if (socket.writable) {
       socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
     }
@@ -210,7 +210,7 @@ export function startServer(port = 4545) {
   });
 
   server.listen(port, "127.0.0.1");
-  void writeInfoLog("SlackClaw daemon server started.", {
+  void writeInfoLog("ChillClaw daemon server started.", {
     port,
     appVersion: "0.1.2"
   });

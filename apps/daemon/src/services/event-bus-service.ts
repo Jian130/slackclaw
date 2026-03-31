@@ -1,10 +1,10 @@
-import type { SlackClawEvent } from "@slackclaw/contracts";
+import type { ChillClawEvent } from "@chillclaw/contracts";
 
-export type EventBusListener = (event: SlackClawEvent) => void;
+export type EventBusListener = (event: ChillClawEvent) => void;
 
 export class EventBusService {
   private readonly listeners = new Set<EventBusListener>();
-  private readonly retainedEvents = new Map<string, SlackClawEvent>();
+  private readonly retainedEvents = new Map<string, ChillClawEvent>();
 
   subscribe(listener: EventBusListener): () => void {
     this.listeners.add(listener);
@@ -13,7 +13,7 @@ export class EventBusService {
     };
   }
 
-  publish(event: SlackClawEvent): void {
+  publish(event: ChillClawEvent): void {
     const retainedKey = retainedEventKey(event);
     if (retainedKey) {
       this.retainedEvents.set(retainedKey, event);
@@ -24,7 +24,7 @@ export class EventBusService {
     }
   }
 
-  getRetainedEvents(): SlackClawEvent[] {
+  getRetainedEvents(): ChillClawEvent[] {
     return [...this.retainedEvents.values()];
   }
 
@@ -33,7 +33,7 @@ export class EventBusService {
   }
 }
 
-function retainedEventKey(event: SlackClawEvent): string | undefined {
+function retainedEventKey(event: ChillClawEvent): string | undefined {
   switch (event.type) {
     case "overview.updated":
     case "ai-team.updated":

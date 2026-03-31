@@ -30,7 +30,7 @@ import type {
   OnboardingStateResponse,
   SaveChannelEntryRequest,
   SaveModelEntryRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";

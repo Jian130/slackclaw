@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelAuthRequest, ModelCatalogEntry, ModelConfigOverview, SaveModelEntryRequest } from "@slackclaw/contracts";
+import type { ModelAuthRequest, ModelCatalogEntry, ModelConfigOverview, SaveModelEntryRequest } from "@chillclaw/contracts";
 
 import { buildBaseOnboardArgs } from "../config/openclaw-model-provider-catalog.js";
 import { ModelsConfigCoordinator } from "./openclaw-models-config-coordinator.js";

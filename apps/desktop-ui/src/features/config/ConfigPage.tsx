@@ -21,7 +21,7 @@ import type {
   ModelConfigOverview,
   ModelProviderConfig,
   SavedModelEntry
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   createChannelEntry,

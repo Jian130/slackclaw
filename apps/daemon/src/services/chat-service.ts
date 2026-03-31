@@ -14,7 +14,7 @@ import type {
   ChatToolActivity,
   CreateChatThreadRequest,
   SendChatMessageRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter, EngineChatLiveEvent } from "../engine/adapter.js";
 import { EventPublisher } from "./event-publisher.js";
@@ -77,7 +77,7 @@ function defaultThreadTitle(memberName: string, createdAt: string): string {
 }
 
 function buildThreadSessionKey(agentId: string, threadId: string): string {
-  return `agent:${agentId}:slackclaw-chat:${threadId}`;
+  return `agent:${agentId}:chillclaw-chat:${threadId}`;
 }
 
 function createOptimisticUserMessage(threadId: string, clientMessageId: string, text: string, timestamp: string): ChatMessage {
@@ -233,7 +233,7 @@ export class ChatService {
       this.cacheDetail(hydratedDetail);
       return hydratedDetail;
     } catch (error) {
-      await writeErrorLog("SlackClaw could not load chat history from OpenClaw.", {
+      await writeErrorLog("ChillClaw could not load chat history from OpenClaw.", {
         threadId,
         sessionKey: thread.sessionKey,
         error: errorToLogDetails(error)
@@ -380,7 +380,7 @@ export class ChatService {
         sessionKey: thread.sessionKey
       });
     } catch (error) {
-      await writeErrorLog("SlackClaw could not stop an in-flight OpenClaw chat reply.", {
+      await writeErrorLog("ChillClaw could not stop an in-flight OpenClaw chat reply.", {
         threadId,
         sessionKey: thread.sessionKey,
         error: errorToLogDetails(error)
@@ -416,7 +416,7 @@ export class ChatService {
       })
       .catch(async (error) => {
         this.liveBridgeReady = false;
-        await writeErrorLog("SlackClaw could not start the live OpenClaw chat event bridge.", {
+        await writeErrorLog("ChillClaw could not start the live OpenClaw chat event bridge.", {
           error: errorToLogDetails(error)
         });
         return false;
@@ -559,7 +559,7 @@ export class ChatService {
 
       this.startFallbackPolling(activeRun, activeRun.receivedLiveEvent ? 900 : 0);
     } catch (error) {
-      await writeErrorLog("SlackClaw could not complete an OpenClaw chat send.", {
+      await writeErrorLog("ChillClaw could not complete an OpenClaw chat send.", {
         threadId: activeRun.threadId,
         sessionKey: activeRun.sessionKey,
         error: errorToLogDetails(error)
@@ -1010,7 +1010,7 @@ export class ChatService {
 
   private async findRecentThreadForMember(memberId: string, agentId: string): Promise<StoredChatThreadState | undefined> {
     const threads = Object.values((await this.store.read()).chat?.threads ?? {});
-    const expectedPrefix = `agent:${agentId}:slackclaw-chat:`;
+    const expectedPrefix = `agent:${agentId}:chillclaw-chat:`;
     return threads
       .filter((thread) => thread.memberId === memberId && thread.agentId === agentId && thread.sessionKey.startsWith(expectedPrefix))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];

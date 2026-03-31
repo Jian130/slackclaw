@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import type { ChannelSession, ChannelSetupState, SaveChannelEntryRequest, SupportedChannelId } from "@slackclaw/contracts";
+import type { ChannelSession, ChannelSetupState, SaveChannelEntryRequest, SupportedChannelId } from "@chillclaw/contracts";
 
 import { ChannelsConfigCoordinator } from "./openclaw-channels-config-coordinator.js";
 

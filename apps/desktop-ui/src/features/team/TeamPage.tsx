@@ -1,6 +1,6 @@
 import { ArrowRight, MessageSquare, Plus, Trash2, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { SaveTeamRequest, TeamDetail } from "@slackclaw/contracts";
+import type { SaveTeamRequest, TeamDetail } from "@chillclaw/contracts";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { ChatStreamEvent } from "@slackclaw/contracts";
+import type { ChatStreamEvent } from "@chillclaw/contracts";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
@@ -68,7 +68,7 @@ test("chat service creates and reuses member chat threads", async () => {
 
   assert.equal(created.thread?.memberId, member.id);
   assert.equal(created.thread?.agentId, member.agentId);
-  assert.equal(created.thread?.sessionKey.startsWith(`agent:${member.agentId}:slackclaw-chat:`), true);
+  assert.equal(created.thread?.sessionKey.startsWith(`agent:${member.agentId}:chillclaw-chat:`), true);
   assert.equal(reused.thread?.id, created.thread?.id);
   assert.equal(Object.keys(state.chat?.threads ?? {}).length, 1);
 });
@@ -89,7 +89,7 @@ test("chat service only reuses recent threads when they still match the member's
         [created.thread!.id]: {
           ...(state.chat?.threads ?? {})[created.thread!.id],
           agentId: "stale-agent",
-          sessionKey: `agent:stale-agent:slackclaw-chat:${created.thread!.id}`
+          sessionKey: `agent:stale-agent:chillclaw-chat:${created.thread!.id}`
         }
       }
     }
@@ -103,7 +103,7 @@ test("chat service only reuses recent threads when they still match the member's
 
   assert.notEqual(reused.thread?.id, created.thread?.id);
   assert.equal(reused.thread?.agentId, member.agentId);
-  assert.equal(reused.thread?.sessionKey.startsWith(`agent:${member.agentId}:slackclaw-chat:`), true);
+  assert.equal(reused.thread?.sessionKey.startsWith(`agent:${member.agentId}:chillclaw-chat:`), true);
   assert.equal(Object.keys(state.chat?.threads ?? {}).length, 2);
 });
 
@@ -148,7 +148,7 @@ test("chat service prefers the live AI member mapping over stale stored agent id
   });
 
   assert.equal(created.thread?.agentId, "live-agent");
-  assert.equal(created.thread?.sessionKey.startsWith("agent:live-agent:slackclaw-chat:"), true);
+  assert.equal(created.thread?.sessionKey.startsWith("agent:live-agent:chillclaw-chat:"), true);
 });
 
 test("chat service sends messages and keeps thread histories isolated", async () => {

@@ -11,11 +11,11 @@ import type {
   PresetSkillSyncOverview,
   ProductOverview,
   RevisionedSnapshot,
-  SlackClawDeployPhase,
-  SlackClawTaskProgressStatus,
+  ChillClawDeployPhase,
+  ChillClawTaskProgressStatus,
   SkillCatalogOverview,
   SupportedChannelId
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { EventBusService } from "./event-bus-service.js";
 import { RevisionStore, type RevisionedResource } from "./revision-store.js";
@@ -29,7 +29,7 @@ export class EventPublisher {
   publishDeployProgress(args: {
     correlationId: string;
     targetId: DeploymentTargetId;
-    phase: SlackClawDeployPhase;
+    phase: ChillClawDeployPhase;
     percent?: number;
     message: string;
   }): void {
@@ -59,7 +59,7 @@ export class EventPublisher {
     });
   }
 
-  publishTaskProgress(args: { taskId: string; status: SlackClawTaskProgressStatus; message: string }): void {
+  publishTaskProgress(args: { taskId: string; status: ChillClawTaskProgressStatus; message: string }): void {
     this.bus.publish({
       type: "task.progress",
       ...args

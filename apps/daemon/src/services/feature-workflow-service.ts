@@ -1,4 +1,4 @@
-import type { PluginConfigOverview, SupportedChannelId } from "@slackclaw/contracts";
+import type { PluginConfigOverview, SupportedChannelId } from "@chillclaw/contracts";
 
 import {
   managedFeatureDefinitionById,

@@ -1,4 +1,4 @@
-import type { ModelAuthMethod, ModelProviderConfig } from "@slackclaw/contracts";
+import type { ModelAuthMethod, ModelProviderConfig } from "@chillclaw/contracts";
 
 export interface InternalModelAuthMethod extends ModelAuthMethod {
   loginProviderId?: string;
@@ -17,7 +17,7 @@ export interface InternalModelProviderConfig
   authMethods: InternalModelAuthMethod[];
 }
 
-const PROVIDER_DOCS_BASE = "https://docs.openclaw.ai/providers/docs";
+const PROVIDER_DOCS_BASE = "https://docs.openclaw.ai/providers";
 const MODEL_PROVIDER_CONCEPTS_URL = "https://docs.openclaw.ai/concepts/model-providers";
 
 const MODEL_PROVIDER_DEFINITIONS: InternalModelProviderConfig[] = [
@@ -818,7 +818,7 @@ export function toPublicAuthMethod(method: InternalModelAuthMethod): ModelAuthMe
 
 export function buildOnboardAuthArgs(method: InternalModelAuthMethod, values: Record<string, string>): string[] {
   if (!method.onboardAuthChoice) {
-    throw new Error(`SlackClaw does not have a non-interactive onboarding flow for ${method.label}.`);
+    throw new Error(`ChillClaw does not have a non-interactive onboarding flow for ${method.label}.`);
   }
 
   const args = [...buildBaseOnboardArgs(), "--auth-choice", method.onboardAuthChoice];

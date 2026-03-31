@@ -2,7 +2,7 @@ import type {
   AbortChatRequest,
   CreateChatThreadRequest,
   SendChatMessageRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { jsonResponse, readJson } from "./http.js";
 import { createPathMatcher } from "./matchers.js";

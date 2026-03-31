@@ -5,10 +5,10 @@ import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve } from "node:path";
 
-const OPENCLAW_VERSION_OVERRIDE = process.env.SLACKCLAW_OPENCLAW_VERSION?.trim() || undefined;
+const OPENCLAW_VERSION_OVERRIDE = process.env.CHILLCLAW_OPENCLAW_VERSION?.trim() || undefined;
 const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
 const OPENCLAW_PACKAGE = `openclaw@${OPENCLAW_INSTALL_TARGET}`;
-const LOCAL_INSTALL_PREFIX = process.env.SLACKCLAW_OPENCLAW_INSTALL_PREFIX;
+const LOCAL_INSTALL_PREFIX = process.env.CHILLCLAW_OPENCLAW_INSTALL_PREFIX;
 
 function compareOpenClawVersions(left, right) {
   if (!left || !right) {
@@ -103,7 +103,7 @@ function parseArgs(argv) {
 }
 
 function shouldLogBootstrapCommands() {
-  if (process.env.SLACKCLAW_LOG_BOOTSTRAP_COMMANDS === "0") {
+  if (process.env.CHILLCLAW_LOG_BOOTSTRAP_COMMANDS === "0") {
     return false;
   }
 
@@ -124,7 +124,7 @@ function logBootstrapCommand(command, args) {
   }
 
   const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
-  console.log(`[SlackClaw bootstrap] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`);
+  console.log(`[ChillClaw bootstrap] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`);
 }
 
 function run(command, args, options = {}) {
@@ -198,10 +198,10 @@ async function ensureOpenClaw({ dryRun }) {
       existingVersion,
       version: existingVersion,
       message: LOCAL_INSTALL_PREFIX
-        ? `OpenClaw ${existingVersion} is already available for SlackClaw in ${LOCAL_INSTALL_PREFIX}.`
+        ? `OpenClaw ${existingVersion} is already available for ChillClaw in ${LOCAL_INSTALL_PREFIX}.`
         : OPENCLAW_VERSION_OVERRIDE
-          ? `OpenClaw ${existingVersion} is already installed and meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
-          : `OpenClaw ${existingVersion} is already installed and ready for SlackClaw.`
+          ? `OpenClaw ${existingVersion} is already installed and meets ChillClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+          : `OpenClaw ${existingVersion} is already installed and ready for ChillClaw.`
     };
   }
 
@@ -214,13 +214,13 @@ async function ensureOpenClaw({ dryRun }) {
       version: existingVersion ?? null,
       message: LOCAL_INSTALL_PREFIX
         ? existingVersion
-          ? `SlackClaw would deploy OpenClaw ${installTargetSummary()} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
-          : `SlackClaw would deploy ${OPENCLAW_PACKAGE} into ${LOCAL_INSTALL_PREFIX}.`
+          ? `ChillClaw would deploy OpenClaw ${installTargetSummary()} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
+          : `ChillClaw would deploy ${OPENCLAW_PACKAGE} into ${LOCAL_INSTALL_PREFIX}.`
         : existingVersion
           ? OPENCLAW_VERSION_OVERRIDE
-            ? `OpenClaw ${existingVersion} is installed, but SlackClaw would replace it because it is older than the requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
-            : `OpenClaw ${existingVersion} is installed and SlackClaw would reuse it.`
-          : `OpenClaw is not installed, and SlackClaw would install ${OPENCLAW_PACKAGE}.`
+            ? `OpenClaw ${existingVersion} is installed, but ChillClaw would replace it because it is older than the requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+            : `OpenClaw ${existingVersion} is installed and ChillClaw would reuse it.`
+          : `OpenClaw is not installed, and ChillClaw would install ${OPENCLAW_PACKAGE}.`
     };
   }
 
@@ -259,8 +259,8 @@ async function ensureOpenClaw({ dryRun }) {
     version: nextVersion ?? null,
     message: LOCAL_INSTALL_PREFIX
       ? existingVersion
-        ? `SlackClaw deployed OpenClaw ${nextVersion ?? installTargetSummary()} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
-        : `SlackClaw deployed OpenClaw ${nextVersion ?? installTargetSummary()} into ${LOCAL_INSTALL_PREFIX}.`
+        ? `ChillClaw deployed OpenClaw ${nextVersion ?? installTargetSummary()} into ${LOCAL_INSTALL_PREFIX} instead of reusing ${existingVersion}.`
+        : `ChillClaw deployed OpenClaw ${nextVersion ?? installTargetSummary()} into ${LOCAL_INSTALL_PREFIX}.`
       : existingVersion
         ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion ?? installTargetSummary()}.`
         : `Installed OpenClaw ${nextVersion ?? installTargetSummary()}.`

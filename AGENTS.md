@@ -28,7 +28,7 @@ This file defines the operating rules for agents working in this repository.
 
 - Use **ChillClaw** in product-facing copy, docs, and new code.
 - Use `openclaw` only for upstream CLI commands, binaries, package names, config keys, and filesystem paths.
-- If legacy **SlackClaw** names still exist in the repo, do not introduce new ones. Rename only when it is safe and in scope.
+- If legacy **ChillClaw** names still exist in the repo, do not introduce new ones. Rename only when it is safe and in scope.
 
 ## Architecture boundaries
 

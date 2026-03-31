@@ -22,14 +22,14 @@ describe("API client GET dedupe", () => {
       (input: RequestInfo | URL, init?: RequestInit) => Promise<{ ok: true; json: () => Promise<{ appName: string }> }>
     >(async () => ({
       ok: true,
-      json: async () => ({ appName: "SlackClaw" })
+      json: async () => ({ appName: "ChillClaw" })
     }));
     vi.stubGlobal("fetch", fetchMock);
 
     const [first, second] = await Promise.all([fetchOverview(), fetchOverview()]);
 
-    expect(first).toEqual({ appName: "SlackClaw" });
-    expect(second).toEqual({ appName: "SlackClaw" });
+    expect(first).toEqual({ appName: "ChillClaw" });
+    expect(second).toEqual({ appName: "ChillClaw" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -54,15 +54,15 @@ describe("API client GET dedupe", () => {
       (input: RequestInfo | URL, init?: RequestInit) => Promise<{ ok: true; json: () => Promise<{ appName: string }> }>
     >(async () => ({
       ok: true,
-      json: async () => ({ appName: "SlackClaw" })
+      json: async () => ({ appName: "ChillClaw" })
     }));
     vi.stubGlobal("fetch", fetchMock);
 
     const first = await fetchOverview();
     const second = await fetchOverview();
 
-    expect(first).toEqual({ appName: "SlackClaw" });
-    expect(second).toEqual({ appName: "SlackClaw" });
+    expect(first).toEqual({ appName: "ChillClaw" });
+    expect(second).toEqual({ appName: "ChillClaw" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

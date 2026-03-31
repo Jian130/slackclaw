@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { ChannelCapability, ConfiguredChannelEntry, ModelConfigOverview, ModelProviderConfig } from "@slackclaw/contracts";
+import type { ChannelCapability, ConfiguredChannelEntry, ModelConfigOverview, ModelProviderConfig } from "@chillclaw/contracts";
 
 import {
   activeSavedModelEntries,

@@ -4,7 +4,7 @@ import type {
   DeleteAIMemberRequest,
   SaveAIMemberRequest,
   SaveTeamRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   bindAIMemberChannel,

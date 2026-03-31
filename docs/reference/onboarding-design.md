@@ -61,9 +61,9 @@ Preferred sizes:
 
 ## Current implementation snapshot
 
-The current implementation is still a seven-step flow with a separate `Complete` step. It is useful as a reference for what the product does today, but it is not the target contract for future work.
+The current implementation now follows the same six primary steps in both web and native clients, then shows a completion summary after finalization. It is much closer to the target contract than the earlier seven-step version, but a few gaps still remain.
 
-One part of the target contract is already implemented: curated onboarding employee preset presentation and managed preset-skill ownership now come from the daemon-owned AI member preset catalog, so web and native no longer carry separate onboarding preset definitions.
+Several parts of the target contract are already implemented: curated onboarding model/channel metadata, curated employee preset presentation, and managed preset-skill ownership all come from daemon-owned config so web and native no longer carry separate onboarding catalogs.
 
 ```mermaid
 sequenceDiagram
@@ -77,47 +77,67 @@ sequenceDiagram
     participant OpenClaw
 
     User->>UI: Step 1 Welcome
-    UI->>Onboarding: PATCH draft currentStep=install
+    UI->>Onboarding: POST /api/onboarding/navigate
 
-    User->>UI: Step 2 Install or reuse
-    alt User chooses install
-        UI->>Setup: POST /api/first-run/setup
+    User->>UI: Step 2 Detect / install / reuse / update runtime
+    UI->>Onboarding: POST /api/onboarding/runtime/detect
+    alt User installs managed runtime
+        UI->>Onboarding: POST /api/onboarding/runtime/install
+        Onboarding->>Setup: runFirstRunSetup()
         Setup->>OpenClaw: detect existing runtime
         Setup->>OpenClaw: reuse or install runtime
-        Setup-->>UI: install result
-    else User chooses use existing install
-        UI->>Onboarding: PATCH draft install=reused-existing
+        Setup-->>Onboarding: install result
+        Onboarding-->>UI: updated onboarding state
+    else User reuses existing runtime
+        UI->>Onboarding: POST /api/onboarding/runtime/reuse
+        Onboarding-->>UI: updated onboarding state
+    else User updates current runtime
+        UI->>Onboarding: POST /api/onboarding/runtime/update
+        Onboarding->>OpenClaw: update runtime
+        Onboarding-->>UI: updated onboarding state
     end
 
     User->>UI: Step 3 Permissions
-    UI->>Onboarding: PATCH draft currentStep=model
+    UI->>Onboarding: POST /api/onboarding/permissions/confirm
 
     User->>UI: Step 4 Save first model
-    UI->>Config: POST model config/auth
+    UI->>Onboarding: POST /api/onboarding/model/entries
+    Onboarding->>Config: save model config/auth
     Config->>OpenClaw: write model auth/config
-    Config-->>UI: saved + pendingGatewayApply
+    Config-->>Onboarding: mutation or auth session
+    Onboarding-->>UI: saved draft or interactive auth session
+    opt Interactive provider auth
+        UI->>Onboarding: GET/POST onboarding model auth session routes
+        Onboarding->>Config: continue auth session
+        Config->>OpenClaw: finish provider auth
+        Onboarding-->>UI: updated onboarding state
+    end
 
     User->>UI: Step 5 Save first channel
-    UI->>Config: POST channel config
+    UI->>Onboarding: POST /api/onboarding/channel/entries
+    Onboarding->>ChannelSetup: save onboarding channel entry
     alt Telegram / Feishu / WeChat Work
-        Config->>OpenClaw: write channel config
-        Config-->>UI: saved + pendingGatewayApply
+        ChannelSetup->>OpenClaw: write channel config
+        ChannelSetup-->>Onboarding: saved channel state
+        Onboarding-->>UI: staged channel state
     else Personal WeChat
-        Config->>OpenClaw: start live login or install session
-        Config-->>UI: active session returned
+        ChannelSetup->>OpenClaw: start live login or install session
+        ChannelSetup-->>Onboarding: active session returned
+        Onboarding-->>UI: active channel session
     end
 
     User->>UI: Step 6 Create AI employee
-    UI->>Team: POST /api/ai-members
-    Team->>OpenClaw: create real agent and workspace now
-    Team-->>UI: member created
+    UI->>Onboarding: POST /api/onboarding/employee
+    Onboarding-->>UI: employee draft saved
 
-    User->>UI: Step 7 Complete onboarding
+    User->>UI: Finalize onboarding
     UI->>Onboarding: POST /api/onboarding/complete
+    Onboarding->>Team: saveMemberForOnboarding()
+    Team->>OpenClaw: create agent/workspace and bindings
     Onboarding->>Gateway: finalizeOnboardingSetup()
     Gateway->>OpenClaw: install or restart gateway
     Gateway->>OpenClaw: verify reachability
-    Onboarding-->>UI: setupCompleted=true
+    Onboarding-->>UI: completion summary + setupCompleted=true
 ```
 
 ## Target onboarding contract
@@ -205,7 +225,6 @@ sequenceDiagram
 
 ## Known gaps between current and target flow
 
-- The daemon currently does not enforce step order or completion gates.
-- The permissions step is currently informational instead of a persisted gate.
+- The daemon now enforces basic step order, but permissions are still an acknowledgement gate rather than a verified OS-permission state.
 - Personal WeChat onboarding currently starts a live login/install session instead of staying config-only.
-- The first AI employee is currently created before onboarding completion instead of as part of finalization.
+- The completion API still accepts destination shortcuts, so transport-level completion and post-completion navigation are not perfectly separated.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ModelAuthRequest, ModelConfigActionResponse } from "@slackclaw/contracts";
+import type { ModelAuthRequest, ModelConfigActionResponse } from "@chillclaw/contracts";
 
 import { OpenClawConfigManager } from "./openclaw-config-manager.js";
 import { InMemorySecretsAdapter, modelAuthSecretName } from "../platform/secrets-adapter.js";

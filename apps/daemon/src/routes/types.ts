@@ -24,7 +24,7 @@ import type {
   SaveTeamRequest,
   SetDefaultModelEntryRequest,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineReadCacheResource } from "../engine/adapter.js";
 import type { ServerContext } from "./server-context.js";

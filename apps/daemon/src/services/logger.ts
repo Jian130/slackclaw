@@ -40,11 +40,11 @@ export async function writeInfoLog(message: string, details?: unknown): Promise<
 }
 
 export function shouldLogDevelopmentCommands(): boolean {
-  if (process.env.SLACKCLAW_LOG_DEV_COMMANDS === "0") {
+  if (process.env.CHILLCLAW_LOG_DEV_COMMANDS === "0") {
     return false;
   }
 
-  return process.env.SLACKCLAW_LOG_DEV_COMMANDS === "1" || !getAppRootDir();
+  return process.env.CHILLCLAW_LOG_DEV_COMMANDS === "1" || !getAppRootDir();
 }
 
 function shellQuote(value: string): string {
@@ -61,7 +61,7 @@ export function logDevelopmentCommand(scope: string, command: string, args: stri
   }
 
   const renderedArgs = args.map((arg) => shellQuote(arg)).join(" ");
-  console.log(formatConsoleLine(`[SlackClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`));
+  console.log(formatConsoleLine(`[ChillClaw daemon][${scope}] ${command}${args.length > 0 ? ` ${renderedArgs}` : ""}`));
 }
 
 export function errorToLogDetails(error: unknown): Record<string, unknown> {

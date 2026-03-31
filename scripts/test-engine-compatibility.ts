@@ -15,7 +15,7 @@ import {
   type EngineCompatibilityReport,
   type EngineCompatibilityRuntimeMode,
   type ModelConfigOverview
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   openClawCompatibilitySources,
@@ -211,7 +211,7 @@ async function waitForPing(port: number) {
     await delay(500);
   }
 
-  throw new Error(`Timed out waiting for SlackClaw daemon on port ${port}.`);
+  throw new Error(`Timed out waiting for ChillClaw daemon on port ${port}.`);
 }
 
 async function requestJson(port: number, path: string, init?: RequestInit) {
@@ -253,8 +253,8 @@ async function bootstrapManagedRuntime(context: RuntimeContext, candidateVersion
   const installPrefix = resolve(context.dataDir, "openclaw-runtime");
   const env = {
     ...context.env,
-    SLACKCLAW_OPENCLAW_INSTALL_PREFIX: installPrefix,
-    ...(candidateVersion ? { SLACKCLAW_OPENCLAW_VERSION: candidateVersion } : {})
+    CHILLCLAW_OPENCLAW_INSTALL_PREFIX: installPrefix,
+    ...(candidateVersion ? { CHILLCLAW_OPENCLAW_VERSION: candidateVersion } : {})
   };
 
   const result = await runCommand(process.execPath, ["scripts/bootstrap-openclaw.mjs", "--json"], {
@@ -293,8 +293,8 @@ async function bootstrapManagedRuntime(context: RuntimeContext, candidateVersion
     "install-managed-runtime",
     "passed",
     candidateVersion
-      ? `Managed OpenClaw ${context.detectedVersion ?? candidateVersion} bootstrapped into an isolated SlackClaw data dir.`
-      : `Managed OpenClaw ${context.detectedVersion ?? "unknown"} bootstrapped into an isolated SlackClaw data dir.`,
+      ? `Managed OpenClaw ${context.detectedVersion ?? candidateVersion} bootstrapped into an isolated ChillClaw data dir.`
+      : `Managed OpenClaw ${context.detectedVersion ?? "unknown"} bootstrapped into an isolated ChillClaw data dir.`,
     {
       engineVersion: context.detectedVersion,
       command: "node scripts/bootstrap-openclaw.mjs --json",
@@ -337,7 +337,7 @@ function buildModelValues(method: { fields: Array<{ id: string; secret?: boolean
   const values: Record<string, string> = {};
 
   for (const field of method.fields) {
-    const envKey = `SLACKCLAW_COMPAT_${field.id.replace(/[^a-z0-9]/gi, "_").toUpperCase()}`;
+    const envKey = `CHILLCLAW_COMPAT_${field.id.replace(/[^a-z0-9]/gi, "_").toUpperCase()}`;
     values[field.id] = process.env[envKey] ?? (field.secret ? "compat-secret-value" : "compat-value");
   }
 
@@ -366,7 +366,7 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
         context.runtimeMode,
         "detect-runtime",
         "failed",
-        `SlackClaw overview failed with HTTP ${overviewResponse.status}.`,
+        `ChillClaw overview failed with HTTP ${overviewResponse.status}.`,
         {
           logPath: await writeLog(context.reportDir, context.runtimeMode, "detect-runtime", overviewResponse.text)
         }
@@ -389,8 +389,8 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
       "detect-runtime",
       overview.engine?.installed ? "passed" : "failed",
       overview.engine?.installed
-        ? `SlackClaw detected ${context.runtimeMode} OpenClaw ${overview.engine?.version ?? "unknown"}.`
-        : overview.engine?.summary ?? "SlackClaw did not detect an installed runtime.",
+        ? `ChillClaw detected ${context.runtimeMode} OpenClaw ${overview.engine?.version ?? "unknown"}.`
+        : overview.engine?.summary ?? "ChillClaw did not detect an installed runtime.",
       {
         engineVersion: context.detectedVersion
       }
@@ -426,7 +426,7 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
       "fetch-deployment-targets",
       targetsResponse.ok ? "passed" : "failed",
       targetsResponse.ok
-        ? "SlackClaw returned deployment targets for this runtime."
+        ? "ChillClaw returned deployment targets for this runtime."
         : `Deployment target request failed with HTTP ${targetsResponse.status}.`,
       {
         engineVersion: context.detectedVersion,
@@ -624,7 +624,7 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
         "remove-model",
         removeEndpointResponse.status === 404 ? "not-supported" : removeEndpointResponse.ok ? "passed" : "failed",
         removeEndpointResponse.status === 404
-          ? "SlackClaw does not expose saved-model deletion yet."
+          ? "ChillClaw does not expose saved-model deletion yet."
           : removeEndpointResponse.ok
             ? "Saved model deletion endpoint is available."
             : `Saved model deletion endpoint returned HTTP ${removeEndpointResponse.status}.`,
@@ -695,7 +695,7 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
       "remove-channel",
       removeChannelResponse.status === 404 ? "not-supported" : removeChannelResponse.ok ? "passed" : "failed",
       removeChannelResponse.status === 404
-        ? "SlackClaw does not expose generic channel deletion yet."
+        ? "ChillClaw does not expose generic channel deletion yet."
         : removeChannelResponse.ok
           ? "Generic channel deletion endpoint is available."
           : `Generic channel deletion endpoint returned HTTP ${removeChannelResponse.status}.`,
@@ -875,7 +875,7 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
     }
   }
 
-  if (process.env.SLACKCLAW_COMPAT_RUN_TASK === "1") {
+  if (process.env.CHILLCLAW_COMPAT_RUN_TASK === "1") {
     const taskResponse = await requestJson(context.port, "/api/tasks", {
       method: "POST",
       body: JSON.stringify({
@@ -904,7 +904,7 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
         context.runtimeMode,
         "run-task-through-default-model",
         "skipped",
-        "Skipped unless SLACKCLAW_COMPAT_RUN_TASK=1 is set with real model credentials available.",
+        "Skipped unless CHILLCLAW_COMPAT_RUN_TASK=1 is set with real model credentials available.",
         {
           engineVersion: context.detectedVersion
         }
@@ -1001,7 +1001,7 @@ function renderMarkdown(report: EngineCompatibilityReport) {
 }
 
 async function createRuntimeContext(runtimeMode: EngineCompatibilityRuntimeMode, reportDir: string, port: number): Promise<RuntimeContext> {
-  const tempRoot = await mkdtemp(resolve(tmpdir(), `slackclaw-compat-${runtimeMode}-`));
+  const tempRoot = await mkdtemp(resolve(tmpdir(), `chillclaw-compat-${runtimeMode}-`));
   const homeDir = resolve(tempRoot, "home");
   const dataDir = resolve(tempRoot, "data");
   await mkdir(homeDir, { recursive: true });
@@ -1017,8 +1017,8 @@ async function createRuntimeContext(runtimeMode: EngineCompatibilityRuntimeMode,
     env: {
       ...process.env,
       HOME: homeDir,
-      SLACKCLAW_DATA_DIR: dataDir,
-      SLACKCLAW_PORT: String(port)
+      CHILLCLAW_DATA_DIR: dataDir,
+      CHILLCLAW_PORT: String(port)
     }
   };
 }

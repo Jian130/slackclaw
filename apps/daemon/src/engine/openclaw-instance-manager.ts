@@ -6,7 +6,7 @@ import type {
   InstallResponse,
   RecoveryAction,
   RecoveryRunResponse
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { InstanceManager } from "./adapter.js";
 

@@ -1,4 +1,4 @@
-import type { PluginConfigOverview } from "@slackclaw/contracts";
+import type { PluginConfigOverview } from "@chillclaw/contracts";
 
 import type { PluginManager } from "./adapter.js";
 

@@ -12,7 +12,7 @@ import type {
   RemoveChannelEntryRequest,
   SaveChannelEntryRequest,
   SupportedChannelId
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { defaultChannelSetupStateMap } from "../config/channel-setup-state.js";
 import type { EngineAdapter } from "../engine/adapter.js";
@@ -83,7 +83,7 @@ const CHANNEL_CAPABILITIES: ChannelCapability[] = [
           { value: "lark", label: "lark" }
         ]
       },
-      { id: "botName", label: "Bot name", required: false, placeholder: "SlackClaw Assistant" },
+      { id: "botName", label: "Bot name", required: false, placeholder: "ChillClaw Assistant" },
       { id: "code", label: "Pairing code", required: false, placeholder: "Paste pairing code when prompted" }
     ],
     supportsEdit: true,
@@ -647,7 +647,7 @@ export class ChannelSetupService {
     const record = storedOrLegacyRecord ?? (liveConfiguredEntry ? storedEntryFromConfiguredEntry(liveConfiguredEntry) : undefined);
 
     if (!record) {
-      throw new Error("SlackClaw could not find that saved channel entry.");
+      throw new Error("ChillClaw could not find that saved channel entry.");
     }
 
     const result = await this.adapter.config.removeChannelEntry({

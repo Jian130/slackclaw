@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@slackclaw/contracts": fileURLToPath(new URL("../../packages/contracts/src/index.ts", import.meta.url))
+      "@chillclaw/contracts": fileURLToPath(new URL("../../packages/contracts/src/index.ts", import.meta.url))
     }
   },
   server: {

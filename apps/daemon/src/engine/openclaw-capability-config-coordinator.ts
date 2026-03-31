@@ -11,7 +11,7 @@ import type {
   SkillMarketplaceDetail,
   SkillMarketplaceEntry,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   listManagedPluginDefinitions,
@@ -349,7 +349,7 @@ export class CapabilityConfigCoordinator {
       safeJsonPayloadParse<OpenClawSkillInfoJson>(result.stderr);
 
     if (!parsed) {
-      throw new Error(`SlackClaw could not read details for ${skillId}.`);
+      throw new Error(`ChillClaw could not read details for ${skillId}.`);
     }
 
     const content = parsed.filePath ? await readFile(parsed.filePath, "utf8").catch(() => "") : "";
@@ -439,7 +439,7 @@ export class CapabilityConfigCoordinator {
     }>(metadataResult.stdout) ?? safeJsonPayloadParse(metadataResult.stderr);
 
     if (!parsed?.skill?.slug) {
-      throw new Error(`SlackClaw could not inspect ${slug} from ClawHub.`);
+      throw new Error(`ChillClaw could not inspect ${slug} from ClawHub.`);
     }
 
     const installsCurrent = parsed.skill.stats?.installsCurrent;
@@ -541,7 +541,7 @@ export class CapabilityConfigCoordinator {
     const context = await this.resolveClawHubContext();
 
     if (!context) {
-      throw new Error("SlackClaw could not resolve the shared OpenClaw skills directory.");
+      throw new Error("ChillClaw could not resolve the shared OpenClaw skills directory.");
     }
 
     const result = await this.access.runClawHub(
@@ -550,7 +550,7 @@ export class CapabilityConfigCoordinator {
     );
 
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `SlackClaw could not install ${request.slug} from ClawHub.`);
+      throw new Error(result.stderr || result.stdout || `ChillClaw could not install ${request.slug} from ClawHub.`);
     }
 
     await this.access.markGatewayApplyPending();
@@ -571,14 +571,14 @@ export class CapabilityConfigCoordinator {
     if (request.installSource === "bundled") {
       const bundledMarkdown = await this.access.readBundledManagedSkillMarkdown(request.slug, request.bundledAssetPath);
       if (!bundledMarkdown) {
-        throw new Error(`SlackClaw could not resolve bundled assets for ${request.slug}.`);
+        throw new Error(`ChillClaw could not resolve bundled assets for ${request.slug}.`);
       }
 
       const list = await this.readOpenClawSkillsList();
       const skillsDir = await this.resolveSharedSkillsDir(list);
 
       if (!skillsDir) {
-        throw new Error("SlackClaw could not resolve the shared OpenClaw skills directory.");
+        throw new Error("ChillClaw could not resolve the shared OpenClaw skills directory.");
       }
 
       const baseDir = join(skillsDir, request.slug);
@@ -621,7 +621,7 @@ export class CapabilityConfigCoordinator {
     const context = await this.resolveClawHubContext();
 
     if (!context) {
-      throw new Error("SlackClaw could not resolve the shared OpenClaw skills directory.");
+      throw new Error("ChillClaw could not resolve the shared OpenClaw skills directory.");
     }
 
     const args =
@@ -631,7 +631,7 @@ export class CapabilityConfigCoordinator {
 
     const result = await this.access.runClawHub(args, { allowFailure: true });
     if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `SlackClaw could not ${request.action} ${slug}.`);
+      throw new Error(result.stderr || result.stdout || `ChillClaw could not ${request.action} ${slug}.`);
     }
 
     await this.access.markGatewayApplyPending();
@@ -644,7 +644,7 @@ export class CapabilityConfigCoordinator {
     const skillsDir = await this.resolveSharedSkillsDir(list);
 
     if (!skillsDir) {
-      throw new Error("SlackClaw could not resolve the shared OpenClaw skills directory.");
+      throw new Error("ChillClaw could not resolve the shared OpenClaw skills directory.");
     }
 
     const existing = skillId ? await this.getInstalledSkillDetail(skillId).catch(() => undefined) : undefined;
@@ -666,25 +666,25 @@ export class CapabilityConfigCoordinator {
 
   async removeInstalledSkill(
     slug: string,
-    request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+    request: RemoveSkillRequest & { managedBy: "clawhub" | "chillclaw-custom" }
   ): Promise<{ requiresGatewayApply?: boolean }> {
     if (request.managedBy === "clawhub") {
       const context = await this.resolveClawHubContext();
 
       if (!context) {
-        throw new Error("SlackClaw could not resolve the shared OpenClaw skills directory.");
+        throw new Error("ChillClaw could not resolve the shared OpenClaw skills directory.");
       }
 
       const result = await this.access.runClawHub(["--workdir", context.workdir, "--dir", context.dir, "uninstall", slug, "--yes"], { allowFailure: true });
       if (result.code !== 0) {
-        throw new Error(result.stderr || result.stdout || `SlackClaw could not remove ${slug}.`);
+        throw new Error(result.stderr || result.stdout || `ChillClaw could not remove ${slug}.`);
       }
     } else {
       const list = await this.readOpenClawSkillsList();
       const skillsDir = await this.resolveSharedSkillsDir(list);
 
       if (!skillsDir) {
-        throw new Error("SlackClaw could not resolve the shared OpenClaw skills directory.");
+        throw new Error("ChillClaw could not resolve the shared OpenClaw skills directory.");
       }
 
       await rm(join(skillsDir, slug), { recursive: true, force: true });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DeploymentTargetStatus, DeploymentTargetsResponse, SlackClawEvent } from "@slackclaw/contracts";
+import type { DeploymentTargetStatus, DeploymentTargetsResponse, ChillClawEvent } from "@chillclaw/contracts";
 
 import {
   applyDeployEventToActivity,
@@ -13,7 +13,7 @@ import {
 
 describe("DeployPage helpers", () => {
   it("refreshes deploy targets for deploy completion and gateway status events", () => {
-    const deployCompleted: SlackClawEvent = {
+    const deployCompleted: ChillClawEvent = {
       type: "deploy.completed",
       correlationId: "deploy-1",
       targetId: "managed-local",
@@ -27,13 +27,13 @@ describe("DeployPage helpers", () => {
         lastCheckedAt: new Date().toISOString()
       }
     };
-    const gatewayStatus: SlackClawEvent = {
+    const gatewayStatus: ChillClawEvent = {
       type: "gateway.status",
       reachable: true,
       pendingGatewayApply: false,
       summary: "Gateway ready."
     };
-    const deployProgress: SlackClawEvent = {
+    const deployProgress: ChillClawEvent = {
       type: "deploy.progress",
       correlationId: "deploy-1",
       targetId: "managed-local",

@@ -905,7 +905,7 @@ export function detectLocale(): Locale {
     return "en";
   }
 
-  const stored = window.localStorage.getItem("slackclaw.locale");
+  const stored = window.localStorage.getItem("chillclaw.locale");
   if (stored && localeOptions.some((option) => option.value === stored)) {
     return stored as Locale;
   }

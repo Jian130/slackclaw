@@ -25,15 +25,15 @@
 - Modify: `apps/daemon/src/services/ai-team-service.test.ts`
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/src/index.test.ts`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/SlackClawProtocolTests.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/OnboardingClientTests.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/ChillClawProtocolTests.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/OnboardingClientTests.swift`
 - Modify: `apps/desktop-ui/src/features/onboarding/helpers.ts`
 - Modify: `apps/desktop-ui/src/features/onboarding/helpers.test.ts`
 - Modify: `apps/desktop-ui/src/features/onboarding/OnboardingPage.tsx`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingSupport.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingViewModel.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingView.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingSupport.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingViewModel.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift`
 - Modify if behavior or ownership docs change during implementation: `README.md`, `docs/reference/onboarding-design.md`
 
 ## Chunk 1: Daemon Catalog Consolidation
@@ -70,7 +70,7 @@ Update `preset-skill-service.ts`, `ai-team-service.ts`, and `state-store.ts` to 
 
 - [ ] **Step 5: Delete `preset-skill-definitions.ts` and update daemon tests**
 
-Run: `npm test --workspace @slackclaw/daemon`
+Run: `npm test --workspace @chillclaw/daemon`
 
 Expected: the daemon test suite passes with no remaining imports from the deleted file.
 
@@ -107,7 +107,7 @@ Make sure the daemon has one place to translate `presetId` into preset-backed fi
 
 - [ ] **Step 6: Update onboarding service tests**
 
-Run: `npm test --workspace @slackclaw/daemon`
+Run: `npm test --workspace @chillclaw/daemon`
 
 Expected: onboarding tests cover resolved preset order and missing-ID failures.
 
@@ -120,9 +120,9 @@ Run: `git commit -m "refactor: resolve onboarding employee presets from daemon c
 **Files:**
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/src/index.test.ts`
-- Modify: `apps/shared/SlackClawKit/Sources/SlackClawProtocol/Models.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/SlackClawProtocolTests.swift`
-- Modify: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/OnboardingClientTests.swift`
+- Modify: `apps/shared/ChillClawKit/Sources/ChillClawProtocol/Models.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/ChillClawProtocolTests.swift`
+- Modify: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/OnboardingClientTests.swift`
 
 - [ ] **Step 1: Identify which preset presentation fields clients still need to render directly**
 
@@ -138,13 +138,13 @@ Keep `Models.swift` aligned with the contract shape so native renders the resolv
 
 - [ ] **Step 4: Update contract and client decoding tests**
 
-Run: `npm test --workspace @slackclaw/contracts`
+Run: `npm test --workspace @chillclaw/contracts`
 
 Expected: contract serialization tests pass with the expanded onboarding preset presentation.
 
 - [ ] **Step 5: Run shared Swift tests**
 
-Run: `swift test --package-path apps/shared/SlackClawKit`
+Run: `swift test --package-path apps/shared/ChillClawKit`
 
 Expected: protocol and onboarding client decoding tests pass.
 
@@ -175,13 +175,13 @@ The web layer should no longer invent preset internals that belong to the daemon
 
 - [ ] **Step 4: Update onboarding helper tests**
 
-Run: `npm test --workspace @slackclaw/desktop-ui`
+Run: `npm test --workspace @chillclaw/desktop-ui`
 
 Expected: web onboarding tests prove the UI renders daemon-resolved preset data without local onboarding preset ownership.
 
 - [ ] **Step 5: Run the desktop UI build**
 
-Run: `npm run build --workspace @slackclaw/desktop-ui`
+Run: `npm run build --workspace @chillclaw/desktop-ui`
 
 Expected: TypeScript and Vite build succeed after the web cleanup.
 
@@ -192,10 +192,10 @@ Run: `git commit -m "refactor: remove web onboarding preset ownership"`
 ### Task 5: Remove native onboarding’s local preset and avatar ownership
 
 **Files:**
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingSupport.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingViewModel.swift`
-- Modify: `apps/macos-native/Sources/SlackClawNative/OnboardingView.swift`
-- Test: `apps/shared/SlackClawKit/Tests/SlackClawKitTests/OnboardingClientTests.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingSupport.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingViewModel.swift`
+- Modify: `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift`
+- Test: `apps/shared/ChillClawKit/Tests/ChillClawKitTests/OnboardingClientTests.swift`
 
 - [ ] **Step 1: Remove native onboarding’s hardcoded onboarding avatar preset list**
 
@@ -211,7 +211,7 @@ Preserve user-editable `name` and `jobTitle`, but stop treating preset internals
 
 - [ ] **Step 4: Run shared and native Swift tests**
 
-Run: `swift test --package-path apps/shared/SlackClawKit && swift test --package-path apps/macos-native`
+Run: `swift test --package-path apps/shared/ChillClawKit && swift test --package-path apps/macos-native`
 
 Expected: protocol decoding and native onboarding rendering continue to pass.
 

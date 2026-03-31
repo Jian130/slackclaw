@@ -1,8 +1,8 @@
-import type { SlackClawEvent } from "@slackclaw/contracts";
+import type { ChillClawEvent } from "@chillclaw/contracts";
 
 import { resolveApiBase } from "./client.js";
 
-type EventListener = (event: SlackClawEvent) => void;
+type EventListener = (event: ChillClawEvent) => void;
 type ErrorListener = (event: Event) => void;
 export type DaemonSocketConnectionState = "connecting" | "connected" | "reconnecting" | "closed" | "error";
 
@@ -57,7 +57,7 @@ function setConnectionState(next: DaemonSocketConnectionState, error?: string) {
   emitState();
 }
 
-function updateResourceRevision(event: SlackClawEvent) {
+function updateResourceRevision(event: ChillClawEvent) {
   switch (event.type) {
     case "overview.updated":
       lastSeenByResource.set("overview", { epoch: event.snapshot.epoch, revision: event.snapshot.revision });
@@ -123,7 +123,7 @@ function ensureSocket() {
 
   socket.onmessage = (event) => {
     try {
-      const payload = JSON.parse(event.data) as SlackClawEvent;
+      const payload = JSON.parse(event.data) as ChillClawEvent;
       updateResourceRevision(payload);
       for (const listener of [...eventListeners]) {
         listener(payload);

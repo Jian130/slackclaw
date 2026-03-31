@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import type { AppControlResponse } from "@slackclaw/contracts";
+import type { AppControlResponse } from "@chillclaw/contracts";
 
 import {
   getAppRootDir,
@@ -32,7 +32,7 @@ async function spawnDetachedShell(scriptPath: string): Promise<void> {
     });
 
     child.on("error", (error) => {
-      void writeErrorLog("SlackClaw could not start a detached app control script.", {
+      void writeErrorLog("ChillClaw could not start a detached app control script.", {
         scriptPath,
         error: errorToLogDetails(error)
       });
@@ -40,7 +40,7 @@ async function spawnDetachedShell(scriptPath: string): Promise<void> {
 
     child.unref();
   } catch (error) {
-    await writeErrorLog("SlackClaw could not spawn a detached app control script.", {
+    await writeErrorLog("ChillClaw could not spawn a detached app control script.", {
       scriptPath,
       error: errorToLogDetails(error)
     });
@@ -57,7 +57,7 @@ export class AppControlService {
     return {
       action: "stop-app",
       status: "completed",
-      message: "SlackClaw is stopping its local daemon. This page should close shortly."
+      message: "ChillClaw is stopping its local daemon. This page should close shortly."
     };
   }
 
@@ -68,7 +68,7 @@ export class AppControlService {
     const launchAgentPlistPath = getLaunchAgentPlistPath();
     const appBundlePath = appRoot ? resolve(appRoot, "..", "..") : undefined;
     const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
-    const tempScriptPath = resolve("/tmp", "slackclaw-uninstall.sh");
+    const tempScriptPath = resolve("/tmp", "chillclaw-uninstall.sh");
 
     await mkdir(dirname(tempScriptPath), { recursive: true });
     await writeFile(
@@ -93,8 +93,8 @@ ${appBundlePath ? `/bin/rm -rf "${appBundlePath}"` : ""}
       action: "uninstall-app",
       status: "completed",
       message: appBundlePath
-        ? "SlackClaw scheduled uninstall. It will stop, remove its LaunchAgent and data, and then remove the app bundle."
-        : "SlackClaw scheduled uninstall. It will stop and remove its LaunchAgent and local data."
+        ? "ChillClaw scheduled uninstall. It will stop, remove its LaunchAgent and data, and then remove the app bundle."
+        : "ChillClaw scheduled uninstall. It will stop and remove its LaunchAgent and local data."
     };
   }
 }

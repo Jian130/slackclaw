@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
-import type { OnboardingStateResponse } from "@slackclaw/contracts";
+import type { OnboardingStateResponse } from "@chillclaw/contracts";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
@@ -354,7 +354,7 @@ test("saving a model entry keeps the normalized live model key in the onboarding
           label: "MiniMax M2.7",
           providerId: request.providerId,
           modelKey: "minimax/MiniMax-M2.7",
-          agentId: "slackclaw-model-minimax",
+          agentId: "chillclaw-model-minimax",
           authMethodId: request.methodId,
           authModeLabel: "API key",
           profileLabel: "Default",
@@ -430,7 +430,7 @@ test("saving the first onboarding model clears legacy fallback entries from the 
           label: "MiniMax M2.7",
           providerId: request.providerId,
           modelKey: "minimax/MiniMax-M2.7",
-          agentId: "slackclaw-model-minimax",
+          agentId: "chillclaw-model-minimax",
           authMethodId: request.methodId,
           authModeLabel: "API key",
           profileLabel: "Default",
@@ -478,7 +478,7 @@ test("saving the first onboarding model clears legacy fallback entries from the 
             label: "MiniMax M2.7",
             providerId: "minimax",
             modelKey: "minimax/MiniMax-M2.7",
-            agentId: "slackclaw-model-minimax",
+            agentId: "chillclaw-model-minimax",
             authMethodId: "minimax-api",
             authModeLabel: "API key",
             profileLabel: "Default",

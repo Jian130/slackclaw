@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-SlackClaw must get non-technical users to a useful result quickly. Cross-platform packaging would dilute the initial reliability work.
+ChillClaw must get non-technical users to a useful result quickly. Cross-platform packaging would dilute the initial reliability work.
 
 ## Decision
 

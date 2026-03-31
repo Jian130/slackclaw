@@ -3,27 +3,27 @@
 import PackageDescription
 
 let package = Package(
-    name: "SlackClawNative",
+    name: "ChillClawNative",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .executable(name: "SlackClawNative", targets: ["SlackClawNative"]),
+        .executable(name: "ChillClawNative", targets: ["ChillClawNative"]),
     ],
     dependencies: [
         .package(
             url: "https://github.com/apple/swift-testing.git",
             revision: "4b38ab01ee6b5d6ba6d21eaaed60f8e13b3a021d"
         ),
-        .package(path: "../shared/SlackClawKit"),
+        .package(path: "../shared/ChillClawKit"),
     ],
     targets: [
         .executableTarget(
-            name: "SlackClawNative",
+            name: "ChillClawNative",
             dependencies: [
-                .product(name: "SlackClawProtocol", package: "SlackClawKit"),
-                .product(name: "SlackClawClient", package: "SlackClawKit"),
-                .product(name: "SlackClawChatUI", package: "SlackClawKit"),
+                .product(name: "ChillClawProtocol", package: "ChillClawKit"),
+                .product(name: "ChillClawClient", package: "ChillClawKit"),
+                .product(name: "ChillClawChatUI", package: "ChillClawKit"),
             ],
             resources: [
                 .process("Resources"),
@@ -33,9 +33,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "SlackClawNativeTests",
+            name: "ChillClawNativeTests",
             dependencies: [
-                "SlackClawNative",
+                "ChillClawNative",
                 .product(name: "Testing", package: "swift-testing"),
             ],
             swiftSettings: [

@@ -159,7 +159,7 @@ test("mock adapter supports skills runtime and marketplace flows", async () => {
   });
   assert.ok((await adapter.config.getSkillRuntimeCatalog()).skills.some((skill) => skill.slug === "internal-writer"));
 
-  await adapter.config.removeInstalledSkill("internal-writer", { managedBy: "slackclaw-custom" });
+  await adapter.config.removeInstalledSkill("internal-writer", { managedBy: "chillclaw-custom" });
   assert.equal((await adapter.config.getSkillRuntimeCatalog()).skills.some((skill) => skill.slug === "internal-writer"), false);
 });
 
@@ -200,7 +200,7 @@ test("mock adapter supports AI member runtime lifecycle", async () => {
     }
   });
 
-  assert.match(runtime.agentId, /^slackclaw-member-alex-morgan-\d{8}-\d{6}$/);
+  assert.match(runtime.agentId, /^chillclaw-member-alex-morgan-\d{8}-\d{6}$/);
   assert.deepEqual(await adapter.aiEmployees.getAIMemberBindings(runtime.agentId), []);
   assert.equal((await adapter.aiEmployees.listAIMemberRuntimeCandidates())[0]?.agentId, runtime.agentId);
 
@@ -219,14 +219,14 @@ test("mock adapter keeps chat sessions isolated per thread", async () => {
   await adapter.gateway.sendChatMessage({
     threadId: "thread-1",
     agentId: "member-agent-1",
-    sessionKey: "agent:member-agent-1:slackclaw-chat:thread-1",
+    sessionKey: "agent:member-agent-1:chillclaw-chat:thread-1",
     message: "Summarize today's work."
   });
 
   await adapter.gateway.sendChatMessage({
     threadId: "thread-2",
     agentId: "member-agent-2",
-    sessionKey: "agent:member-agent-2:slackclaw-chat:thread-2",
+    sessionKey: "agent:member-agent-2:chillclaw-chat:thread-2",
     message: "Draft tomorrow's plan."
   });
   await delay(30);
@@ -234,12 +234,12 @@ test("mock adapter keeps chat sessions isolated per thread", async () => {
   const firstThread = await adapter.gateway.getChatThreadDetail({
     threadId: "thread-1",
     agentId: "member-agent-1",
-    sessionKey: "agent:member-agent-1:slackclaw-chat:thread-1"
+    sessionKey: "agent:member-agent-1:chillclaw-chat:thread-1"
   });
   const secondThread = await adapter.gateway.getChatThreadDetail({
     threadId: "thread-2",
     agentId: "member-agent-2",
-    sessionKey: "agent:member-agent-2:slackclaw-chat:thread-2"
+    sessionKey: "agent:member-agent-2:chillclaw-chat:thread-2"
   });
 
   assert.equal(firstThread.messages.some((message) => message.text.includes("Summarize today's work.")), true);

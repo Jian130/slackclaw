@@ -18,7 +18,7 @@
 
 - [ ] **Step 1: Write a failing test that proves successful managed-local target uninstall resets persisted setup and channel onboarding state**
 - [ ] **Step 2: Write a failing test that proves successful standard target uninstall resets the same persisted state**
-- [ ] **Step 3: Run `npm test --workspace @slackclaw/daemon -- server.test.ts` to verify the new tests fail for the expected reason**
+- [ ] **Step 3: Run `npm test --workspace @chillclaw/daemon -- server.test.ts` to verify the new tests fail for the expected reason**
 
 ### Task 2: Implement the centralized uninstall reset helper
 
@@ -28,7 +28,7 @@
 - [ ] **Step 1: Extract a helper that clears uninstall-sensitive persisted daemon state**
 - [ ] **Step 2: Reuse that helper in `/api/engine/uninstall`**
 - [ ] **Step 3: Reuse that helper in `/api/deploy/targets/:id/uninstall` when uninstall succeeds and no OpenClaw runtime remains installed**
-- [ ] **Step 4: Re-run `npm test --workspace @slackclaw/daemon -- server.test.ts` to verify the tests pass**
+- [ ] **Step 4: Re-run `npm test --workspace @chillclaw/daemon -- server.test.ts` to verify the tests pass**
 
 ### Task 3: Verify the daemon package and repo-level regression surface
 
@@ -36,5 +36,5 @@
 - Modify: `apps/daemon/src/server.test.ts`
 - Modify: `apps/daemon/src/server.ts`
 
-- [ ] **Step 1: Run `npm test --workspace @slackclaw/daemon`**
-- [ ] **Step 2: Run `npm run build --workspace @slackclaw/daemon`**
+- [ ] **Step 1: Run `npm test --workspace @chillclaw/daemon`**
+- [ ] **Step 2: Run `npm run build --workspace @chillclaw/daemon`**

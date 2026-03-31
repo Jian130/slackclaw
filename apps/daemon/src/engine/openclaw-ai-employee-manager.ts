@@ -2,7 +2,7 @@ import type {
   BindAIMemberChannelRequest,
   DeleteAIMemberRequest,
   MemberBindingSummary
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type {
   AIEmployeeManager,

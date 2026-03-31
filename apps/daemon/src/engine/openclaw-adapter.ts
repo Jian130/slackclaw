@@ -34,7 +34,7 @@ import type {
   FeishuSetupRequest,
   TelegramSetupRequest,
   WechatSetupRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 import { writeMemberWorkspaceFiles } from "./member-workspace.js";
 import { AgentsConfigCoordinator } from "./openclaw-agents-config-coordinator.js";
 import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
@@ -328,7 +328,7 @@ export function isVisibleAIMemberAgentId(agentId: string | undefined): boolean {
 
 function isManagedModelAgentId(agentId: string | undefined): boolean {
   const trimmed = agentId?.trim();
-  return Boolean(trimmed && trimmed.startsWith("slackclaw-model-"));
+  return Boolean(trimmed && trimmed.startsWith("chillclaw-model-"));
 }
 
 function isImplicitMainAgentId(agentId: string | undefined): boolean {
@@ -391,7 +391,7 @@ interface OpenClawAuthProfileStoreJson {
 }
 
 const OPENCLAW_STATE_PATH = resolve(getDataDir(), "openclaw-state.json");
-const OPENCLAW_VERSION_OVERRIDE = process.env.SLACKCLAW_OPENCLAW_VERSION?.trim() || undefined;
+const OPENCLAW_VERSION_OVERRIDE = process.env.CHILLCLAW_OPENCLAW_VERSION?.trim() || undefined;
 const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
 const OPENCLAW_PACKAGE_SPEC = OPENCLAW_VERSION_OVERRIDE ? `openclaw@${OPENCLAW_VERSION_OVERRIDE}` : "openclaw@latest";
 const WECHAT_INSTALLER_PACKAGE_SPEC = "@tencent-weixin/openclaw-weixin-cli@latest";
@@ -400,9 +400,9 @@ const FEISHU_BUNDLED_SINCE = "2026.3.7";
 const OPENCLAW_MAIN_AGENT_ID = "main";
 const OPENCLAW_INSTALL_DOCS_URL = "https://docs.openclaw.ai/install";
 const OPENCLAW_MAC_DOCS_URL = "https://docs.openclaw.ai/mac/bun";
-const SLACKCLAW_OPENCLAW_GATEWAY_MODE = "local";
-const SLACKCLAW_OPENCLAW_GATEWAY_BIND = "loopback";
-const SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE = "token";
+const CHILLCLAW_OPENCLAW_GATEWAY_MODE = "local";
+const CHILLCLAW_OPENCLAW_GATEWAY_BIND = "loopback";
+const CHILLCLAW_OPENCLAW_GATEWAY_AUTH_MODE = "token";
 const STANDARD_OPENCLAW_REQUIREMENTS = [
   "macOS",
   "Node.js 22 or newer",
@@ -533,7 +533,7 @@ const gatewaySocketBridge = new OpenClawGatewaySocketAdapter({
     };
   },
   onReconnectError: async (error) => {
-    await writeErrorLog("SlackClaw lost the live OpenClaw chat event bridge.", {
+    await writeErrorLog("ChillClaw lost the live OpenClaw chat event bridge.", {
       error: errorToLogDetails(error)
     });
   }
@@ -925,7 +925,7 @@ async function runCommand(
         invalidateResolvedCommandByPath(command);
         invalidateReadCache(`command:version:${command}`, `command:update:${command}`, `command:status:${command}`);
       }
-      await writeErrorLog("Failed to spawn system command for SlackClaw.", {
+      await writeErrorLog("Failed to spawn system command for ChillClaw.", {
         command,
         args,
         error: errorToLogDetails(error)
@@ -1312,12 +1312,12 @@ function openClawVersionSummary(version: string | undefined): string {
   }
 
   if (!OPENCLAW_VERSION_OVERRIDE) {
-    return `OpenClaw ${version} is installed. SlackClaw uses the latest available version for new installs.`;
+    return `OpenClaw ${version} is installed. ChillClaw uses the latest available version for new installs.`;
   }
 
   return isOpenClawVersionCompatible(version)
-    ? `OpenClaw ${version} meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
-    : `OpenClaw ${version} is older than SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`;
+    ? `OpenClaw ${version} meets ChillClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
+    : `OpenClaw ${version} is older than ChillClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`;
 }
 
 export function summarizeTargetUpdateStatus(
@@ -1342,8 +1342,8 @@ export function summarizeTargetUpdateStatus(
       updateAvailable: false,
       latestVersion,
       summary: latestVersion
-        ? `SlackClaw could not fully confirm update availability, but the latest registry version appears to be ${latestVersion}.`
-        : `SlackClaw could not check for updates: ${parsed.update.registry.error}.`
+        ? `ChillClaw could not fully confirm update availability, but the latest registry version appears to be ${latestVersion}.`
+        : `ChillClaw could not check for updates: ${parsed.update.registry.error}.`
     };
   }
 
@@ -1393,12 +1393,12 @@ async function readUpdateStatusFromCommand(
           continue;
         }
 
-        return summarizeTargetUpdateStatus(parsed, result.stderr || result.stdout || "SlackClaw could not check for updates.");
+        return summarizeTargetUpdateStatus(parsed, result.stderr || result.stdout || "ChillClaw could not check for updates.");
       }
 
       return {
         updateAvailable: false,
-        summary: "SlackClaw could not check for updates."
+        summary: "ChillClaw could not check for updates."
       };
     },
     options
@@ -1790,8 +1790,8 @@ function appendAuthSessionOutput(session: RuntimeModelAuthSession, chunk: string
     session.status = "running";
     session.inputPrompt = undefined;
     session.message = session.launchUrl
-      ? "SlackClaw opened the provider sign-in page in your browser. Finish sign-in there."
-      : "SlackClaw is starting the OpenClaw authentication flow.";
+      ? "ChillClaw opened the provider sign-in page in your browser. Finish sign-in there."
+      : "ChillClaw is starting the OpenClaw authentication flow.";
   }
 }
 
@@ -1823,7 +1823,7 @@ function gatewayReachabilitySummary(snapshot: EngineReadSnapshot): string {
   return (
     summarizeGateway(snapshot.gatewayJson) ??
     snapshot.statusJson?.gateway?.error ??
-    "SlackClaw could not determine gateway reachability."
+    "ChillClaw could not determine gateway reachability."
   );
 }
 
@@ -2080,11 +2080,11 @@ async function writeOpenClawConfigFile(configPath: string, config: OpenClawConfi
   await writeFile(normalizedPath, JSON.stringify(config, null, 2));
 }
 
-function generateSlackClawGatewayToken(): string {
+function generateChillClawGatewayToken(): string {
   return randomBytes(24).toString("hex");
 }
 
-function normalizeOpenClawGatewayConfigForSlackClaw(config: OpenClawConfigFileJson): {
+function normalizeOpenClawGatewayConfigForChillClaw(config: OpenClawConfigFileJson): {
   changed: boolean;
   config: OpenClawConfigFileJson;
 } {
@@ -2093,8 +2093,8 @@ function normalizeOpenClawGatewayConfigForSlackClaw(config: OpenClawConfigFileJs
   const trimmedToken = currentAuth.token?.trim();
   const nextAuth: NonNullable<OpenClawConfigFileJson["gateway"]>["auth"] = {
     ...currentAuth,
-    mode: SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE,
-    token: trimmedToken || generateSlackClawGatewayToken()
+    mode: CHILLCLAW_OPENCLAW_GATEWAY_AUTH_MODE,
+    token: trimmedToken || generateChillClawGatewayToken()
   };
 
   if ("password" in nextAuth) {
@@ -2103,8 +2103,8 @@ function normalizeOpenClawGatewayConfigForSlackClaw(config: OpenClawConfigFileJs
 
   const nextGateway: NonNullable<OpenClawConfigFileJson["gateway"]> = {
     ...currentGateway,
-    mode: SLACKCLAW_OPENCLAW_GATEWAY_MODE,
-    bind: SLACKCLAW_OPENCLAW_GATEWAY_BIND,
+    mode: CHILLCLAW_OPENCLAW_GATEWAY_MODE,
+    bind: CHILLCLAW_OPENCLAW_GATEWAY_BIND,
     auth: nextAuth
   };
 
@@ -2113,9 +2113,9 @@ function normalizeOpenClawGatewayConfigForSlackClaw(config: OpenClawConfigFileJs
   }
 
   const changed =
-    currentGateway.mode !== SLACKCLAW_OPENCLAW_GATEWAY_MODE ||
-    currentGateway.bind !== SLACKCLAW_OPENCLAW_GATEWAY_BIND ||
-    currentAuth.mode !== SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE ||
+    currentGateway.mode !== CHILLCLAW_OPENCLAW_GATEWAY_MODE ||
+    currentGateway.bind !== CHILLCLAW_OPENCLAW_GATEWAY_BIND ||
+    currentAuth.mode !== CHILLCLAW_OPENCLAW_GATEWAY_AUTH_MODE ||
     currentAuth.token !== nextAuth.token ||
     Boolean(currentAuth.password) ||
     currentGateway.remote !== undefined;
@@ -2835,7 +2835,7 @@ function deriveLiveChannelState(
             ? "WeChat is linked but still finishing setup."
             : "WeChat login is staged and waiting for pairing.",
       detail: connected
-        ? "SlackClaw detected an existing configuration from the installed OpenClaw runtime."
+        ? "ChillClaw detected an existing configuration from the installed OpenClaw runtime."
         : lastError
           ? `WeChat is configured, but OpenClaw reported: ${lastError}`
           : linked
@@ -2847,7 +2847,7 @@ function deriveLiveChannelState(
   return createChannelState(channelId, {
     status: "completed",
     summary: `${channelId === "feishu" ? "Feishu" : channelId === "wechat-work" ? "WeChat Work" : "WeChat"} is configured in OpenClaw.`,
-    detail: "SlackClaw detected an existing configuration from the installed OpenClaw runtime."
+    detail: "ChillClaw detected an existing configuration from the installed OpenClaw runtime."
   });
 }
 
@@ -3517,10 +3517,10 @@ export class OpenClawAdapter implements EngineAdapter {
     return status?.configPath ?? defaultOpenClawConfigPath();
   }
 
-  private async ensureSlackClawGatewayConfigBaseline(command: string | undefined): Promise<boolean> {
+  private async ensureChillClawGatewayConfigBaseline(command: string | undefined): Promise<boolean> {
     const configPath = await this.resolveOpenClawConfigPathForInstall(command);
     const currentConfig = (await readOpenClawConfigFile(configPath)) ?? {};
-    const normalized = normalizeOpenClawGatewayConfigForSlackClaw(currentConfig);
+    const normalized = normalizeOpenClawGatewayConfigForChillClaw(currentConfig);
 
     if (!normalized.changed) {
       return false;
@@ -3528,11 +3528,11 @@ export class OpenClawAdapter implements EngineAdapter {
 
     await writeOpenClawConfigFile(configPath, normalized.config);
     invalidateReadCache("models:", "engine:");
-    await writeInfoLog("Normalized OpenClaw gateway config to SlackClaw's local baseline.", {
+    await writeInfoLog("Normalized OpenClaw gateway config to ChillClaw's local baseline.", {
       configPath,
-      gatewayMode: SLACKCLAW_OPENCLAW_GATEWAY_MODE,
-      gatewayBind: SLACKCLAW_OPENCLAW_GATEWAY_BIND,
-      gatewayAuthMode: SLACKCLAW_OPENCLAW_GATEWAY_AUTH_MODE
+      gatewayMode: CHILLCLAW_OPENCLAW_GATEWAY_MODE,
+      gatewayBind: CHILLCLAW_OPENCLAW_GATEWAY_BIND,
+      gatewayAuthMode: CHILLCLAW_OPENCLAW_GATEWAY_AUTH_MODE
     });
     return true;
   }
@@ -3570,7 +3570,7 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     logDevelopmentCommand("fallback", "openclaw-config", [options.fallbackDescription]);
-    await writeInfoLog("SlackClaw activated config-backed OpenClaw fallback.", {
+    await writeInfoLog("ChillClaw activated config-backed OpenClaw fallback.", {
       commandArgs: options.commandArgs,
       fallbackDescription: options.fallbackDescription,
       failure: commandFailureText(result)
@@ -3881,7 +3881,7 @@ export class OpenClawAdapter implements EngineAdapter {
       if (existingIndex < 0) {
         const runtimeEntry = (await this.listOpenClawAgents()).find((entry) => entry.id === normalizedAgentId);
         if (!runtimeEntry) {
-          throw new Error(`SlackClaw could not find the AI member agent ${normalizedAgentId}.`);
+          throw new Error(`ChillClaw could not find the AI member agent ${normalizedAgentId}.`);
         }
 
         nextList.push({
@@ -3960,7 +3960,7 @@ export class OpenClawAdapter implements EngineAdapter {
       );
 
       if (add.code !== 0) {
-        throw new Error(add.stderr || add.stdout || `SlackClaw could not create the AI member agent ${agentId}.`);
+        throw new Error(add.stderr || add.stdout || `ChillClaw could not create the AI member agent ${agentId}.`);
       }
 
       created = true;
@@ -4094,8 +4094,8 @@ export class OpenClawAdapter implements EngineAdapter {
     const state = await readAdapterState();
 
     if (await resolveOpenClawCommand()) {
-      await runOpenClaw(["config", "set", "slackclaw.defaultProfile", profileId], { allowFailure: true });
-      await this.markGatewayApplyPending("SlackClaw saved profile configuration changes that still need to be applied through Gateway Manager.");
+      await runOpenClaw(["config", "set", "chillclaw.defaultProfile", profileId], { allowFailure: true });
+      await this.markGatewayApplyPending("ChillClaw saved profile configuration changes that still need to be applied through Gateway Manager.");
     }
 
     await writeAdapterState({
@@ -4159,18 +4159,18 @@ export class OpenClawAdapter implements EngineAdapter {
       const install = await runOpenClaw(["gateway", "install", "--json"], { allowFailure: true });
       if (install.code !== 0 && !hasOnlyIgnorableOpenClawWarnings(install)) {
         throw new Error(
-          install.stderr || install.stdout || `SlackClaw could not install the OpenClaw gateway service after ${reason}.`
+          install.stderr || install.stdout || `ChillClaw could not install the OpenClaw gateway service after ${reason}.`
         );
       }
 
       const start = await runOpenClaw(["gateway", "start"], { allowFailure: true });
       if (start.code !== 0 && !hasOnlyIgnorableOpenClawWarnings(start)) {
         throw new Error(
-          start.stderr || start.stdout || `SlackClaw could not start the OpenClaw gateway service after ${reason}.`
+          start.stderr || start.stdout || `ChillClaw could not start the OpenClaw gateway service after ${reason}.`
         );
       }
     } else if (restart.code !== 0 && !hasOnlyIgnorableOpenClawWarnings(restart)) {
-      throw new Error(restart.stderr || restart.stdout || `SlackClaw could not restart the OpenClaw gateway after ${reason}.`);
+      throw new Error(restart.stderr || restart.stdout || `ChillClaw could not restart the OpenClaw gateway after ${reason}.`);
     }
 
     invalidateReadCache("engine:", "models:", "channels:", "plugins:", "skills:", "agents:", "command:version:", "command:update:");
@@ -4204,7 +4204,7 @@ export class OpenClawAdapter implements EngineAdapter {
     const snapshot = await readEngineSnapshot({ fresh: true });
     throw new Error(
       gatewayReachabilitySummary(snapshot) ||
-        `SlackClaw restarted the OpenClaw gateway after ${reason}, but it is still not reachable.`
+        `ChillClaw restarted the OpenClaw gateway after ${reason}, but it is still not reachable.`
     );
   }
 
@@ -4294,9 +4294,9 @@ export class OpenClawAdapter implements EngineAdapter {
       const reusedCommand = usesManagedLocalRuntime
         ? await resolveManagedOpenClawCommand({ fresh: true })
         : await resolveSystemOpenClawCommand({ fresh: true });
-      const configChanged = await this.ensureSlackClawGatewayConfigBaseline(reusedCommand);
+      const configChanged = await this.ensureChillClawGatewayConfigBaseline(reusedCommand);
       const gatewayNormalizationSuffix = configChanged
-        ? " SlackClaw also reset the OpenClaw gateway to its local baseline on this Mac."
+        ? " ChillClaw also reset the OpenClaw gateway to its local baseline on this Mac."
         : "";
 
       return {
@@ -4306,10 +4306,10 @@ export class OpenClawAdapter implements EngineAdapter {
         existingVersion,
         version: existingVersion,
         message: usesManagedLocalRuntime
-          ? `OpenClaw ${existingVersion} is already available in SlackClaw's managed local runtime.${gatewayNormalizationSuffix}`
+          ? `OpenClaw ${existingVersion} is already available in ChillClaw's managed local runtime.${gatewayNormalizationSuffix}`
           : OPENCLAW_VERSION_OVERRIDE
-            ? `OpenClaw ${existingVersion} is already installed and meets SlackClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.${gatewayNormalizationSuffix}`
-            : `OpenClaw ${existingVersion} is already installed and ready for SlackClaw.${gatewayNormalizationSuffix}`
+            ? `OpenClaw ${existingVersion} is already installed and meets ChillClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.${gatewayNormalizationSuffix}`
+            : `OpenClaw ${existingVersion} is already installed and ready for ChillClaw.${gatewayNormalizationSuffix}`
       };
     }
 
@@ -4319,10 +4319,10 @@ export class OpenClawAdapter implements EngineAdapter {
     if (!ensuredNpmInvocation) {
       throw new Error(
         brewCommand
-          ? "SlackClaw asked Homebrew to prepare the required toolchain, but still could not find a working npm executable afterward."
+          ? "ChillClaw asked Homebrew to prepare the required toolchain, but still could not find a working npm executable afterward."
           : existingVersion || systemVersion
-            ? `SlackClaw found OpenClaw ${existingVersion ?? systemVersion}, but cannot deploy a managed local copy because neither npm nor Homebrew is available on this Mac.`
-            : "SlackClaw cannot deploy OpenClaw locally because neither npm nor Homebrew is available on this Mac."
+            ? `ChillClaw found OpenClaw ${existingVersion ?? systemVersion}, but cannot deploy a managed local copy because neither npm nor Homebrew is available on this Mac.`
+            : "ChillClaw cannot deploy OpenClaw locally because neither npm nor Homebrew is available on this Mac."
       );
     }
 
@@ -4356,17 +4356,17 @@ export class OpenClawAdapter implements EngineAdapter {
     if (!nextVersion || (OPENCLAW_VERSION_OVERRIDE && nextVersion !== OPENCLAW_VERSION_OVERRIDE)) {
       throw new Error(
         usesManagedLocalRuntime
-          ? `SlackClaw downloaded OpenClaw into ${installPath}, but could not verify that the managed runtime can execute on this Mac.`
-          : "SlackClaw installed OpenClaw, but could not verify the installed CLI."
+          ? `ChillClaw downloaded OpenClaw into ${installPath}, but could not verify that the managed runtime can execute on this Mac.`
+          : "ChillClaw installed OpenClaw, but could not verify the installed CLI."
       );
     }
 
     const installedCommand = usesManagedLocalRuntime
       ? await resolveManagedOpenClawCommand({ fresh: true })
       : await resolveSystemOpenClawCommand({ fresh: true });
-    const configChanged = await this.ensureSlackClawGatewayConfigBaseline(installedCommand);
+    const configChanged = await this.ensureChillClawGatewayConfigBaseline(installedCommand);
     const gatewayNormalizationSuffix = configChanged
-      ? " SlackClaw also reset the OpenClaw gateway to its local baseline on this Mac."
+      ? " ChillClaw also reset the OpenClaw gateway to its local baseline on this Mac."
       : "";
 
     return {
@@ -4377,10 +4377,10 @@ export class OpenClawAdapter implements EngineAdapter {
       version: nextVersion,
       message: usesManagedLocalRuntime
         ? existingVersion
-          ? `SlackClaw refreshed its managed local OpenClaw ${nextVersion} runtime in ${installPath}.${gatewayNormalizationSuffix}`
+          ? `ChillClaw refreshed its managed local OpenClaw ${nextVersion} runtime in ${installPath}.${gatewayNormalizationSuffix}`
           : systemVersion
-            ? `SlackClaw deployed a managed local OpenClaw ${nextVersion} runtime into ${installPath} instead of depending on the system OpenClaw ${systemVersion}.${gatewayNormalizationSuffix}`
-            : `SlackClaw deployed OpenClaw ${nextVersion} locally into ${installPath}.${gatewayNormalizationSuffix}`
+            ? `ChillClaw deployed a managed local OpenClaw ${nextVersion} runtime into ${installPath} instead of depending on the system OpenClaw ${systemVersion}.${gatewayNormalizationSuffix}`
+            : `ChillClaw deployed OpenClaw ${nextVersion} locally into ${installPath}.${gatewayNormalizationSuffix}`
         : existingVersion
           ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion}.${gatewayNormalizationSuffix}`
           : `Installed OpenClaw ${nextVersion}.${gatewayNormalizationSuffix}`
@@ -4425,7 +4425,7 @@ export class OpenClawAdapter implements EngineAdapter {
     }
 
     if (!brewCommand) {
-      await writeErrorLog("SlackClaw could not install missing dependencies because Homebrew is unavailable.", {
+      await writeErrorLog("ChillClaw could not install missing dependencies because Homebrew is unavailable.", {
         missingPackages: packages
       });
       return undefined;
@@ -4434,7 +4434,7 @@ export class OpenClawAdapter implements EngineAdapter {
     const installResult = await runCommand(brewCommand, ["install", ...packages], { allowFailure: true });
 
     if (installResult.code !== 0) {
-      await writeErrorLog("SlackClaw failed to install missing dependencies with Homebrew.", {
+      await writeErrorLog("ChillClaw failed to install missing dependencies with Homebrew.", {
         command: brewCommand,
         args: ["install", ...packages],
         result: installResult
@@ -4442,11 +4442,11 @@ export class OpenClawAdapter implements EngineAdapter {
       throw new Error(
         installResult.stderr ||
           installResult.stdout ||
-          `SlackClaw could not install missing dependencies (${packages.join(", ")}) with Homebrew.`
+          `ChillClaw could not install missing dependencies (${packages.join(", ")}) with Homebrew.`
       );
     }
 
-    await writeInfoLog("SlackClaw installed missing system dependencies with Homebrew.", {
+    await writeInfoLog("ChillClaw installed missing system dependencies with Homebrew.", {
       command: brewCommand,
       packages
     });

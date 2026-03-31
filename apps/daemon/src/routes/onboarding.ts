@@ -7,7 +7,7 @@ import type {
   OnboardingStepNavigationRequest,
   SaveChannelEntryRequest,
   SaveModelEntryRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { jsonResponse, readJson } from "./http.js";
 import { createPathMatcher } from "./matchers.js";

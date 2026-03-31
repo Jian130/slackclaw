@@ -35,7 +35,7 @@ test("skill service returns live installed skills and marketplace preview", asyn
   assert.equal(overview.marketplaceAvailable, true);
 });
 
-test("skill service creates and edits SlackClaw custom skills", async () => {
+test("skill service creates and edits ChillClaw custom skills", async () => {
   const { service, store } = createService("skills-custom");
 
   await service.saveCustomSkill(undefined, {
@@ -49,7 +49,7 @@ test("skill service creates and edits SlackClaw custom skills", async () => {
   let overview = await service.getConfigOverview();
   let created = overview.installedSkills.find((skill) => skill.slug === "internal-sop-writer");
   assert.ok(created);
-  assert.equal(created?.managedBy, "slackclaw-custom");
+  assert.equal(created?.managedBy, "chillclaw-custom");
 
   await service.updateSkill(created!.id, {
     action: "edit-custom",

@@ -3,7 +3,7 @@ import type {
   OnboardingEmployeePresetPresentation,
   OnboardingModelProviderPresentation,
   OnboardingUiConfig
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import { onboardingEmployeePresetPresentationById } from "./ai-member-presets.js";
 
