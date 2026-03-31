@@ -79,152 +79,152 @@ export const engineCompatibilityCapabilities: EngineCompatibilityCapabilityDefin
   {
     id: "detect-runtime",
     label: "Detect runtime",
-    description: "Verify SlackClaw can identify an installed engine runtime and read its version."
+    description: "Verify ChillClaw can identify an installed engine runtime and read its version."
   },
   {
     id: "install-managed-runtime",
     label: "Install managed runtime",
-    description: "Verify SlackClaw can provision a self-contained managed runtime."
+    description: "Verify ChillClaw can provision a self-contained managed runtime."
   },
   {
     id: "update-runtime",
     label: "Update runtime",
-    description: "Verify SlackClaw can inspect or preview runtime updates."
+    description: "Verify ChillClaw can inspect or preview runtime updates."
   },
   {
     id: "uninstall-runtime",
     label: "Uninstall runtime",
-    description: "Verify SlackClaw can remove a managed runtime or report system uninstall limits."
+    description: "Verify ChillClaw can remove a managed runtime or report system uninstall limits."
   },
   {
     id: "fetch-deployment-targets",
     label: "Fetch deployment targets",
-    description: "Verify SlackClaw can resolve deployment target status for the engine."
+    description: "Verify ChillClaw can resolve deployment target status for the engine."
   },
   {
     id: "add-model",
     label: "Add model",
-    description: "Verify SlackClaw can create a saved model entry for the engine."
+    description: "Verify ChillClaw can create a saved model entry for the engine."
   },
   {
     id: "modify-model",
     label: "Modify model",
-    description: "Verify SlackClaw can update an existing saved model entry."
+    description: "Verify ChillClaw can update an existing saved model entry."
   },
   {
     id: "remove-model",
     label: "Remove model",
-    description: "Verify SlackClaw can delete a saved model entry."
+    description: "Verify ChillClaw can delete a saved model entry."
   },
   {
     id: "set-default-model",
     label: "Set default model",
-    description: "Verify SlackClaw can switch the active default model entry."
+    description: "Verify ChillClaw can switch the active default model entry."
   },
   {
     id: "set-fallback-model",
     label: "Set fallback model",
-    description: "Verify SlackClaw can update the active fallback model chain."
+    description: "Verify ChillClaw can update the active fallback model chain."
   },
   {
     id: "add-channel",
     label: "Add channel",
-    description: "Verify SlackClaw can add a channel account."
+    description: "Verify ChillClaw can add a channel account."
   },
   {
     id: "modify-channel",
     label: "Modify channel",
-    description: "Verify SlackClaw can modify an existing channel account."
+    description: "Verify ChillClaw can modify an existing channel account."
   },
   {
     id: "remove-channel",
     label: "Remove channel",
-    description: "Verify SlackClaw can remove a channel account."
+    description: "Verify ChillClaw can remove a channel account."
   },
   {
     id: "restart-gateway",
     label: "Restart gateway",
-    description: "Verify SlackClaw can restart the engine gateway."
+    description: "Verify ChillClaw can restart the engine gateway."
   },
   {
     id: "verify-gateway-health",
     label: "Verify gateway health",
-    description: "Verify SlackClaw can confirm the gateway is reachable and healthy enough for work."
+    description: "Verify ChillClaw can confirm the gateway is reachable and healthy enough for work."
   },
   {
     id: "run-task-through-default-model",
     label: "Run task through default model",
-    description: "Verify SlackClaw tasks run through the selected default model entry."
+    description: "Verify ChillClaw tasks run through the selected default model entry."
   },
   {
     id: "list-members",
     label: "List AI members",
-    description: "Verify SlackClaw can load daemon-backed AI members mapped to engine agents."
+    description: "Verify ChillClaw can load daemon-backed AI members mapped to engine agents."
   },
   {
     id: "create-member",
     label: "Create AI member",
-    description: "Verify SlackClaw can create an AI member and provision its engine agent."
+    description: "Verify ChillClaw can create an AI member and provision its engine agent."
   },
   {
     id: "update-member",
     label: "Update AI member",
-    description: "Verify SlackClaw can update an AI member without replacing its agent."
+    description: "Verify ChillClaw can update an AI member without replacing its agent."
   },
   {
     id: "delete-member",
     label: "Delete AI member",
-    description: "Verify SlackClaw can delete an AI member and remove its engine agent."
+    description: "Verify ChillClaw can delete an AI member and remove its engine agent."
   },
   {
     id: "list-teams",
     label: "List AI teams",
-    description: "Verify SlackClaw can load daemon-backed AI team data."
+    description: "Verify ChillClaw can load daemon-backed AI team data."
   },
   {
     id: "create-team",
     label: "Create AI team",
-    description: "Verify SlackClaw can create an AI team and persist membership."
+    description: "Verify ChillClaw can create an AI team and persist membership."
   },
   {
     id: "update-team",
     label: "Update AI team",
-    description: "Verify SlackClaw can update team metadata and roster membership."
+    description: "Verify ChillClaw can update team metadata and roster membership."
   },
   {
     id: "delete-team",
     label: "Delete AI team",
-    description: "Verify SlackClaw can delete a team without deleting its members."
+    description: "Verify ChillClaw can delete a team without deleting its members."
   },
   {
     id: "run-task-with-member-agent",
     label: "Run task with member agent",
-    description: "Verify SlackClaw can route a task through a selected AI member agent."
+    description: "Verify ChillClaw can route a task through a selected AI member agent."
   },
   {
     id: "list-chat-threads",
     label: "List chat threads",
-    description: "Verify SlackClaw can load chat threads for AI member conversations."
+    description: "Verify ChillClaw can load chat threads for AI member conversations."
   },
   {
     id: "create-chat-thread",
     label: "Create chat thread",
-    description: "Verify SlackClaw can create a new chat thread for an AI member."
+    description: "Verify ChillClaw can create a new chat thread for an AI member."
   },
   {
     id: "load-chat-history",
     label: "Load chat history",
-    description: "Verify SlackClaw can reload chat history from an OpenClaw-backed session."
+    description: "Verify ChillClaw can reload chat history from an OpenClaw-backed session."
   },
   {
     id: "send-chat-message",
     label: "Send chat message",
-    description: "Verify SlackClaw can send a chat message through the selected AI member agent."
+    description: "Verify ChillClaw can send a chat message through the selected AI member agent."
   },
   {
     id: "abort-chat-message",
     label: "Abort chat message",
-    description: "Verify SlackClaw can stop an in-flight assistant reply."
+    description: "Verify ChillClaw can stop an in-flight assistant reply."
   }
 ];
 

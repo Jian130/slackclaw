@@ -1,0 +1,42 @@
+<svg width="640" height="640" viewBox="0 0 640 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="640" rx="110" fill="url(#paint0_linear)"/>
+  <rect x="114" y="114" width="412" height="412" rx="48" fill="#FFF8ED"/>
+  <rect x="152" y="160" width="336" height="64" rx="24" fill="#5EB3B8"/>
+  <circle cx="184" cy="192" r="16" fill="#FFFFFF"/>
+  <rect x="214" y="181" width="174" height="22" rx="11" fill="#FFFFFF" fill-opacity="0.85"/>
+  <g>
+    <rect x="152" y="252" width="336" height="74" rx="28" fill="#FFFFFF"/>
+    <circle cx="190" cy="289" r="20" fill="#F5C563"/>
+    <path d="M181 289L188 296L201 282" stroke="#1A2B2E" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="228" y="274" width="182" height="14" rx="7" fill="#1A2B2E"/>
+    <rect x="228" y="297" width="128" height="12" rx="6" fill="#6B8284"/>
+  </g>
+  <g>
+    <rect x="152" y="348" width="336" height="74" rx="28" fill="#FFFFFF"/>
+    <circle cx="190" cy="385" r="20" fill="#FFA463"/>
+    <path d="M181 385L188 392L201 378" stroke="#1A2B2E" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="228" y="370" width="206" height="14" rx="7" fill="#1A2B2E"/>
+    <rect x="228" y="393" width="146" height="12" rx="6" fill="#6B8284"/>
+  </g>
+  <g>
+    <rect x="152" y="444" width="336" height="74" rx="28" fill="#FFFFFF"/>
+    <circle cx="190" cy="481" r="20" fill="#5EB3B8"/>
+    <path d="M181 481L188 488L201 474" stroke="#1A2B2E" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="228" y="466" width="160" height="14" rx="7" fill="#1A2B2E"/>
+    <rect x="228" y="489" width="110" height="12" rx="6" fill="#6B8284"/>
+  </g>
+  <circle cx="505" cy="140" r="60" fill="#FFFFFF" fill-opacity="0.22"/>
+  <rect x="424" y="72" width="126" height="136" rx="46" fill="#FFFFFF"/>
+  <circle cx="465" cy="122" r="13" fill="#1A2B2E"/>
+  <circle cx="509" cy="122" r="13" fill="#1A2B2E"/>
+  <path d="M456 160C464.517 168.987 475.945 174 488 174C500.055 174 511.483 168.987 520 160" stroke="#1A2B2E" stroke-width="10" stroke-linecap="round"/>
+  <rect x="446" y="203" width="86" height="58" rx="22" fill="#F5C563"/>
+  <path d="M489 206V234" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+  <path d="M475 220H503" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="paint0_linear" x1="80" y1="64" x2="566" y2="572" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5C563"/>
+      <stop offset="1" stop-color="#FFA463"/>
+    </linearGradient>
+  </defs>
+</svg>

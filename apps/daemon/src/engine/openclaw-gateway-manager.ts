@@ -4,11 +4,13 @@ import type {
   ChannelSession,
   ChannelSessionInputRequest,
   ChannelSetupState,
+  EngineTaskRequest,
+  EngineTaskResult,
   EngineStatus,
   HealthCheckResult,
   PairingApprovalRequest,
   SendChatMessageRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineChatLiveEvent, GatewayManager } from "./adapter.js";
 
@@ -18,13 +20,18 @@ type GatewayAccess = {
   getActiveChannelSession: () => Promise<ChannelSession | undefined>;
   getChannelSession: (sessionId: string) => Promise<ChannelSession>;
   submitChannelSessionInput: (sessionId: string, request: ChannelSessionInputRequest) => Promise<ChannelSession>;
+  runTask: (request: EngineTaskRequest) => Promise<EngineTaskResult>;
   getChatThreadDetail: (request: { agentId: string; threadId: string; sessionKey: string }) => Promise<ChatThreadDetail>;
   subscribeToLiveChatEvents: (listener: (event: EngineChatLiveEvent) => void) => Promise<() => void>;
   sendChatMessage: (request: SendChatMessageRequest & { agentId: string; threadId: string; sessionKey: string }) => Promise<{ runId?: string }>;
   abortChatMessage: (request: AbortChatRequest & { agentId: string; threadId: string; sessionKey: string }) => Promise<void>;
   startWhatsappLogin: () => Promise<{ message: string; channel: ChannelSetupState }>;
-  approvePairing: (channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest) => Promise<{ message: string; channel: ChannelSetupState }>;
+  approvePairing: (
+    channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work" | "wechat",
+    request: PairingApprovalRequest
+  ) => Promise<{ message: string; channel: ChannelSetupState }>;
   prepareFeishu: () => Promise<{ message: string; channel: ChannelSetupState }>;
+  finalizeOnboardingSetup: () => Promise<{ message: string; engineStatus: EngineStatus }>;
   startGatewayAfterChannels: () => Promise<{ message: string; engineStatus: EngineStatus }>;
 };
 
@@ -51,6 +58,10 @@ export class OpenClawGatewayManager implements GatewayManager {
     return this.access.submitChannelSessionInput(sessionId, request);
   }
 
+  runTask(request: EngineTaskRequest) {
+    return this.access.runTask(request);
+  }
+
   getChatThreadDetail(request: { agentId: string; threadId: string; sessionKey: string }) {
     return this.access.getChatThreadDetail(request);
   }
@@ -71,12 +82,16 @@ export class OpenClawGatewayManager implements GatewayManager {
     return this.access.startWhatsappLogin();
   }
 
-  approvePairing(channelId: "telegram" | "whatsapp" | "feishu", request: PairingApprovalRequest) {
+  approvePairing(channelId: "telegram" | "whatsapp" | "feishu" | "wechat-work" | "wechat", request: PairingApprovalRequest) {
     return this.access.approvePairing(channelId, request);
   }
 
   prepareFeishu() {
     return this.access.prepareFeishu();
+  }
+
+  finalizeOnboardingSetup() {
+    return this.access.finalizeOnboardingSetup();
   }
 
   startGatewayAfterChannels() {

@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type {
   AIMemberDetail,
@@ -8,9 +7,13 @@ import type {
   ChannelSetupState,
   EngineTaskResult,
   OnboardingDraftState,
+  PresetSkillSyncOverview,
+  PresetSkillTargetMode,
   TeamDetail,
   SupportedChannelId
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
+import { normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";
+import { FilesystemStateAdapter } from "../platform/filesystem-state-adapter.js";
 import { getDataDir } from "../runtime-paths.js";
 
 export interface StoredChannelEntryState {
@@ -49,6 +52,19 @@ export interface SkillState {
   customEntries: Record<string, StoredCustomSkillState>;
 }
 
+export interface PresetSkillSelectionState {
+  presetSkillIds: string[];
+  targetMode: PresetSkillTargetMode;
+  updatedAt: string;
+}
+
+export interface PresetSkillState {
+  targetMode: PresetSkillTargetMode;
+  selections: Record<string, PresetSkillSelectionState>;
+  syncOverview?: PresetSkillSyncOverview;
+  lastReconciledAt?: string;
+}
+
 export interface StoredChatThreadState {
   id: string;
   memberId: string;
@@ -77,6 +93,7 @@ export interface AppState {
   channelOnboarding?: ChannelOnboardingState;
   aiTeam?: AITeamState;
   skills?: SkillState;
+  presetSkills?: PresetSkillState;
   chat?: ChatState;
 }
 
@@ -86,30 +103,237 @@ export function defaultOnboardingDraftState(): OnboardingDraftState {
   };
 }
 
+export function defaultPresetSkillState(): PresetSkillState {
+  return {
+    targetMode: "managed-local",
+    selections: {}
+  };
+}
+
 const DEFAULT_STATE: AppState = {
   selectedProfileId: undefined,
   tasks: []
 };
 
+const LEGACY_WECHAT_WORK_FIELD_IDS = new Set(["corpId", "agentId", "token", "encodingAesKey"]);
+const LEGACY_WECHAT_WORK_SUMMARY_LABELS = new Set(["Corp ID", "Agent ID", "Webhook token", "Encoding AES key"]);
+
+function containsLegacyWechatWorkMetadata(value: string | undefined): boolean {
+  return /wechat work|wecom|workaround/i.test(value ?? "");
+}
+
+function shouldMigrateLegacyWechatWorkEntry(entry: StoredChannelEntryState): boolean {
+  if (entry.channelId !== "wechat") {
+    return false;
+  }
+
+  if (Object.keys(entry.editableValues ?? {}).some((fieldId) => LEGACY_WECHAT_WORK_FIELD_IDS.has(fieldId))) {
+    return true;
+  }
+
+  if (entry.maskedConfigSummary.some((summary) => LEGACY_WECHAT_WORK_SUMMARY_LABELS.has(summary.label) || containsLegacyWechatWorkMetadata(summary.value))) {
+    return true;
+  }
+
+  return containsLegacyWechatWorkMetadata(entry.label);
+}
+
+function shouldMigrateLegacyWechatWorkChannel(channelState: ChannelSetupState, hasLegacyWechatWorkEntries: boolean): boolean {
+  if (channelState.id !== "wechat") {
+    return false;
+  }
+
+  if (hasLegacyWechatWorkEntries) {
+    return true;
+  }
+
+  return [
+    channelState.title,
+    channelState.summary,
+    channelState.detail,
+    ...(channelState.logs ?? [])
+  ].some((value) => containsLegacyWechatWorkMetadata(value));
+}
+
+function normalizeLegacyWechatWorkEditableValues(editableValues: Record<string, string>): Record<string, string> {
+  const botId = editableValues.botId?.trim() || editableValues.agentId?.trim() || "";
+  const nextValues = Object.fromEntries(
+    Object.entries(editableValues).filter(([fieldId]) => !LEGACY_WECHAT_WORK_FIELD_IDS.has(fieldId))
+  );
+
+  if (botId) {
+    nextValues.botId = botId;
+  }
+
+  return nextValues;
+}
+
+function normalizeLegacyWechatWorkMaskedSummary(
+  maskedConfigSummary: ChannelFieldSummary[],
+  editableValues: Record<string, string>
+): ChannelFieldSummary[] {
+  const nextSummary = maskedConfigSummary
+    .filter((summary) => !["Corp ID", "Webhook token", "Encoding AES key"].includes(summary.label))
+    .map((summary) => ({
+      ...summary,
+      label: summary.label === "Agent ID" ? "Bot ID" : summary.label
+    }));
+
+  const hasBotId = nextSummary.some((summary) => summary.label === "Bot ID");
+  if (hasBotId) {
+    return nextSummary;
+  }
+
+  const botId = editableValues.botId?.trim() || editableValues.agentId?.trim();
+  if (!botId) {
+    return nextSummary;
+  }
+
+  return [{ label: "Bot ID", value: botId }, ...nextSummary];
+}
+
+function migrateLegacyOnboardingPresetSkills(state: AppState): AppState {
+  const employee = state.onboarding?.draft?.employee as (OnboardingDraftState["employee"] & {
+    skillIds?: string[];
+  }) | undefined;
+
+  if (!employee || employee.presetSkillIds?.length) {
+    return state;
+  }
+
+  const legacyPresetSkillIds = normalizePresetSkillIds(employee.skillIds).filter((presetSkillId) => presetSkillDefinitionById(presetSkillId));
+  if (legacyPresetSkillIds.length === 0) {
+    return state;
+  }
+
+  const { skillIds: _legacySkillIds, ...nextEmployee } = employee;
+
+  return {
+    ...state,
+    onboarding: {
+      ...(state.onboarding ?? { draft: defaultOnboardingDraftState() }),
+      draft: {
+        ...(state.onboarding?.draft ?? defaultOnboardingDraftState()),
+        employee: {
+          ...nextEmployee,
+          presetSkillIds: legacyPresetSkillIds
+        }
+      }
+    }
+  };
+}
+
+function migrateLegacyWechatChannelOnboarding(state: AppState): AppState {
+  const channelOnboarding = state.channelOnboarding;
+  const onboardingChannel = state.onboarding?.draft.channel;
+  const legacyWechatWorkEntryIds = new Set(
+    Object.entries(channelOnboarding?.entries ?? {})
+      .filter(([entryId, entry]) => entryId.startsWith("wechat:") && shouldMigrateLegacyWechatWorkEntry(entry))
+      .map(([entryId]) => entryId)
+  );
+  const hasLegacyWechatWorkEntries = legacyWechatWorkEntryIds.size > 0;
+  const legacyWechatWorkChannelIds = new Set(
+    Object.entries(channelOnboarding?.channels ?? {})
+      .filter(([channelId, channelState]) => channelId === "wechat" && shouldMigrateLegacyWechatWorkChannel(channelState, hasLegacyWechatWorkEntries))
+      .map(([channelId]) => channelId)
+  );
+
+  const migrateLegacyChannelId = (channelId: string, shouldMigrate: boolean): SupportedChannelId =>
+    (shouldMigrate && channelId === "wechat" ? "wechat-work" : channelId) as SupportedChannelId;
+  const migrateLegacyEntryId = (entryId: string, shouldMigrate: boolean): string =>
+    shouldMigrate && entryId.startsWith("wechat:") ? entryId.replace(/^wechat(?=:)/, "wechat-work") : entryId;
+
+  const migratedChannelOnboarding = channelOnboarding
+    ? {
+        ...channelOnboarding,
+        channels: Object.entries(channelOnboarding.channels ?? {}).reduce<Record<string, ChannelSetupState>>((nextChannels, [channelId, channelState]) => {
+          const shouldMigrate = legacyWechatWorkChannelIds.has(channelId);
+          const nextChannelId = migrateLegacyChannelId(channelId, shouldMigrate);
+          const canonicalEntryExists = nextChannelId in nextChannels;
+
+          if (canonicalEntryExists && shouldMigrate && nextChannelId !== channelId) {
+            return nextChannels;
+          }
+
+          nextChannels[nextChannelId] = { ...channelState, id: nextChannelId };
+          return nextChannels;
+        }, {}),
+        entries: channelOnboarding.entries
+          ? Object.entries(channelOnboarding.entries).reduce<Record<string, StoredChannelEntryState>>((nextEntries, [entryId, entry]) => {
+              const shouldMigrate = legacyWechatWorkEntryIds.has(entryId);
+              const nextEntryId = migrateLegacyEntryId(entryId, shouldMigrate);
+              const nextChannelId = migrateLegacyChannelId(entry.channelId, shouldMigrate);
+              const canonicalEntryExists = nextEntryId in nextEntries;
+
+              if (canonicalEntryExists && shouldMigrate && nextEntryId !== entryId) {
+                return nextEntries;
+              }
+
+              const nextEditableValues = shouldMigrate ? normalizeLegacyWechatWorkEditableValues(entry.editableValues) : entry.editableValues;
+              nextEntries[nextEntryId] = {
+                ...entry,
+                id: nextEntryId,
+                channelId: nextChannelId,
+                editableValues: nextEditableValues,
+                maskedConfigSummary: shouldMigrate
+                  ? normalizeLegacyWechatWorkMaskedSummary(entry.maskedConfigSummary, nextEditableValues)
+                  : entry.maskedConfigSummary
+              };
+              return nextEntries;
+            }, {})
+          : undefined
+      }
+    : channelOnboarding;
+
+  const migratedOnboardingChannel =
+    onboardingChannel
+      ? {
+          ...onboardingChannel,
+          channelId: migrateLegacyChannelId(
+            onboardingChannel.channelId,
+            legacyWechatWorkChannelIds.has(onboardingChannel.channelId) || legacyWechatWorkEntryIds.has(onboardingChannel.entryId ?? "")
+          ),
+          entryId: onboardingChannel.entryId
+            ? migrateLegacyEntryId(onboardingChannel.entryId, legacyWechatWorkEntryIds.has(onboardingChannel.entryId))
+            : onboardingChannel.entryId
+        }
+      : onboardingChannel;
+
+  if (migratedChannelOnboarding === channelOnboarding && migratedOnboardingChannel === onboardingChannel) {
+    return state;
+  }
+
+  return {
+    ...state,
+    channelOnboarding: migratedChannelOnboarding,
+    onboarding: state.onboarding
+      ? {
+          ...state.onboarding,
+          draft: {
+            ...state.onboarding.draft,
+            channel: migratedOnboardingChannel
+          }
+        }
+      : state.onboarding
+  };
+}
+
 export class StateStore {
   private readonly filePath: string;
+  private readonly filesystem: FilesystemStateAdapter;
 
-  constructor(filePath = resolve(getDataDir(), "state.json")) {
+  constructor(filePath = resolve(getDataDir(), "state.json"), filesystem = new FilesystemStateAdapter()) {
     this.filePath = filePath;
+    this.filesystem = filesystem;
   }
 
   async read(): Promise<AppState> {
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      return { ...DEFAULT_STATE, ...JSON.parse(raw) } as AppState;
-    } catch {
-      return DEFAULT_STATE;
-    }
+    const persisted = await this.filesystem.readJson(this.filePath, DEFAULT_STATE);
+    return migrateLegacyWechatChannelOnboarding(migrateLegacyOnboardingPresetSkills({ ...DEFAULT_STATE, ...persisted } as AppState));
   }
 
   async write(nextState: AppState): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, JSON.stringify(nextState, null, 2));
+    await this.filesystem.writeJson(this.filePath, nextState);
   }
 
   async update(updater: (current: AppState) => AppState): Promise<AppState> {

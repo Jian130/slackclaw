@@ -7,7 +7,6 @@ import type {
   BindAIMemberChannelRequest,
   ChatActionResponse,
   ChatOverview,
-  ChatStreamEvent,
   ChatThreadDetail,
   DeleteAIMemberRequest,
   ChannelActionResponse,
@@ -32,9 +31,13 @@ import type {
   ModelConfigActionResponse,
   ModelConfigOverview,
   MemberBindingsResponse,
+  OnboardingEmployeeState,
   PairingApprovalRequest,
+  PluginActionResponse,
+  PluginConfigOverview,
   ProductOverview,
   OnboardingStateResponse,
+  OnboardingStepNavigationRequest,
   RemoveSkillRequest,
   RemoveChannelEntryRequest,
   ReplaceFallbackModelEntriesRequest,
@@ -46,7 +49,7 @@ import type {
   SkillMarketplaceDetail,
   SkillMarketplaceEntry,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 import type {
   CreateChatThreadRequest,
   FeishuSetupRequest,
@@ -59,12 +62,15 @@ import type {
   SetupRunResponse,
   TelegramSetupRequest,
   WechatSetupRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
-const API_BASE =
-  typeof window !== "undefined" && window.location.origin.includes("127.0.0.1:4545")
+export function resolveApiBase() {
+  return typeof window !== "undefined" && window.location.origin.includes("127.0.0.1:4545")
     ? `${window.location.origin}/api`
     : "http://127.0.0.1:4545/api";
+}
+
+const API_BASE = resolveApiBase();
 
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 const responseGetCache = new Map<string, { expiresAt: number; value: unknown }>();
@@ -81,6 +87,7 @@ function getGetCacheMs(path: string): number | undefined {
     path.startsWith("/deploy/targets") ||
     path.startsWith("/models/config") ||
     path.startsWith("/channels/config") ||
+    path.startsWith("/plugins/config") ||
     path.startsWith("/skills/config") ||
     path.startsWith("/ai-team/overview") ||
     path.startsWith("/chat/overview")
@@ -229,9 +236,108 @@ export function fetchOnboardingState(options?: { fresh?: boolean }): Promise<Onb
   return readJson<OnboardingStateResponse>("/onboarding/state", options);
 }
 
-export function updateOnboardingState(request: Partial<OnboardingStateResponse["draft"]>): Promise<OnboardingStateResponse> {
-  return readJson<OnboardingStateResponse>("/onboarding/state", {
+export function navigateOnboardingStep(request: OnboardingStepNavigationRequest): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/navigate", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function detectOnboardingRuntime(): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/runtime/detect", {
+    method: "POST"
+  });
+}
+
+export function installOnboardingRuntime(forceLocal = false): Promise<SetupRunResponse> {
+  return readJson<SetupRunResponse>("/onboarding/runtime/install", {
+    method: "POST",
+    body: JSON.stringify({ autoConfigure: true, forceLocal })
+  });
+}
+
+export function reuseOnboardingRuntime(): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/runtime/reuse", {
+    method: "POST"
+  });
+}
+
+export function updateOnboardingRuntime(): Promise<SetupRunResponse> {
+  return readJson<SetupRunResponse>("/onboarding/runtime/update", {
+    method: "POST"
+  });
+}
+
+export function confirmOnboardingPermissions(): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/permissions/confirm", {
+    method: "POST"
+  });
+}
+
+export function saveOnboardingModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
+  return readJson<ModelConfigActionResponse>("/onboarding/model/entries", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function fetchOnboardingModelAuthSession(sessionId: string): Promise<ModelAuthSessionResponse> {
+  return readJson<ModelAuthSessionResponse>(`/onboarding/model/auth/session/${sessionId}`);
+}
+
+export function submitOnboardingModelAuthSessionInput(
+  sessionId: string,
+  request: ModelAuthSessionInputRequest
+): Promise<ModelAuthSessionResponse> {
+  return readJson<ModelAuthSessionResponse>(`/onboarding/model/auth/session/${sessionId}/input`, {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function resetOnboardingModelDraft(): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/model/reset", {
+    method: "POST"
+  });
+}
+
+export function saveOnboardingChannelEntry(request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
+  return readJson<ChannelConfigActionResponse>("/onboarding/channel/entries", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function updateOnboardingChannelEntry(entryId: string, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
+  return readJson<ChannelConfigActionResponse>(`/onboarding/channel/entries/${entryId}`, {
     method: "PATCH",
+    body: JSON.stringify(request)
+  });
+}
+
+export function fetchOnboardingChannelSession(sessionId: string): Promise<ChannelSessionResponse> {
+  return readJson<ChannelSessionResponse>(`/onboarding/channel/session/${sessionId}`);
+}
+
+export function submitOnboardingChannelSessionInput(
+  sessionId: string,
+  request: ChannelSessionInputRequest
+): Promise<ChannelSessionResponse> {
+  return readJson<ChannelSessionResponse>(`/onboarding/channel/session/${sessionId}/input`, {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function resetOnboardingChannelDraft(): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/channel/reset", {
+    method: "POST"
+  });
+}
+
+export function saveOnboardingEmployeeDraft(request: OnboardingEmployeeState): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/employee", {
+    method: "POST",
     body: JSON.stringify(request)
   });
 }
@@ -240,6 +346,12 @@ export function completeOnboarding(request: CompleteOnboardingRequest): Promise<
   return readJson<CompleteOnboardingResponse>("/onboarding/complete", {
     method: "POST",
     body: JSON.stringify(request)
+  });
+}
+
+export function redoOnboarding(): Promise<OnboardingStateResponse> {
+  return readJson<OnboardingStateResponse>("/onboarding/reset", {
+    method: "POST"
   });
 }
 
@@ -316,7 +428,7 @@ export function runFirstRunSetup(forceLocal = false): Promise<SetupRunResponse> 
   });
 }
 
-export function installSlackClaw(
+export function installChillClaw(
   autoConfigure = false,
   forceLocal = false
 ): Promise<{ install: InstallResponse; overview: ProductOverview }> {
@@ -334,6 +446,10 @@ export function uninstallEngine(): Promise<{ result: EngineActionResponse; overv
 
 export function fetchChannelConfig(options?: { fresh?: boolean }): Promise<ChannelConfigOverview> {
   return readJson<ChannelConfigOverview>("/channels/config", options);
+}
+
+export function fetchPluginConfig(options?: { fresh?: boolean }): Promise<PluginConfigOverview> {
+  return readJson<PluginConfigOverview>("/plugins/config", options);
 }
 
 export function fetchSkillConfig(options?: { fresh?: boolean }): Promise<SkillCatalogOverview> {
@@ -363,6 +479,12 @@ export function createCustomSkill(request: SaveCustomSkillRequest): Promise<Skil
   return readJson<SkillCatalogActionResponse>("/skills/custom", {
     method: "POST",
     body: JSON.stringify(request)
+  });
+}
+
+export function repairPresetSkillSync(): Promise<SkillCatalogActionResponse> {
+  return readJson<SkillCatalogActionResponse>("/skills/preset-sync/repair", {
+    method: "POST"
   });
 }
 
@@ -419,21 +541,6 @@ export function abortChatThread(threadId: string, request: AbortChatRequest = {}
     method: "POST",
     body: JSON.stringify(request)
   });
-}
-
-export function subscribeToChatEvents(
-  onEvent: (event: ChatStreamEvent | { type: "connected" }) => void,
-  onError?: (error: Event) => void
-): () => void {
-  const source = new EventSource(`${API_BASE}/chat/events`);
-  source.onmessage = (event) => {
-    onEvent(JSON.parse(event.data) as ChatStreamEvent | { type: "connected" });
-  };
-  if (onError) {
-    source.onerror = onError;
-  }
-
-  return () => source.close();
 }
 
 export function createAIMember(request: SaveAIMemberRequest): Promise<AITeamActionResponse> {
@@ -512,6 +619,24 @@ export function removeChannelEntry(entryId: string, request: RemoveChannelEntryR
   });
 }
 
+export function installPlugin(pluginId: string): Promise<PluginActionResponse> {
+  return readJson<PluginActionResponse>(`/plugins/${encodeURIComponent(pluginId)}/install`, {
+    method: "POST"
+  });
+}
+
+export function updatePlugin(pluginId: string): Promise<PluginActionResponse> {
+  return readJson<PluginActionResponse>(`/plugins/${encodeURIComponent(pluginId)}/update`, {
+    method: "POST"
+  });
+}
+
+export function removePlugin(pluginId: string): Promise<PluginActionResponse> {
+  return readJson<PluginActionResponse>(`/plugins/${encodeURIComponent(pluginId)}`, {
+    method: "DELETE"
+  });
+}
+
 export function fetchChannelSession(sessionId: string): Promise<ChannelSessionResponse> {
   return readJson<ChannelSessionResponse>(`/channels/session/${sessionId}`);
 }
@@ -567,13 +692,13 @@ export function uninstallAppService(): Promise<{ result: AppServiceActionRespons
   });
 }
 
-export function stopSlackClawApp(): Promise<AppControlResponse> {
+export function stopChillClawApp(): Promise<AppControlResponse> {
   return readJson<AppControlResponse>("/app/stop", {
     method: "POST"
   });
 }
 
-export function uninstallSlackClawApp(): Promise<AppControlResponse> {
+export function uninstallChillClawApp(): Promise<AppControlResponse> {
   return readJson<AppControlResponse>("/app/uninstall", {
     method: "POST"
   });

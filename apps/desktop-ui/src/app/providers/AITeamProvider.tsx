@@ -4,7 +4,7 @@ import type {
   DeleteAIMemberRequest,
   SaveAIMemberRequest,
   SaveTeamRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import {
   bindAIMemberChannel,
@@ -17,7 +17,7 @@ import {
   updateAIMember,
   updateTeam
 } from "../../shared/api/client.js";
-import { settleAfterMutation } from "../../shared/data/settle.js";
+import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 
 interface AITeamContextValue {
   loading: boolean;
@@ -33,6 +33,10 @@ interface AITeamContextValue {
 }
 
 const AITeamContext = createContext<AITeamContextValue | null>(null);
+
+export function shouldRefreshAITeamForEvent(): boolean {
+  return false;
+}
 
 export function AITeamProvider(props: PropsWithChildren) {
   const [loading, setLoading] = useState(true);
@@ -58,24 +62,20 @@ export function AITeamProvider(props: PropsWithChildren) {
     void refresh();
   }, [refresh]);
 
-  async function settleAITeamOverview<TResponse extends { overview: AITeamOverview }>(options: {
-    mutate: () => Promise<TResponse>;
-    isSettled: (state: AITeamOverview, mutation: TResponse) => boolean;
-  }) {
-    return settleAfterMutation<TResponse, AITeamOverview>({
-      mutate: options.mutate,
-      getProvisionalState: (mutation) => mutation.overview,
-      applyState: setOverview,
-      readFresh: async () => {
-        const next = await fetchAITeamOverview({ fresh: true });
-        setOverview(next);
-        return next;
-      },
-      isSettled: options.isSettled,
-      attempts: 8,
-      delayMs: 700
+  useEffect(() => {
+    return subscribeToDaemonEvents((event) => {
+      if (event.type === "ai-team.updated") {
+        setOverview(event.snapshot.data);
+        setLoading(false);
+        setError(undefined);
+        return;
+      }
+
+      if (shouldRefreshAITeamForEvent()) {
+        void refresh();
+      }
     });
-  }
+  }, [refresh]);
 
   const value = useMemo<AITeamContextValue>(
     () => ({
@@ -84,70 +84,34 @@ export function AITeamProvider(props: PropsWithChildren) {
       overview,
       refresh,
       async saveMember(memberId, request) {
-        const previousMemberIds = new Set((overview?.members ?? []).map((member) => member.id));
-        const response = await settleAITeamOverview({
-          mutate: () => (memberId ? updateAIMember(memberId, request) : createAIMember(request)),
-          isSettled: (state, mutation) => {
-            const expectedMember = memberId
-              ? mutation.overview.members.find((member) => member.id === memberId)
-              : mutation.overview.members.find((member) => !previousMemberIds.has(member.id));
-
-            if (!expectedMember) {
-              return false;
-            }
-
-            const actualMember = state.members.find((member) => member.id === expectedMember.id);
-            return JSON.stringify(actualMember) === JSON.stringify(expectedMember);
-          }
-        });
-        return response.state;
+        const response = await (memberId ? updateAIMember(memberId, request) : createAIMember(request));
+        setOverview(response.overview);
+        return response.overview;
       },
       async removeMember(memberId, request) {
-        const response = await settleAITeamOverview({
-          mutate: () => deleteAIMember(memberId, request),
-          isSettled: (state) => !state.members.some((member) => member.id === memberId)
-        });
-        return response.state;
+        const response = await deleteAIMember(memberId, request);
+        setOverview(response.overview);
+        return response.overview;
       },
       async bindChannel(memberId, binding) {
-        const response = await settleAITeamOverview({
-          mutate: () => bindAIMemberChannel(memberId, { binding }),
-          isSettled: (state) => Boolean(state.members.find((member) => member.id === memberId)?.bindings.some((item) => item.target === binding))
-        });
-        return response.state;
+        const response = await bindAIMemberChannel(memberId, { binding });
+        setOverview(response.overview);
+        return response.overview;
       },
       async unbindChannel(memberId, binding) {
-        const response = await settleAITeamOverview({
-          mutate: () => unbindAIMemberChannel(memberId, { binding }),
-          isSettled: (state) => !state.members.find((member) => member.id === memberId)?.bindings.some((item) => item.target === binding)
-        });
-        return response.state;
+        const response = await unbindAIMemberChannel(memberId, { binding });
+        setOverview(response.overview);
+        return response.overview;
       },
       async saveTeam(teamId, request) {
-        const previousTeamIds = new Set((overview?.teams ?? []).map((team) => team.id));
-        const response = await settleAITeamOverview({
-          mutate: () => (teamId ? updateTeam(teamId, request) : createTeam(request)),
-          isSettled: (state, mutation) => {
-            const expectedTeam = teamId
-              ? mutation.overview.teams.find((team) => team.id === teamId)
-              : mutation.overview.teams.find((team) => !previousTeamIds.has(team.id));
-
-            if (!expectedTeam) {
-              return false;
-            }
-
-            const actualTeam = state.teams.find((team) => team.id === expectedTeam.id);
-            return JSON.stringify(actualTeam) === JSON.stringify(expectedTeam);
-          }
-        });
-        return response.state;
+        const response = await (teamId ? updateTeam(teamId, request) : createTeam(request));
+        setOverview(response.overview);
+        return response.overview;
       },
       async removeTeam(teamId) {
-        const response = await settleAITeamOverview({
-          mutate: () => deleteTeam(teamId),
-          isSettled: (state) => !state.teams.some((team) => team.id === teamId)
-        });
-        return response.state;
+        const response = await deleteTeam(teamId);
+        setOverview(response.overview);
+        return response.overview;
       }
     }),
     [error, loading, overview, refresh]

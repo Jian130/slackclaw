@@ -1,4 +1,4 @@
-import type { EngineCompatibilityCapabilityId } from "@slackclaw/contracts";
+import type { EngineCompatibilityCapabilityId } from "@chillclaw/contracts";
 
 type CompatibilitySource = {
   area: string;

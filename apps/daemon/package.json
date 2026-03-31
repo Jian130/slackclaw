@@ -1,5 +1,5 @@
 {
-  "name": "@slackclaw/daemon",
+  "name": "@chillclaw/daemon",
   "version": "0.1.2",
   "private": true,
   "type": "module",
@@ -11,10 +11,12 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@slackclaw/contracts": "0.1.2"
+    "@chillclaw/contracts": "0.1.2",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

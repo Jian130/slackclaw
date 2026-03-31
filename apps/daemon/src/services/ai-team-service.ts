@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import type {
   AITeamActionResponse,
   AITeamActivityItem,
+  AIMemberDetail,
   AITeamOverview,
+  AIMemberPreset,
   BindAIMemberChannelRequest,
   BrainAssignment,
   DeleteAIMemberRequest,
@@ -13,9 +15,13 @@ import type {
   SaveTeamRequest,
   SkillOption,
   TeamDetail
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 import type { EngineAdapter } from "../engine/adapter.js";
-import type { AIMemberRuntimeCandidate } from "../engine/adapter.js";
+import type { AIMemberRuntimeCandidate, SkillRuntimeCatalog } from "../engine/adapter.js";
+import { aiMemberPresets, defaultAIMemberSkillOptions, normalizePresetSkillIds } from "../config/ai-member-presets.js";
+import { EventPublisher } from "./event-publisher.js";
+import { fallbackMutationSyncMeta } from "./mutation-sync.js";
+import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore, type AITeamState } from "./state-store.js";
 
 const DEFAULT_TEAM_VISION =
@@ -111,8 +117,8 @@ function importedMemberSummary(candidate: AIMemberRuntimeCandidate, overview: AI
     jobTitle: "Imported OpenClaw agent",
     status: "ready" as const,
     currentStatus: candidate.modelKey
-      ? `Detected from OpenClaw with ${candidate.modelKey}. Add SlackClaw details to manage it here.`
-      : "Detected from OpenClaw. Add SlackClaw details to manage it here.",
+      ? `Detected from OpenClaw with ${candidate.modelKey}. Add ChillClaw details to manage it here.`
+      : "Detected from OpenClaw. Add ChillClaw details to manage it here.",
     activeTaskCount: 0,
     avatar: defaultMemberAvatar(candidate.emoji),
     brain: defaultBrainAssignment(candidate, overview.availableBrains),
@@ -132,6 +138,61 @@ function importedMemberSummary(candidate: AIMemberRuntimeCandidate, overview: AI
     agentDir: candidate.agentDir,
     workspaceDir: candidate.workspaceDir
   };
+}
+
+function preferredPrimaryMemberAgentId(members: AITeamOverview["members"]): string | undefined {
+  return members
+    .filter((member) => member.source !== "detected" && member.agentId.trim())
+    .sort((left, right) => {
+      const leftHasBindings = left.bindingCount > 0 || left.bindings.length > 0 ? 0 : 1;
+      const rightHasBindings = right.bindingCount > 0 || right.bindings.length > 0 ? 0 : 1;
+      if (leftHasBindings !== rightHasBindings) {
+        return leftHasBindings - rightHasBindings;
+      }
+
+      const nameDelta = left.name.localeCompare(right.name);
+      if (nameDelta !== 0) {
+        return nameDelta;
+      }
+
+      return left.agentId.localeCompare(right.agentId);
+    })[0]?.agentId;
+}
+
+function rehomeStoredBinding(
+  members: AITeamState["members"],
+  targetMemberId: string,
+  binding: string,
+  nextBindings: MemberBindingsResponse["bindings"],
+  updatedAt: string
+): AITeamState["members"] {
+  const nextMembers = { ...members };
+
+  for (const [memberId, member] of Object.entries(members)) {
+    if (memberId === targetMemberId) {
+      nextMembers[memberId] = {
+        ...member,
+        bindingCount: nextBindings.length,
+        bindings: nextBindings,
+        lastUpdatedAt: updatedAt
+      };
+      continue;
+    }
+
+    const filteredBindings = member.bindings.filter((entry) => entry.target !== binding);
+    if (filteredBindings.length === member.bindings.length) {
+      continue;
+    }
+
+    nextMembers[memberId] = {
+      ...member,
+      bindingCount: filteredBindings.length,
+      bindings: filteredBindings,
+      lastUpdatedAt: updatedAt
+    };
+  }
+
+  return nextMembers;
 }
 
 function buildBrainAssignment(brains: AITeamOverview["availableBrains"], brainEntryId: string): BrainAssignment {
@@ -171,10 +232,54 @@ function activityItem(
   };
 }
 
+function resolveMemberPresets(
+  knowledgePacks: KnowledgePack[],
+  skillOptions: SkillOption[]
+): AIMemberPreset[] {
+  const availableKnowledgePackIds = new Set(knowledgePacks.map((pack) => pack.id));
+  const availableSkillIds = new Set(skillOptions.map((skill) => skill.id));
+
+  return aiMemberPresets.map((preset) => ({
+    ...preset,
+    presetSkillIds: normalizePresetSkillIds(preset.presetSkillIds),
+    skillIds: preset.skillIds.filter((skillId) => availableSkillIds.has(skillId)),
+    knowledgePackIds: preset.knowledgePackIds.filter((packId) => availableKnowledgePackIds.has(packId))
+  }));
+}
+
+function mergeSkillOptions(runtimeSkillOptions: SkillOption[]): SkillOption[] {
+  const byId = new Map<string, SkillOption>();
+
+  for (const skill of defaultAIMemberSkillOptions) {
+    byId.set(skill.id, skill);
+  }
+
+  for (const skill of runtimeSkillOptions) {
+    byId.set(skill.id, skill);
+  }
+
+  return Array.from(byId.values()).sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function buildRuntimeSkillOptions(runtimeSkills: SkillRuntimeCatalog): SkillOption[] {
+  return runtimeSkills.skills
+    .filter((skill) => skill.eligible && !skill.disabled && !skill.blockedByAllowlist)
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map(
+      (skill): SkillOption => ({
+        id: skill.id,
+        label: skill.name,
+        description: skill.description
+      })
+    );
+}
+
 export class AITeamService {
   constructor(
     private readonly adapter: EngineAdapter,
-    private readonly store: StateStore
+    private readonly store: StateStore,
+    private readonly eventPublisher?: EventPublisher,
+    private readonly presetSkillService?: PresetSkillService
   ) {}
 
   async getOverview(): Promise<AITeamOverview> {
@@ -183,26 +288,21 @@ export class AITeamService {
     const modelConfig = await this.adapter.config.getModelConfig();
     const runtimeSkills = await this.adapter.config.getSkillRuntimeCatalog();
     const teams = Object.values(aiTeam.teams).sort((left, right) => (left.displayOrder ?? 0) - (right.displayOrder ?? 0) || left.name.localeCompare(right.name));
+    const runtimeSkillOptions = buildRuntimeSkillOptions(runtimeSkills);
     const baseOverview = {
       teamVision: aiTeam.teamVision,
       members: [],
       teams,
       activity: aiTeam.activity,
       availableBrains: modelConfig.savedEntries,
+      memberPresets: [],
       knowledgePacks: DEFAULT_KNOWLEDGE_PACKS,
-      skillOptions: runtimeSkills.skills
-        .filter((skill) => skill.eligible && !skill.disabled && !skill.blockedByAllowlist)
-        .sort((left, right) => left.name.localeCompare(right.name))
-        .map(
-          (skill): SkillOption => ({
-            id: skill.id,
-            label: skill.name,
-            description: skill.description
-          })
-        )
+      skillOptions: mergeSkillOptions(runtimeSkillOptions)
     } satisfies AITeamOverview;
+    const memberPresets = resolveMemberPresets(baseOverview.knowledgePacks, baseOverview.skillOptions);
     const runtimeMembers = await this.adapter.aiEmployees.listAIMemberRuntimeCandidates();
     const storedByAgentId = new Map(Object.values(aiTeam.members).map((member) => [member.agentId, member]));
+    const availableBrainIds = new Set(modelConfig.savedEntries.map((entry) => entry.id));
 
     const members = runtimeMembers
       .map((candidate) => {
@@ -211,7 +311,7 @@ export class AITeamService {
 
         return {
           ...(stored ?? inferred),
-          source: stored ? (stored.source ?? "slackclaw") : inferred.source,
+          source: stored ? (stored.source ?? "chillclaw") : inferred.source,
           hasManagedMetadata: stored ? (stored.hasManagedMetadata ?? true) : inferred.hasManagedMetadata,
           name: stored?.name?.trim() || inferred.name,
           jobTitle: stored?.jobTitle?.trim() || inferred.jobTitle,
@@ -219,7 +319,7 @@ export class AITeamService {
           teamIds: withTeamIds((stored ?? inferred).id, teams),
           bindingCount: candidate.bindingCount || stored?.bindingCount || stored?.bindings.length || 0,
           bindings: stored?.bindings ?? inferred.bindings,
-          brain: stored?.brain?.entryId ? stored.brain : inferred.brain,
+          brain: stored?.brain?.entryId && availableBrainIds.has(stored.brain.entryId) ? stored.brain : inferred.brain,
           agentDir: candidate.agentDir ?? stored?.agentDir,
           workspaceDir: candidate.workspaceDir ?? stored?.workspaceDir
         };
@@ -246,12 +346,42 @@ export class AITeamService {
       teams,
       activity: aiTeam.activity,
       availableBrains: modelConfig.savedEntries,
+      memberPresets,
       knowledgePacks: DEFAULT_KNOWLEDGE_PACKS,
-      skillOptions: baseOverview.skillOptions
+      skillOptions: baseOverview.skillOptions,
+      presetSkillSync: this.presetSkillService ? await this.presetSkillService.getOverview() : undefined
     };
   }
 
   async saveMember(memberId: string | undefined, request: SaveAIMemberRequest): Promise<AITeamActionResponse> {
+    const { current, requiresGatewayApply } = await this.persistMember(memberId, request);
+    const nextOverview = await this.getOverview();
+    const sync = this.eventPublisher?.publishAITeamUpdated(nextOverview) ?? fallbackMutationSyncMeta();
+
+    return {
+      ...sync,
+      status: "completed",
+      message: current ? `${request.name.trim()} was updated.` : `${request.name.trim()} was created.`,
+      overview: nextOverview,
+      requiresGatewayApply
+    };
+  }
+
+  async saveMemberForOnboarding(
+    memberId: string | undefined,
+    request: SaveAIMemberRequest
+  ): Promise<{ member: AIMemberDetail; requiresGatewayApply?: boolean }> {
+    const { member, requiresGatewayApply } = await this.persistMember(memberId, request);
+    return {
+      member,
+      requiresGatewayApply
+    };
+  }
+
+  private async persistMember(
+    memberId: string | undefined,
+    request: SaveAIMemberRequest
+  ): Promise<{ current: AIMemberDetail | undefined; member: AIMemberDetail; requiresGatewayApply?: boolean }> {
     if (!request.name.trim()) {
       throw new Error("AI member name is required.");
     }
@@ -260,12 +390,26 @@ export class AITeamService {
       throw new Error("Job title is required.");
     }
 
-    const overview = await this.getOverview();
+    const state = await this.store.read();
+    const aiTeam = state.aiTeam ?? defaultAITeamState();
     const id = memberId ?? randomUUID();
-    const current = overview.members.find((member) => member.id === id);
-    const brain = buildBrainAssignment(overview.availableBrains, request.brainEntryId);
+    const current = aiTeam.members[id];
+    const modelConfig = await this.adapter.config.getModelConfig();
+    const runtimeSkills = await this.adapter.config.getSkillRuntimeCatalog();
+    const normalizedPresetSkillIds = normalizePresetSkillIds(request.presetSkillIds);
+    const brain = buildBrainAssignment(modelConfig.savedEntries, request.brainEntryId);
     const knowledgePacks = DEFAULT_KNOWLEDGE_PACKS.filter((pack) => request.knowledgePackIds.includes(pack.id));
-    const selectedSkills = overview.skillOptions.filter((skill) => request.skillIds.includes(skill.id));
+    const requestedSkillIds = normalizedPresetSkillIds.length
+      ? await this.resolvePresetSkillRequest(normalizedPresetSkillIds)
+      : [...new Set(request.skillIds)];
+    const selectedSkills = mergeSkillOptions(buildRuntimeSkillOptions(runtimeSkills)).filter((skill) => requestedSkillIds.includes(skill.id));
+    const selectedSkillIds = selectedSkills.map((skill) => skill.id);
+    const missingSkillIds = requestedSkillIds.filter((skillId) => !selectedSkillIds.includes(skillId));
+    if (missingSkillIds.length > 0) {
+      throw new Error(
+        `Selected skills are not verified in the active OpenClaw runtime: ${missingSkillIds.join(", ")}. Repair the runtime skills and try again.`
+      );
+    }
     const runtime = await this.adapter.aiEmployees.saveAIMemberRuntime({
       memberId: id,
       existingAgentId: current?.agentId,
@@ -275,41 +419,41 @@ export class AITeamService {
       personality: request.personality.trim(),
       soul: request.soul.trim(),
       workStyles: request.workStyles,
-      skillIds: request.skillIds,
+      skillIds: selectedSkillIds,
       selectedSkills,
       capabilitySettings: request.capabilitySettings,
       knowledgePacks,
       brain
     });
+    const nextMember: AIMemberDetail = {
+      id,
+      agentId: runtime.agentId,
+      source: "chillclaw" as const,
+      hasManagedMetadata: true,
+      name: request.name.trim(),
+      jobTitle: request.jobTitle.trim(),
+      status: "ready" as const,
+      currentStatus: "Ready for new assignments.",
+      activeTaskCount: current?.activeTaskCount ?? 0,
+      avatar: request.avatar,
+      brain,
+      teamIds: withTeamIds(id, Object.values(aiTeam.teams)),
+      bindingCount: runtime.bindings.length,
+      bindings: runtime.bindings,
+      lastUpdatedAt: new Date().toISOString(),
+      personality: request.personality.trim(),
+      soul: request.soul.trim(),
+      workStyles: request.workStyles,
+      presetSkillIds: normalizedPresetSkillIds.length > 0 ? normalizedPresetSkillIds : undefined,
+      skillIds: selectedSkillIds,
+      knowledgePackIds: request.knowledgePackIds,
+      capabilitySettings: request.capabilitySettings,
+      agentDir: runtime.agentDir,
+      workspaceDir: runtime.workspaceDir
+    };
 
     await this.store.update((state) => {
       const currentState = state.aiTeam ?? defaultAITeamState();
-      const nextMember = {
-        id,
-        agentId: runtime.agentId,
-        source: "slackclaw" as const,
-        hasManagedMetadata: true,
-        name: request.name.trim(),
-        jobTitle: request.jobTitle.trim(),
-        status: "ready" as const,
-        currentStatus: "Ready for new assignments.",
-        activeTaskCount: current?.activeTaskCount ?? 0,
-        avatar: request.avatar,
-        brain,
-        teamIds: withTeamIds(id, Object.values(currentState.teams)),
-        bindingCount: runtime.bindings.length,
-        bindings: runtime.bindings,
-        lastUpdatedAt: new Date().toISOString(),
-        personality: request.personality.trim(),
-        soul: request.soul.trim(),
-        workStyles: request.workStyles,
-        skillIds: request.skillIds,
-        knowledgePackIds: request.knowledgePackIds,
-        capabilitySettings: request.capabilitySettings,
-        agentDir: runtime.agentDir,
-        workspaceDir: runtime.workspaceDir
-      };
-
       return {
         ...state,
         aiTeam: {
@@ -335,9 +479,8 @@ export class AITeamService {
     });
 
     return {
-      status: "completed",
-      message: current ? `${request.name.trim()} was updated.` : `${request.name.trim()} was created.`,
-      overview: await this.getOverview(),
+      current,
+      member: nextMember,
       requiresGatewayApply: runtime.requiresGatewayApply
     };
   }
@@ -351,6 +494,7 @@ export class AITeamService {
       throw new Error("AI member not found.");
     }
 
+    const currentPrimaryAgentId = await this.adapter.aiEmployees.getPrimaryAIMemberAgentId();
     const result = await this.adapter.aiEmployees.deleteAIMemberRuntime(member.agentId, request);
 
     await this.store.update((current) => {
@@ -382,8 +526,8 @@ export class AITeamService {
               member.name,
               "Removed AI member",
               request.deleteMode === "keep-workspace"
-                ? `${member.name} was removed from SlackClaw and OpenClaw, and the workspace/history was kept in place.`
-                : `${member.name} was removed from SlackClaw, OpenClaw, and the workspace/history.`,
+                ? `${member.name} was removed from ChillClaw and OpenClaw, and the workspace/history was kept in place.`
+                : `${member.name} was removed from ChillClaw, OpenClaw, and the workspace/history.`,
               "updated"
             ),
             ...currentState.activity
@@ -392,14 +536,25 @@ export class AITeamService {
       };
     });
 
+    let promotionRequiresGatewayApply = false;
+    let nextOverview = await this.getOverview();
+    if (currentPrimaryAgentId === member.agentId || result.wasPrimary) {
+      const nextPrimaryAgentId = preferredPrimaryMemberAgentId(nextOverview.members);
+      const promotion = await this.adapter.aiEmployees.setPrimaryAIMemberAgent(nextPrimaryAgentId);
+      promotionRequiresGatewayApply = promotion.requiresGatewayApply === true;
+      nextOverview = await this.getOverview();
+    }
+    const sync = this.eventPublisher?.publishAITeamUpdated(nextOverview) ?? fallbackMutationSyncMeta();
+
     return {
+      ...sync,
       status: "completed",
       message:
         request.deleteMode === "keep-workspace"
           ? `${member.name} was removed and the workspace/history was kept.`
           : `${member.name} was removed.`,
-      overview: await this.getOverview(),
-      requiresGatewayApply: result.requiresGatewayApply
+      overview: nextOverview,
+      requiresGatewayApply: result.requiresGatewayApply || promotionRequiresGatewayApply
     };
   }
 
@@ -454,21 +609,56 @@ export class AITeamService {
 
     const result = await this.adapter.aiEmployees.bindAIMemberChannel(member.agentId, request);
     const bindings = result.bindings;
+    const updatedAt = new Date().toISOString();
     await this.store.update((current) => {
       const currentState = current.aiTeam ?? defaultAITeamState();
       return {
         ...current,
         aiTeam: {
           ...currentState,
-          members: {
-            ...currentState.members,
-            [memberId]: {
-              ...currentState.members[memberId],
-              bindingCount: bindings.length,
-              bindings,
-              lastUpdatedAt: new Date().toISOString()
-            }
-          },
+          members: rehomeStoredBinding(currentState.members, memberId, request.binding, bindings, updatedAt),
+          activity: [
+            activityItem(memberId, member.name, "Bound channel", `${member.name} is now bound to ${request.binding}.`, "updated"),
+            ...currentState.activity
+          ].slice(0, 20)
+        }
+      };
+    });
+
+    const nextOverview = await this.getOverview();
+    const sync = this.eventPublisher?.publishAITeamUpdated(nextOverview) ?? fallbackMutationSyncMeta();
+
+    return {
+      ...sync,
+      status: "completed",
+      message: `${member.name} is now bound to ${request.binding}.`,
+      overview: nextOverview,
+      requiresGatewayApply: result.requiresGatewayApply
+    };
+  }
+
+  async bindMemberChannelForOnboarding(
+    memberId: string,
+    request: BindAIMemberChannelRequest
+  ): Promise<{ requiresGatewayApply?: boolean }> {
+    const state = await this.store.read();
+    const aiTeam = state.aiTeam ?? defaultAITeamState();
+    const member = aiTeam.members[memberId];
+
+    if (!member) {
+      throw new Error("AI member not found.");
+    }
+
+    const result = await this.adapter.aiEmployees.bindAIMemberChannel(member.agentId, request);
+    const bindings = result.bindings;
+    const updatedAt = new Date().toISOString();
+    await this.store.update((current) => {
+      const currentState = current.aiTeam ?? defaultAITeamState();
+      return {
+        ...current,
+        aiTeam: {
+          ...currentState,
+          members: rehomeStoredBinding(currentState.members, memberId, request.binding, bindings, updatedAt),
           activity: [
             activityItem(memberId, member.name, "Bound channel", `${member.name} is now bound to ${request.binding}.`, "updated"),
             ...currentState.activity
@@ -478,9 +668,6 @@ export class AITeamService {
     });
 
     return {
-      status: "completed",
-      message: `${member.name} is now bound to ${request.binding}.`,
-      overview: await this.getOverview(),
       requiresGatewayApply: result.requiresGatewayApply
     };
   }
@@ -519,10 +706,14 @@ export class AITeamService {
       };
     });
 
+    const nextOverview = await this.getOverview();
+    const sync = this.eventPublisher?.publishAITeamUpdated(nextOverview) ?? fallbackMutationSyncMeta();
+
     return {
+      ...sync,
       status: "completed",
       message: `${member.name} is no longer bound to ${request.binding}.`,
-      overview: await this.getOverview(),
+      overview: nextOverview,
       requiresGatewayApply: result.requiresGatewayApply
     };
   }
@@ -559,10 +750,14 @@ export class AITeamService {
       };
     });
 
+    const nextOverview = await this.getOverview();
+    const sync = this.eventPublisher?.publishAITeamUpdated(nextOverview) ?? fallbackMutationSyncMeta();
+
     return {
+      ...sync,
       status: "completed",
       message: `${request.name.trim()} was saved.`,
-      overview: await this.getOverview()
+      overview: nextOverview
     };
   }
 
@@ -587,7 +782,7 @@ export class AITeamService {
           teams: nextTeams,
           activity: deleted
             ? [
-                activityItem(undefined, undefined, "Deleted AI team", `${deleted.name} was removed from SlackClaw.`, "updated"),
+                activityItem(undefined, undefined, "Deleted AI team", `${deleted.name} was removed from ChillClaw.`, "updated"),
                 ...currentState.activity
               ].slice(0, 20)
             : currentState.activity
@@ -595,10 +790,22 @@ export class AITeamService {
       };
     });
 
+    const nextOverview = await this.getOverview();
+    const sync = this.eventPublisher?.publishAITeamUpdated(nextOverview) ?? fallbackMutationSyncMeta();
+
     return {
+      ...sync,
       status: "completed",
       message: "Team was removed.",
-      overview: await this.getOverview()
+      overview: nextOverview
     };
+  }
+
+  private async resolvePresetSkillRequest(presetSkillIds: string[]): Promise<string[]> {
+    if (this.presetSkillService) {
+      return this.presetSkillService.resolveVerifiedRuntimeSkillIds(presetSkillIds);
+    }
+
+    throw new Error("Preset skills cannot be resolved because preset skill sync is unavailable.");
   }
 }

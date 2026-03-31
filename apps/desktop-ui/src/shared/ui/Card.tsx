@@ -1,8 +1,12 @@
 import type { HTMLAttributes, PropsWithChildren } from "react";
 
-export function Card(props: PropsWithChildren<HTMLAttributes<HTMLElement>>) {
-  const { className = "", ...rest } = props;
-  return <section className={`card ${className}`.trim()} {...rest} />;
+type CardTone = "default" | "muted" | "accent" | "danger";
+
+export function Card(
+  props: PropsWithChildren<HTMLAttributes<HTMLElement> & { tone?: CardTone }>
+) {
+  const { className = "", tone = "default", ...rest } = props;
+  return <section className={`card card--${tone} ${className}`.trim()} {...rest} />;
 }
 
 export function CardHeader(props: PropsWithChildren<HTMLAttributes<HTMLDivElement>>) {

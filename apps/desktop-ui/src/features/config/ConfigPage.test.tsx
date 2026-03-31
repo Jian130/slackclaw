@@ -1,24 +1,29 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { ModelConfigOverview, ModelProviderConfig } from "@slackclaw/contracts";
+import type { ChannelCapability, ConfiguredChannelEntry, ModelConfigOverview, ModelProviderConfig } from "@chillclaw/contracts";
 
 import {
   activeSavedModelEntries,
   applyModelEntryRole,
+  ChannelStatusBadge,
   channelIcon,
   channelStatusTone,
+  configuredChannelActionState,
   defaultModelEntryRole,
   entryAuthLabel,
   feishuDirectLinks,
   feishuGuideSteps,
-  inactiveSavedModelEntries,
   MODEL_KEY_CUSTOM_OPTION,
   modelSelectValue,
   modelOptions,
   providerActiveModel,
   providerConfiguredModels,
+  ProviderGuidance,
+  providerGuidanceGroups,
   providerIcon,
   runtimeConfiguredModels,
-  showInactiveSavedEntries,
+  runtimeDerivedModelEntry,
+  shouldCloseChannelDialogAfterAction,
   resolveModelEntryRole,
   validateModelEntryDraft
 } from "./ConfigPage.js";
@@ -27,7 +32,7 @@ const provider: ModelProviderConfig = {
   id: "openai",
   label: "OpenAI",
   description: "Test provider",
-  docsUrl: "https://docs.openclaw.ai/providers/docs/openai",
+  docsUrl: "https://docs.openclaw.ai/providers/openai",
   providerRefs: ["openai/"],
   authMethods: [
     {
@@ -46,6 +51,12 @@ const provider: ModelProviderConfig = {
       ]
     }
   ],
+  exampleModels: ["openai/gpt-5.4", "openai/gpt-5.4-pro"],
+  authEnvVars: ["OPENAI_API_KEY", "OPENAI_API_KEYS"],
+  setupNotes: ["Direct API usage and Codex OAuth are both supported."],
+  warnings: ["Spark remains Codex-only on the OAuth path."],
+  providerType: "built-in",
+  supportsNoAuth: false,
   configured: true,
   modelCount: 2,
   sampleModels: ["openai/gpt-4o-mini", "openai/gpt-5"]
@@ -80,6 +91,60 @@ const modelConfig: ModelConfigOverview = {
   savedEntries: [],
   defaultEntryId: undefined,
   fallbackEntryIds: []
+};
+
+const telegramCapability: ChannelCapability = {
+  id: "telegram",
+  label: "Telegram",
+  description: "Telegram bot setup.",
+  officialSupport: true,
+  iconKey: "telegram",
+  fieldDefs: [],
+  supportsEdit: true,
+  supportsRemove: true,
+  supportsPairing: true,
+  supportsLogin: false
+};
+
+const wechatWorkCapability: ChannelCapability = {
+  id: "wechat-work",
+  label: "WeChat Work (WeCom)",
+  description: "WeChat Work setup.",
+  officialSupport: true,
+  iconKey: "wechat",
+  fieldDefs: [],
+  supportsEdit: true,
+  supportsRemove: true,
+  supportsPairing: true,
+  supportsLogin: false,
+  guidedSetupKind: "wechat-work"
+};
+
+const wechatCapability: ChannelCapability = {
+  id: "wechat",
+  label: "WeChat",
+  description: "Personal WeChat login.",
+  officialSupport: false,
+  iconKey: "wechat",
+  fieldDefs: [{ id: "code", label: "Pairing code", required: false }],
+  supportsEdit: true,
+  supportsRemove: true,
+  supportsPairing: true,
+  supportsLogin: true,
+  guidedSetupKind: "wechat"
+};
+
+const configuredTelegramEntry: ConfiguredChannelEntry = {
+  id: "telegram:default",
+  channelId: "telegram",
+  label: "Telegram Support",
+  status: "completed",
+  summary: "Telegram bot configured.",
+  detail: "Telegram bot configured.",
+  maskedConfigSummary: [],
+  editableValues: {},
+  pairingRequired: false,
+  lastUpdatedAt: "2026-03-25T00:00:00.000Z"
 };
 
 describe("ConfigPage helpers", () => {
@@ -120,7 +185,7 @@ describe("ConfigPage helpers", () => {
     ).toEqual(["openai/gpt-5", "openai/gpt-4.1", "openai/gpt-4o-mini"]);
   });
 
-  it("splits saved model entries into active runtime entries and inactive saved entries", () => {
+  it("keeps only saved model entries that still match the live runtime", () => {
     const runtimeModels = runtimeConfiguredModels({
       ...modelConfig,
       models: [
@@ -164,25 +229,91 @@ describe("ConfigPage helpers", () => {
     ];
 
     expect(activeSavedModelEntries(savedEntries, runtimeModels).map((entry) => entry.id)).toEqual(["saved-anthropic"]);
-    expect(inactiveSavedModelEntries(savedEntries, runtimeModels).map((entry) => entry.id)).toEqual(["saved-openai"]);
   });
 
-  it("hides inactive saved entries from the main models view when live runtime models already exist", () => {
-    expect(showInactiveSavedEntries(1, 1)).toBe(false);
-    expect(showInactiveSavedEntries(1, 0)).toBe(false);
-    expect(showInactiveSavedEntries(0, 1)).toBe(true);
+  it("finds the synthetic runtime entry used for removing runtime-only models", () => {
+    const runtimeEntry = {
+      id: "runtime:openai-gpt-5",
+      label: "OpenAI GPT-5",
+      providerId: "openai",
+      modelKey: "openai/gpt-5",
+      agentId: "",
+      isDefault: true,
+      isFallback: false,
+      createdAt: "2026-03-18T00:00:00.000Z",
+      updatedAt: "2026-03-18T00:00:00.000Z"
+    };
+
+    expect(runtimeDerivedModelEntry([runtimeEntry], "openai/gpt-5")?.id).toBe("runtime:openai-gpt-5");
+    expect(runtimeDerivedModelEntry([runtimeEntry], "anthropic/claude-sonnet-4-6")).toBeUndefined();
   });
 
-  it("falls back to provider sample models when the runtime has none for that provider", () => {
+  it("falls back to curated example models when the runtime has none for that provider", () => {
     const anthropicProvider: ModelProviderConfig = {
       ...provider,
       id: "anthropic",
       label: "Anthropic",
       providerRefs: ["anthropic/"],
-      sampleModels: ["anthropic/claude-opus-4-6"]
+      exampleModels: ["anthropic/claude-opus-4-6"],
+      authEnvVars: undefined,
+      setupNotes: undefined,
+      warnings: undefined,
+      providerType: "built-in",
+      sampleModels: ["anthropic/legacy-sample"]
     };
 
     expect(modelOptions(modelConfig, anthropicProvider).map((model) => model.key)).toEqual(["anthropic/claude-opus-4-6"]);
+  });
+
+  it("prefers curated example models over runtime sample models in provider guidance", () => {
+    expect(
+      providerGuidanceGroups(provider).find((group) => group.id === "models")?.items
+    ).toEqual(["openai/gpt-5.4", "openai/gpt-5.4-pro"]);
+  });
+
+  it("renders auth env vars, setup notes, and warnings only when present", () => {
+    const html = renderToStaticMarkup(<ProviderGuidance provider={provider} />);
+    const minimalHtml = renderToStaticMarkup(
+      <ProviderGuidance
+        provider={{
+          ...provider,
+          exampleModels: undefined,
+          authEnvVars: undefined,
+          setupNotes: undefined,
+          warnings: undefined,
+          providerType: undefined
+        }}
+      />
+    );
+
+    expect(html).toContain("Auth env");
+    expect(html).toContain("OPENAI_API_KEY");
+    expect(html).toContain("Setup notes");
+    expect(html).toContain("Warnings");
+    expect(minimalHtml).not.toContain("Auth env");
+    expect(minimalHtml).not.toContain("Setup notes");
+    expect(minimalHtml).not.toContain("Warnings");
+  });
+
+  it("shows a local no-auth hint for providers that do not require credentials", () => {
+    const localProvider: ModelProviderConfig = {
+      ...provider,
+      id: "ollama",
+      label: "Ollama",
+      providerRefs: ["ollama/"],
+      exampleModels: ["ollama/llama3.3"],
+      authEnvVars: ["OLLAMA_API_KEY"],
+      setupNotes: [],
+      warnings: undefined,
+      providerType: "local",
+      supportsNoAuth: true,
+      sampleModels: ["ollama/llama3.3"]
+    };
+
+    const html = renderToStaticMarkup(<ProviderGuidance provider={localProvider} />);
+
+    expect(html).toContain("Local runtime");
+    expect(html).toContain("No provider credentials required for local mode.");
   });
 
   it("uses a real select value for known model keys and falls back to custom for unknown keys", () => {
@@ -192,29 +323,24 @@ describe("ConfigPage helpers", () => {
     expect(modelSelectValue(models, "openai/custom-preview-model")).toBe(MODEL_KEY_CUSTOM_OPTION);
   });
 
-  it("defaults the first saved entry to default and later entries to normal", () => {
-    expect(defaultModelEntryRole([])).toBe("default");
-    expect(
-      defaultModelEntryRole([
-        {
-          id: "saved-openai",
-          label: "OpenAI GPT-5",
-          providerId: "openai",
-          modelKey: "openai/gpt-5",
-          agentId: "main",
-          isDefault: true,
-          isFallback: false,
-          createdAt: "2026-03-18T00:00:00.000Z",
-          updatedAt: "2026-03-18T00:00:00.000Z"
-        }
-      ])
-    ).toBe("normal");
+  it("defaults a new entry only when no live runtime model is configured", () => {
+    expect(defaultModelEntryRole(0)).toBe("default");
+    expect(defaultModelEntryRole(1)).toBe("normal");
   });
 
   it("uses stable provider glyphs for known providers", () => {
     expect(providerIcon("github-copilot")).toBe("GH");
     expect(providerIcon("openai")).toBe("OA");
     expect(channelIcon("telegram")).toBe("TG");
+    expect(channelIcon("wechat-work")).toBe("WC");
+  });
+
+  it("renders configured channel status through StatusBadge semantics", () => {
+    const html = renderToStaticMarkup(<ChannelStatusBadge status="awaiting-pairing" />);
+
+    expect(html).toContain("badge--status");
+    expect(html).toContain("badge--info");
+    expect(html).toContain("awaiting-pairing");
   });
 
   it("maps channel statuses to stable badge tones", () => {
@@ -222,6 +348,51 @@ describe("ConfigPage helpers", () => {
     expect(channelStatusTone("awaiting-pairing")).toBe("info");
     expect(channelStatusTone("failed")).toBe("warning");
     expect(channelStatusTone("not-started")).toBe("neutral");
+  });
+
+  it("shows a reusable approve action for pairing-capable configured channels", () => {
+    expect(configuredChannelActionState(configuredTelegramEntry, telegramCapability)).toEqual({
+      primaryAction: "edit",
+      showApproveAction: true
+    });
+
+    expect(
+      configuredChannelActionState(
+        {
+          ...configuredTelegramEntry,
+          pairingRequired: true
+        },
+        telegramCapability
+      )
+    ).toEqual({
+      primaryAction: "continue-setup",
+      showApproveAction: true
+    });
+
+    expect(configuredChannelActionState(configuredTelegramEntry, wechatWorkCapability)).toEqual({
+      primaryAction: "edit",
+      showApproveAction: true
+    });
+
+    expect(
+      configuredChannelActionState(
+        {
+          ...configuredTelegramEntry,
+          channelId: "wechat",
+          status: "awaiting-pairing"
+        } as ConfiguredChannelEntry,
+        wechatCapability
+      )
+    ).toEqual({
+      primaryAction: "continue-setup",
+      showApproveAction: true
+    });
+  });
+
+  it("closes the channel dialog after successful approve pairing", () => {
+    expect(shouldCloseChannelDialogAfterAction("approve-pairing", "telegram", false)).toBe(true);
+    expect(shouldCloseChannelDialogAfterAction("save", "whatsapp", true)).toBe(false);
+    expect(shouldCloseChannelDialogAfterAction("login", "telegram", false)).toBe(false);
   });
 
   it("validates required API key inputs before save", () => {

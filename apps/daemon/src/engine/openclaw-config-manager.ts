@@ -17,11 +17,13 @@ import type {
   SetDefaultModelEntryRequest,
   SkillMarketplaceDetail,
   SkillMarketplaceEntry,
+  SupportedChannelId,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
-import type { ChannelSetupState } from "@slackclaw/contracts";
-import type { ConfigManager, SkillRuntimeCatalog } from "./adapter.js";
+import type { ChannelSetupState } from "@chillclaw/contracts";
+import type { ConfigManager, ManagedSkillInstallRequest, ManagedSkillInstallResult, SkillRuntimeCatalog, SkillRuntimeEntry } from "./adapter.js";
+import { NoopSecretsAdapter, modelAuthSecretName, type SecretsAdapter } from "../platform/secrets-adapter.js";
 
 type ConfigAccess = {
   getModelConfig: () => Promise<ModelConfigOverview>;
@@ -34,10 +36,10 @@ type ConfigAccess = {
   getModelAuthSession: (sessionId: string) => Promise<ModelAuthSessionResponse>;
   submitModelAuthSessionInput: (sessionId: string, request: ModelAuthSessionInputRequest) => Promise<ModelAuthSessionResponse>;
   setDefaultModel: (modelKey: string) => Promise<ModelConfigActionResponse>;
-  getChannelState: (channelId: "telegram" | "whatsapp" | "feishu" | "wechat") => Promise<ChannelSetupState>;
+  getChannelState: (channelId: SupportedChannelId) => Promise<ChannelSetupState>;
   getConfiguredChannelEntries: () => Promise<ConfiguredChannelEntry[]>;
   saveChannelEntry: (request: SaveChannelEntryRequest) => Promise<{ message: string; channel: ChannelSetupState; session?: ChannelSession; requiresGatewayApply?: boolean }>;
-  removeChannelEntry: (request: RemoveChannelEntryRequest) => Promise<{ message: string; channelId: "telegram" | "whatsapp" | "feishu" | "wechat"; requiresGatewayApply?: boolean }>;
+  removeChannelEntry: (request: RemoveChannelEntryRequest) => Promise<{ message: string; channelId: SupportedChannelId; requiresGatewayApply?: boolean }>;
   getSkillRuntimeCatalog: () => Promise<SkillRuntimeCatalog>;
   getInstalledSkillDetail: (skillId: string) => Promise<InstalledSkillDetail>;
   listMarketplaceInstalledSkills: () => Promise<Array<{ slug: string; version?: string }>>;
@@ -49,22 +51,53 @@ type ConfigAccess = {
   saveCustomSkill: (skillId: string | undefined, request: SaveCustomSkillRequest) => Promise<{ slug: string; requiresGatewayApply?: boolean }>;
   removeInstalledSkill: (
     slug: string,
-    request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }
+    request: RemoveSkillRequest & { managedBy: "clawhub" | "chillclaw-custom" }
   ) => Promise<{ requiresGatewayApply?: boolean }>;
+  installManagedSkill: (request: ManagedSkillInstallRequest) => Promise<ManagedSkillInstallResult>;
+  verifyManagedSkill: (slug: string) => Promise<SkillRuntimeEntry | undefined>;
 };
 
 export class OpenClawConfigManager implements ConfigManager {
-  constructor(private readonly access: ConfigAccess) {}
+  private readonly secrets: SecretsAdapter;
+  private readonly resolveModelAuthSecretFieldIds: (providerId: string, methodId: string) => string[];
+
+  constructor(
+    private readonly access: ConfigAccess,
+    options?: {
+      secrets?: SecretsAdapter;
+      resolveModelAuthSecretFieldIds?: (providerId: string, methodId: string) => string[];
+    }
+  ) {
+    this.secrets = options?.secrets ?? new NoopSecretsAdapter();
+    this.resolveModelAuthSecretFieldIds = options?.resolveModelAuthSecretFieldIds ?? (() => []);
+  }
+
+  private async persistModelSecrets(providerId: string, methodId: string, values: Record<string, string>): Promise<void> {
+    const fieldIds = this.resolveModelAuthSecretFieldIds(providerId, methodId);
+
+    await Promise.all(
+      fieldIds.map(async (fieldId) => {
+        const value = values[fieldId]?.trim();
+        if (!value) {
+          return;
+        }
+
+        await this.secrets.set(modelAuthSecretName(providerId, methodId, fieldId), value);
+      })
+    );
+  }
 
   getModelConfig() {
     return this.access.getModelConfig();
   }
 
-  createSavedModelEntry(request: SaveModelEntryRequest) {
+  async createSavedModelEntry(request: SaveModelEntryRequest) {
+    await this.persistModelSecrets(request.providerId, request.methodId, request.values);
     return this.access.createSavedModelEntry(request);
   }
 
-  updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest) {
+  async updateSavedModelEntry(entryId: string, request: SaveModelEntryRequest) {
+    await this.persistModelSecrets(request.providerId, request.methodId, request.values);
     return this.access.updateSavedModelEntry(entryId, request);
   }
 
@@ -80,7 +113,8 @@ export class OpenClawConfigManager implements ConfigManager {
     return this.access.replaceFallbackModelEntries(request);
   }
 
-  authenticateModelProvider(request: ModelAuthRequest) {
+  async authenticateModelProvider(request: ModelAuthRequest) {
+    await this.persistModelSecrets(request.providerId, request.methodId, request.values);
     return this.access.authenticateModelProvider(request);
   }
 
@@ -96,7 +130,7 @@ export class OpenClawConfigManager implements ConfigManager {
     return this.access.setDefaultModel(modelKey);
   }
 
-  getChannelState(channelId: "telegram" | "whatsapp" | "feishu" | "wechat") {
+  getChannelState(channelId: SupportedChannelId) {
     return this.access.getChannelState(channelId);
   }
 
@@ -148,7 +182,15 @@ export class OpenClawConfigManager implements ConfigManager {
     return this.access.saveCustomSkill(skillId, request);
   }
 
-  removeInstalledSkill(slug: string, request: RemoveSkillRequest & { managedBy: "clawhub" | "slackclaw-custom" }) {
+  removeInstalledSkill(slug: string, request: RemoveSkillRequest & { managedBy: "clawhub" | "chillclaw-custom" }) {
     return this.access.removeInstalledSkill(slug, request);
+  }
+
+  installManagedSkill(request: ManagedSkillInstallRequest) {
+    return this.access.installManagedSkill(request);
+  }
+
+  verifyManagedSkill(slug: string) {
+    return this.access.verifyManagedSkill(slug);
   }
 }

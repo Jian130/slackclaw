@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { ServerResponse } from "node:http";
 
 import type {
   AbortChatRequest,
   ChatActionResponse,
+  ChatBridgeState,
   ChatComposerState,
   ChatMessage,
   ChatOverview,
@@ -11,12 +11,15 @@ import type {
   ChatThreadDetail,
   ChatThreadSummary,
   ChatThreadStatus,
+  ChatToolActivity,
   CreateChatThreadRequest,
   SendChatMessageRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter, EngineChatLiveEvent } from "../engine/adapter.js";
+import { EventPublisher } from "./event-publisher.js";
 import { errorToLogDetails, writeErrorLog } from "./logger.js";
+import { fallbackMutationSyncMeta } from "./mutation-sync.js";
 import type { StoredChatThreadState } from "./state-store.js";
 import { StateStore } from "./state-store.js";
 import { AITeamService } from "./ai-team-service.js";
@@ -33,6 +36,9 @@ interface ActiveChatRun {
   clientMessageId: string;
   status: ChatThreadStatus;
   activityLabel?: string;
+  bridgeState?: ChatBridgeState;
+  bridgeDetail?: string;
+  toolActivities: ChatToolActivity[];
   runId?: string;
   completed: boolean;
   sendSettled: boolean;
@@ -71,7 +77,7 @@ function defaultThreadTitle(memberName: string, createdAt: string): string {
 }
 
 function buildThreadSessionKey(agentId: string, threadId: string): string {
-  return `agent:${agentId}:slackclaw-chat:${threadId}`;
+  return `agent:${agentId}:chillclaw-chat:${threadId}`;
 }
 
 function createOptimisticUserMessage(threadId: string, clientMessageId: string, text: string, timestamp: string): ChatMessage {
@@ -116,10 +122,22 @@ async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function gatewayNotReadyError(status: Awaited<ReturnType<EngineAdapter["instances"]["status"]>>): Error | undefined {
+  if (status.pendingGatewayApply) {
+    return new Error(status.pendingGatewayApplySummary ?? "OpenClaw setup is saved but the gateway is not running yet.");
+  }
+
+  if (!status.running) {
+    return new Error(status.summary || "OpenClaw gateway is not reachable yet.");
+  }
+
+  return undefined;
+}
+
 export class ChatService {
-  private readonly subscribers = new Set<ServerResponse>();
   private readonly activeRuns = new Map<string, ActiveChatRun>();
   private readonly detailOverrides = new Map<string, ChatThreadDetail>();
+  private readonly detailCache = new Map<string, ChatThreadDetail>();
   private liveBridgeReady = false;
   private liveBridgeConnected = false;
   private liveBridgeInitPromise?: Promise<boolean>;
@@ -127,7 +145,8 @@ export class ChatService {
   constructor(
     private readonly adapter: EngineAdapter,
     private readonly store: StateStore,
-    private readonly aiTeamService: AITeamService
+    private readonly aiTeamService: AITeamService,
+    private readonly eventPublisher?: EventPublisher
   ) {}
 
   async getOverview(): Promise<ChatOverview> {
@@ -146,6 +165,7 @@ export class ChatService {
       const recent = await this.findRecentThreadForMember(request.memberId, member.agentId);
       if (recent) {
         return {
+          ...fallbackMutationSyncMeta(),
           status: "completed",
           message: `Opened the most recent chat with ${member.name}.`,
           overview: await this.getOverview(),
@@ -169,12 +189,14 @@ export class ChatService {
     await this.persistThread(thread);
 
     const detail = this.buildEmptyDetail(thread);
+    this.cacheDetail(detail);
     this.broadcast({
       type: "thread-created",
       thread: this.toSummary(thread)
     });
 
     return {
+      ...fallbackMutationSyncMeta(),
       status: "completed",
       message: `Started a new chat with ${member.name}.`,
       overview: await this.getOverview(),
@@ -190,40 +212,36 @@ export class ChatService {
     }
 
     try {
-      const detail = await this.adapter.gateway.getChatThreadDetail({
+      const activeRun = this.activeRuns.get(thread.id);
+      let detail = await this.adapter.gateway.getChatThreadDetail({
         threadId: thread.id,
         agentId: thread.agentId,
         sessionKey: thread.sessionKey
       });
-
-      return this.applyDetailOverride(
-        this.withActiveRunState(
-        {
-          ...detail,
-          id: thread.id,
-          memberId: thread.memberId,
+      if (activeRun && this.shouldRetryGatewayDetail(detail.messages, activeRun)) {
+        const retried = await this.adapter.gateway.getChatThreadDetail({
+          threadId: thread.id,
           agentId: thread.agentId,
-          sessionKey: thread.sessionKey,
-          title: thread.title,
-          createdAt: thread.createdAt,
-          updatedAt: thread.updatedAt,
-          lastPreview: thread.lastPreview,
-          lastMessageAt: thread.updatedAt,
-          unreadCount: 0,
-          historyStatus: "ready",
-          composerState: this.composerState(thread.id)
-        },
-        this.activeRuns.get(thread.id)
-        )
-      );
+          sessionKey: thread.sessionKey
+        });
+        if (retried.messages.length >= detail.messages.length) {
+          detail = retried;
+        }
+      }
+
+      const hydratedDetail = this.hydrateGatewayDetail(thread, detail, activeRun);
+      this.cacheDetail(hydratedDetail);
+      return hydratedDetail;
     } catch (error) {
-      await writeErrorLog("SlackClaw could not load chat history from OpenClaw.", {
+      await writeErrorLog("ChillClaw could not load chat history from OpenClaw.", {
         threadId,
         sessionKey: thread.sessionKey,
         error: errorToLogDetails(error)
+      }, {
+        scope: "ChatService.getThreadDetail"
       });
 
-      return this.applyDetailOverride(
+      const fallbackDetail = this.applyDetailOverride(
         this.withActiveRunState(
         {
           ...this.buildEmptyDetail(thread),
@@ -233,6 +251,8 @@ export class ChatService {
         this.activeRuns.get(thread.id)
         )
       );
+      this.cacheDetail(fallbackDetail);
+      return fallbackDetail;
     }
   }
 
@@ -251,11 +271,17 @@ export class ChatService {
       throw new Error("Wait for the current reply to finish before sending another message.");
     }
 
+    const engineStatus = await this.adapter.instances.status();
+    const readinessError = gatewayNotReadyError(engineStatus);
+    if (readinessError) {
+      throw readinessError;
+    }
+
     void this.ensureLiveBridge();
 
     const now = new Date().toISOString();
     const clientMessageId = request.clientMessageId ?? randomUUID();
-    const initialDetail = await this.getThreadDetail(threadId);
+    const initialDetail = this.detailCache.get(threadId) ?? (await this.getThreadDetail(threadId));
     this.detailOverrides.delete(threadId);
     const nextTitle = thread.lastPreview ? thread.title : normalizePreview(message, thread.title);
 
@@ -273,6 +299,8 @@ export class ChatService {
       clientMessageId,
       status: "thinking",
       activityLabel: "Thinking…",
+      bridgeState: this.liveBridgeConnected ? "connected" : "reconnecting",
+      toolActivities: [],
       completed: false,
       sendSettled: false,
       receivedLiveEvent: false
@@ -307,6 +335,7 @@ export class ChatService {
     void this.runSendLoop(activeRun);
 
     return {
+      ...fallbackMutationSyncMeta(false),
       status: "completed",
       message: `Sending a message to ${nextTitle}.`,
       overview: await this.getOverview(),
@@ -334,6 +363,7 @@ export class ChatService {
     const activeRun = this.activeRuns.get(threadId);
     if (!activeRun) {
       return {
+        ...fallbackMutationSyncMeta(),
         status: "completed",
         message: "There is no active chat reply to stop.",
         overview: await this.getOverview(),
@@ -352,47 +382,23 @@ export class ChatService {
         sessionKey: thread.sessionKey
       });
     } catch (error) {
-      await writeErrorLog("SlackClaw could not stop an in-flight OpenClaw chat reply.", {
+      await writeErrorLog("ChillClaw could not stop an in-flight OpenClaw chat reply.", {
         threadId,
         sessionKey: thread.sessionKey,
         error: errorToLogDetails(error)
+      }, {
+        scope: "ChatService.abortThread"
       });
       throw error;
     }
 
     return {
+      ...fallbackMutationSyncMeta(false),
       status: "completed",
       message: "Stopping the current reply.",
       overview: await this.getOverview(),
       thread: this.withActiveRunState(await this.getThreadDetail(threadId), activeRun)
     };
-  }
-
-  subscribe(response: ServerResponse): () => void {
-    response.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*"
-    });
-    response.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
-
-    this.subscribers.add(response);
-    void this.ensureLiveBridge();
-
-    const keepAlive = setInterval(() => {
-      response.write(": keep-alive\n\n");
-    }, 20000);
-
-    const cleanup = () => {
-      clearInterval(keepAlive);
-      this.subscribers.delete(response);
-    };
-
-    response.on("close", cleanup);
-    response.on("error", cleanup);
-
-    return cleanup;
   }
 
   private async ensureLiveBridge(): Promise<boolean> {
@@ -414,8 +420,10 @@ export class ChatService {
       })
       .catch(async (error) => {
         this.liveBridgeReady = false;
-        await writeErrorLog("SlackClaw could not start the live OpenClaw chat event bridge.", {
+        await writeErrorLog("ChillClaw could not start the live OpenClaw chat event bridge.", {
           error: errorToLogDetails(error)
+        }, {
+          scope: "ChatService.ensureLiveBridge"
         });
         return false;
       })
@@ -429,6 +437,10 @@ export class ChatService {
   private async handleLiveEvent(event: EngineChatLiveEvent): Promise<void> {
     if (event.type === "connected") {
       this.liveBridgeConnected = true;
+      for (const activeRun of this.activeRuns.values()) {
+        this.setRunBridgeState(activeRun, "connected");
+        void this.resyncThreadHistory(activeRun);
+      }
       return;
     }
 
@@ -444,7 +456,7 @@ export class ChatService {
         if (activeRun.status !== "streaming") {
           activeRun.status = "thinking";
         }
-        this.broadcastThreadSummary(activeRun.threadId);
+        this.setRunBridgeState(activeRun, "reconnecting", event.error ?? "Reconnecting to live updates.");
         this.broadcast({
           type: "assistant-thinking",
           threadId: activeRun.threadId,
@@ -466,18 +478,24 @@ export class ChatService {
       clearTimeout(activeRun.fallbackTimer);
       activeRun.fallbackTimer = undefined;
     }
+    this.setRunBridgeState(activeRun, "connected");
 
     switch (event.type) {
       case "assistant-tool-status":
+        activeRun.runId = event.runId ?? activeRun.runId;
         activeRun.activityLabel = event.activityLabel;
+        activeRun.toolActivities = this.upsertToolActivity(activeRun.toolActivities, event.toolActivity);
+        this.setRunBridgeState(activeRun, "connected");
         if (activeRun.status !== "streaming") {
           activeRun.status = "thinking";
         }
-        this.broadcastThreadSummary(activeRun.threadId);
         this.broadcast({
           type: "assistant-tool-status",
           threadId: activeRun.threadId,
-          activityLabel: event.activityLabel
+          sessionKey: activeRun.sessionKey,
+          runId: event.runId ?? activeRun.runId,
+          activityLabel: event.activityLabel,
+          toolActivity: event.toolActivity
         });
         return;
       case "assistant-delta":
@@ -547,10 +565,12 @@ export class ChatService {
 
       this.startFallbackPolling(activeRun, activeRun.receivedLiveEvent ? 900 : 0);
     } catch (error) {
-      await writeErrorLog("SlackClaw could not complete an OpenClaw chat send.", {
+      await writeErrorLog("ChillClaw could not complete an OpenClaw chat send.", {
         threadId: activeRun.threadId,
         sessionKey: activeRun.sessionKey,
         error: errorToLogDetails(error)
+      }, {
+        scope: "ChatService.runSendLoop"
       });
       const recovered = await this.recoverRunFromHistory(
         activeRun,
@@ -585,6 +605,7 @@ export class ChatService {
     }
 
     activeRun.pollInFlight = true;
+    this.setRunBridgeState(activeRun, "polling", "Polling the daemon for history updates.");
     try {
       const detail = await this.adapter.gateway.getChatThreadDetail({
         threadId: activeRun.threadId,
@@ -604,7 +625,8 @@ export class ChatService {
           status: "streaming",
           pending: true
         };
-        this.broadcastThreadSummary(activeRun.threadId);
+        await this.broadcastThreadSummary(activeRun.threadId);
+        await this.resyncThreadHistory(activeRun, detail);
         this.broadcast({
           type: "assistant-delta",
           threadId: activeRun.threadId,
@@ -619,6 +641,7 @@ export class ChatService {
       }
 
       if (next.completed) {
+        await this.resyncThreadHistory(activeRun, detail);
         await this.completeRunFromHistory(activeRun, "assistant-completed");
       }
     } catch {
@@ -668,6 +691,7 @@ export class ChatService {
       type: "thread-updated",
       thread: updatedThread
     });
+    this.cacheDetail(refreshedDetail);
     this.broadcast({
       type: eventType,
       threadId: activeRun.threadId,
@@ -701,6 +725,7 @@ export class ChatService {
       type: "thread-updated",
       thread: updatedThread
     });
+    this.cacheDetail(interruptedDetail);
     this.broadcast({
       type: "assistant-aborted",
       threadId: activeRun.threadId,
@@ -745,12 +770,65 @@ export class ChatService {
         activeRunState: "error"
       }
     });
+    this.cacheDetail(failedDetail);
     this.broadcast({
       type: "assistant-failed",
       threadId: activeRun.threadId,
       error,
       detail: failedDetail,
       activityLabel: "Could not finish reply"
+    });
+  }
+
+  private upsertToolActivity(toolActivities: ChatToolActivity[], nextActivity: ChatToolActivity): ChatToolActivity[] {
+    const next = [...toolActivities];
+    const existingIndex = next.findIndex((activity) => activity.id === nextActivity.id);
+    if (existingIndex >= 0) {
+      next[existingIndex] = nextActivity;
+      return next;
+    }
+
+    return [...next, nextActivity];
+  }
+
+  private setRunBridgeState(activeRun: ActiveChatRun, bridgeState: ChatBridgeState, detail?: string): void {
+    if (activeRun.bridgeState === bridgeState && activeRun.bridgeDetail === detail) {
+      return;
+    }
+
+    activeRun.bridgeState = bridgeState;
+    activeRun.bridgeDetail = detail;
+    void this.broadcastThreadSummary(activeRun.threadId);
+    this.broadcast({
+      type: "connection-state",
+      threadId: activeRun.threadId,
+      state: bridgeState,
+      detail
+    });
+  }
+
+  private async resyncThreadHistory(activeRun: ActiveChatRun, detail?: ChatThreadDetail): Promise<void> {
+    if (activeRun.completed) {
+      return;
+    }
+
+    const thread = await this.getStoredThread(activeRun.threadId);
+    if (!thread) {
+      return;
+    }
+
+    const liveDetail =
+      detail ??
+      (await this.adapter.gateway.getChatThreadDetail({
+        threadId: activeRun.threadId,
+        agentId: activeRun.agentId,
+        sessionKey: activeRun.sessionKey
+      }));
+
+    this.broadcast({
+      type: "history-loaded",
+      threadId: activeRun.threadId,
+      detail: this.cacheDetail(this.hydrateGatewayDetail(thread, liveDetail, activeRun))
     });
   }
 
@@ -838,12 +916,14 @@ export class ChatService {
         const progress = this.readHistoryProgress(detail.messages, activeRun.baselineMessageCount);
 
         if (progress.failed) {
+          await this.resyncThreadHistory(activeRun, detail);
           await this.failRun(activeRun, progress.failureMessage ?? fallbackError);
           return true;
         }
 
         if (progress.completed) {
           activeRun.assistantText = progress.assistantText;
+          await this.resyncThreadHistory(activeRun, detail);
           await this.completeRunFromHistory(activeRun, "assistant-completed");
           return true;
         }
@@ -914,6 +994,13 @@ export class ChatService {
     return -1;
   }
 
+  private shouldRetryGatewayDetail(messages: ChatMessage[], activeRun: ActiveChatRun): boolean {
+    return (
+      this.findMatchingHistoryUserMessageIndex(messages, activeRun) < 0 &&
+      messages.length <= activeRun.baselineMessageCount
+    );
+  }
+
   private applyDetailOverride(detail: ChatThreadDetail): ChatThreadDetail {
     const override = this.detailOverrides.get(detail.id);
     if (!override) {
@@ -931,7 +1018,7 @@ export class ChatService {
 
   private async findRecentThreadForMember(memberId: string, agentId: string): Promise<StoredChatThreadState | undefined> {
     const threads = Object.values((await this.store.read()).chat?.threads ?? {});
-    const expectedPrefix = `agent:${agentId}:slackclaw-chat:`;
+    const expectedPrefix = `agent:${agentId}:chillclaw-chat:`;
     return threads
       .filter((thread) => thread.memberId === memberId && thread.agentId === agentId && thread.sessionKey.startsWith(expectedPrefix))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
@@ -1026,6 +1113,38 @@ export class ChatService {
     };
   }
 
+  private cacheDetail(detail: ChatThreadDetail): ChatThreadDetail {
+    this.detailCache.set(detail.id, detail);
+    return detail;
+  }
+
+  private hydrateGatewayDetail(
+    thread: StoredChatThreadState,
+    detail: ChatThreadDetail,
+    activeRun?: ActiveChatRun
+  ): ChatThreadDetail {
+    return this.applyDetailOverride(
+      this.withActiveRunState(
+        {
+          ...detail,
+          id: thread.id,
+          memberId: thread.memberId,
+          agentId: thread.agentId,
+          sessionKey: thread.sessionKey,
+          title: thread.title,
+          createdAt: thread.createdAt,
+          updatedAt: thread.updatedAt,
+          lastPreview: thread.lastPreview,
+          lastMessageAt: thread.updatedAt,
+          unreadCount: 0,
+          historyStatus: "ready",
+          composerState: this.composerState(thread.id)
+        },
+        activeRun
+      )
+    );
+  }
+
   private toSummary(thread: StoredChatThreadState): ChatThreadSummary {
     const composerState = this.composerState(thread.id);
     return {
@@ -1059,7 +1178,9 @@ export class ChatService {
       status: active.status,
       canSend: false,
       canAbort: active.status !== "error",
-      activityLabel: active.activityLabel
+      activityLabel: active.activityLabel,
+      bridgeState: active.bridgeState,
+      toolActivities: active.toolActivities
     };
   }
 
@@ -1076,9 +1197,42 @@ export class ChatService {
   }
 
   private broadcast(event: ChatStreamEvent | { type: "connected" }): void {
-    const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const subscriber of this.subscribers) {
-      subscriber.write(payload);
+    if (event.type === "connected") {
+      return;
     }
+
+    const daemonEvent = this.toDaemonChatEvent(event);
+    if (daemonEvent) {
+      this.eventPublisher?.publishChatStream(daemonEvent);
+    }
+  }
+
+  private toDaemonChatEvent(event: ChatStreamEvent): { threadId: string; sessionKey: string; payload: ChatStreamEvent } | undefined {
+    if ("thread" in event) {
+      return {
+        threadId: event.thread.id,
+        sessionKey: event.thread.sessionKey,
+        payload: event
+      };
+    }
+
+    if ("detail" in event && event.detail && typeof event.detail !== "string") {
+      return {
+        threadId: event.threadId,
+        sessionKey: event.detail.sessionKey,
+        payload: event
+      };
+    }
+
+    const activeRun = this.activeRuns.get(event.threadId);
+    if (!activeRun) {
+      return undefined;
+    }
+
+    return {
+      threadId: event.threadId,
+      sessionKey: activeRun.sessionKey,
+      payload: event
+    };
   }
 }

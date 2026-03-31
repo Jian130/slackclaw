@@ -13,11 +13,13 @@ import {
   stopRecoverableDevProcesses,
   writeDevProcessState
 } from "./dev-process-control.mjs";
+import { writeScriptLogLine } from "./logging.mjs";
 
 const rootDir = process.cwd();
-const daemonPort = Number(process.env.SLACKCLAW_PORT ?? "4545");
-const uiPort = Number(process.env.SLACKCLAW_UI_PORT ?? "4173");
+const daemonPort = Number(process.env.CHILLCLAW_PORT ?? "4545");
+const uiPort = Number(process.env.CHILLCLAW_UI_PORT ?? "4173");
 const viteBinPath = resolve(rootDir, "node_modules", "vite", "bin", "vite.js");
+const SCRIPT_LABEL = "ChillClaw start";
 
 let daemonProcess = null;
 let uiProcess = null;
@@ -26,7 +28,11 @@ let stepCounter = 0;
 
 function logStep(message, options = {}) {
   const prefix = options.step ? `${String(++stepCounter).padStart(2, "0")}. ` : "";
-  console.log(`[SlackClaw start] ${prefix}${message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.logStep",
+    message: `${prefix}${message}`
+  });
 }
 
 function shellQuote(value) {
@@ -38,7 +44,12 @@ function shellQuote(value) {
 }
 
 function fail(message) {
-  console.error(`[SlackClaw start] ${message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.fail",
+    message,
+    stream: "stderr"
+  });
   process.exit(1);
 }
 
@@ -132,7 +143,12 @@ function runBackgroundStep(label, command, args, options = {}) {
       return;
     }
 
-    console.error(`[SlackClaw start] ${label} error: ${error.message}`);
+    writeScriptLogLine({
+      label: SCRIPT_LABEL,
+      scope: "start-dev.runBackgroundStep.childError",
+      message: `${label} error: ${error.message}`,
+      stream: "stderr"
+    });
     void shutdown(1);
   });
 
@@ -141,9 +157,12 @@ function runBackgroundStep(label, command, args, options = {}) {
       return;
     }
 
-    console.error(
-      `[SlackClaw start] ${label} exited unexpectedly (${signal ? `signal ${signal}` : `code ${code ?? "unknown"}`}).`
-    );
+    writeScriptLogLine({
+      label: SCRIPT_LABEL,
+      scope: "start-dev.runBackgroundStep.childExit",
+      message: `${label} exited unexpectedly (${signal ? `signal ${signal}` : `code ${code ?? "unknown"}`}).`,
+      stream: "stderr"
+    });
     void shutdown(code ?? 1);
   });
 
@@ -263,39 +282,49 @@ process.on("SIGTERM", () => {
 });
 
 process.on("uncaughtException", (error) => {
-  console.error(`[SlackClaw start] ${error.message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.processUncaughtException",
+    message: error.message,
+    stream: "stderr"
+  });
   void shutdown(1);
 });
 
 process.on("unhandledRejection", (error) => {
   const message = error instanceof Error ? error.message : "Unhandled promise rejection.";
-  console.error(`[SlackClaw start] ${message}`);
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "start-dev.processUnhandledRejection",
+    message,
+    stream: "stderr"
+  });
   void shutdown(1);
 });
 
 async function main() {
-  logStep("Starting SlackClaw local development environment");
+  logStep("Starting ChillClaw local development environment");
   ensureLocalDependencies();
-  logStep("Checking for an existing managed SlackClaw dev session", { step: true });
+  logStep("Checking for an existing managed ChillClaw dev session", { step: true });
   const orphanedProcesses = await findRecoverableDevProcesses({
     daemon: daemonPort,
     ui: uiPort
   });
   if (orphanedProcesses.length > 0) {
     const summary = orphanedProcesses.map((entry) => `${entry.name}(${entry.pid})`).join(", ");
-    logStep(`Found orphaned SlackClaw dev processes from this repo: ${summary}`);
+    logStep(`Found orphaned ChillClaw dev processes from this repo: ${summary}`);
     await stopRecoverableDevProcesses("SIGTERM", {
       daemon: daemonPort,
       ui: uiPort
     });
-    logStep("Recovered orphaned SlackClaw dev processes.");
+    logStep("Recovered orphaned ChillClaw dev processes.");
   }
   await assertNoManagedProcessesRunning();
-  logStep("No managed SlackClaw dev processes are already running.");
+  logStep("No managed ChillClaw dev processes are already running.");
 
-  logStep("Skipping OpenClaw bootstrap during npm start. Use the SlackClaw install flow or run `npm run bootstrap:openclaw` manually if needed.");
-  await runBlockingStep("Building shared contracts", "npm", ["run", "build", "--workspace", "@slackclaw/contracts"]);
-  await runBlockingStep("Building daemon", "npm", ["run", "build", "--workspace", "@slackclaw/daemon"]);
+  logStep("Skipping OpenClaw bootstrap during npm start. Use the ChillClaw install flow or run `npm run bootstrap:openclaw` manually if needed.");
+  await runBlockingStep("Building shared contracts", "npm", ["run", "build", "--workspace", "@chillclaw/contracts"]);
+  await runBlockingStep("Building daemon", "npm", ["run", "build", "--workspace", "@chillclaw/daemon"]);
   await ensurePortIsFree("Daemon", "127.0.0.1", daemonPort);
   await ensurePortIsFree("UI", "127.0.0.1", uiPort);
 
@@ -329,7 +358,7 @@ async function main() {
   });
   await waitForPort("UI", "127.0.0.1", uiPort);
 
-  logStep("SlackClaw dev environment is ready.");
+  logStep("ChillClaw dev environment is ready.");
   logStep(`Daemon: http://127.0.0.1:${daemonPort}`);
   logStep(`UI: http://127.0.0.1:${uiPort}`);
 }

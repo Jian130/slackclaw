@@ -2,125 +2,203 @@
 
 ## Purpose
 
-SlackClaw is a macOS-first, local-first product layer on top of OpenClaw. Its job is to make OpenClaw usable for non-technical users through guided install, onboarding, daily task flows, health checks, updates, and recovery.
+ChillClaw is a local-first product layer on top of OpenClaw. Its job is to make OpenClaw usable for non-technical people through guided install, onboarding, daily task flows, health checks, updates, and recovery.
 
-This file captures the important operating rules for agents working in this repository.
+This file defines the operating rules for agents working in this repository.
+
+## Operating principles
+
+- Use first-principles reasoning. Start from the user problem and the system constraints, not from existing implementation habits.
+- Be direct. State tradeoffs, risks, and constraints plainly.
+- Move fast by reducing complexity and rework, not by skipping verification.
+- Solve root causes. Do not paper over broken flows with extra toggles, retries, or UI noise.
+- Hold a high bar for clarity, reliability, and polish.
+- Ruthlessly focus on shipping useful product behavior.
 
 ## Product priorities
 
 - Optimize for ordinary users, not operators or developers.
 - Normal use must not require a terminal.
+- Treat “first useful result in under 15 minutes” as a core product constraint.
 - Prefer clarity, reliability, and recovery over feature breadth.
 - Keep the product opinionated. Do not expose raw engine complexity unless there is a strong user need.
-- Treat “first useful result in under 15 minutes” as a core product constraint.
+- Default to a local-first, single-user trust boundary unless the task explicitly requires something broader.
 
-## Architecture rules
+## Naming
 
-- Preserve the `UI -> local daemon -> EngineAdapter -> engine` boundary.
+- Use **ChillClaw** in product-facing copy, docs, and new code.
+- Use `openclaw` only for upstream CLI commands, binaries, package names, config keys, and filesystem paths.
+- If legacy **ChillClaw** names still exist in the repo, do not introduce new ones. Rename only when it is safe and in scope.
+
+## Architecture boundaries
+
+- Preserve the `UI -> local daemon/core -> EngineAdapter -> engine` boundary.
 - Do not let frontend code call OpenClaw directly.
 - Do not let product-layer daemon code depend on OpenClaw-specific internals outside the adapter implementation.
-- Keep engine-specific logic confined to `apps/daemon/src/engine/*`.
-- If adding a new engine later, do it by implementing the existing adapter seam first, not by branching product logic throughout the codebase.
-- Treat future local-LLM backends as adapter work. Qwen-family models, MiniMax-compatible local gateways, Ollama, vLLM, LM Studio, and similar runtimes should integrate through the same product-layer seam.
+- Keep engine-specific logic confined to the adapter/integration layer.
+- If adding a new engine later, implement the existing adapter seam first instead of branching product logic throughout the codebase.
+- Treat future local-LLM backends as adapter work, not as a reason to leak engine-specific configuration into the whole app.
+- Keep the Core service headless-capable so the same backend can later power an appliance-style deployment.
 
-## Native macOS client rules
+## Client rules
 
-- The native macOS app is a full SwiftUI client on top of the local SlackClaw daemon, not a direct OpenClaw client.
-- Preserve the `native UI -> SlackClaw daemon -> EngineAdapter -> engine` boundary for all native features, including onboarding, chat, install, config, and recovery.
-- Keep React as the fallback and developer surface. Do not move product logic out of the daemon just to satisfy one client.
-- Treat the native app as a second client of the same daemon APIs. React and SwiftUI should render the same backend truth.
-- Keep the native client OpenClaw-agnostic. Do not let SwiftUI code depend on OpenClaw CLI shapes, gateway internals, or engine-specific runtime assumptions.
-- Prefer SwiftUI for the native app and use AppKit only when SwiftUI is insufficient.
-- Keep the native app structured around:
-  - central `AppState` for shell, window, and client lifecycle state
-  - `DaemonEndpointStore` for daemon endpoint/auth/reachability resolution
-  - `DaemonProcessManager` and `LaunchAgentManager` for packaged daemon lifecycle
-  - reusable native client/chat packages in `apps/shared/SlackClawKit`
-- Keep the shared Swift packages split by responsibility:
-  - `SlackClawProtocol` for daemon DTOs
-  - `SlackClawClient` for HTTP + SSE transport
-  - `SlackClawChatUI` for native chat transport, transcript, and view models
-- Do not embed browser views for core product flows when a native screen exists. Native chat should stay native, not a web wrapper.
-- Keep daemon routes stable when possible. Add only the minimum daemon metadata needed for native parity rather than inventing native-only backend behavior.
-- Native UI must surface the same distinction between:
-  - installed instance
-  - staged config / pending gateway apply
-  - live gateway-applied state
-- Keep the client boundary daemon-centric so future Windows or other native clients can reuse the same backend pattern.
+### Shared rules for macOS, Windows, and web
+
+- The native macOS app, native Windows app, and local React web interface are peer clients of the same daemon APIs.
+- React is a client surface, not a second backend.
+- Use HTTP for command and query APIs, and the daemon WebSocket event bus for live updates.
+- Keep the raw OpenClaw gateway socket daemon-internal.
+- Keep daemon routes and contracts stable when possible. Add only the minimum metadata needed for client parity rather than inventing client-specific backend behavior.
+- Keep provider lists, onboarding steps, status surfaces, settings, and recovery actions aligned across all clients through shared contracts and daemon-owned metadata.
+- Do not re-implement onboarding, health classification, update policy, or recovery logic separately in each client.
+- All clients must clearly distinguish between:
+  - installed runtime
+  - staged config or pending apply
+  - live applied state
+- Do not embed browser views for core product flows when a native screen exists. Native chat, onboarding, settings, and recovery should stay native on native clients.
+
+### Native macOS rules
+
+- The macOS app is a native SwiftUI client on top of the local daemon, not a direct OpenClaw client.
+- Prefer SwiftUI for product surfaces and use AppKit only when SwiftUI is insufficient.
+- Prefer the Observation framework (`@Observable`, `@Bindable`) over introducing new `ObservableObject` or `@StateObject` patterns unless compatibility requires otherwise.
+- Use platform-native lifecycle management for the packaged daemon, such as a per-user `LaunchAgent`, instead of ad hoc shell processes.
+- Packaged runtime data should live under `~/Library/Application Support/ChillClaw`.
+
+### Native Windows rules
+
+- The Windows app is a native client on top of the local daemon, not a direct OpenClaw client.
+- Use standard Windows per-user startup and app-data locations. Do not rely on console windows or ad hoc background shell processes for normal lifecycle management.
+- Keep transport and daemon-client code separate from view state and UI-thread concerns.
+- Packaged runtime data should live under `%LocalAppData%\ChillClaw`.
+
+### Local web interface rules
+
+- The local React UI is the fallback and developer-friendly surface.
+- Do not move business logic into React for convenience.
+- Treat the local web interface as another view of the same daemon truth, not as a separate product model.
+- All web UI changes must remain responsive across desktop and narrow-screen layouts.
+
+### Public website rules
+
+- `apps/website` is a separate public marketing app, not another daemon client.
+- Do not call the daemon, OpenClaw, or any runtime API from the website.
+- Keep the website fully static and GitHub Pages compatible.
+- Treat the approved Figma website design as the source of truth for layout, section order, copy direction, and visual tone. Keep divergence minimal and intentional.
+- Replace `figma:asset` references with repo-owned local assets before shipping.
+- The website may use website-local components and styles instead of product-app primitives when fidelity or static-site simplicity requires it.
+- Keep website dependencies trimmed. Do not pull product-layer packages or heavy UI libraries into the website without a clear need.
+- Keep the website responsive across desktop and mobile layouts.
+- If a future custom domain is introduced, preserve the existing path-aware build setup instead of hardcoding repo-relative assumptions into page code.
+
+## UI system rules
+
+- New UI work must start from the shared primitive families before adding page-specific visuals: `SurfaceCard`, `StatusBadge`, `TagBadge`, `MetricCard`, `InfoBanner`, `ProgressBar`, `ActionButton`, `SettingRow`, `AvatarView`, `LoadingState`, `EmptyState`, and `ErrorState`.
+- New top-level screens must start from an approved scaffold: `WorkspaceScaffold`, `SplitContentScaffold`, `GuidedFlowScaffold`, or `OperationsScaffold`.
+- SwiftUI and React implementations may differ technically, but the primitive names, status vocabulary, tone semantics, spacing scale, and scaffold taxonomy must stay aligned across clients.
+- Status UI must use the shared `StatusBadge` path. Do not add page-local status chips, ad hoc colored status text, or duplicate status helpers.
+- Onboarding and deploy may keep specialized layouts, but they must still be built from shared primitives and the approved flow or operations scaffolds.
+- Web semantic tokens are the source of truth for shared web styling. If a shared visual value changes, update `apps/desktop-ui/src/shared/styles/tokens.css` first instead of hardcoding a new value in page or component CSS.
+- Corner radius is a system, not a per-screen decoration choice. Define shared semantic radius steps in `apps/desktop-ui/src/shared/styles/tokens.css` and matching `NativeUI` constants or helpers for native clients before using them in page-level code.
+- Choose radii by element size group using the shortest side of the shape. Small controls should use the smallest shared radius step, standard controls and compact surfaces should use the middle steps, and only large containers such as cards, dialogs, sheets, and onboarding panels should use the largest steps.
+- Page-local radius aliases are allowed only when they map back to shared semantic tokens or a documented derived rule. Do not introduce one-off raw radius values in page CSS, feature-specific CSS variables, or leaf SwiftUI views when an existing shared step fits.
+- Reserve pill or max radii such as `999px` or `Capsule()` for true pill and circular shapes, such as badges, toggles, and avatar chrome. Do not use pill radii for generic cards, panels, inputs, or buttons unless the product intentionally wants a pill-shaped control.
+- Treat border radii separately from fill radii when a stroke is inset, offset, or drawn on a different layer. Border-specific radii must be derived deliberately from the shape radius, stroke width, and inset instead of copying arbitrary shape values.
+- Keep nested surfaces visually aligned. When an inner panel, button, or input sits inside an outer card or dialog, prefer an outer radius that tracks the inner radius plus the visible padding or inset, snapped to the shared radius scale when needed.
+- If the radius system changes, update the shared web tokens, the native `NativeUI` radius contract, and the affected shared primitives together. Then verify the main onboarding, dashboard, settings, and dialog flows for nesting or visual regression.
+- Reuse shared components and scaffolds before adding new ones. If a page appears to need a one-off primitive, first check whether the existing shared family should be extended instead.
 
 ## OpenClaw integration rules
 
-- SlackClaw installs the latest available OpenClaw version by default for users.
-- Only use an explicit OpenClaw version override for compatibility testing or controlled diagnostics.
-- Always check for an existing compatible OpenClaw install before reinstalling.
-- Reuse an existing compatible install when possible.
-- If OpenClaw is missing or incompatible, use SlackClaw’s bootstrap/install path rather than inventing a second installer path.
+- ChillClaw owns a managed OpenClaw runtime. Do not depend on whatever happens to be on the user’s `PATH`.
+- Default to the pinned, tested OpenClaw version selected by ChillClaw, not “latest available” at runtime.
+- Reuse an existing compatible ChillClaw-managed runtime when possible, but do not bind product behavior to arbitrary user-installed OpenClaw state.
+- During install or repair, normalize OpenClaw back to ChillClaw’s safe local baseline: local mode, loopback bind, token auth, and no inherited remote override.
+- If OpenClaw is missing or incompatible, use ChillClaw’s bootstrap and install path rather than inventing a second installer path.
 - Distinguish between:
-  - OpenClaw CLI installed
-  - OpenClaw gateway/service reachable
-  - OpenClaw healthy enough for user work
-- Do not report the system as healthy just because `openclaw` exists on `PATH`.
-- Do not couple product behavior to OpenClaw-only assumptions if the same behavior should later work for local-LLM adapters.
+  - OpenClaw runtime installed
+  - OpenClaw gateway or service reachable
+  - system healthy enough for user work
+- Do not report the system as healthy just because the `openclaw` binary exists.
+- Installed apps must not assume they are running from a repo checkout. Use runtime path helpers instead of `process.cwd()` assumptions.
+- Bootstrap and install logic, update logic, health logic, and recovery logic should each have one canonical implementation path.
 
-## UX rules
+## UX and onboarding rules
 
 - Keep install, onboarding, health, update, and recovery messaging in plain language.
-- All UI changes must remain responsive across desktop, tablet, and narrow-screen layouts. Do not ship desktop-only page structures.
-- Preserve localized UI support for English, Chinese, Japanese, Korean, and Spanish when changing frontend copy.
 - Prefer one primary action per screen or panel.
-- Surface recommended recovery actions first.
-- When there is a failure, explain:
+- Recommend the safest default path first.
+- Avoid advanced settings by default.
+- When there is a failure, explain three things clearly:
   - what is broken
-  - what SlackClaw can do automatically
-  - what the user should do next if auto-repair is insufficient
-- Avoid adding advanced settings by default.
+  - what ChillClaw can do automatically
+  - what the user should do next if auto-repair is not enough
+- Onboarding should feel like guided setup, not a developer control panel or admin form.
+- Use shared design tokens, system fonts, and an 8-point spacing system across clients unless a deliberate product decision says otherwise.
+- Use the same language selector behavior across onboarding and the rest of the app. Do not create one-off language controls for individual steps.
+- Curated onboarding, provider, and channel metadata should be daemon-owned. Clients should render shared metadata instead of forking it.
+- Preserve localized UI support for English, Chinese, Japanese, Korean, and Spanish when changing product copy.
 
-## Packaging and runtime rules
+## Health, updates, and recovery
 
-- The packaged macOS app is a native SwiftUI client backed by the bundled local daemon.
-- Keep the React UI as the fallback and developer surface; do not let it become a second product backend.
-- The packaged macOS app should prefer a per-user `LaunchAgent` for daemon lifecycle instead of ad hoc background shell processes.
-- Packaged runtime data should live under `~/Library/Application Support/SlackClaw`.
-- Operational errors must be written to log files, not only returned to the UI. When adding new install, startup, shutdown, recovery, or external-command paths, make sure failures are persisted under the SlackClaw logs directory.
-- The installed app must not assume it is running from the repo checkout.
-- When changing paths, use runtime path helpers instead of `process.cwd()` assumptions.
-- Keep the macOS installer build reproducible through `npm run build:mac-installer`.
+- Prefer repair over diagnosis in user-facing UX.
+- Snapshot before update or destructive repair.
+- Verify after update. Roll back automatically when verification fails.
+- Surface recommended recovery actions first and keep them one-click when possible.
+- Operational errors must be written to logs, not only returned to the UI.
+- Diagnostics export should include version info, health summary, and relevant logs.
+- In development mode, external commands must be echoed before they run so install, update, repair, and bootstrap behavior stays observable.
 
-## Repo-specific implementation guidance
+## Security and data handling
 
-- `apps/desktop-ui`: first-party user experience only
-- `apps/macos-native`: native macOS client only; keep it daemon-backed and OpenClaw-agnostic
-- `apps/shared/SlackClawKit`: shared Swift protocol, client, and chat packages for native clients
-- `SlackClaw.xcworkspace`: the root native-development entry point for Xcode; keep native clients parallel to the React app and future native apps parallel to `apps/macos-native`
-- `apps/daemon`: orchestration, policy, health, recovery, diagnostics, static asset serving in packaged mode
-- `packages/contracts`: shared product/domain contracts; keep these stable and explicit
-- `scripts/bootstrap-openclaw.mjs`: the single source of truth for OpenClaw install/reuse behavior
-- `scripts/build-macos-installer.mjs`: the single source of truth for packaged macOS app assembly
-- `scripts/start-dev.mjs`: the single source of truth for local end-to-end startup ordering during development
-- `scripts/stop-dev.mjs`: the single source of truth for managed local dev-process teardown
+- Store provider credentials in the OS secure store only.
+- Pass secrets to OpenClaw by reference or environment injection when possible, not as plain-text config values.
+- Never log secrets or include them in support bundles.
+- Never commit real credentials, live config values, phone numbers, or user data.
+- Keep the default trust boundary local and single-user unless a broader scope is explicitly required.
+
+## Code quality and implementation
+
+- Prefer strict typing and explicit contracts. Avoid `any` and do not use `@ts-nocheck`.
+- Keep files focused. Extract helpers or modules instead of cloning “v2” copies of logic.
+- Add brief comments for tricky or non-obvious logic.
+- Prefer composition, clear interfaces, and explicit seams over hidden cross-layer shortcuts.
+- Keep product-layer code OpenClaw-agnostic outside the adapter layer.
+- When adding a new provider, channel, or engine capability, update every affected user surface and documentation together so the product stays aligned.
+- Use American English in code, comments, docs, and UI copy.
+
+## Testing and verification
+
+- Run the repository’s build and test commands after substantial changes.
+- For JS or TS changes, run `npm run build` and `npm test` unless the repo defines a different canonical command.
+- If changing installer, packaging, startup, or runtime-management behavior, run the relevant packaging or smoke path too.
+- If changing native macOS or Windows code, run the native build or test target and smoke the changed user flow.
+- If changing local startup behavior, verify the dev start and stop flow still manages the daemon cleanly and emits clear step-by-step output.
+- Prefer validating real OpenClaw status and health behavior through the adapter when practical.
+- Never claim a bug is fixed without evidence. For bug fixes, verify the symptom, identify the root cause in code, and add a regression test or clear manual proof.
+
+## Repo hygiene and multi-agent safety
+
+- In chat replies, use repo-root-relative file paths only.
+- Keep commits scoped, truthful, and action-oriented.
+- Commit only your changes unless explicitly asked to commit everything.
+- Do not stash, rewrite, or discard unrelated work.
+- Do not switch branches, rewrite history, or alter worktrees unless explicitly asked.
+- When unrecognized files are present, leave them alone unless they are part of the requested change.
+- If you add an `AGENTS.md` in a subdirectory, add a matching `CLAUDE.md` symlink to it.
+
+## Documentation and decision records
+
+- Update `README.md` when install, runtime, packaging, or architecture behavior changes.
+- Every new `CHANGELOG.md` batch entry must include a timestamp in `YYYY-MM-DD HH:MM TZ` format.
+- Keep ADRs aligned when a core architectural rule changes.
+- Preserve future engine-swappability assumptions.
+- Packaging and release steps should be reproducible from scripts, not only from IDE or manual steps.
 
 ## Scope control
 
 - Do not chase full OpenClaw feature parity.
-- Do not add multi-user, team admin, hosted sync, or channel-sprawl features to the MVP path unless explicitly requested.
+- Do not turn ChillClaw into a generic developer control panel.
 - Do not widen the engine adapter contract unless a concrete product need justifies it.
-- Avoid turning SlackClaw into a generic developer control panel.
-- If future local-LLM support is added, keep it inside the install/lifecycle/health/task abstraction instead of adding raw model-provider configuration screens everywhere.
-
-## Testing expectations
-
-- Run `npm run build` after substantial changes.
-- Run `npm test` after changing shared contracts, daemon behavior, or UI logic.
-- If changing installer or runtime packaging behavior, also run `npm run build:mac-installer`.
-- If changing local startup behavior, verify `npm start` still waits for the daemon and UI before reporting readiness.
-- If changing local startup behavior, preserve clear step-by-step console output so `npm start` shows exactly what it is doing and what it is waiting for.
-- If changing local startup or teardown behavior, verify `npm stop` removes the managed dev processes and clears `.data/dev-processes.json`.
-- In development mode, external commands SlackClaw executes must be echoed to the console before they run so install, update, repair, and bootstrap behavior stays observable.
-- Prefer validating real OpenClaw status/health behavior through the adapter when possible.
-
-## When making changes
-
-- Update `README.md` when install, runtime, packaging, or architecture behavior changes.
-- Keep ADRs in `docs/adr` aligned when a core architectural rule changes.
-- Preserve swapability with future engines like ZeroClaw or IronClaw.
-- If a change improves developer convenience but hurts non-technical user simplicity, reject it unless explicitly requested.
+- Do not add multi-user admin, hosted sync, or channel sprawl to the MVP path unless explicitly requested.
+- If future local-LLM support is added, keep it inside the install, lifecycle, health, and task abstraction instead of scattering raw model configuration across the app.

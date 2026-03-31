@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { MemberAvatar as MemberAvatarShape } from "@slackclaw/contracts";
+import type { MemberAvatar as MemberAvatarShape } from "@chillclaw/contracts";
 
 import { memberAvatarEmoji, memberAvatarImageSrc } from "../avatar-presets.js";
 

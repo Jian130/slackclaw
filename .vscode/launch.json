@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:chillclaw}/apps/macos-native",
+            "name": "Debug ChillClawNative (apps/macos-native)",
+            "target": "ChillClawNative",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug ChillClawNative (apps/macos-native)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:chillclaw}/apps/macos-native",
+            "name": "Release ChillClawNative (apps/macos-native)",
+            "target": "ChillClawNative",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release ChillClawNative (apps/macos-native)"
+        }
+    ]
+}

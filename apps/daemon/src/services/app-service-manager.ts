@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
-import type { AppServiceActionResponse, AppServiceStatus } from "@slackclaw/contracts";
+import type { AppServiceActionResponse, AppServiceStatus } from "@chillclaw/contracts";
 
 import {
   getAppRootDir,
@@ -30,7 +30,7 @@ async function fileExists(pathname: string): Promise<boolean> {
 
 async function run(command: string, args: string[], options?: { allowFailure?: boolean }): Promise<CommandResult> {
   return new Promise((resolvePromise, reject) => {
-    logDevelopmentCommand("service", command, args);
+    logDevelopmentCommand("AppServiceManager.run", command, args);
     const child = spawn(command, args, {
       env: {
         ...process.env,
@@ -76,7 +76,7 @@ export class AppServiceManager {
         running: false,
         managedAtLogin: false,
         label: undefined,
-        summary: "SlackClaw background service is only managed on macOS.",
+        summary: "ChillClaw background service is only managed on macOS.",
         detail: "LaunchAgent management is not available on this platform."
       };
     }
@@ -92,7 +92,7 @@ export class AppServiceManager {
         running: true,
         managedAtLogin: false,
         label,
-        summary: "SlackClaw is running in development mode without a LaunchAgent.",
+        summary: "ChillClaw is running in development mode without a LaunchAgent.",
         detail: "Build and run the packaged macOS app to install login-time background service management."
       };
     }
@@ -108,8 +108,8 @@ export class AppServiceManager {
         managedAtLogin: installed,
         label,
         summary: installed
-          ? "SlackClaw LaunchAgent is installed."
-          : "SlackClaw LaunchAgent is not installed yet.",
+          ? "ChillClaw LaunchAgent is installed."
+          : "ChillClaw LaunchAgent is not installed yet.",
         detail: installed
           ? `LaunchAgent file exists at ${plistPath}, but the current user session could not be inspected.`
           : `LaunchAgent file not found at ${plistPath}.`
@@ -126,15 +126,15 @@ export class AppServiceManager {
       managedAtLogin: installed,
       label,
       summary: running
-        ? "SlackClaw background service is running at login."
+        ? "ChillClaw background service is running at login."
         : installed
-          ? "SlackClaw LaunchAgent is installed but not running."
-          : "SlackClaw background service is not installed yet.",
+          ? "ChillClaw LaunchAgent is installed but not running."
+          : "ChillClaw background service is not installed yet.",
       detail: running
         ? `LaunchAgent ${label} is loaded for the current user session.`
         : installed
           ? launchctl.stderr || launchctl.stdout || "The LaunchAgent exists but launchctl did not report it as running."
-          : `Install the LaunchAgent to keep SlackClaw available after login.`
+          : `Install the LaunchAgent to keep ChillClaw available after login.`
     };
   }
 
@@ -158,17 +158,19 @@ export class AppServiceManager {
 
     if (process.platform !== "darwin" || !scriptsDir || !(await fileExists(resolve(scriptsDir, scriptName)))) {
       const service = await this.getStatus();
-      await writeErrorLog("SlackClaw LaunchAgent action is unavailable in the current runtime.", {
+      await writeErrorLog("ChillClaw LaunchAgent action is unavailable in the current runtime.", {
         action,
         scriptName,
         platform: process.platform,
         packaged: Boolean(scriptsDir)
+      }, {
+        scope: "AppServiceManager.runAction.unavailable"
       });
 
       return {
         action,
         status: "failed",
-        message: "SlackClaw LaunchAgent management is only available from the packaged macOS app.",
+        message: "ChillClaw LaunchAgent management is only available from the packaged macOS app.",
         service
       };
     }
@@ -178,12 +180,14 @@ export class AppServiceManager {
     const service = await this.getStatus();
 
     if (result.code !== 0) {
-      await writeErrorLog("SlackClaw LaunchAgent action failed.", {
+      await writeErrorLog("ChillClaw LaunchAgent action failed.", {
         action,
         scriptPath,
         code: result.code,
         stdout: result.stdout,
         stderr: result.stderr
+      }, {
+        scope: "AppServiceManager.runAction.failed"
       });
     }
 
@@ -193,11 +197,11 @@ export class AppServiceManager {
       message:
         result.code === 0
           ? action === "install"
-            ? "SlackClaw background service was installed and started."
+            ? "ChillClaw background service was installed and started."
             : action === "restart"
-              ? "SlackClaw background service was restarted."
-              : "SlackClaw background service was removed."
-          : result.stderr || result.stdout || "SlackClaw service action failed.",
+              ? "ChillClaw background service was restarted."
+              : "ChillClaw background service was removed."
+          : result.stderr || result.stdout || "ChillClaw service action failed.",
       service
     };
   }

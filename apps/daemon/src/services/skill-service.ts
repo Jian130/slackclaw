@@ -10,9 +10,12 @@ import type {
   SkillMarketplaceEntry,
   SkillOption,
   UpdateSkillRequest
-} from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
 import type { EngineAdapter, SkillRuntimeEntry } from "../engine/adapter.js";
+import { EventPublisher } from "./event-publisher.js";
+import { fallbackMutationSyncMeta } from "./mutation-sync.js";
+import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore } from "./state-store.js";
 
 function mapInstalledSkill(
@@ -35,7 +38,7 @@ function mapInstalledSkill(
             : "workspace";
   const managedBy =
     custom
-      ? "slackclaw-custom"
+      ? "chillclaw-custom"
       : marketplace
         ? "clawhub"
         : "openclaw";
@@ -55,8 +58,8 @@ function mapInstalledSkill(
     homepage: custom?.homepage || skill.homepage,
     version: marketplace?.version || skill.version,
     managedBy,
-    editable: managedBy === "slackclaw-custom",
-    removable: managedBy === "slackclaw-custom" || managedBy === "clawhub",
+    editable: managedBy === "chillclaw-custom",
+    removable: managedBy === "chillclaw-custom" || managedBy === "clawhub",
     updatable: managedBy === "clawhub"
   };
 }
@@ -75,7 +78,9 @@ function toSkillOptions(skills: InstalledSkillEntry[]): SkillOption[] {
 export class SkillService {
   constructor(
     private readonly adapter: EngineAdapter,
-    private readonly store: StateStore
+    private readonly store: StateStore,
+    private readonly eventPublisher?: EventPublisher,
+    private readonly presetSkillService?: PresetSkillService
   ) {}
 
   async getConfigOverview(): Promise<SkillCatalogOverview> {
@@ -115,7 +120,8 @@ export class SkillService {
       marketplaceSummary: runtime.marketplaceSummary,
       installedSkills: installed,
       readiness: runtime.readiness,
-      marketplacePreview: runtime.marketplaceAvailable ? await this.adapter.config.exploreSkillMarketplace(8) : []
+      marketplacePreview: runtime.marketplaceAvailable ? await this.adapter.config.exploreSkillMarketplace(8) : [],
+      presetSkillSync: this.presetSkillService ? await this.presetSkillService.getOverview() : undefined
     };
   }
 
@@ -162,12 +168,35 @@ export class SkillService {
     return this.adapter.config.getSkillMarketplaceDetail(slug);
   }
 
+  async repairPresetSkillSync(): Promise<SkillCatalogActionResponse> {
+    if (!this.presetSkillService) {
+      throw new Error("Preset skill sync is not available.");
+    }
+
+    await this.presetSkillService.reconcilePresetSkills();
+    const skillConfig = await this.getConfigOverview();
+    const sync = this.eventPublisher?.publishSkillCatalogUpdated(skillConfig) ?? fallbackMutationSyncMeta();
+
+    return {
+      ...sync,
+      status: "completed",
+      message: skillConfig.presetSkillSync?.repairRecommended
+        ? "Preset skill repair ran, but some skills still need attention."
+        : "Preset skills are repaired and verified.",
+      skillConfig,
+      requiresGatewayApply: false
+    };
+  }
+
   async installMarketplaceSkill(request: InstallSkillRequest): Promise<SkillCatalogActionResponse> {
     const result = await this.adapter.config.installMarketplaceSkill(request);
+    const skillConfig = await this.getConfigOverview();
+    const sync = this.eventPublisher?.publishSkillCatalogUpdated(skillConfig) ?? fallbackMutationSyncMeta();
     return {
+      ...sync,
       status: "completed",
       message: `${request.slug} was installed.`,
-      skillConfig: await this.getConfigOverview(),
+      skillConfig,
       requiresGatewayApply: result.requiresGatewayApply
     };
   }
@@ -191,10 +220,14 @@ export class SkillService {
       }
     }));
 
+    const skillConfig = await this.getConfigOverview();
+    const sync = this.eventPublisher?.publishSkillCatalogUpdated(skillConfig) ?? fallbackMutationSyncMeta();
+
     return {
+      ...sync,
       status: "completed",
       message: skillId ? `${request.name} was updated.` : `${request.name} was created.`,
-      skillConfig: await this.getConfigOverview(),
+      skillConfig,
       requiresGatewayApply: saved.requiresGatewayApply
     };
   }
@@ -208,8 +241,8 @@ export class SkillService {
     }
 
     if (request.action === "edit-custom") {
-      if (skill.managedBy !== "slackclaw-custom") {
-        throw new Error("Only SlackClaw custom skills can be edited here.");
+      if (skill.managedBy !== "chillclaw-custom") {
+        throw new Error("Only ChillClaw custom skills can be edited here.");
       }
 
       return this.saveCustomSkill(skillId, {
@@ -222,14 +255,17 @@ export class SkillService {
     }
 
     if (skill.managedBy !== "clawhub" || !skill.slug) {
-      throw new Error("This skill cannot be updated from SlackClaw.");
+      throw new Error("This skill cannot be updated from ChillClaw.");
     }
 
     const result = await this.adapter.config.updateMarketplaceSkill(skill.slug, request);
+    const skillConfig = await this.getConfigOverview();
+    const sync = this.eventPublisher?.publishSkillCatalogUpdated(skillConfig) ?? fallbackMutationSyncMeta();
     return {
+      ...sync,
       status: "completed",
       message: request.action === "reinstall" ? `${skill.name} was reinstalled.` : `${skill.name} was updated.`,
-      skillConfig: await this.getConfigOverview(),
+      skillConfig,
       requiresGatewayApply: result.requiresGatewayApply
     };
   }
@@ -242,13 +278,13 @@ export class SkillService {
       throw new Error("Skill not found.");
     }
 
-    if (!skill.removable || !skill.slug || (skill.managedBy !== "clawhub" && skill.managedBy !== "slackclaw-custom")) {
-      throw new Error("This skill cannot be removed from SlackClaw.");
+    if (!skill.removable || !skill.slug || (skill.managedBy !== "clawhub" && skill.managedBy !== "chillclaw-custom")) {
+      throw new Error("This skill cannot be removed from ChillClaw.");
     }
 
     const result = await this.adapter.config.removeInstalledSkill(skill.slug, { ...request, managedBy: skill.managedBy });
 
-    if (skill.managedBy === "slackclaw-custom") {
+    if (skill.managedBy === "chillclaw-custom") {
       await this.store.update((current) => {
         const next = { ...(current.skills?.customEntries ?? {}) };
         delete next[skill.slug!];
@@ -262,10 +298,14 @@ export class SkillService {
       });
     }
 
+    const skillConfig = await this.getConfigOverview();
+    const sync = this.eventPublisher?.publishSkillCatalogUpdated(skillConfig) ?? fallbackMutationSyncMeta();
+
     return {
+      ...sync,
       status: "completed",
       message: `${skill.name} was removed.`,
-      skillConfig: await this.getConfigOverview(),
+      skillConfig,
       requiresGatewayApply: result.requiresGatewayApply
     };
   }

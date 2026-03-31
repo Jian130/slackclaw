@@ -1,5 +1,4 @@
 import type { ButtonHTMLAttributes, PropsWithChildren } from "react";
-import { LoaderCircle } from "lucide-react";
 
 type Variant = "primary" | "secondary" | "outline" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
@@ -32,7 +31,13 @@ export function Button(
       disabled={disabled || loading}
       {...rest}
     >
-      {loading ? <LoaderCircle className="button__spinner" size={16} /> : null}
+      {loading ? (
+        <span aria-hidden="true" className="button__busy-indicator">
+          <span className="button__busy-ring" />
+          <span className="button__busy-core" />
+          <span className="button__busy-spark" />
+        </span>
+      ) : null}
       <span className="button__label">{children}</span>
     </button>
   );

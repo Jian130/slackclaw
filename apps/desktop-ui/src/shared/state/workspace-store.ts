@@ -58,7 +58,7 @@ export interface WorkspaceState {
   settings: WorkspaceSettingsState;
 }
 
-const STORAGE_KEY = "slackclaw.workspace";
+const STORAGE_KEY = "chillclaw.workspace";
 
 function resolveStorage(): Storage | undefined {
   if (typeof window !== "undefined" && window.localStorage) {
@@ -181,7 +181,7 @@ export const defaultWorkspaceState: WorkspaceState = {
   customSkillDrafts: [],
   settings: {
     general: {
-      instanceName: "My SlackClaw Workspace",
+      instanceName: "My ChillClaw Workspace",
       autoStart: true,
       checkUpdates: true,
       telemetry: false

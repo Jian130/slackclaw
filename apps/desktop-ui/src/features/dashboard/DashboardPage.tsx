@@ -1,26 +1,28 @@
 import { useEffect, useState } from "react";
 import { Activity, ArrowRight, Brain, CheckCircle2, Shield, Sparkles, Users } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { ModelConfigOverview, ProductOverview } from "@slackclaw/contracts";
+import type { ModelConfigOverview, ProductOverview } from "@chillclaw/contracts";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
 import { fetchModelConfig } from "../../shared/api/client.js";
 import { t } from "../../shared/i18n/messages.js";
-import { Badge } from "../../shared/ui/Badge.js";
+import { TagBadge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent } from "../../shared/ui/Card.js";
+import { InfoBanner } from "../../shared/ui/InfoBanner.js";
 import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
 import { MetricCard } from "../../shared/ui/MetricCard.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 
 function toneColor(tone: string) {
-  if (tone === "completed") return "#16a34a";
-  if (tone === "started") return "#2563eb";
-  if (tone === "generated") return "#7c3aed";
-  if (tone === "updated") return "#d97706";
-  return "#4f46e5";
+  if (tone === "completed") return "var(--success)";
+  if (tone === "started") return "var(--primary)";
+  if (tone === "generated") return "var(--accent)";
+  if (tone === "updated") return "var(--warning)";
+  return "var(--accent-strong)";
 }
 
 export function connectedModelCount(modelConfig: ModelConfigOverview | undefined): number {
@@ -45,7 +47,7 @@ export function connectedModelDetail(
 export default function DashboardPage() {
   const { locale } = useLocale();
   const copy = t(locale).dashboard;
-  const { overview, refresh } = useOverview();
+  const { overview } = useOverview();
   const { overview: aiTeam } = useAITeam();
   const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
   const readyCount = aiTeam?.members.filter((member) => member.status === "ready").length ?? 0;
@@ -53,52 +55,53 @@ export default function DashboardPage() {
   const channelReady = overview?.channelSetup.channels.filter((channel) => channel.status === "completed" || channel.status === "ready").length ?? 0;
 
   useEffect(() => {
-    void refresh({ fresh: true });
-    void fetchModelConfig({ fresh: true })
+    void fetchModelConfig()
       .then((next) => setModelConfig(next))
       .catch(() => setModelConfig(undefined));
-  }, [refresh]);
+  }, []);
 
   return (
-    <div className="panel-stack">
-      <PageHeader
-        actions={
-          <>
-            <Link to="/members">
-              <Button size="lg">
-                <Users size={16} />
-                {copy.createEmployee}
-              </Button>
-            </Link>
-            <Link to="/team">
-              <Button size="lg" variant="outline">
-                {copy.openTeam}
-              </Button>
-            </Link>
-          </>
-        }
-        subtitle={copy.subtitle}
-        title={copy.title}
-      />
-
-      <div className="hero-banner">
-        <div className="actions-row" style={{ marginBottom: 14 }}>
-          <Badge tone="info">
+    <WorkspaceScaffold
+      contentWidth="full"
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <>
+          <Link to="/members">
+            <Button size="lg">
+              <Users size={16} />
+              {copy.createEmployee}
+            </Button>
+          </Link>
+          <Link to="/team">
+            <Button size="lg" variant="outline">
+              {copy.openTeam}
+            </Button>
+          </Link>
+        </>
+      }
+    >
+      <InfoBanner
+        accent="blue"
+        icon={<Sparkles size={22} />}
+        title="Figma shell, backend-truthful state"
+        description="The layout follows the new main-file dashboard while the metrics now come from the daemon-backed AI member and AI team catalog."
+      >
+        <div className="actions-row">
+          <TagBadge tone="info">
             <Sparkles size={14} />
             Powered by OpenClaw
-          </Badge>
-          <Badge tone="success">
+          </TagBadge>
+          <StatusBadge tone="success">
             <CheckCircle2 size={14} />
             Workspace active
-          </Badge>
-          <Badge tone="neutral">
+          </StatusBadge>
+          <TagBadge tone="neutral">
             <Brain size={14} />
             {overview?.engine.version ?? overview?.installSpec.desiredVersion}
-          </Badge>
+          </TagBadge>
         </div>
-        <h2>Figma shell, backend-truthful state</h2>
-        <p>The layout follows the new main-file dashboard while the metrics now come from the daemon-backed AI member and AI team catalog.</p>
-      </div>
+      </InfoBanner>
 
       <div className="grid--metrics">
         <MetricCard detail={overview?.engine.summary} label="Engine" value={overview?.engine.installed ? "Installed" : "Missing"} />
@@ -138,10 +141,10 @@ export default function DashboardPage() {
                       <strong>{member.name}</strong>
                       <span className="card__description">{member.jobTitle}</span>
                       <div className="actions-row">
-                        <Badge tone={member.status === "ready" ? "success" : member.status === "busy" ? "info" : "neutral"}>
+                        <StatusBadge tone={member.status === "ready" ? "success" : member.status === "busy" ? "info" : "neutral"}>
                           {member.status}
-                        </Badge>
-                        {member.activeTaskCount ? <Badge tone="neutral">{member.activeTaskCount} active</Badge> : null}
+                        </StatusBadge>
+                        {member.activeTaskCount ? <StatusBadge tone="neutral">{member.activeTaskCount} active</StatusBadge> : null}
                       </div>
                     </div>
                   </div>
@@ -163,13 +166,13 @@ export default function DashboardPage() {
                 {aiTeam?.activity.map((item) => (
                   <div className="check-row" key={item.id}>
                     <div className="actions-row" style={{ alignItems: "start" }}>
-                      <div className="channel-logo" style={{ background: toneColor(item.tone), color: "white" }}>
+                      <div className="channel-logo" style={{ background: toneColor(item.tone), color: "var(--white)" }}>
                         {(item.memberName ?? "S")[0]}
                       </div>
                       <div className="check-row__meta">
                         <strong>{item.action}</strong>
                         <p>{item.description}</p>
-                        <p>{item.memberName ?? "SlackClaw"} · {item.timestamp}</p>
+                        <p>{item.memberName ?? "ChillClaw"} · {item.timestamp}</p>
                       </div>
                     </div>
                   </div>
@@ -185,16 +188,16 @@ export default function DashboardPage() {
                 <strong>{copy.workspaceHealth}</strong>
               </div>
               <div className="status-list">
-                <div className="check-row"><strong>OpenClaw deployed</strong><Badge tone={overview?.engine.installed ? "success" : "warning"}>{overview?.engine.installed ? "Active" : "Missing"}</Badge></div>
-                <div className="check-row"><strong>Gateway reachable</strong><Badge tone={overview?.engine.running ? "success" : "warning"}>{overview?.engine.running ? "Running" : "Stopped"}</Badge></div>
-                <div className="check-row"><strong>Channels configured</strong><Badge tone={channelReady ? "success" : "warning"}>{channelReady ? `${channelReady} ready` : "Pending"}</Badge></div>
-                <div className="check-row"><strong>Health blockers</strong><Badge tone={overview?.healthChecks.some((check) => check.severity === "error") ? "warning" : "success"}>{overview?.healthChecks.some((check) => check.severity === "error") ? "Review" : "Clear"}</Badge></div>
-                <div className="check-row"><strong>AI member roster</strong><Badge tone="info">{aiTeam?.members.length ?? 0} members</Badge></div>
+                <div className="check-row"><strong>OpenClaw deployed</strong><StatusBadge tone={overview?.engine.installed ? "success" : "warning"}>{overview?.engine.installed ? "Active" : "Missing"}</StatusBadge></div>
+                <div className="check-row"><strong>Gateway reachable</strong><StatusBadge tone={overview?.engine.running ? "success" : "warning"}>{overview?.engine.running ? "Running" : "Stopped"}</StatusBadge></div>
+                <div className="check-row"><strong>Channels configured</strong><StatusBadge tone={channelReady ? "success" : "warning"}>{channelReady ? `${channelReady} ready` : "Pending"}</StatusBadge></div>
+                <div className="check-row"><strong>Health blockers</strong><StatusBadge tone={overview?.healthChecks.some((check) => check.severity === "error") ? "warning" : "success"}>{overview?.healthChecks.some((check) => check.severity === "error") ? "Review" : "Clear"}</StatusBadge></div>
+                <div className="check-row"><strong>AI member roster</strong><StatusBadge tone="info">{aiTeam?.members.length ?? 0} members</StatusBadge></div>
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
-    </div>
+    </WorkspaceScaffold>
   );
 }

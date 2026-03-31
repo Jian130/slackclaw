@@ -1,0 +1,54 @@
+<h2>Step 3 Model Setup Alignment</h2>
+<p class="subtitle">Comparing the realistic ways to bring ChillClaw onboarding step 3 in line with the Figma design for both React and the native macOS app.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="label">Recommended</div>
+      <h3>A. Figma-Exact Curated Step</h3>
+      <p>Show exactly three curated providers in onboarding only, with the same card layout, same step flow, same visual hierarchy, and the same simplified auth panel pattern as Figma.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Matches the requested Figma process</li><li>Keeps onboarding opinionated and beginner-friendly</li><li>Lets Config page keep the full provider catalog</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Requires step-specific provider curation logic</li><li>Native and web both need a focused UI rewrite</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>B. Curated Three + Hidden More</h3>
+      <p>Show the three popular providers first, but keep an escape hatch to reveal the full provider list from onboarding.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>More flexible</li><li>Less risk if provider priorities change</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Not the same process as Figma</li><li>Invites extra complexity into onboarding</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>C. Keep Dynamic Providers, Restyle Only</h3>
+      <p>Leave the current backend-driven provider list intact and only restyle the screen to look closer to Figma.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Less backend filtering work</li><li>Lower implementation churn</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Still not Figma-exact</li><li>Onboarding remains more complex than intended</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Recommended implementation details</h3>
+  <div class="mockup">
+    <div class="mockup-header">What would change in both React and native</div>
+    <div class="mockup-body">
+      <ul>
+        <li>Onboarding step 3 shows only three curated providers, in a fixed order.</li>
+        <li>The step uses the Figma card-first flow instead of the current generic provider list.</li>
+        <li>Typography, spacing, card radii, progress header, and auth panel structure are aligned to Figma.</li>
+        <li>Full provider breadth stays available outside onboarding on the normal Configuration screen.</li>
+        <li>Backend still saves a real model entry and performs real auth, but onboarding UI stays simplified.</li>
+      </ul>
+    </div>
+  </div>
+</div>

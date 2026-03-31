@@ -17,6 +17,6 @@ export function appendGatewayApplyMessage(message: string): string {
 
 export function summarizePendingGatewayApply(changeCount = 1): string {
   return changeCount > 1
-    ? "SlackClaw has staged engine configuration changes that still need to be applied through Gateway Manager."
-    : "SlackClaw has a staged engine change that still needs to be applied through Gateway Manager.";
+    ? "ChillClaw has staged engine configuration changes that still need to be applied through Gateway Manager."
+    : "ChillClaw has a staged engine change that still needs to be applied through Gateway Manager.";
 }

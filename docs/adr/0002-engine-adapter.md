@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-SlackClaw starts with OpenClaw but must remain able to switch to engines such as ZeroClaw or IronClaw later.
+ChillClaw starts with OpenClaw but must remain able to switch to engines such as ZeroClaw or IronClaw later.
 
 ## Decision
 
@@ -27,7 +27,7 @@ The same seam should later support local-LLM runtime adapters, including self-ho
 
 ## Consequences
 
-- SlackClaw product logic avoids direct dependency on OpenClaw internals
+- ChillClaw product logic avoids direct dependency on OpenClaw internals
 - Product services can depend on the relevant manager boundary without dragging gateway checks into config-only workflows
 - Future engine swaps still require adapter work, but not product-layer rewrites
 - Deep engine-specific features remain out of scope until they justify expanding the contract

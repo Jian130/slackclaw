@@ -7,6 +7,7 @@ import DashboardPage from "../features/dashboard/DashboardPage.js";
 import OnboardingPage from "../features/onboarding/OnboardingPage.js";
 import DeployPage from "../features/deploy/DeployPage.js";
 import ConfigPage from "../features/config/ConfigPage.js";
+import PluginsPage from "../features/plugins/PluginsPage.js";
 import SkillsPage from "../features/skills/SkillsPage.js";
 import MembersPage from "../features/members/MembersPage.js";
 import ChatPage from "../features/chat/ChatPage.js";
@@ -30,7 +31,7 @@ function AppBoundary() {
     return (
       <AppShell>
         <EmptyState
-          title="SlackClaw could not load"
+          title="ChillClaw could not load"
           description={error}
           actionLabel="Retry"
           onAction={() => window.location.reload()}
@@ -79,6 +80,7 @@ export function AppRoutes() {
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/deploy" element={<DeployPage />} />
         <Route path="/config" element={<ConfigPage />} />
+        <Route path="/plugins" element={<PluginsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route element={<AITeamBoundary />}>

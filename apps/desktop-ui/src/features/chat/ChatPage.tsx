@@ -8,7 +8,17 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { AIMemberDetail, ChatMessage, ChatOverview, ChatStreamEvent, ChatThreadDetail, ChatThreadSummary } from "@slackclaw/contracts";
+import type {
+  AIMemberDetail,
+  ChatMessage,
+  ChatBridgeState,
+  ChatOverview,
+  ChatStreamEvent,
+  ChatToolActivity,
+  ChatThreadDetail,
+  ChatThreadSummary,
+  ChillClawEvent
+} from "@chillclaw/contracts";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
@@ -17,9 +27,9 @@ import {
   createChatThread,
   fetchChatOverview,
   fetchChatThread,
-  sendChatMessage,
-  subscribeToChatEvents
+  sendChatMessage
 } from "../../shared/api/client.js";
+import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 import { useChatLayoutMode } from "../../shared/data/responsive.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
@@ -27,11 +37,13 @@ import { Button } from "../../shared/ui/Button.js";
 import { Card, CardContent } from "../../shared/ui/Card.js";
 import { Dialog } from "../../shared/ui/Dialog.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
+import { ErrorState } from "../../shared/ui/ErrorState.js";
 import { FieldLabel, Select, Textarea } from "../../shared/ui/Field.js";
 import { LoadingBlocker } from "../../shared/ui/LoadingBlocker.js";
 import { LoadingPanel } from "../../shared/ui/LoadingPanel.js";
 import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
-import { PageHeader } from "../../shared/ui/PageHeader.js";
+import { SplitContentScaffold, WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
+import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 
 function detailFromSummary(summary: ChatThreadSummary): ChatThreadDetail {
   return {
@@ -76,6 +88,14 @@ function mergeThreadSummary(
 
 export function sortChatThreads(threads: ChatThreadSummary[]): ChatThreadSummary[] {
   return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export function chatStreamEventFromDaemonEvent(event: ChillClawEvent): ChatStreamEvent | undefined {
+  if (event.type !== "chat.stream") {
+    return undefined;
+  }
+
+  return event.payload;
 }
 
 export function memberNameForThread(thread: ChatThreadSummary, members: AIMemberDetail[]): string {
@@ -170,6 +190,110 @@ function activityTone(status: ChatThreadSummary["composerState"]["status"]): "ne
   }
 }
 
+function bridgeTone(state: ChatBridgeState | undefined): "success" | "warning" | "info" | "neutral" {
+  switch (state) {
+    case "connected":
+      return "success";
+    case "reconnecting":
+    case "polling":
+      return "info";
+    case "disconnected":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
+
+function bridgeLabel(state: ChatBridgeState | undefined): string {
+  switch (state) {
+    case "connected":
+      return "Connected";
+    case "reconnecting":
+      return "Reconnecting";
+    case "polling":
+      return "Polling";
+    case "disconnected":
+      return "Disconnected";
+    default:
+      return "Unknown";
+  }
+}
+
+function mergeToolActivity(current: ChatToolActivity[] | undefined, next: ChatToolActivity): ChatToolActivity[] {
+  const items = [...(current ?? [])];
+  const index = items.findIndex((item) => item.id === next.id);
+
+  if (index >= 0) {
+    items[index] = next;
+    return items;
+  }
+
+  return [...items, next];
+}
+
+export function canSendComposerDraft(draft: string, canSend: boolean): boolean {
+  return canSend && draft.trim().length > 0;
+}
+
+export function shouldSubmitComposerShortcut(options: {
+  key: string;
+  shiftKey: boolean;
+  canSend: boolean;
+  draft: string;
+  isComposing: boolean;
+}): boolean {
+  if (options.key !== "Enter" || options.shiftKey || options.isComposing) {
+    return false;
+  }
+
+  return canSendComposerDraft(options.draft, options.canSend);
+}
+
+function activeToolSummary(toolActivities: ChatToolActivity[] | undefined): string | undefined {
+  if (!toolActivities?.length) {
+    return undefined;
+  }
+
+  const running = toolActivities.filter((tool) => tool.status === "running").length;
+  const queued = toolActivities.filter((tool) => tool.status === "queued").length;
+  const failed = toolActivities.filter((tool) => tool.status === "failed").length;
+
+  if (running > 0) {
+    return `${running} tool${running === 1 ? "" : "s"} running`;
+  }
+
+  if (queued > 0) {
+    return `${queued} tool${queued === 1 ? "" : "s"} queued`;
+  }
+
+  if (failed > 0) {
+    return `${failed} tool${failed === 1 ? "" : "s"} failed`;
+  }
+
+  return toolActivities.length > 0 ? `${toolActivities.length} tool${toolActivities.length === 1 ? "" : "s"} complete` : undefined;
+}
+
+export function inlineToolActivitiesForMessage(
+  message: ChatMessage,
+  thread: ChatThreadDetail | undefined
+): ChatToolActivity[] | undefined {
+  if (
+    message.role !== "assistant" ||
+    !thread?.composerState.toolActivities?.length ||
+    !["sending", "thinking", "streaming", "aborting"].includes(thread.composerState.status)
+  ) {
+    return undefined;
+  }
+
+  const activeStreamMessageId = `${thread.id}:assistant:stream`;
+  const activeAssistantMessage = [...thread.messages].reverse().find((candidate) => candidate.role === "assistant");
+  if (message.id !== activeStreamMessageId && (!activeAssistantMessage || activeAssistantMessage.id !== message.id)) {
+    return undefined;
+  }
+
+  return thread.composerState.toolActivities;
+}
+
 function nextComposerState(
   current: ChatThreadDetail["composerState"],
   patch: Partial<ChatThreadDetail["composerState"]>
@@ -189,6 +313,16 @@ export function applyChatEventToDetail(
   }
 
   switch (event.type) {
+    case "connection-state":
+      if (event.threadId !== current.id) {
+        return current;
+      }
+      return {
+        ...current,
+        composerState: nextComposerState(current.composerState, {
+          bridgeState: event.state
+        })
+      };
     case "thread-created":
       return current;
     case "thread-updated":
@@ -251,7 +385,8 @@ export function applyChatEventToDetail(
           status: current.composerState.status === "streaming" ? "streaming" : "thinking",
           canSend: false,
           canAbort: true,
-          activityLabel: event.activityLabel
+          activityLabel: event.activityLabel,
+          toolActivities: mergeToolActivity(current.composerState.toolActivities, event.toolActivity)
         })
       };
     case "assistant-delta":
@@ -363,7 +498,7 @@ function NewChatDialog(props: {
       title={props.title}
       description={props.description}
     >
-      <LoadingBlocker active={props.busy} label="Creating chat" description="SlackClaw is opening a new OpenClaw-backed conversation.">
+      <LoadingBlocker active={props.busy} label="Creating chat" description="ChillClaw is opening a new OpenClaw-backed conversation.">
         <div className="panel-stack">
           <div>
             <FieldLabel htmlFor="chat-member-select">{props.chooseMemberLabel}</FieldLabel>
@@ -431,6 +566,7 @@ export default function ChatPage() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const stickToBottomRef = useRef(true);
   const unreadByThreadIdRef = useRef<Record<string, number>>({});
+  const detailsByIdRef = useRef<Record<string, ChatThreadDetail>>({});
 
   const members = teamOverview?.members ?? [];
   const selectedSummary = useMemo(
@@ -475,7 +611,7 @@ export default function ChatPage() {
         setSelectedThreadId((current) => current ?? searchParams.get("threadId") ?? next.threads[0]?.id);
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "SlackClaw could not load chats.");
+          setError(loadError instanceof Error ? loadError.message : "ChillClaw could not load chats.");
         }
       } finally {
         if (!cancelled) {
@@ -508,7 +644,7 @@ export default function ChatPage() {
       })
       .catch((threadError) => {
         if (!cancelled) {
-          setError(threadError instanceof Error ? threadError.message : "SlackClaw could not load this conversation.");
+          setError(threadError instanceof Error ? threadError.message : "ChillClaw could not load this conversation.");
         }
       })
       .finally(() => {
@@ -521,38 +657,6 @@ export default function ChatPage() {
       cancelled = true;
     };
   }, [detailsById, selectedThreadId]);
-
-  useEffect(() => {
-    const threadId = selectedThreadId;
-    const status = selectedThread?.composerState.status ?? selectedSummary?.composerState.status;
-    if (!threadId || !status || !["sending", "thinking", "streaming", "aborting"].includes(status)) {
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setInterval(() => {
-      void fetchChatThread(threadId)
-        .then((detail) => {
-          if (cancelled) {
-            return;
-          }
-
-          setDetailsById((current) => ({
-            ...current,
-            [threadId]: detail
-          }));
-          setOverview((current) => mergeThreadSummary(current, detail, unreadByThreadIdRef.current));
-        })
-        .catch(() => {
-          // Keep the current optimistic state and let SSE or the next poll recover it.
-        });
-    }, 1800);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [selectedSummary, selectedThread, selectedThreadId]);
 
   useEffect(() => {
     if (!selectedThreadId) {
@@ -592,13 +696,32 @@ export default function ChatPage() {
   }, [unreadByThreadId]);
 
   useEffect(() => {
-    return subscribeToChatEvents((event) => {
-      if (event.type === "connected") {
+    detailsByIdRef.current = detailsById;
+  }, [detailsById]);
+
+  useEffect(() => {
+    return subscribeToDaemonEvents((daemonEvent) => {
+      const event = chatStreamEventFromDaemonEvent(daemonEvent);
+      if (!event) {
         return;
       }
 
       if (event.type === "thread-created" || event.type === "thread-updated") {
         setOverview((current) => mergeThreadSummary(current, event.thread, unreadByThreadIdRef.current));
+      }
+
+      if (event.type === "connection-state") {
+        setDetailsById((current) => {
+          const nextDetail = applyChatEventToDetail(current[event.threadId], event);
+          if (!nextDetail) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [event.threadId]: nextDetail
+          };
+        });
       }
 
       if (event.type === "history-loaded" || event.type === "assistant-completed" || event.type === "assistant-aborted") {
@@ -623,14 +746,14 @@ export default function ChatPage() {
         ) {
           setUnreadByThreadId((current) => ({
             ...current,
-            [event.threadId]: (current[event.threadId] ?? 0) + 1
+            [event.threadId]: current[event.threadId] ?? 1
           }));
         }
       }
 
       if ("threadId" in event) {
+        const nextDetail = applyChatEventToDetail(detailsByIdRef.current[event.threadId], event);
         setDetailsById((current) => {
-          const nextDetail = applyChatEventToDetail(current[event.threadId], event);
           if (!nextDetail) {
             return current;
           }
@@ -640,6 +763,35 @@ export default function ChatPage() {
             [event.threadId]: nextDetail
           };
         });
+        if (nextDetail) {
+          setOverview((current) =>
+            current
+              ? {
+                  threads: sortChatThreads(
+                    current.threads.map((thread) =>
+                      thread.id === event.threadId
+                        ? {
+                            ...thread,
+                            activeRunState:
+                              nextDetail.composerState.status === "idle" ? undefined : nextDetail.composerState.status,
+                            composerState: {
+                              ...thread.composerState,
+                              activityLabel: nextDetail.composerState.activityLabel,
+                              bridgeState: nextDetail.composerState.bridgeState,
+                              canAbort: nextDetail.composerState.canAbort,
+                              canSend: nextDetail.composerState.canSend,
+                              error: nextDetail.composerState.error,
+                              status: nextDetail.composerState.status,
+                              toolActivities: nextDetail.composerState.toolActivities
+                            }
+                          }
+                        : thread
+                    )
+                  )
+                }
+              : current
+          );
+        }
       }
     });
   }, [selectedThreadId]);
@@ -692,6 +844,7 @@ export default function ChatPage() {
     setNewChatBusy(true);
     try {
       const response = await createChatThread({ memberId, mode });
+      setError(undefined);
       setOverview({
         threads: sortChatThreads(response.overview.threads)
       });
@@ -706,7 +859,7 @@ export default function ChatPage() {
       }
       setNewChatOpen(false);
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "SlackClaw could not create a chat.");
+      setError(createError instanceof Error ? createError.message : "ChillClaw could not create a chat.");
     } finally {
       setNewChatBusy(false);
     }
@@ -728,7 +881,7 @@ export default function ChatPage() {
   }
 
   async function handleSend() {
-    if (!selectedThreadId || !draft.trim() || !selectedSummary) {
+    if (!selectedThreadId || !selectedSummary || !canSendComposerDraft(draft, selectedThread?.composerState.canSend ?? false)) {
       return;
     }
 
@@ -745,18 +898,19 @@ export default function ChatPage() {
             threads: sortChatThreads(
               current.threads.map((thread) =>
                 thread.id === selectedThreadId
-                  ? {
-                      ...thread,
-                      updatedAt: new Date().toISOString(),
-                      lastPreview: message,
-                      lastMessageAt: new Date().toISOString(),
-                      activeRunState: "thinking",
-                      composerState: {
-                        status: "thinking",
-                        canSend: false,
-                        canAbort: true,
-                        activityLabel: "Thinking…"
-                      }
+                ? {
+                    ...thread,
+                    updatedAt: new Date().toISOString(),
+                    lastPreview: message,
+                    lastMessageAt: new Date().toISOString(),
+                    activeRunState: "thinking",
+                    composerState: {
+                      ...thread.composerState,
+                      status: "thinking",
+                      canSend: false,
+                      canAbort: true,
+                      activityLabel: "Thinking…"
+                    }
                     }
                   : thread
               )
@@ -776,6 +930,7 @@ export default function ChatPage() {
 
     try {
       const response = await sendChatMessage(threadId, { message, clientMessageId });
+      setError(undefined);
       setOverview({
         threads: sortChatThreads(response.overview.threads)
       });
@@ -788,7 +943,7 @@ export default function ChatPage() {
       }
     } catch (sendError) {
       setDraft(message);
-      setError(sendError instanceof Error ? sendError.message : "SlackClaw could not send this message.");
+      setError(sendError instanceof Error ? sendError.message : "ChillClaw could not send this message.");
     }
   }
 
@@ -808,6 +963,7 @@ export default function ChatPage() {
 
     try {
       const response = await abortChatThread(threadId);
+      setError(undefined);
       setOverview({
         threads: sortChatThreads(response.overview.threads)
       });
@@ -819,7 +975,7 @@ export default function ChatPage() {
         }));
       }
     } catch (abortError) {
-      setError(abortError instanceof Error ? abortError.message : "SlackClaw could not stop the current reply.");
+      setError(abortError instanceof Error ? abortError.message : "ChillClaw could not stop the current reply.");
     }
   }
 
@@ -830,7 +986,16 @@ export default function ChatPage() {
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey) {
+    const isComposing = Boolean(event.nativeEvent.isComposing) || (event.nativeEvent as { keyCode?: number }).keyCode === 229;
+    if (
+      !shouldSubmitComposerShortcut({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        canSend: selectedThread?.composerState.canSend ?? false,
+        draft,
+        isComposing
+      })
+    ) {
       return;
     }
 
@@ -865,35 +1030,24 @@ export default function ChatPage() {
 
   if (loading && !overview) {
     return (
-      <div className="panel-stack">
-        <PageHeader title={copy.title} subtitle={copy.subtitle} />
-        <LoadingPanel title="Loading conversations" description="SlackClaw is connecting to OpenClaw and loading chat threads." />
-      </div>
+      <WorkspaceScaffold title={copy.title} subtitle={copy.subtitle}>
+        <LoadingPanel title="Loading conversations" description="ChillClaw is connecting to OpenClaw and loading chat threads." />
+      </WorkspaceScaffold>
     );
   }
 
   return (
-    <div className={`panel-stack chat-page chat-page--${chatLayoutMode}`}>
-      <PageHeader
-        title={copy.title}
-        subtitle={copy.subtitle}
-        actions={
-          <Button onClick={handleNewChatAction} disabled={members.length === 0} loading={membersLoading}>
-            <Plus size={14} />
-            {copy.newChat}
-          </Button>
-        }
-      />
-
-      {error ? (
-        <Card>
-          <CardContent>
-            <p className="card__description" style={{ color: "var(--danger)" }}>{error}</p>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <div className={`chat-layout chat-layout--telegram chat-layout--${chatLayoutMode}`}>
+    <SplitContentScaffold
+      className={`chat-page chat-page--${chatLayoutMode}`}
+      title={copy.title}
+      subtitle={copy.subtitle}
+      actions={
+        <Button onClick={handleNewChatAction} disabled={members.length === 0} loading={membersLoading}>
+          <Plus size={14} />
+          {copy.newChat}
+        </Button>
+      }
+      sidebar={
         <Card className="chat-sidebar chat-sidebar--telegram">
           <CardContent className="panel-stack">
             <div className="actions-row" style={{ justifyContent: "space-between" }}>
@@ -948,17 +1102,27 @@ export default function ChatPage() {
                         </div>
                       </div>
 
-                      <div className="chat-thread-card__bottom">
-                        <p className="card__description chat-thread-card__preview">{thread.lastPreview ?? copy.emptyBody}</p>
-                        {thread.activeRunState ? (
-                          <Badge tone={activityTone(thread.activeRunState)}>
-                            {thread.composerState.activityLabel ?? thread.activeRunState}
-                          </Badge>
-                        ) : null}
-                      </div>
-                    </button>
-                  );
-                })}
+                        <div className="chat-thread-card__bottom">
+                          <p className="card__description chat-thread-card__preview">{thread.lastPreview ?? copy.emptyBody}</p>
+                        <div className="actions-row" style={{ flexWrap: "wrap" }}>
+                          {thread.composerState.bridgeState ? (
+                            <StatusBadge tone={bridgeTone(thread.composerState.bridgeState)}>
+                              {bridgeLabel(thread.composerState.bridgeState)}
+                            </StatusBadge>
+                          ) : null}
+                          {thread.activeRunState ? (
+                            <StatusBadge tone={activityTone(thread.activeRunState)}>
+                              {thread.composerState.activityLabel ?? thread.activeRunState}
+                            </StatusBadge>
+                          ) : null}
+                          {activeToolSummary(thread.composerState.toolActivities) ? (
+                            <StatusBadge tone="neutral">{activeToolSummary(thread.composerState.toolActivities)}</StatusBadge>
+                          ) : null}
+                        </div>
+                        </div>
+                      </button>
+                    );
+                  })}
               </div>
             ) : (
               <EmptyState
@@ -970,21 +1134,34 @@ export default function ChatPage() {
             )}
           </CardContent>
         </Card>
-
+      }
+      detail={
         <Card className="chat-main chat-main--telegram">
           <CardContent className="chat-main__content chat-main__content--telegram">
             {selectedThread ? (
               <>
                 <div className="chat-thread-header">
-                  <div className="chat-thread-header__identity">
-                    <MemberAvatarChip member={selectedMember} />
-                    <div>
-                      <strong>{selectedMember?.name ?? memberNameForThread(selectedThread, members)}</strong>
-                      <p className="card__description">
-                        {selectedThread.composerState.activityLabel ?? selectedMember?.jobTitle ?? copy.subtitle}
-                      </p>
+                    <div className="chat-thread-header__identity">
+                      <MemberAvatarChip member={selectedMember} />
+                      <div>
+                        <strong>{selectedMember?.name ?? memberNameForThread(selectedThread, members)}</strong>
+                        <p className="card__description">
+                          {selectedThread.composerState.activityLabel ?? selectedMember?.jobTitle ?? copy.subtitle}
+                        </p>
+                        <div className="actions-row" style={{ flexWrap: "wrap", marginTop: 8 }}>
+                          {selectedThread.composerState.bridgeState ? (
+                            <StatusBadge tone={bridgeTone(selectedThread.composerState.bridgeState)}>
+                              {bridgeLabel(selectedThread.composerState.bridgeState)}
+                            </StatusBadge>
+                          ) : null}
+                          {selectedThread.composerState.toolActivities?.length ? (
+                            <StatusBadge tone="neutral">
+                              {activeToolSummary(selectedThread.composerState.toolActivities)}
+                            </StatusBadge>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
-                  </div>
 
                   <div className="actions-row">
                     {selectedThread.composerState.status === "error" && lastUserMessage ? (
@@ -1013,7 +1190,7 @@ export default function ChatPage() {
                     <div className="chat-transcript-shell">
                       <div className="chat-transcript chat-transcript--telegram" ref={transcriptRef} onScroll={handleTranscriptScroll}>
                         {threadLoadingId === selectedThread.id ? (
-                          <LoadingPanel compact title={copy.loadingThread} description="SlackClaw is syncing the latest messages from OpenClaw." />
+                          <LoadingPanel compact title={copy.loadingThread} description="ChillClaw is syncing the latest messages from OpenClaw." />
                         ) : selectedThread.messages.length > 0 ? (
                           selectedThread.messages.map((message, index) => {
                             const previous = selectedThread.messages[index - 1];
@@ -1023,6 +1200,7 @@ export default function ChatPage() {
                             const groupedWithNext = next?.role === message.role;
                             const messageBody = visibleMessageBody(message, copy);
                             const messageMeta = visibleMessageMeta(message, copy);
+                            const inlineToolActivities = inlineToolActivitiesForMessage(message, selectedThread);
 
                             return (
                               <div
@@ -1050,6 +1228,22 @@ export default function ChatPage() {
                                   ) : (
                                     <p className="chat-message-text">{messageBody}</p>
                                   )}
+
+                                  {inlineToolActivities?.length ? (
+                                    <div className="panel-stack" style={{ gap: 6, marginTop: 10 }}>
+                                      {inlineToolActivities.map((activity) => (
+                                        <div className="actions-row" style={{ justifyContent: "space-between", gap: 10 }} key={activity.id}>
+                                          <StatusBadge tone={activity.status === "failed" ? "warning" : activity.status === "completed" ? "success" : "info"}>
+                                            {activity.status}
+                                          </StatusBadge>
+                                          <div className="panel-stack" style={{ gap: 2, flex: 1 }}>
+                                            <strong style={{ fontSize: "0.78rem" }}>{activity.label}</strong>
+                                            {activity.detail ? <span className="card__description">{activity.detail}</span> : null}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
 
                                   <div className="chat-message-meta">
                                     {message.interrupted ? <span>{copy.replyStopped}</span> : null}
@@ -1094,7 +1288,7 @@ export default function ChatPage() {
                         </Button>
                       ) : (
                         <Button
-                          disabled={!selectedThread.composerState.canSend || !draft.trim()}
+                          disabled={!canSendComposerDraft(draft, selectedThread.composerState.canSend)}
                           loading={selectedThread.composerState.status === "sending"}
                           onClick={() => void handleSend()}
                         >
@@ -1116,8 +1310,15 @@ export default function ChatPage() {
             )}
           </CardContent>
         </Card>
-      </div>
-
+      }
+    >
+      {error ? (
+        <Card>
+          <CardContent>
+            <ErrorState compact title="Could not update this conversation" description={error} />
+          </CardContent>
+        </Card>
+      ) : null}
       <NewChatDialog
         open={newChatOpen}
         members={members}
@@ -1130,6 +1331,6 @@ export default function ChatPage() {
         onClose={() => setNewChatOpen(false)}
         onCreate={(memberId) => handleCreateThread(memberId)}
       />
-    </div>
+    </SplitContentScaffold>
   );
 }

@@ -3,6 +3,7 @@ import type {
   ChannelConfigOverview,
   ChannelCapability,
   ChannelFieldSummary,
+  ChannelSession,
   ChannelSessionInputRequest,
   ChannelSessionResponse,
   ChannelSetupOverview,
@@ -11,18 +12,23 @@ import type {
   RemoveChannelEntryRequest,
   SaveChannelEntryRequest,
   SupportedChannelId
-} from "@slackclaw/contracts";
-import { createDefaultProductOverview } from "@slackclaw/contracts";
+} from "@chillclaw/contracts";
 
+import { defaultChannelSetupStateMap } from "../config/channel-setup-state.js";
 import type { EngineAdapter } from "../engine/adapter.js";
+import { channelSecretName, NoopSecretsAdapter, type SecretsAdapter } from "../platform/secrets-adapter.js";
 import type { AppState } from "./state-store.js";
+import { EventPublisher } from "./event-publisher.js";
+import { FeatureWorkflowService, type FeaturePreparationResult } from "./feature-workflow-service.js";
+import { fallbackMutationSyncMeta } from "./mutation-sync.js";
 import { StateStore, type StoredChannelEntryState } from "./state-store.js";
 
-const CHANNEL_ORDER: SupportedChannelId[] = ["telegram", "whatsapp", "feishu", "wechat"];
+const CHANNEL_ORDER: SupportedChannelId[] = ["telegram", "whatsapp", "feishu", "wechat-work", "wechat"];
 const CHANNEL_ENTRY_IDS: Record<SupportedChannelId, string> = {
   telegram: "telegram:default",
   whatsapp: "whatsapp:default",
   feishu: "feishu:default",
+  "wechat-work": "wechat-work:default",
   wechat: "wechat:default"
 };
 
@@ -77,7 +83,7 @@ const CHANNEL_CAPABILITIES: ChannelCapability[] = [
           { value: "lark", label: "lark" }
         ]
       },
-      { id: "botName", label: "Bot name", required: false, placeholder: "SlackClaw Assistant" },
+      { id: "botName", label: "Bot name", required: false, placeholder: "ChillClaw Assistant" },
       { id: "code", label: "Pairing code", required: false, placeholder: "Paste pairing code when prompted" }
     ],
     supportsEdit: true,
@@ -87,37 +93,40 @@ const CHANNEL_CAPABILITIES: ChannelCapability[] = [
     guidedSetupKind: "feishu"
   },
   {
-    id: "wechat",
-    label: "WeChat workaround",
-    description: "Use the workaround plugin path, then save the app credentials into OpenClaw.",
-    officialSupport: false,
-    iconKey: "WX",
+    id: "wechat-work",
+    label: "WeChat Work (WeCom)",
+    description: "ChillClaw manages the WeCom plugin and saves the bot credentials into OpenClaw.",
+    officialSupport: true,
+    iconKey: "WC",
     docsUrl: "https://docs.openclaw.ai/cli/config",
     fieldDefs: [
-      { id: "pluginSpec", label: "Plugin package", required: false, placeholder: "@openclaw-china/wecom-app" },
-      { id: "corpId", label: "Corp ID", required: true },
-      { id: "agentId", label: "Agent ID", required: true },
+      { id: "botId", label: "Bot ID", required: true },
       { id: "secret", label: "Secret", required: true, secret: true },
-      { id: "token", label: "Webhook token", required: true, secret: true },
-      { id: "encodingAesKey", label: "Encoding AES key", required: true, secret: true }
+      { id: "code", label: "Pairing code", required: false, placeholder: "Paste pairing code when prompted" }
     ],
     supportsEdit: true,
     supportsRemove: true,
-    supportsPairing: false,
+    supportsPairing: true,
     supportsLogin: false,
+    guidedSetupKind: "wechat-work"
+  },
+  {
+    id: "wechat",
+    label: "WeChat",
+    description: "Personal WeChat uses a QR-first login flow and may ask for a pairing code before it is fully ready.",
+    officialSupport: false,
+    iconKey: "WX",
+    fieldDefs: [{ id: "code", label: "Pairing code", required: false, placeholder: "Paste pairing code when OpenClaw shows it" }],
+    supportsEdit: true,
+    supportsRemove: true,
+    supportsPairing: true,
+    supportsLogin: true,
     guidedSetupKind: "wechat"
   }
 ];
 
 function defaultChannelMap(): Record<SupportedChannelId, ChannelSetupState> {
-  const defaults = createDefaultProductOverview().channelSetup.channels;
-
-  return {
-    telegram: defaults.find((channel) => channel.id === "telegram")!,
-    whatsapp: defaults.find((channel) => channel.id === "whatsapp")!,
-    feishu: defaults.find((channel) => channel.id === "feishu")!,
-    wechat: defaults.find((channel) => channel.id === "wechat")!
-  };
+  return defaultChannelSetupStateMap();
 }
 
 function mergeChannelStates(
@@ -130,6 +139,7 @@ function mergeChannelStates(
     telegram: live.telegram ?? stored?.telegram ?? defaults.telegram,
     whatsapp: live.whatsapp ?? stored?.whatsapp ?? defaults.whatsapp,
     feishu: live.feishu ?? stored?.feishu ?? defaults.feishu,
+    "wechat-work": live["wechat-work"] ?? stored?.["wechat-work"] ?? defaults["wechat-work"],
     wechat: live.wechat ?? stored?.wechat ?? defaults.wechat
   };
 }
@@ -162,6 +172,10 @@ function labelFor(channelId: SupportedChannelId, values: Record<string, string>)
   return channelTitle(channelId);
 }
 
+function secretFieldIdsFor(channelId: SupportedChannelId): string[] {
+  return capabilityFor(channelId).fieldDefs.filter((field) => field.secret === true).map((field) => field.id);
+}
+
 function editableValuesFor(channelId: SupportedChannelId, values: Record<string, string>): Record<string, string> {
   switch (channelId) {
     case "telegram":
@@ -172,12 +186,12 @@ function editableValuesFor(channelId: SupportedChannelId, values: Record<string,
         ...(values.domain?.trim() ? { domain: values.domain.trim() } : { domain: "feishu" }),
         ...(values.botName?.trim() ? { botName: values.botName.trim() } : {})
       };
-    case "wechat":
+    case "wechat-work":
       return {
-        ...(values.pluginSpec?.trim() ? { pluginSpec: values.pluginSpec.trim() } : { pluginSpec: "@openclaw-china/wecom-app" }),
-        ...(values.corpId?.trim() ? { corpId: values.corpId.trim() } : {}),
-        ...(values.agentId?.trim() ? { agentId: values.agentId.trim() } : {})
+        ...(values.botId?.trim() ? { botId: values.botId.trim() } : {})
       };
+    case "wechat":
+      return {};
     case "whatsapp":
     default:
       return {};
@@ -216,15 +230,13 @@ function maskedSummaryFor(channelId: SupportedChannelId, values: Record<string, 
         ...(values.botName?.trim() ? [{ label: "Bot name", value: values.botName.trim() }] : []),
         ...(values.appSecret?.trim() ? [{ label: "App Secret", value: maskValue(values.appSecret) }] : [])
       ];
-    case "wechat":
+    case "wechat-work":
       return [
-        ...(values.pluginSpec?.trim() ? [{ label: "Plugin", value: values.pluginSpec.trim() }] : [{ label: "Plugin", value: "@openclaw-china/wecom-app" }]),
-        ...(values.corpId?.trim() ? [{ label: "Corp ID", value: values.corpId.trim() }] : []),
-        ...(values.agentId?.trim() ? [{ label: "Agent ID", value: values.agentId.trim() }] : []),
-        ...(values.secret?.trim() ? [{ label: "Secret", value: maskValue(values.secret) }] : []),
-        ...(values.token?.trim() ? [{ label: "Webhook token", value: maskValue(values.token) }] : []),
-        ...(values.encodingAesKey?.trim() ? [{ label: "Encoding AES key", value: maskValue(values.encodingAesKey) }] : [])
+        ...(values.botId?.trim() ? [{ label: "Bot ID", value: values.botId.trim() }] : []),
+        ...(values.secret?.trim() ? [{ label: "Secret", value: maskValue(values.secret) }] : [])
       ];
+    case "wechat":
+      return [];
   }
 }
 
@@ -243,6 +255,17 @@ function buildEntry(
     editableValues: record.editableValues,
     pairingRequired: channelState.status === "awaiting-pairing",
     lastUpdatedAt: channelState.lastUpdatedAt ?? record.lastUpdatedAt
+  };
+}
+
+function storedEntryFromConfiguredEntry(entry: ConfiguredChannelEntry): StoredChannelEntryState {
+  return {
+    id: entry.id,
+    channelId: entry.channelId,
+    label: entry.label,
+    editableValues: entry.editableValues,
+    maskedConfigSummary: entry.maskedConfigSummary,
+    lastUpdatedAt: entry.lastUpdatedAt ?? new Date().toISOString()
   };
 }
 
@@ -295,10 +318,134 @@ function gatewaySummary(
   return "All channel setup steps are complete.";
 }
 
+function workflowMessage(result: FeaturePreparationResult): string {
+  const installer = result.prerequisites.find((prerequisite) => prerequisite.type === "external-installer");
+  if (!installer) {
+    return `${result.feature.label} prerequisites are ready.`;
+  }
+
+  return `${installer.displayName} is queued. Personal WeChat will continue through the guided login flow on the existing channel session transport.`;
+}
+
+function workflowDetail(result: FeaturePreparationResult): string {
+  return result.prerequisites
+    .map((prerequisite) =>
+      prerequisite.type === "openclaw-plugin"
+        ? `${prerequisite.displayName} is ready.`
+        : `${prerequisite.displayName} queued: ${prerequisite.command.join(" ")}`
+    )
+    .join(" ");
+}
+
+function channelStateFromSession(
+  session: ChannelSession,
+  current: ChannelSetupState
+): ChannelSetupState {
+  const lastLog = [...(session.logs ?? [])].reverse().find((line) => line.trim().length > 0);
+
+  if (session.status === "completed") {
+    return {
+      ...current,
+      status: "completed",
+      summary: session.message || `${current.title} login completed.`,
+      detail: lastLog ?? (session.message || current.detail),
+      lastUpdatedAt: new Date().toISOString(),
+      logs: session.logs
+    };
+  }
+
+  if (session.status === "failed") {
+    return {
+      ...current,
+      status: "failed",
+      summary: session.message || `${current.title} login failed.`,
+      detail: lastLog ?? (session.message || current.detail),
+      lastUpdatedAt: new Date().toISOString(),
+      logs: session.logs
+    };
+  }
+
+  return {
+    ...current,
+    status: "awaiting-pairing",
+    summary: session.message || current.summary,
+    detail: lastLog ?? current.detail,
+    lastUpdatedAt: new Date().toISOString(),
+    logs: session.logs
+  };
+}
+
+function liveOnlyChannelStates(
+  live: Partial<Record<SupportedChannelId, ChannelSetupState>>,
+  activeSession?: ChannelSession
+): Record<SupportedChannelId, ChannelSetupState> {
+  const channels = mergeChannelStates(undefined, live);
+
+  if (activeSession) {
+    channels[activeSession.channelId] = channelStateFromSession(activeSession, channels[activeSession.channelId]);
+  }
+
+  return channels;
+}
+
+function pruneHistoricalChannelState(
+  current: AppState,
+  liveChannels: Partial<Record<SupportedChannelId, ChannelSetupState>>,
+  liveEntries: ConfiguredChannelEntry[],
+  activeSession?: ChannelSession
+): AppState {
+  const currentOnboarding = current.channelOnboarding;
+  if (!currentOnboarding) {
+    return current;
+  }
+
+  const liveEntryIds = new Set(liveEntries.map((entry) => entry.id));
+  const liveChannelIds = new Set(liveEntries.map((entry) => entry.channelId));
+  const sessionChannelId = activeSession?.channelId;
+  const mergedChannels = mergeChannelStates(currentOnboarding.channels, liveChannels);
+  const defaults = defaultChannelMap();
+  const nextEntriesRecord = Object.fromEntries(
+    Object.entries(currentOnboarding.entries ?? {}).filter(([, entry]) => liveEntryIds.has(entry.id) || entry.channelId === sessionChannelId)
+  );
+  const nextEntries = Object.keys(nextEntriesRecord).length > 0 ? nextEntriesRecord : undefined;
+  const nextChannels = Object.fromEntries(
+    CHANNEL_ORDER.map((channelId) => {
+      if (sessionChannelId === channelId && activeSession) {
+        return [channelId, channelStateFromSession(activeSession, mergedChannels[channelId])] as const;
+      }
+
+      if (liveChannelIds.has(channelId)) {
+        return [channelId, mergedChannels[channelId]] as const;
+      }
+
+      return [channelId, defaults[channelId]] as const;
+    })
+  ) as Record<SupportedChannelId, ChannelSetupState>;
+
+  if (
+    JSON.stringify(nextEntries ?? {}) === JSON.stringify(currentOnboarding.entries ?? {}) &&
+    JSON.stringify(nextChannels) === JSON.stringify(currentOnboarding.channels)
+  ) {
+    return current;
+  }
+
+  return {
+    ...current,
+    channelOnboarding: {
+      ...currentOnboarding,
+      channels: nextChannels,
+      entries: nextEntries
+    }
+  };
+}
+
 export class ChannelSetupService {
   constructor(
     private readonly adapter: EngineAdapter,
-    private readonly store: StateStore
+    private readonly store: StateStore,
+    private readonly eventPublisher?: EventPublisher,
+    private readonly secrets: SecretsAdapter = new NoopSecretsAdapter(),
+    private readonly featureWorkflowService: FeatureWorkflowService = new FeatureWorkflowService(adapter)
   ) {}
 
   async getOverviewFromState(state?: AppState): Promise<ChannelSetupOverview> {
@@ -323,26 +470,20 @@ export class ChannelSetupService {
     const current = state ?? (await this.store.read());
     const liveChannels = await this.readLiveChannelStates();
     const liveEntries = await this.adapter.config.getConfiguredChannelEntries();
+    const activeSession = await this.adapter.gateway.getActiveChannelSession();
     const engine = await this.adapter.instances.status();
-    const channels = mergeChannelStates(current.channelOnboarding?.channels, liveChannels);
+    let effectiveState = pruneHistoricalChannelState(current, liveChannels, liveEntries, activeSession);
+    if (JSON.stringify(effectiveState) !== JSON.stringify(current)) {
+      effectiveState = await this.store.update(() => effectiveState);
+    }
+
+    const channels = liveOnlyChannelStates(liveChannels, activeSession);
     const onboardingCompleted = true;
-    const storedEntries = current.channelOnboarding?.entries ?? {};
+    const storedEntries = effectiveState.channelOnboarding?.entries ?? {};
     const entriesById = new Map<string, ConfiguredChannelEntry>();
 
     for (const liveEntry of liveEntries) {
       entriesById.set(liveEntry.id, mergeLiveAndStoredEntry(liveEntry, storedEntries[liveEntry.id]));
-    }
-
-    for (const channelId of CHANNEL_ORDER) {
-      const record = storedEntries[entryIdFor(channelId)] ?? legacyEntryFromState(channels[channelId]);
-      const fallbackEntry = record ? buildEntry(record, channels[channelId]) : undefined;
-      if (!fallbackEntry) {
-        continue;
-      }
-
-      if (!entriesById.has(fallbackEntry.id)) {
-        entriesById.set(fallbackEntry.id, fallbackEntry);
-      }
     }
 
     const entries = [...entriesById.values()].sort((left, right) => {
@@ -358,17 +499,77 @@ export class ChannelSetupService {
       baseOnboardingCompleted: onboardingCompleted,
       capabilities: CHANNEL_CAPABILITIES,
       entries,
-      activeSession: await this.adapter.gateway.getActiveChannelSession(),
+      activeSession,
       gatewaySummary: gatewaySummary(engine.pendingGatewayApply === true, engine.pendingGatewayApplySummary, channels)
     };
   }
 
+  private async getSessionConfigOverview(state?: AppState, sessionOverride?: ChannelSession): Promise<ChannelConfigOverview> {
+    const current = state ?? (await this.store.read());
+    const activeSession = sessionOverride ?? (await this.adapter.gateway.getActiveChannelSession());
+    const channels = mergeChannelStates(current.channelOnboarding?.channels, {});
+    if (activeSession) {
+      channels[activeSession.channelId] = channelStateFromSession(activeSession, channels[activeSession.channelId]);
+    }
+    const storedEntries = current.channelOnboarding?.entries ?? {};
+    const entriesById = new Map<string, ConfiguredChannelEntry>();
+
+    for (const channelId of CHANNEL_ORDER) {
+      const record = storedEntries[entryIdFor(channelId)] ?? legacyEntryFromState(channels[channelId]);
+      const fallbackEntry = record ? buildEntry(record, channels[channelId]) : undefined;
+      if (!fallbackEntry) {
+        continue;
+      }
+
+      entriesById.set(fallbackEntry.id, fallbackEntry);
+    }
+
+    const entries = [...entriesById.values()].sort((left, right) => {
+      const channelDelta = CHANNEL_ORDER.indexOf(left.channelId) - CHANNEL_ORDER.indexOf(right.channelId);
+      if (channelDelta !== 0) {
+        return channelDelta;
+      }
+
+      return left.label.localeCompare(right.label);
+    });
+
+    return {
+      baseOnboardingCompleted: true,
+      capabilities: CHANNEL_CAPABILITIES,
+      entries,
+      activeSession,
+      // Interactive onboarding sessions are staged-only and should not probe the live gateway.
+      gatewaySummary: gatewaySummary(false, undefined, channels)
+    };
+  }
+
   async saveEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
+    const workflowPreparation =
+      request.action === "approve-pairing" ? undefined : await this.featureWorkflowService.prepareChannel(request.channelId);
+    if (workflowPreparation?.pluginConfig) {
+      this.eventPublisher?.publishPluginConfigUpdated(workflowPreparation.pluginConfig);
+    }
+
+    if (workflowPreparation?.feature.setupKind === "session" && request.action === "prepare") {
+      return this.saveWorkflowPreparedChannel(request, workflowPreparation);
+    }
+
     const result = await this.adapter.config.saveChannelEntry({ ...request, entryId });
     const channelId = request.channelId;
     const now = new Date().toISOString();
     const shouldPersistEntry = request.action !== "prepare";
     const nextEntryId = entryId ?? entryIdFor(channelId);
+
+    await Promise.all(
+      secretFieldIdsFor(channelId).map(async (fieldId) => {
+        const value = request.values[fieldId]?.trim();
+        if (!value) {
+          return;
+        }
+
+        await this.secrets.set(channelSecretName(channelId, nextEntryId, fieldId), value);
+      })
+    );
 
     const nextState = await this.store.update((current) => {
       const existingEntries = current.channelOnboarding?.entries ?? {};
@@ -404,26 +605,49 @@ export class ChannelSetupService {
       };
     });
 
+    if (result.session) {
+      this.eventPublisher?.publishChannelSessionUpdated({
+        channelId,
+        session: result.session
+      });
+    }
+
+    const channelConfig = result.session
+      ? await this.getSessionConfigOverview(nextState, result.session)
+      : await this.getConfigOverview(nextState);
+    const sync = this.eventPublisher?.publishChannelConfigUpdated(channelConfig) ?? fallbackMutationSyncMeta(!result.session);
+
     return {
+      ...sync,
       status: result.session ? "interactive" : "completed",
       message: result.message,
-      channelConfig: await this.getConfigOverview(nextState),
+      channelConfig,
       session: result.session,
+      settled: result.session ? false : sync.settled,
       requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
   async removeEntry(request: RemoveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
     const current = await this.store.read();
-    const record =
+    const fallbackChannelId = request.channelId ?? (request.entryId.split(":")[0] as SupportedChannelId);
+    const storedOrLegacyRecord =
       current.channelOnboarding?.entries?.[request.entryId] ??
       (() => {
-        const channelId = request.channelId ?? (request.entryId.split(":")[0] as SupportedChannelId);
-        return legacyEntryFromState((current.channelOnboarding?.channels?.[channelId] ?? defaultChannelMap()[channelId]) as ChannelSetupState);
+        return legacyEntryFromState(
+          (current.channelOnboarding?.channels?.[fallbackChannelId] ?? defaultChannelMap()[fallbackChannelId]) as ChannelSetupState
+        );
       })();
+    const configuredEntries = storedOrLegacyRecord ? [] : await this.adapter.config.getConfiguredChannelEntries();
+    const liveConfiguredEntry =
+      storedOrLegacyRecord
+        ? undefined
+        : configuredEntries.find((entry) => entry.id === request.entryId) ??
+          configuredEntries.find((entry) => entry.channelId === fallbackChannelId);
+    const record = storedOrLegacyRecord ?? (liveConfiguredEntry ? storedEntryFromConfiguredEntry(liveConfiguredEntry) : undefined);
 
     if (!record) {
-      throw new Error("SlackClaw could not find that saved channel entry.");
+      throw new Error("ChillClaw could not find that saved channel entry.");
     }
 
     const result = await this.adapter.config.removeChannelEntry({
@@ -432,10 +656,12 @@ export class ChannelSetupService {
       values: record.editableValues
     });
 
+    await Promise.all(secretFieldIdsFor(record.channelId).map((fieldId) => this.secrets.delete(channelSecretName(record.channelId, record.id, fieldId))));
+
     const defaults = defaultChannelMap();
     const nextState = await this.store.update((next) => {
       const entries = { ...(next.channelOnboarding?.entries ?? {}) };
-      delete entries[request.entryId];
+      delete entries[record.id];
 
       return {
         ...next,
@@ -451,25 +677,78 @@ export class ChannelSetupService {
       };
     });
 
+    const channelConfig = await this.getConfigOverview(nextState);
+    const sync = this.eventPublisher?.publishChannelConfigUpdated(channelConfig) ?? fallbackMutationSyncMeta();
+
     return {
+      ...sync,
       status: "completed",
       message: result.message,
-      channelConfig: await this.getConfigOverview(nextState),
+      channelConfig,
       requiresGatewayApply: result.requiresGatewayApply
     };
   }
 
   async getSession(sessionId: string): Promise<ChannelSessionResponse> {
+    const session = await this.adapter.gateway.getChannelSession(sessionId);
+    this.eventPublisher?.publishChannelSessionUpdated({
+      channelId: session.channelId,
+      session
+    });
+
     return {
-      session: await this.adapter.gateway.getChannelSession(sessionId),
-      channelConfig: await this.getConfigOverview()
+      session,
+      channelConfig: await this.getSessionConfigOverview(undefined, session)
     };
   }
 
   async submitSessionInput(sessionId: string, request: ChannelSessionInputRequest): Promise<ChannelSessionResponse> {
+    const session = await this.adapter.gateway.submitChannelSessionInput(sessionId, request);
+    this.eventPublisher?.publishChannelSessionUpdated({
+      channelId: session.channelId,
+      session
+    });
+
     return {
-      session: await this.adapter.gateway.submitChannelSessionInput(sessionId, request),
-      channelConfig: await this.getConfigOverview()
+      session,
+      channelConfig: await this.getSessionConfigOverview(undefined, session)
+    };
+  }
+
+  private async saveWorkflowPreparedChannel(
+    request: SaveChannelEntryRequest,
+    workflowPreparation: FeaturePreparationResult
+  ): Promise<ChannelConfigActionResponse> {
+    const now = new Date().toISOString();
+    const channelId = request.channelId;
+    const nextState = await this.store.update((current) => ({
+      ...current,
+      channelOnboarding: {
+        baseOnboardingCompletedAt: current.channelOnboarding?.baseOnboardingCompletedAt ?? now,
+        gatewayStartedAt: current.channelOnboarding?.gatewayStartedAt,
+        channels: {
+          ...mergeChannelStates(current.channelOnboarding?.channels, {}),
+          [channelId]: {
+            ...mergeChannelStates(current.channelOnboarding?.channels, {})[channelId],
+            status: "ready",
+            summary: `${workflowPreparation.feature.label} prerequisites are ready.`,
+            detail: workflowDetail(workflowPreparation),
+            lastUpdatedAt: now
+          }
+        },
+        entries: current.channelOnboarding?.entries ?? {}
+      }
+    }));
+
+    const channelConfig = await this.getConfigOverview(nextState);
+    const sync = this.eventPublisher?.publishChannelConfigUpdated(channelConfig) ?? fallbackMutationSyncMeta();
+
+    return {
+      ...sync,
+      status: "completed",
+      message: workflowMessage(workflowPreparation),
+      channelConfig,
+      requiresGatewayApply: false
     };
   }
 
