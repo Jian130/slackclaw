@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-03-31 17:03 CST
+
+- fixed the GitHub Pages website workflow custom-domain override by passing `VITE_BASE_PATH=/` during the Pages build, so website assets resolve correctly when the site is served from a custom domain instead of the repository subpath
+
 ### 2026-03-31 16:20 CST
 
 - changed the GitHub Pages website deployment workflow to publish from `main` instead of `dev` so the repo can align with the current `github-pages` environment branch protections

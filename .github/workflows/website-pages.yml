@@ -45,6 +45,8 @@ jobs:
 
       - name: Build website
         run: npm run build:website
+        env:
+          VITE_BASE_PATH: /
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
