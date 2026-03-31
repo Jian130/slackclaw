@@ -14,7 +14,8 @@ export const translations = {
       features: "Features",
       howItWorks: "How It Works",
       help: "Help",
-      download: "Download"
+      download: "Download",
+      github: "GitHub"
     },
     hero: {
       badge: "Your AI Team Awaits",
@@ -25,11 +26,15 @@ export const translations = {
         "Create your own AI employees with one click. ChillClaw makes it effortless to build AI assistants that handle the heavy lifting—no technical skills required.",
       downloadMac: "Download for macOS",
       seeHow: "See How It Works",
+      viewGithub: "View on GitHub",
       feature1: "One-Click Setup",
       feature2: "100% Local & Private",
       feature3: "Zero Technical Skills",
+      feature4: "Open Source",
       aiBadge: "AI Ready",
-      deployInstantly: "Deploy instantly"
+      deployInstantly: "Deploy instantly",
+      openSourceBadge: "Open Source",
+      freeForever: "Free Forever"
     },
     features: {
       badge: "Why ChillClaw?",
@@ -79,6 +84,21 @@ export const translations = {
       stat3: "Zero",
       stat3Label: "Tech Skills"
     },
+    openSource: {
+      badge: "Open Source & Community",
+      title: "Built by the Community, For the Community",
+      description:
+        "ChillClaw is 100% open source. Explore the code, contribute features, report bugs, or fork it for your own project. Everyone is welcome.",
+      viewSource: "View Source Code",
+      contribute: "Contribute",
+      starOnGithub: "Star on GitHub",
+      feature1: "MIT Licensed",
+      feature1Desc: "Free to use, modify, and distribute",
+      feature2: "Community Driven",
+      feature2Desc: "Built with contributions from developers worldwide",
+      feature3: "Transparent",
+      feature3Desc: "All development happens in the open"
+    },
     footer: {
       tagline: "Create AI employees with one click. Stay chill while they work for you.",
       product: "Product",
@@ -105,7 +125,8 @@ export const translations = {
       features: "功能特点",
       howItWorks: "工作原理",
       help: "帮助",
-      download: "下载"
+      download: "下载",
+      github: "GitHub"
     },
     hero: {
       badge: "您的AI团队在等候",
@@ -115,11 +136,15 @@ export const translations = {
       description: "一键创建您自己的AI员工。ChillClaw让构建AI助手变得轻而易举，无需任何技术技能。",
       downloadMac: "下载macOS版",
       seeHow: "了解工作原理",
+      viewGithub: "在GitHub上查看",
       feature1: "一键设置",
       feature2: "100%本地私密",
       feature3: "零技术门槛",
+      feature4: "开源",
       aiBadge: "AI就绪",
-      deployInstantly: "即刻部署"
+      deployInstantly: "即刻部署",
+      openSourceBadge: "开源",
+      freeForever: "永久免费"
     },
     features: {
       badge: "为什么选择ChillClaw?",
@@ -167,6 +192,20 @@ export const translations = {
       stat3: "零",
       stat3Label: "技术门槛"
     },
+    openSource: {
+      badge: "开源 & 社区",
+      title: "由社区构建，为社区服务",
+      description: "ChillClaw是100%开源的。探索代码，贡献功能，报告错误，或将其分叉用于自己的项目。欢迎所有人。",
+      viewSource: "查看源代码",
+      contribute: "贡献",
+      starOnGithub: "在GitHub上点赞",
+      feature1: "MIT许可",
+      feature1Desc: "免费使用、修改和分发",
+      feature2: "社区驱动",
+      feature2Desc: "由全球开发者贡献构建",
+      feature3: "透明",
+      feature3Desc: "所有开发都在公开进行"
+    },
     footer: {
       tagline: "一键创建AI员工。在他们为您工作时保持轻松。",
       product: "产品",
@@ -193,7 +232,8 @@ export const translations = {
       features: "機能",
       howItWorks: "仕組み",
       help: "ヘルプ",
-      download: "ダウンロード"
+      download: "ダウンロード",
+      github: "GitHub"
     },
     hero: {
       badge: "AIチームが待っています",
@@ -203,11 +243,15 @@ export const translations = {
       description: "ワンクリックで独自のAI従業員を作成。ChillClawは技術スキル不要で、重労働を処理するAIアシスタントの構築を簡単にします。",
       downloadMac: "macOS版をダウンロード",
       seeHow: "仕組みを見る",
+      viewGithub: "GitHubで見る",
       feature1: "ワンクリック設定",
       feature2: "100%ローカル＆プライベート",
       feature3: "技術スキル不要",
+      feature4: "オープンソース",
       aiBadge: "AI準備完了",
-      deployInstantly: "即座にデプロイ"
+      deployInstantly: "即座にデプロイ",
+      openSourceBadge: "オープンソース",
+      freeForever: "永久無料"
     },
     features: {
       badge: "なぜChillClaw?",
@@ -255,6 +299,21 @@ export const translations = {
       stat3: "ゼロ",
       stat3Label: "技術スキル"
     },
+    openSource: {
+      badge: "オープンソース & コミュニティ",
+      title: "コミュニティによって構築、コミュニティのために",
+      description:
+        "ChillClawは100%オープンソースです。コードを探索し、機能を貢献し、バグを報告する、または自分のプロジェクト用にフォークします。誰でも歓迎します。",
+      viewSource: "ソースコードを表示",
+      contribute: "貢献する",
+      starOnGithub: "GitHubでスターをつける",
+      feature1: "MITライセンス",
+      feature1Desc: "無料で使用、変更、配布",
+      feature2: "コミュニティ駆動",
+      feature2Desc: "世界中の開発者の貢献で構築",
+      feature3: "透明性",
+      feature3Desc: "すべての開発は公開で行われます"
+    },
     footer: {
       tagline: "ワンクリックでAI従業員を作成。彼らが働く間リラックス。",
       product: "製品",
@@ -281,7 +340,8 @@ export const translations = {
       features: "기능",
       howItWorks: "작동 원리",
       help: "도움말",
-      download: "다운로드"
+      download: "다운로드",
+      github: "GitHub"
     },
     hero: {
       badge: "AI 팀이 기다립니다",
@@ -291,11 +351,15 @@ export const translations = {
       description: "원클릭으로 나만의 AI 직원을 만드세요. ChillClaw는 기술 능력 없이도 힘든 일을 처리하는 AI 어시스턴트를 쉽게 만들 수 있습니다.",
       downloadMac: "macOS용 다운로드",
       seeHow: "작동 방식 보기",
+      viewGithub: "GitHub에서 보기",
       feature1: "원클릭 설정",
       feature2: "100% 로컬 & 프라이빗",
       feature3: "기술 능력 불필요",
+      feature4: "오픈 소스",
       aiBadge: "AI 준비 완료",
-      deployInstantly: "즉시 배포"
+      deployInstantly: "즉시 배포",
+      openSourceBadge: "오픈 소스",
+      freeForever: "영원히 무료"
     },
     features: {
       badge: "왜 ChillClaw인가?",
@@ -343,6 +407,21 @@ export const translations = {
       stat3: "제로",
       stat3Label: "기술 능력"
     },
+    openSource: {
+      badge: "오픈 소스 & 커뮤니티",
+      title: "커뮤니티에 의해 구축, 커뮤니티를 위한",
+      description:
+        "ChillClaw는 100% 오픈 소스입니다. 코드를 탐색하고 기능을 기여하고 버그를 보고하거나 자신의 프로젝트를 위해 포크할 수 있습니다. 누구나 환영합니다.",
+      viewSource: "소스 코드 보기",
+      contribute: "기여하기",
+      starOnGithub: "GitHub에서 스타 달기",
+      feature1: "MIT 라이선스",
+      feature1Desc: "무료로 사용, 수정, 배포",
+      feature2: "커뮤니티 주도",
+      feature2Desc: "전 세계 개발자의 기여로 구축",
+      feature3: "투명성",
+      feature3Desc: "모든 개발이 공개됩니다"
+    },
     footer: {
       tagline: "원클릭으로 AI 직원 생성. 그들이 일하는 동안 편안하게.",
       product: "제품",
@@ -369,7 +448,8 @@ export const translations = {
       features: "Características",
       howItWorks: "Cómo Funciona",
       help: "Ayuda",
-      download: "Descargar"
+      download: "Descargar",
+      github: "GitHub"
     },
     hero: {
       badge: "Tu Equipo de IA Te Espera",
@@ -380,11 +460,15 @@ export const translations = {
         "Crea tus propios empleados de IA con un clic. ChillClaw facilita la construcción de asistentes de IA que manejan el trabajo pesado—sin habilidades técnicas requeridas.",
       downloadMac: "Descargar para macOS",
       seeHow: "Ver Cómo Funciona",
+      viewGithub: "Ver en GitHub",
       feature1: "Configuración de Un Clic",
       feature2: "100% Local y Privado",
       feature3: "Cero Habilidades Técnicas",
+      feature4: "Código Abierto",
       aiBadge: "IA Lista",
-      deployInstantly: "Implementar al instante"
+      deployInstantly: "Implementar al instante",
+      openSourceBadge: "Código Abierto",
+      freeForever: "Gratis Para Siempre"
     },
     features: {
       badge: "¿Por Qué ChillClaw?",
@@ -433,6 +517,21 @@ export const translations = {
       stat2Label: "Privado",
       stat3: "Cero",
       stat3Label: "Habilidades Técnicas"
+    },
+    openSource: {
+      badge: "Código Abierto & Comunidad",
+      title: "Construido por la Comunidad, Para la Comunidad",
+      description:
+        "ChillClaw es 100% código abierto. Explora el código, contribuye con características, reporta errores o forkéalo para tu propio proyecto. Todos son bienvenidos.",
+      viewSource: "Ver Código Fuente",
+      contribute: "Contribuir",
+      starOnGithub: "Poner Estrella en GitHub",
+      feature1: "Licencia MIT",
+      feature1Desc: "Libre de uso, modificación y distribución",
+      feature2: "Dirigido por la Comunidad",
+      feature2Desc: "Construido con contribuciones de desarrolladores de todo el mundo",
+      feature3: "Transparente",
+      feature3Desc: "Todo el desarrollo ocurre en el abierto"
     },
     footer: {
       tagline: "Crea empleados de IA con un clic. Mantén la calma mientras trabajan para ti.",

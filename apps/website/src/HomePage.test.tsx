@@ -15,7 +15,16 @@ describe("website homepage", () => {
     expect(markup).toContain("id=\"features\"");
     expect(markup).toContain("id=\"how-it-works\"");
     expect(markup).toContain("id=\"help\"");
+    expect(markup).toContain("Open Source &amp; Community");
     expect(markup).toContain("ChillClaw");
+  });
+
+  it("uses the same local artwork selections shown in the design screenshots", () => {
+    const markup = renderToStaticMarkup(<App />);
+
+    expect(markup).toContain("/src/assets/5-720.webp");
+    expect(markup).toContain("/src/assets/4-720.webp");
+    expect(markup).toContain("/src/assets/7-720.webp");
   });
 
   it("uses real outbound links instead of placeholder hrefs", () => {
@@ -23,7 +32,7 @@ describe("website homepage", () => {
 
     expect(websiteLinks.repository).toBe("https://github.com/Jian130/chillclaw");
     expect(websiteLinks.releases).toBe("https://github.com/Jian130/chillclaw/releases");
-    expect(websiteLinks.docs).toBe("https://github.com/Jian130/chillclaw/tree/dev/docs");
+    expect(websiteLinks.docs).toBe("https://github.com/Jian130/chillclaw/tree/main/docs");
     expect(markup).toContain(`href="${websiteLinks.repository}"`);
     expect(markup).toContain(`href="${websiteLinks.releases}"`);
     expect(markup).toContain(`href="${websiteLinks.docs}"`);

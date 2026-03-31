@@ -1,7 +1,7 @@
-import { ArrowRight, Download, Sparkles } from "lucide-react";
+import { ArrowRight, Code, Download, Github, Sparkles } from "lucide-react";
 
-import heroImage480 from "../assets/1-480.webp";
-import heroImage720 from "../assets/1-720.webp";
+import heroImage480 from "../assets/5-480.webp";
+import heroImage720 from "../assets/5-720.webp";
 import { websiteLinks } from "../links.js";
 import { useLanguage } from "../i18n/LanguageContext.js";
 
@@ -15,9 +15,15 @@ export function Hero() {
       <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="grid items-center gap-12 lg:grid-cols-2">
           <div className="space-y-8">
-            <div className="inline-flex items-center rounded-full border-2 border-[#5eb3b8] bg-white px-5 py-2.5 shadow-sm">
-              <Sparkles className="mr-2 text-[#5eb3b8]" size={16} />
-              <span className="text-[#1a2b2e]">{t.hero.badge}</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex items-center rounded-full border-2 border-[#5eb3b8] bg-white px-5 py-2.5 shadow-sm">
+                <Sparkles className="mr-2 text-[#5eb3b8]" size={16} />
+                <span className="text-[#1a2b2e]">{t.hero.badge}</span>
+              </div>
+              <div className="inline-flex items-center rounded-full border-2 border-[#1a2b2e] bg-[#1a2b2e] px-5 py-2.5 text-white shadow-sm">
+                <Code className="mr-2" size={16} />
+                <span>{t.hero.openSourceBadge}</span>
+              </div>
             </div>
 
             <h1 className="text-5xl leading-tight font-bold text-[#1a2b2e] lg:text-7xl">
@@ -44,10 +50,13 @@ export function Hero() {
               </a>
 
               <a
-                className="inline-flex items-center justify-center rounded-2xl border-2 border-[#5eb3b8] bg-white px-8 py-4 text-[#1a2b2e] shadow-sm transition-all hover:bg-[#5eb3b8] hover:text-white"
-                href="#how-it-works"
+                className="inline-flex items-center justify-center rounded-2xl border-2 border-[#1a2b2e] bg-white px-8 py-4 text-[#1a2b2e] shadow-sm transition-all hover:bg-[#1a2b2e] hover:text-white"
+                href={websiteLinks.repository}
+                rel="noreferrer"
+                target="_blank"
               >
-                {t.hero.seeHow}
+                <Github className="mr-2" size={20} />
+                {t.hero.viewGithub}
               </a>
             </div>
 
@@ -64,6 +73,10 @@ export function Hero() {
                 <div className="h-2 w-2 rounded-full bg-[#ffa463]" />
                 <span className="text-[#6b8284]">{t.hero.feature3}</span>
               </div>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-[#1a2b2e]" />
+                <span className="text-[#6b8284]">{t.hero.feature4}</span>
+              </div>
             </div>
           </div>
 
@@ -73,7 +86,7 @@ export function Hero() {
 
               <div className="relative rounded-[3rem] bg-gradient-to-br from-[#5eb3b8] to-[#71c4c9] p-8 shadow-2xl">
                 <img
-                  alt="ChillClaw character with cat companion"
+                  alt="ChillClaw character with dragon companion"
                   className="relative z-10 h-auto w-full"
                   sizes="(min-width: 1024px) 28rem, 80vw"
                   src={heroImage720}
@@ -88,7 +101,7 @@ export function Hero() {
                   </div>
                   <div>
                     <div className="font-semibold whitespace-nowrap text-[#1a2b2e]">{t.hero.aiBadge}</div>
-                    <div className="text-sm whitespace-nowrap text-[#6b8284]">{t.hero.deployInstantly}</div>
+                    <div className="text-sm whitespace-nowrap text-[#6b8284]">{t.hero.freeForever}</div>
                   </div>
                 </div>
               </div>

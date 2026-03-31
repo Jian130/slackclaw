@@ -4,12 +4,6 @@ import accentLeft480 from "../assets/7-480.webp";
 import accentLeft720 from "../assets/7-720.webp";
 import accentRight480 from "../assets/8-480.webp";
 import accentRight720 from "../assets/8-720.webp";
-import showcaseOne480 from "../assets/3-480.webp";
-import showcaseOne720 from "../assets/3-720.webp";
-import showcaseTwo480 from "../assets/5-480.webp";
-import showcaseTwo720 from "../assets/5-720.webp";
-import showcaseThree480 from "../assets/4-480.webp";
-import showcaseThree720 from "../assets/4-720.webp";
 import { useLanguage } from "../i18n/LanguageContext.js";
 
 export function Features() {
@@ -28,7 +22,7 @@ export function Features() {
     <section className="bg-white py-20" id="features">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="relative mb-16 text-center">
-          <div className="absolute top-0 left-0 hidden h-32 w-32 opacity-60 lg:block">
+          <div className="absolute top-0 left-0 hidden h-32 w-32 opacity-20 lg:block">
             <img
               alt=""
               className="h-full w-full object-contain"
@@ -37,7 +31,7 @@ export function Features() {
               srcSet={`${accentLeft480} 480w, ${accentLeft720} 720w`}
             />
           </div>
-          <div className="absolute top-0 right-0 hidden h-32 w-32 opacity-60 lg:block">
+          <div className="absolute top-0 right-0 hidden h-32 w-32 opacity-20 lg:block">
             <img
               alt=""
               className="h-full w-full object-contain"
@@ -53,36 +47,6 @@ export function Features() {
 
           <h2 className="mb-4 text-4xl font-bold text-[#1a2b2e] lg:text-5xl">{t.features.title}</h2>
           <p className="mx-auto max-w-3xl text-xl text-[#6b8284]">{t.features.description}</p>
-        </div>
-
-        <div className="mb-10 grid gap-5 sm:grid-cols-3">
-          <div className="overflow-hidden rounded-[2rem] border border-[#5eb3b8]/20 bg-gradient-to-br from-[#f8fafa] to-[#fff7ec] p-4 shadow-sm">
-            <img
-              alt="ChillClaw character holding a koala companion"
-              className="h-full w-full rounded-[1.5rem] object-cover"
-              sizes="(min-width: 640px) 30vw, 90vw"
-              src={showcaseOne720}
-              srcSet={`${showcaseOne480} 480w, ${showcaseOne720} 720w`}
-            />
-          </div>
-          <div className="overflow-hidden rounded-[2rem] border border-[#5eb3b8]/20 bg-gradient-to-br from-[#fff7ec] to-[#edf9fa] p-4 shadow-sm">
-            <img
-              alt="ChillClaw character with dragon companion"
-              className="h-full w-full rounded-[1.5rem] object-cover"
-              sizes="(min-width: 640px) 30vw, 90vw"
-              src={showcaseTwo720}
-              srcSet={`${showcaseTwo480} 480w, ${showcaseTwo720} 720w`}
-            />
-          </div>
-          <div className="overflow-hidden rounded-[2rem] border border-[#5eb3b8]/20 bg-gradient-to-br from-[#edf9fa] to-[#fff0f5] p-4 shadow-sm">
-            <img
-              alt="ChillClaw character with fox companion"
-              className="h-full w-full rounded-[1.5rem] object-cover"
-              sizes="(min-width: 640px) 30vw, 90vw"
-              src={showcaseThree720}
-              srcSet={`${showcaseThree480} 480w, ${showcaseThree720} 720w`}
-            />
-          </div>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

@@ -1,7 +1,7 @@
 import { MousePointerClick, Rocket, Smile, Sparkles } from "lucide-react";
 
-import workflowImage480 from "../assets/2-480.webp";
-import workflowImage720 from "../assets/2-720.webp";
+import workflowImage480 from "../assets/4-480.webp";
+import workflowImage720 from "../assets/4-720.webp";
 import { useLanguage } from "../i18n/LanguageContext.js";
 
 export function Architecture() {
@@ -22,7 +22,7 @@ export function Architecture() {
             <div className="relative">
               <div className="relative rounded-[3rem] bg-gradient-to-br from-[#f5c563] to-[#ffa463] p-8 shadow-2xl">
                 <img
-                  alt="ChillClaw character with glasses and bunny companion"
+                  alt="ChillClaw AI Employee"
                   className="relative z-10 mx-auto h-auto w-full max-w-md"
                   sizes="(min-width: 1024px) 28rem, 80vw"
                   src={workflowImage720}

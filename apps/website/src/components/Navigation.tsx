@@ -1,9 +1,10 @@
-import { Download, Menu, X } from "lucide-react";
+import { Download, Github, Menu, X } from "lucide-react";
 import { useState } from "react";
 
 import { websiteLinks } from "../links.js";
 import { useLanguage } from "../i18n/LanguageContext.js";
 import { LanguageSwitcher } from "./LanguageSwitcher.js";
+import { Logo } from "./Logo.js";
 
 export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -14,8 +15,8 @@ export function Navigation() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center">
-            <a className="text-2xl font-bold text-[#5eb3b8]" href="#top">
-              ChillClaw
+            <a href="#top">
+              <Logo size="sm" />
             </a>
           </div>
 
@@ -30,6 +31,15 @@ export function Navigation() {
               {t.nav.help}
             </a>
             <LanguageSwitcher />
+            <a
+              className="flex items-center gap-2 rounded-xl bg-[#1a2b2e] px-4 py-2.5 text-white shadow-md transition-all hover:bg-[#2a3b3e] hover:shadow-lg"
+              href={websiteLinks.repository}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <Github size={16} />
+              {t.nav.github}
+            </a>
             <a
               className="flex items-center gap-2 rounded-xl bg-[#5eb3b8] px-6 py-2.5 text-white shadow-md transition-all hover:bg-[#4da0a5] hover:shadow-lg"
               href={websiteLinks.releases}
@@ -80,6 +90,16 @@ export function Navigation() {
             <div className="px-3 py-2">
               <LanguageSwitcher />
             </div>
+            <a
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1a2b2e] px-6 py-2.5 text-white shadow-md transition-all hover:bg-[#2a3b3e]"
+              href={websiteLinks.repository}
+              onClick={() => setMobileMenuOpen(false)}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <Github size={16} />
+              {t.nav.github}
+            </a>
             <a
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#5eb3b8] px-6 py-2.5 text-white shadow-md transition-all hover:bg-[#4da0a5]"
               href={websiteLinks.releases}

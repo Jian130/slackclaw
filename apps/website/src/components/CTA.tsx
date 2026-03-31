@@ -1,7 +1,7 @@
 import { ArrowRight, Download, Sparkles } from "lucide-react";
 
-import ctaImage480 from "../assets/6-480.webp";
-import ctaImage720 from "../assets/6-720.webp";
+import ctaImage480 from "../assets/7-480.webp";
+import ctaImage720 from "../assets/7-720.webp";
 import { websiteLinks } from "../links.js";
 import { useLanguage } from "../i18n/LanguageContext.js";
 
@@ -26,7 +26,7 @@ export function CTA() {
             <div className="relative">
               <div className="relative rounded-[3rem] bg-white/10 p-8 backdrop-blur-sm">
                 <img
-                  alt="ChillClaw character hugging a white kitten"
+                  alt="ChillClaw character with fluffy chick companion"
                   className="relative z-10 h-auto w-full max-w-sm"
                   sizes="(min-width: 1024px) 24rem, 80vw"
                   src={ctaImage720}

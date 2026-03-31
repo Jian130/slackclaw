@@ -1,7 +1,8 @@
-import { BookOpen, Github, Heart, MessageCircle } from "lucide-react";
+import { Github, Heart, MessageCircle, Twitter } from "lucide-react";
 
 import { websiteLinks } from "../links.js";
 import { useLanguage } from "../i18n/LanguageContext.js";
+import { Logo } from "./Logo.js";
 
 export function Footer() {
   const { t } = useLanguage();
@@ -11,7 +12,9 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mb-8 grid gap-8 md:grid-cols-4">
           <div className="md:col-span-1">
-            <div className="mb-4 text-2xl font-bold text-[#5eb3b8]">ChillClaw</div>
+            <div className="mb-4">
+              <Logo size="sm" />
+            </div>
             <p className="text-sm">{t.footer.tagline}</p>
           </div>
 
@@ -102,11 +105,17 @@ export function Footer() {
           </div>
 
           <div className="flex items-center space-x-6">
-            <a className="transition-colors hover:text-[#5eb3b8]" href={websiteLinks.repository} rel="noreferrer" target="_blank">
+            <a
+              className="group flex items-center gap-2 transition-colors hover:text-[#5eb3b8]"
+              href={websiteLinks.repository}
+              rel="noreferrer"
+              target="_blank"
+            >
               <Github size={20} />
+              <span className="text-sm group-hover:underline">GitHub</span>
             </a>
-            <a className="transition-colors hover:text-[#5eb3b8]" href={websiteLinks.docs} rel="noreferrer" target="_blank">
-              <BookOpen size={20} />
+            <a className="transition-colors hover:text-[#5eb3b8]" href={websiteLinks.changelog} rel="noreferrer" target="_blank">
+              <Twitter size={20} />
             </a>
             <a className="transition-colors hover:text-[#5eb3b8]" href={websiteLinks.issues} rel="noreferrer" target="_blank">
               <MessageCircle size={20} />

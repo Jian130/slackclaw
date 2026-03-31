@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### 2026-03-31 20:14 CST
+
+- refreshed the public `apps/website` landing page to match the latest approved Figma Make structure more closely, including the added open-source section, updated hero and footer content, real ChillClaw repo/docs/releases links, and the website-local agent rules for future Figma copy refreshes
+- aligned the website artwork selections to the approved design screenshots by switching the hero, four-step workflow, and CTA sections to the matching repo-local character assets and locking those choices in with homepage regression coverage
+
 ### 2026-03-31 19:23 CST
 
 - redacted API keys, tokens, passwords, and other secret-bearing values from development command echo logs so onboarding and runtime diagnostics stay observable without printing credentials into the console
