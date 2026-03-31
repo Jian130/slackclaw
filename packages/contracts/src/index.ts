@@ -131,6 +131,12 @@ export interface ModelProviderConfig {
   docsUrl: string;
   providerRefs: string[];
   authMethods: ModelAuthMethod[];
+  exampleModels?: string[];
+  authEnvVars?: string[];
+  setupNotes?: string[];
+  warnings?: string[];
+  providerType?: "built-in" | "custom" | "local" | "gateway" | "community";
+  supportsNoAuth?: boolean;
   configured: boolean;
   modelCount: number;
   sampleModels: string[];

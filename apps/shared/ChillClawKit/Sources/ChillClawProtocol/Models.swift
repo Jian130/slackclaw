@@ -695,6 +695,12 @@ public struct ModelProviderConfig: Codable, Sendable, Identifiable {
     public var docsUrl: String
     public var providerRefs: [String]
     public var authMethods: [ModelAuthMethod]
+    public var exampleModels: [String]?
+    public var authEnvVars: [String]?
+    public var setupNotes: [String]?
+    public var warnings: [String]?
+    public var providerType: String?
+    public var supportsNoAuth: Bool?
     public var configured: Bool
     public var modelCount: Int
     public var sampleModels: [String]

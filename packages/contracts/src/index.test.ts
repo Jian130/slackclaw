@@ -88,7 +88,7 @@ test("model config overview serializes providers, runtime models, and saved entr
         id: "openai",
         label: "OpenAI",
         description: "OpenAI models.",
-        docsUrl: "https://docs.openclaw.ai/providers/docs/openai",
+        docsUrl: "https://docs.openclaw.ai/providers/openai",
         providerRefs: ["openai/"],
         authMethods: [
           {
@@ -100,6 +100,12 @@ test("model config overview serializes providers, runtime models, and saved entr
             fields: [{ id: "apiKey", label: "API key", required: true, secret: true }]
           }
         ],
+        exampleModels: ["openai/gpt-5.4", "openai/gpt-5.4-pro"],
+        authEnvVars: ["OPENAI_API_KEY", "OPENAI_API_KEYS"],
+        setupNotes: ["Default transport is auto (WebSocket-first, SSE fallback)."],
+        warnings: [],
+        providerType: "built-in",
+        supportsNoAuth: false,
         configured: true,
         modelCount: 2,
         sampleModels: ["openai/gpt-5"]
@@ -141,6 +147,11 @@ test("model config overview serializes providers, runtime models, and saved entr
 
   const parsed = JSON.parse(JSON.stringify(payload)) as ModelConfigOverview;
   assert.equal(parsed.providers[0]?.id, "openai");
+  assert.deepEqual(parsed.providers[0]?.exampleModels, ["openai/gpt-5.4", "openai/gpt-5.4-pro"]);
+  assert.deepEqual(parsed.providers[0]?.authEnvVars, ["OPENAI_API_KEY", "OPENAI_API_KEYS"]);
+  assert.deepEqual(parsed.providers[0]?.setupNotes, ["Default transport is auto (WebSocket-first, SSE fallback)."]);
+  assert.equal(parsed.providers[0]?.providerType, "built-in");
+  assert.equal(parsed.providers[0]?.supportsNoAuth, false);
   assert.equal(parsed.defaultModel, "openai/gpt-5");
   assert.equal(parsed.savedEntries[0]?.isDefault, true);
 });

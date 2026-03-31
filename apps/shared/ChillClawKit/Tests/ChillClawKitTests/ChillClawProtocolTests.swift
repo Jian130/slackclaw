@@ -5,6 +5,62 @@ import Testing
 
 struct ChillClawProtocolTests {
     @Test
+    func modelConfigOverviewDecodesExtendedProviderMetadata() throws {
+        let data = """
+        {
+          "providers": [
+            {
+              "id": "openai",
+              "label": "OpenAI",
+              "description": "OpenAI models.",
+              "docsUrl": "https://docs.openclaw.ai/providers/openai",
+              "providerRefs": ["openai/"],
+              "authMethods": [
+                {
+                  "id": "openai-api-key",
+                  "label": "API Key",
+                  "kind": "api-key",
+                  "description": "Paste an OpenAI API key.",
+                  "interactive": false,
+                  "fields": [
+                    {
+                      "id": "apiKey",
+                      "label": "API Key",
+                      "required": true,
+                      "secret": true
+                    }
+                  ]
+                }
+              ],
+              "exampleModels": ["openai/gpt-5.4", "openai/gpt-5.4-pro"],
+              "authEnvVars": ["OPENAI_API_KEY", "OPENAI_API_KEYS"],
+              "setupNotes": ["Default transport is auto (WebSocket-first, SSE fallback)."],
+              "warnings": [],
+              "providerType": "built-in",
+              "supportsNoAuth": false,
+              "configured": true,
+              "modelCount": 2,
+              "sampleModels": ["openai/gpt-5.4"]
+            }
+          ],
+          "models": [],
+          "configuredModelKeys": [],
+          "savedEntries": [],
+          "fallbackEntryIds": []
+        }
+        """.data(using: .utf8)!
+
+        let overview = try JSONDecoder.chillClaw.decode(ModelConfigOverview.self, from: data)
+        #expect(overview.providers.count == 1)
+        #expect(overview.providers[0].exampleModels == ["openai/gpt-5.4", "openai/gpt-5.4-pro"])
+        #expect(overview.providers[0].authEnvVars == ["OPENAI_API_KEY", "OPENAI_API_KEYS"])
+        #expect(overview.providers[0].setupNotes == ["Default transport is auto (WebSocket-first, SSE fallback)."])
+        #expect(overview.providers[0].warnings == [])
+        #expect(overview.providers[0].providerType == "built-in")
+        #expect(overview.providers[0].supportsNoAuth == false)
+    }
+
+    @Test
     func onboardingStateResponseDecodesDraftAndSummary() throws {
         let data = """
         {
