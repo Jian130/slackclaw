@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### 2026-03-31 18:22 CST
+
+- fixed the React onboarding build blocker by typing the `--onboarding-auth-method-count` CSS variable explicitly, so clean desktop UI production builds no longer fail during packaging
+- added a tag-driven macOS GitHub release workflow that builds `ChillClaw-macOS.pkg`, generates a SHA-256 checksum, and publishes the first downloadable macOS package as a GitHub prerelease
+
 ### 2026-03-31 18:15 CST
 
 - fixed onboarding model sign-in recovery so stale provider auth sessions no longer surface raw macOS popups and the draft falls back cleanly to the next valid state when the daemon reports the session ended

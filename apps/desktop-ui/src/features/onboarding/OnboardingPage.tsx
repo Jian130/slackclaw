@@ -181,9 +181,13 @@ function requiredModelFieldsMissing(method: ModelAuthMethod | undefined, values:
   return method.fields.some((field) => field.required && !values[field.id]?.trim());
 }
 
-function onboardingAuthMethodGridStyle(methodCount: number): CSSProperties {
+type OnboardingAuthMethodGridStyle = CSSProperties & {
+  "--onboarding-auth-method-count": string;
+};
+
+function onboardingAuthMethodGridStyle(methodCount: number): OnboardingAuthMethodGridStyle {
   return {
-    ["--onboarding-auth-method-count" as "--onboarding-auth-method-count"]: String(Math.max(methodCount, 1))
+    "--onboarding-auth-method-count": String(Math.max(methodCount, 1))
   };
 }
 
