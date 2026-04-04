@@ -3,7 +3,23 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
+import type { AppState } from "./state-store.js";
 import { StateStore } from "./state-store.js";
+import { FilesystemStateAdapter } from "../platform/filesystem-state-adapter.js";
+
+class SlowFilesystemStateAdapter extends FilesystemStateAdapter {
+  private state: AppState = { tasks: [] };
+
+  override async readJson<T>(_path: string, fallback: T): Promise<T> {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    return structuredClone((this.state ?? fallback) as T);
+  }
+
+  override async writeJson(_path: string, value: unknown): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    this.state = structuredClone(value as AppState);
+  }
+}
 
 test("state store normalizes legacy wechat channel onboarding state to wechat-work", async () => {
   const filePath = resolve(process.cwd(), `apps/daemon/.data/state-store-wechat-migration-${randomUUID()}.json`);
@@ -233,4 +249,24 @@ test("state store preserves genuine personal wechat channel state", async () => 
   });
   assert.equal(migrated.onboarding?.draft.channel?.channelId, "wechat");
   assert.equal(migrated.onboarding?.draft.channel?.entryId, "wechat:personal");
+});
+
+test("state store serializes concurrent updates so later writes do not drop earlier fields", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/state-store-concurrent-updates-${randomUUID()}.json`);
+  const store = new StateStore(filePath, new SlowFilesystemStateAdapter());
+
+  await Promise.all([
+    store.update((current) => ({
+      ...current,
+      introCompletedAt: "2026-04-05T00:00:00.000Z"
+    })),
+    store.update((current) => ({
+      ...current,
+      setupCompletedAt: "2026-04-05T00:01:00.000Z"
+    }))
+  ]);
+
+  const persisted = await store.read();
+  assert.equal(persisted.introCompletedAt, "2026-04-05T00:00:00.000Z");
+  assert.equal(persisted.setupCompletedAt, "2026-04-05T00:01:00.000Z");
 });

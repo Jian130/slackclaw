@@ -337,25 +337,39 @@ function migrateLegacyWechatChannelOnboarding(state: AppState): AppState {
 export class StateStore {
   private readonly filePath: string;
   private readonly filesystem: FilesystemStateAdapter;
+  private pendingMutation: Promise<void> = Promise.resolve();
 
   constructor(filePath = resolve(getDataDir(), "state.json"), filesystem = new FilesystemStateAdapter()) {
     this.filePath = filePath;
     this.filesystem = filesystem;
   }
 
-  async read(): Promise<AppState> {
+  private async readPersisted(): Promise<AppState> {
     const persisted = await this.filesystem.readJson(this.filePath, DEFAULT_STATE);
     return migrateLegacyWechatChannelOnboarding(migrateLegacyOnboardingPresetSkills({ ...DEFAULT_STATE, ...persisted } as AppState));
   }
 
+  private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pendingMutation.then(operation, operation);
+    this.pendingMutation = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  async read(): Promise<AppState> {
+    await this.pendingMutation;
+    return this.readPersisted();
+  }
+
   async write(nextState: AppState): Promise<void> {
-    await this.filesystem.writeJson(this.filePath, nextState);
+    await this.enqueueMutation(() => this.filesystem.writeJson(this.filePath, nextState));
   }
 
   async update(updater: (current: AppState) => AppState): Promise<AppState> {
-    const current = await this.read();
-    const next = updater(current);
-    await this.write(next);
-    return next;
+    return this.enqueueMutation(async () => {
+      const current = await this.readPersisted();
+      const next = updater(current);
+      await this.filesystem.writeJson(this.filePath, next);
+      return next;
+    });
   }
 }
