@@ -3,7 +3,7 @@ name: macOS Release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -14,10 +14,18 @@ concurrency:
 
 jobs:
   release:
+    environment:
+      name: macos-release
     runs-on: macos-26
+    env:
+      APP_PATH: dist/.macos-staging/ChillClaw.app
+      INSTALLER_PATH: dist/macos/ChillClaw-macOS.pkg
+      CHECKSUM_PATH: dist/macos/ChillClaw-macOS.pkg.sha256.txt
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -40,24 +48,119 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify stable tag matches package version
+        id: version
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+
+          if [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]; then
+            echo "Expected release tag ${EXPECTED_TAG}, got ${GITHUB_REF_NAME}." >&2
+            exit 1
+          fi
+
+          echo "package_version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build workspaces
+        run: npm run build
+
+      - name: Run JavaScript and website tests
+        run: npm test
+
+      - name: Build native macOS client
+        run: npm run build:mac-native
+
+      - name: Run native macOS tests
+        run: npm run test:mac-native
+
       - name: Build macOS installer
         run: npm run build:mac-installer
 
-      - name: Generate installer checksum
-        run: shasum -a 256 dist/macos/ChillClaw-macOS.pkg > dist/macos/ChillClaw-macOS.pkg.sha256.txt
-
-      - name: Write release notes
+      - name: Install Apple signing certificates
+        env:
+          APP_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APP_CERT_P12_BASE64 }}
+          APP_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APP_CERT_PASSWORD }}
+          INSTALLER_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER_CERT_P12_BASE64 }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER_CERT_PASSWORD }}
         run: |
-          cat > release-notes.md <<'EOF'
-          First public ChillClaw macOS installer build.
+          KEYCHAIN_PATH="$RUNNER_TEMP/chillclaw-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 18)"
+          APP_CERT_PATH="$RUNNER_TEMP/chillclaw-app-cert.p12"
+          INSTALLER_CERT_PATH="$RUNNER_TEMP/chillclaw-installer-cert.p12"
+          LOGIN_KEYCHAIN=$(security login-keychain | tr -d '"')
 
-          Included assets:
-          - ChillClaw-macOS.pkg
-          - ChillClaw-macOS.pkg.sha256.txt
+          node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.APP_CERT_P12_BASE64, "base64"));' "$APP_CERT_PATH"
+          node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.INSTALLER_CERT_P12_BASE64, "base64"));' "$INSTALLER_CERT_PATH"
 
-          Notes:
-          - This installer is currently unsigned and not notarized.
-          - macOS may require an explicit Gatekeeper override during first launch.
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$APP_CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APP_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security import "$INSTALLER_CERT_PATH" -k "$KEYCHAIN_PATH" -P "$INSTALLER_CERT_PASSWORD" -T /usr/bin/pkgbuild -T /usr/bin/productsign
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$LOGIN_KEYCHAIN"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Sign ChillClaw.app
+        env:
+          APP_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APP_IDENTITY }}
+        run: |
+          codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$APP_PATH/Contents/Resources/runtime/chillclaw-daemon"
+          codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$APP_PATH/Contents/MacOS/ChillClaw"
+          codesign --force --deep --sign "$APP_IDENTITY" --options runtime --timestamp "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl --assess --type execute --verbose=2 "$APP_PATH"
+
+      - name: Build signed installer
+        env:
+          INSTALLER_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER_IDENTITY }}
+        run: |
+          rm -f "$INSTALLER_PATH"
+          pkgbuild --component "$APP_PATH" --install-location /Applications --sign "$INSTALLER_IDENTITY" "$INSTALLER_PATH"
+          pkgutil --check-signature "$INSTALLER_PATH"
+
+      - name: Notarize and staple installer
+        env:
+          APPLE_NOTARY_API_KEY_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          NOTARY_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_NOTARY_API_KEY_BASE64, "base64"));' "$NOTARY_KEY_PATH"
+
+          xcrun notarytool submit "$INSTALLER_PATH" \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler staple "$INSTALLER_PATH"
+          spctl --assess --type install --verbose=2 "$INSTALLER_PATH"
+
+      - name: Generate installer checksum
+        run: |
+          shasum -a 256 "$INSTALLER_PATH" > "$CHECKSUM_PATH"
+          test -s "$INSTALLER_PATH"
+          test -s "$CHECKSUM_PATH"
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -X POST \
+            -f tag_name="${GITHUB_REF_NAME}" \
+            -f target_commitish="${GITHUB_SHA}" \
+            --jq '.body' > release-notes.md
+
+          cat >> release-notes.md <<'EOF'
+
+          Installer assets:
+          - `ChillClaw-macOS.pkg`
+          - `ChillClaw-macOS.pkg.sha256.txt`
           EOF
 
       - name: Publish GitHub release
@@ -65,8 +168,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            dist/macos/ChillClaw-macOS.pkg \
-            dist/macos/ChillClaw-macOS.pkg.sha256.txt \
-            --title "ChillClaw ${GITHUB_REF_NAME}" \
+            "$INSTALLER_PATH" \
+            "$CHECKSUM_PATH" \
+            --title "ChillClaw ${{ steps.version.outputs.package_version }}" \
             --notes-file release-notes.md \
-            --prerelease
+            --latest

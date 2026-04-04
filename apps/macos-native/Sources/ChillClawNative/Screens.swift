@@ -140,6 +140,7 @@ struct DashboardScreen: View {
         let isCompact = availableWidth < 1120
         let metricColumns = nativeWorkspaceMetricColumns(for: availableWidth)
         let copy = nativeDashboardCopy(localeIdentifier: localeIdentifier)
+        let appUpdate = makeNativeAppUpdatePresentation(status: overview.appUpdate, localeIdentifier: localeIdentifier)
 
         WorkspaceScaffold(title: copy.dashboardTitle, subtitle: copy.dashboardSubtitle, contentWidth: nativeDashboardContentWidth) {
             HStack(spacing: 12) {
@@ -158,6 +159,9 @@ struct DashboardScreen: View {
                         TagBadge(copy.poweredByOpenClaw, tone: .info, systemImage: "sparkles")
                         StatusBadge(copy.workspaceActive, tone: .success, systemImage: "checkmark.circle.fill")
                         TagBadge(presentation.heroVersion, tone: .neutral, systemImage: "brain.head.profile")
+                        if overview.appUpdate.status == "update-available" {
+                            TagBadge(appUpdate.badge, tone: .warning, systemImage: "arrow.down.circle.fill")
+                        }
                     }
 
                     Text(copy.heroTitle)
@@ -2275,104 +2279,233 @@ struct MembersScreen: View {
 
 struct ChatScreen: View {
     @Bindable var appState: ChillClawAppState
+    @AppStorage("chillclaw.native.chat.sidebarCollapsed") private var sidebarCollapsed = false
 
     var body: some View {
+        let members = appState.aiTeamOverview?.members ?? []
+        let filteredThreads = appState.chatViewModel.overview.threads.filter { thread in
+            guard let selectedMemberId = appState.selectedMemberForChat, !selectedMemberId.isEmpty else { return true }
+            return thread.memberId == selectedMemberId
+        }
+        let selectedMember = members.first(where: { $0.id == appState.chatViewModel.selectedThread?.memberId })
+        let railWidth = nativeChatSidebarWidth(collapsed: sidebarCollapsed)
+        let showsSidebarLabels = nativeChatShowsSidebarLabels(collapsed: sidebarCollapsed)
+
         SplitContentScaffold(title: "Conversations", subtitle: "Talk to ChillClaw employees and inspect thread history.") {
+            ActionButton(
+                sidebarCollapsed ? "Show Conversations" : "Hide Conversations",
+                systemImage: "sidebar.left",
+                variant: .outline
+            ) {
+                sidebarCollapsed.toggle()
+            }
+
             ActionButton("New Chat", systemImage: "plus.bubble", variant: .primary) {
                 Task {
-                    guard let memberId = appState.selectedMemberForChat ?? appState.aiTeamOverview?.members.first?.id else { return }
+                    guard let memberId = appState.selectedMemberForChat ?? members.first?.id else { return }
                     await appState.chatViewModel.createThread(memberId: memberId)
                 }
             }
         } sidebar: {
-            SurfaceCard(title: "Conversations", subtitle: "Browse threads or start a new one.") {
-                HStack {
-                    Picker("AI Member", selection: Binding(
-                        get: { appState.selectedMemberForChat ?? "" },
-                        set: { appState.selectedMemberForChat = $0.isEmpty ? nil : $0 }
-                    )) {
-                        Text("All AI Members").tag("")
-                        ForEach(appState.aiTeamOverview?.members ?? []) { member in
-                            Text(member.name).tag(member.id)
-                        }
-                    }
-                    .frame(width: 220)
-                }
-
-                List(appState.chatViewModel.overview.threads) { thread in
-                    Button {
-                        Task { await appState.chatViewModel.selectThread(thread.id) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(thread.title).fontWeight(.semibold)
-                            Text(thread.lastPreview ?? "No messages yet")
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-                .frame(minWidth: 300)
-            }
-        } detail: {
-            SurfaceCard(tone: .muted, padding: 20, spacing: 12) {
-                if let thread = appState.chatViewModel.selectedThread {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .top, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(thread.title)
-                                    .font(.title2)
-                                    .fontWeight(.semibold)
-                                Text(thread.lastPreview ?? "Waiting for the next assistant update.")
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: showsSidebarLabels ? .leading : .center, spacing: 14) {
+                    HStack(alignment: .top, spacing: 10) {
+                        if showsSidebarLabels {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Conversations")
+                                    .font(.headline)
+                                Text("Browse threads or start a new one.")
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(2)
                             }
+                            Spacer(minLength: 0)
+                        }
+
+                        nativeChatCountBadge(filteredThreads.count)
+                    }
+
+                    if showsSidebarLabels {
+                        Picker("AI Member", selection: Binding(
+                            get: { appState.selectedMemberForChat ?? "" },
+                            set: { appState.selectedMemberForChat = $0.isEmpty ? nil : $0 }
+                        )) {
+                            Text("All AI Members").tag("")
+                            ForEach(members) { member in
+                                Text(member.name).tag(member.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+                }
+                .padding(.horizontal, showsSidebarLabels ? 18 : 10)
+                .padding(.vertical, showsSidebarLabels ? 18 : 14)
+                .background(Color.white.opacity(0.76))
+
+                Divider()
+
+                if filteredThreads.isEmpty {
+                    VStack(alignment: .center, spacing: 12) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        if showsSidebarLabels {
+                            Text("No conversations yet")
+                                .font(.headline)
+                            Text("Start a new chat or choose a different AI member filter.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+
+                        ActionButton("New Chat", systemImage: "plus", variant: .outline) {
+                            Task {
+                                guard let memberId = appState.selectedMemberForChat ?? members.first?.id else { return }
+                                await appState.chatViewModel.createThread(memberId: memberId)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(18)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(filteredThreads) { thread in
+                                NativeChatSidebarRow(
+                                    thread: thread,
+                                    member: members.first(where: { $0.id == thread.memberId }),
+                                    active: appState.chatViewModel.selectedThread?.id == thread.id,
+                                    collapsed: sidebarCollapsed,
+                                    unreadCount: thread.unreadCount
+                                ) {
+                                    Task { await appState.chatViewModel.selectThread(thread.id) }
+                                }
+                            }
+                        }
+                        .padding(showsSidebarLabels ? 12 : 8)
+                    }
+                }
+            }
+            .frame(minWidth: railWidth, idealWidth: railWidth, maxWidth: railWidth, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: NativeUI.heroCornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.92),
+                                Color.white.opacity(0.72)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: NativeUI.heroCornerRadius, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+        } detail: {
+            Group {
+                if let thread = appState.chatViewModel.selectedThread {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .top, spacing: 16) {
+                            HStack(alignment: .center, spacing: 14) {
+                                if let selectedMember {
+                                    AvatarView(avatar: selectedMember.avatar, name: selectedMember.name, size: 42)
+                                } else {
+                                    nativeChatFallbackAvatar(title: thread.title, size: 42)
+                                }
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(selectedMember?.name ?? thread.title)
+                                        .font(.headline)
+                                    Text(thread.composerState.activityLabel ?? selectedMember?.jobTitle ?? thread.title)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                    Text(thread.title)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
                             Spacer()
+
                             if thread.composerState.canAbort {
                                 ActionButton("Stop", variant: .destructive) {
                                     Task { await appState.chatViewModel.abortCurrentRun() }
                                 }
                             }
                         }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 24)
+                        .padding(.bottom, 16)
 
-                        HStack(spacing: 8) {
-                            StatusBadge(
-                                nativeChatComposerLabel(for: thread.composerState.status),
-                                tone: nativeChatComposerTone(for: thread.composerState.status),
-                                systemImage: nativeChatComposerIcon(for: thread.composerState.status)
-                            )
-                            if let bridgeState = thread.composerState.bridgeState {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
                                 StatusBadge(
-                                    nativeChatBridgeLabel(for: bridgeState),
-                                    tone: nativeChatBridgeTone(for: bridgeState),
-                                    systemImage: nativeChatBridgeIcon(for: bridgeState)
+                                    nativeChatComposerLabel(for: thread.composerState.status),
+                                    tone: nativeChatComposerTone(for: thread.composerState.status),
+                                    systemImage: nativeChatComposerIcon(for: thread.composerState.status)
                                 )
+                                if let bridgeState = thread.composerState.bridgeState {
+                                    StatusBadge(
+                                        nativeChatBridgeLabel(for: bridgeState),
+                                        tone: nativeChatBridgeTone(for: bridgeState),
+                                        systemImage: nativeChatBridgeIcon(for: bridgeState)
+                                    )
+                                }
+                                if let activeRunState = thread.activeRunState, !activeRunState.isEmpty {
+                                    TagBadge(activeRunState, tone: .neutral)
+                                }
+                                if thread.composerState.canAbort {
+                                    TagBadge("Live run", tone: .info)
+                                }
                             }
-                            if let activeRunState = thread.activeRunState, !activeRunState.isEmpty {
-                                TagBadge(activeRunState, tone: .neutral)
-                            }
-                            if thread.composerState.canAbort {
-                                TagBadge("Live run", tone: .accent)
-                            }
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 14)
                         }
 
-                        if let activityLabel = thread.composerState.activityLabel, !activityLabel.isEmpty {
-                            Text(activityLabel)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
+                        Divider()
 
                         if let error = thread.composerState.error, !error.isEmpty {
-                            InfoBanner(
-                                title: "Send failed",
-                                description: error,
-                                icon: "exclamationmark.triangle.fill",
-                                accent: .red
-                            )
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.red)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Send failed")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(error)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.top, 16)
                         }
 
-                        if let toolActivities = thread.composerState.toolActivities, !toolActivities.isEmpty {
-                            SurfaceCard(title: "Tool progress", subtitle: "Current assistant tool calls and their live state.") {
+                        if thread.historyStatus == "unavailable" {
+                            VStack(spacing: 14) {
+                                Image(systemName: "bubble.left.and.exclamationmark")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                Text("Conversation unavailable")
+                                    .font(.headline)
+                                Text(thread.historyError ?? "ChillClaw could not load this conversation history right now.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                ActionButton("New Chat", systemImage: "plus", variant: .outline) {
+                                    Task { await appState.chatViewModel.createThread(memberId: thread.memberId) }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(32)
+                        } else {
+                            ChillClawChatTranscriptView(thread: thread)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                            if let toolActivities = thread.composerState.toolActivities, !toolActivities.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
                                     ForEach(toolActivities, id: \.id) { activity in
                                         HStack(alignment: .top, spacing: 10) {
@@ -2393,43 +2526,220 @@ struct ChatScreen: View {
                                         }
                                     }
                                 }
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 16)
                             }
                         }
 
-                        ChillClawChatTranscriptView(thread: thread)
+                        VStack(spacing: 12) {
+                            HStack(spacing: 12) {
+                                ZStack(alignment: .topLeading) {
+                                    NativeChatComposerTextView(
+                                        text: $appState.chatViewModel.draftMessage,
+                                        canSend: appState.chatViewModel.canSendCurrentDraft
+                                    ) {
+                                        Task { await appState.chatViewModel.sendCurrentMessage() }
+                                    }
+                                    if appState.chatViewModel.draftMessage.isEmpty {
+                                        Text("Message")
+                                            .foregroundStyle(.tertiary)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 12)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                                .frame(minHeight: 78, maxHeight: 140)
+                                .background(Color.white.opacity(0.96), in: RoundedRectangle(cornerRadius: NativeUI.standardCornerRadius, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: NativeUI.standardCornerRadius, style: .continuous)
+                                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                                )
 
-                        HStack(spacing: 12) {
-                            ZStack(alignment: .topLeading) {
-                                NativeChatComposerTextView(
-                                    text: $appState.chatViewModel.draftMessage,
-                                    canSend: appState.chatViewModel.canSendCurrentDraft
-                                ) {
-                                    Task { await appState.chatViewModel.sendCurrentMessage() }
-                                }
-                                if appState.chatViewModel.draftMessage.isEmpty {
-                                    Text("Message")
-                                        .foregroundStyle(.tertiary)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 12)
-                                        .allowsHitTesting(false)
+                                if thread.composerState.canAbort {
+                                    ActionButton("Stop", systemImage: "stop.fill", variant: .outline) {
+                                        Task { await appState.chatViewModel.abortCurrentRun() }
+                                    }
+                                } else {
+                                    ActionButton("Send", systemImage: "paperplane.fill", variant: .primary) {
+                                        Task { await appState.chatViewModel.sendCurrentMessage() }
+                                    }
+                                    .disabled(!appState.chatViewModel.canSendCurrentDraft)
                                 }
                             }
-                            .frame(minHeight: 78, maxHeight: 140)
-                            ActionButton("Send", systemImage: "paperplane.fill", variant: .primary) {
-                                Task { await appState.chatViewModel.sendCurrentMessage() }
-                            }
-                            .disabled(!appState.chatViewModel.canSendCurrentDraft)
+
+                            Text("Return sends. Shift-Return adds a new line.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        Text("Return sends. Shift-Return adds a new line.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        .padding(24)
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0),
+                                    Color.white.opacity(0.92),
+                                    Color.white.opacity(0.98)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                     }
                 } else {
-                    EmptyState(title: "Choose a chat", description: "Create a new chat or select an existing conversation.", symbol: "bubble.left.and.bubble.right")
+                    VStack(spacing: 16) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("Choose a chat")
+                            .font(.title3.weight(.semibold))
+                        Text("Create a new chat or select an existing conversation.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        ActionButton("New Chat", systemImage: "plus.bubble", variant: .outline) {
+                            Task {
+                                guard let memberId = appState.selectedMemberForChat ?? members.first?.id else { return }
+                                await appState.chatViewModel.createThread(memberId: memberId)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(32)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: NativeUI.heroCornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.96),
+                                Color(red: 0.96, green: 0.98, blue: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: NativeUI.heroCornerRadius, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
         }
     }
+}
+
+private struct NativeChatSidebarRow: View {
+    let thread: ChatThreadSummary
+    let member: AIMemberDetail?
+    let active: Bool
+    let collapsed: Bool
+    let unreadCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            if collapsed {
+                ZStack(alignment: .bottomTrailing) {
+                    avatar(size: 40)
+                    if unreadCount > 0 {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                    }
+                }
+                .frame(width: 52, height: 52)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 12) {
+                        avatar(size: 38)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(thread.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(member?.name ?? "AI Member")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        VStack(alignment: .trailing, spacing: 6) {
+                            Text(nativeChatTimestampLabel(thread.lastMessageAt ?? thread.updatedAt))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            if unreadCount > 0 {
+                                nativeChatCountBadge(unreadCount)
+                            }
+                        }
+                    }
+
+                    Text(thread.lastPreview ?? "No messages yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+            }
+        }
+        .buttonStyle(.plain)
+        .background(backgroundFill, in: RoundedRectangle(cornerRadius: collapsed ? 16 : 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: collapsed ? 16 : 20, style: .continuous)
+                .stroke(active ? Color.blue.opacity(0.22) : Color.clear, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func avatar(size: CGFloat) -> some View {
+        if let member {
+            AvatarView(avatar: member.avatar, name: member.name, size: size)
+        } else {
+            nativeChatFallbackAvatar(title: thread.title, size: size)
+        }
+    }
+
+    private var backgroundFill: Color {
+        active ? Color.blue.opacity(0.12) : Color.clear
+    }
+}
+
+@ViewBuilder
+private func nativeChatFallbackAvatar(title: String, size: CGFloat) -> some View {
+    ZStack {
+        Circle()
+            .fill(Color.blue.opacity(0.12))
+        Text(String(title.prefix(1)).uppercased())
+            .font(.system(size: size * 0.42, weight: .bold))
+            .foregroundStyle(Color.blue)
+    }
+    .frame(width: size, height: size)
+}
+
+private func nativeChatTimestampLabel(_ value: String?) -> String {
+    guard let value else { return "" }
+    guard let date = ISO8601DateFormatter().date(from: value) else { return value }
+
+    if Calendar.current.isDateInToday(date) {
+        return date.formatted(.dateTime.hour().minute())
+    }
+
+    return date.formatted(.dateTime.month(.abbreviated).day())
+}
+
+@ViewBuilder
+private func nativeChatCountBadge(_ count: Int) -> some View {
+    Text("\(count)")
+        .font(.caption2.weight(.semibold))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.blue.opacity(0.14), in: Capsule())
+        .foregroundStyle(Color.blue)
 }
 
 func nativeChatComposerLabel(for status: String) -> String {
@@ -2498,6 +2808,14 @@ func nativeChatShouldInsertComposerLineBreak(
     guard !isComposing else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
     return modifierFlags.contains(.shift)
+}
+
+func nativeChatSidebarWidth(collapsed: Bool) -> CGFloat {
+    collapsed ? 76 : 272
+}
+
+func nativeChatShowsSidebarLabels(collapsed: Bool) -> Bool {
+    !collapsed
 }
 
 func nativeChatBridgeLabel(for state: ChatBridgeState) -> String {
@@ -2693,8 +3011,15 @@ struct TeamScreen: View {
 struct SettingsScreen: View {
     @Bindable var appState: ChillClawAppState
     @State private var isRedoingOnboarding = false
+    @State private var isCheckingAppUpdate = false
+    @State private var isCheckingEngineUpdate = false
+    @AppStorage(nativeOnboardingLocaleDefaultsKey) private var selectedLocaleIdentifier = resolveNativeOnboardingLocaleIdentifier()
 
     var body: some View {
+        let localeIdentifier = resolveNativeOnboardingLocaleIdentifier(selectedLocaleIdentifier)
+        let appUpdatePresentation = makeNativeAppUpdatePresentation(status: appState.overview?.appUpdate, localeIdentifier: localeIdentifier)
+        let appUpdateCopy = nativeAppUpdateCopy(localeIdentifier: localeIdentifier)
+
         WorkspaceScaffold(title: "Settings", subtitle: "Inspect the daemon, permissions, and recovery controls.") {
             EmptyView()
         } content: {
@@ -2733,6 +3058,48 @@ struct SettingsScreen: View {
                 subtitle: nativePermissionsCopy().settingsBody
             ) {
                 NativePermissionsList(localeIdentifier: resolveNativeOnboardingLocaleIdentifier())
+            }
+
+            SurfaceCard(title: appUpdateCopy.title, subtitle: appUpdateCopy.body) {
+                SettingRow(title: appUpdatePresentation.summary, subtitle: appUpdatePresentation.detail) {
+                    StatusBadge(appUpdatePresentation.badge, tone: appState.overview?.appUpdate.status == "update-available" ? .warning : .neutral)
+                }
+                HStack {
+                    ActionButton(appUpdatePresentation.primaryActionTitle, variant: .secondary, isDisabled: appUpdatePresentation.downloadURL == nil) {
+                        if let url = appUpdatePresentation.downloadURL {
+                            appState.openExternalURL(url)
+                        }
+                    }
+                    ActionButton(appUpdatePresentation.secondaryActionTitle, variant: .ghost, isDisabled: appUpdatePresentation.releaseURL == nil) {
+                        if let url = appUpdatePresentation.releaseURL {
+                            appState.openExternalURL(url)
+                        }
+                    }
+                    ActionButton(isCheckingAppUpdate ? "Checking..." : appUpdateCopy.checkAgain, variant: .outline, isBusy: isCheckingAppUpdate) {
+                        Task {
+                            isCheckingAppUpdate = true
+                            defer { isCheckingAppUpdate = false }
+                            await appState.checkAppUpdate()
+                        }
+                    }
+                }
+            }
+
+            SurfaceCard(title: appUpdateCopy.runtimeTitle, subtitle: appUpdateCopy.runtimeBody) {
+                HStack {
+                    ActionButton(isCheckingEngineUpdate ? "Checking..." : appUpdateCopy.runtimeCheck, variant: .outline, isBusy: isCheckingEngineUpdate) {
+                        Task {
+                            isCheckingEngineUpdate = true
+                            defer { isCheckingEngineUpdate = false }
+                            do {
+                                let result = try await appState.client.checkEngineUpdates()
+                                appState.applyBanner(result["message"] ?? "")
+                            } catch {
+                                appState.errorMessage = error.localizedDescription
+                            }
+                        }
+                    }
+                }
             }
 
             SurfaceCard(title: "Guided Setup", minimumHeight: nativeWorkspaceCollectionCardMinHeight) {

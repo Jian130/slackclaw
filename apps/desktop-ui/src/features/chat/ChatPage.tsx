@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   LoaderCircle,
+  PanelLeft,
   Plus,
   SendHorizontal,
   Square,
@@ -30,11 +31,10 @@ import {
   sendChatMessage
 } from "../../shared/api/client.js";
 import { subscribeToDaemonEvents } from "../../shared/api/events.js";
-import { useChatLayoutMode } from "../../shared/data/responsive.js";
+import { useChatLayoutMode, type ChatLayoutMode } from "../../shared/data/responsive.js";
 import { t } from "../../shared/i18n/messages.js";
 import { Badge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
-import { Card, CardContent } from "../../shared/ui/Card.js";
 import { Dialog } from "../../shared/ui/Dialog.js";
 import { EmptyState } from "../../shared/ui/EmptyState.js";
 import { ErrorState } from "../../shared/ui/ErrorState.js";
@@ -87,7 +87,21 @@ function mergeThreadSummary(
 }
 
 export function sortChatThreads(threads: ChatThreadSummary[]): ChatThreadSummary[] {
-  return [...threads].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const sorted = [...threads].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt) ||
+    right.createdAt.localeCompare(left.createdAt) ||
+    right.id.localeCompare(left.id)
+  );
+  const seen = new Set<string>();
+
+  return sorted.filter((thread) => {
+    const key = thread.memberId && thread.agentId ? `${thread.memberId}:${thread.agentId}` : `thread:${thread.id}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 export function chatStreamEventFromDaemonEvent(event: ChillClawEvent): ChatStreamEvent | undefined {
@@ -233,6 +247,44 @@ function mergeToolActivity(current: ChatToolActivity[] | undefined, next: ChatTo
 
 export function canSendComposerDraft(draft: string, canSend: boolean): boolean {
   return canSend && draft.trim().length > 0;
+}
+
+const CHAT_SIDEBAR_STORAGE_KEY = "chillclaw.chat.sidebarCollapsed";
+
+function resolveChatSidebarStorage(): Storage | undefined {
+  if (typeof window !== "undefined" && window.localStorage) {
+    return window.localStorage;
+  }
+
+  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
+    return globalThis.localStorage;
+  }
+
+  return undefined;
+}
+
+export function storedChatSidebarCollapsed(value: string | null | undefined): boolean {
+  return value === "1";
+}
+
+function loadStoredChatSidebarCollapsed(): boolean {
+  return storedChatSidebarCollapsed(resolveChatSidebarStorage()?.getItem(CHAT_SIDEBAR_STORAGE_KEY));
+}
+
+function storeChatSidebarCollapsed(collapsed: boolean) {
+  resolveChatSidebarStorage()?.setItem(CHAT_SIDEBAR_STORAGE_KEY, collapsed ? "1" : "0");
+}
+
+export function chatSidebarPresentation(layoutMode: ChatLayoutMode, sidebarCollapsed: boolean): "expanded" | "collapsed" | "stacked" {
+  if (layoutMode !== "split") {
+    return "stacked";
+  }
+
+  return sidebarCollapsed ? "collapsed" : "expanded";
+}
+
+export function chatPageClassName(layoutMode: ChatLayoutMode, sidebarCollapsed: boolean): string {
+  return `chat-page chat-page--${layoutMode} chat-page--sidebar-${chatSidebarPresentation(layoutMode, sidebarCollapsed)}`;
 }
 
 export function shouldSubmitComposerShortcut(options: {
@@ -558,6 +610,7 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newChatBusy, setNewChatBusy] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadStoredChatSidebarCollapsed());
   const [memberFilterId, setMemberFilterId] = useState<string>("all");
   const [unreadByThreadId, setUnreadByThreadId] = useState<Record<string, number>>({});
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -588,10 +641,17 @@ export default function ChatPage() {
     () => overview?.threads.filter((thread) => memberFilterId === "all" || thread.memberId === memberFilterId) ?? [],
     [memberFilterId, overview?.threads]
   );
+  const sidebarPresentation = chatSidebarPresentation(chatLayoutMode, sidebarCollapsed);
+  const splitSidebarCollapsed = sidebarPresentation === "collapsed";
+  const showSidebarLabels = sidebarPresentation !== "collapsed";
   const lastUserMessage = useMemo(
     () => [...(selectedThread?.messages ?? [])].reverse().find((message) => message.role === "user")?.text,
     [selectedThread?.messages]
   );
+
+  useEffect(() => {
+    storeChatSidebarCollapsed(sidebarCollapsed);
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -798,7 +858,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     const memberId = searchParams.get("memberId");
-    const mode = searchParams.get("mode") === "reuse-recent" ? "reuse-recent" : "new";
+    const mode = searchParams.get("mode") === "new" ? "new" : "reuse-recent";
     const requestKey = memberId ? `${memberId}:${mode}` : undefined;
 
     if (!memberId || !members.length || autoOpenRef.current === requestKey) {
@@ -840,7 +900,7 @@ export default function ChatPage() {
     }
   }, [selectedThread?.messages, selectedThread?.composerState.status, selectedThreadId]);
 
-  async function handleCreateThread(memberId: string, mode: "new" | "reuse-recent" = "new") {
+  async function handleCreateThread(memberId: string, mode: "new" | "reuse-recent" = "reuse-recent") {
     setNewChatBusy(true);
     try {
       const response = await createChatThread({ memberId, mode });
@@ -1038,73 +1098,99 @@ export default function ChatPage() {
 
   return (
     <SplitContentScaffold
-      className={`chat-page chat-page--${chatLayoutMode}`}
+      className={chatPageClassName(chatLayoutMode, sidebarCollapsed)}
       title={copy.title}
       subtitle={copy.subtitle}
       actions={
-        <Button onClick={handleNewChatAction} disabled={members.length === 0} loading={membersLoading}>
-          <Plus size={14} />
-          {copy.newChat}
-        </Button>
+        <>
+          {chatLayoutMode === "split" ? (
+            <Button
+              aria-controls="chat-sidebar-panel"
+              aria-expanded={!splitSidebarCollapsed}
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              variant="outline"
+            >
+              <PanelLeft size={14} />
+              {splitSidebarCollapsed ? copy.showConversations : copy.hideConversations}
+            </Button>
+          ) : null}
+          <Button onClick={handleNewChatAction} disabled={members.length === 0} loading={membersLoading}>
+            <Plus size={14} />
+            {copy.newChat}
+          </Button>
+        </>
       }
       sidebar={
-        <Card className="chat-sidebar chat-sidebar--telegram">
-          <CardContent className="panel-stack">
-            <div className="actions-row" style={{ justifyContent: "space-between" }}>
-              <div>
+        <div
+          className="chat-sidebar"
+          data-presentation={sidebarPresentation}
+          id="chat-sidebar-panel"
+        >
+          <div className="chat-sidebar__top">
+            <div className="chat-sidebar__title">
+              <div className="chat-sidebar__copy">
                 <strong>{copy.threadList}</strong>
-                <p className="card__description">{copy.chooseMember}</p>
+                {showSidebarLabels ? <span>{copy.chooseMember}</span> : null}
               </div>
               <Badge tone="info">{filteredThreads.length}</Badge>
             </div>
 
-            <div>
-              <FieldLabel htmlFor="chat-member-filter">{copy.chooseMember}</FieldLabel>
-              <Select
-                id="chat-member-filter"
-                value={memberFilterId}
-                onChange={(event) => setMemberFilterId(event.target.value)}
-              >
-                <option value="all">{copy.allMembers}</option>
-                {members.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            {showSidebarLabels ? (
+              <div className="chat-sidebar__filters">
+                <FieldLabel htmlFor="chat-member-filter">{copy.chooseMember}</FieldLabel>
+                <Select
+                  id="chat-member-filter"
+                  value={memberFilterId}
+                  onChange={(event) => setMemberFilterId(event.target.value)}
+                >
+                  <option value="all">{copy.allMembers}</option>
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : null}
+          </div>
 
-            {filteredThreads.length ? (
-              <div className="chat-thread-list">
-                {filteredThreads.map((thread) => {
-                  const active = thread.id === selectedThreadId;
-                  const member = memberForThread(thread, members);
-                  const unreadCount = unreadByThreadId[thread.id] ?? thread.unreadCount;
+          {filteredThreads.length ? (
+            <div className="chat-thread-list">
+              {filteredThreads.map((thread) => {
+                const active = thread.id === selectedThreadId;
+                const member = memberForThread(thread, members);
+                const unreadCount = unreadByThreadId[thread.id] ?? thread.unreadCount;
+                const threadPreview = thread.lastPreview ?? copy.emptyBody;
+                const threadLabel = `${thread.title} · ${memberNameForThread(thread, members)}`;
 
-                  return (
-                    <button
-                      key={thread.id}
-                      type="button"
-                      className={`chat-thread-card chat-thread-card--telegram${active ? " chat-thread-card--active" : ""}`}
-                      onClick={() => handleSelectThread(thread.id)}
-                    >
-                      <div className="chat-thread-card__top">
-                        <div className="chat-thread-card__identity">
-                          <MemberAvatarChip member={member} />
-                          <div className="provider-details">
-                            <strong>{thread.title}</strong>
-                            <span className="card__description">{memberNameForThread(thread, members)}</span>
-                          </div>
+                return (
+                  <button
+                    key={thread.id}
+                    type="button"
+                    aria-label={threadLabel}
+                    className={`chat-thread-card${active ? " chat-thread-card--active" : ""}`}
+                    onClick={() => handleSelectThread(thread.id)}
+                  >
+                    <div className="chat-thread-card__identity">
+                      <div className="chat-thread-card__avatar">
+                        <MemberAvatarChip member={member} />
+                        {!showSidebarLabels && unreadCount > 0 ? <span className="chat-thread-card__dot" /> : null}
+                      </div>
+                      {showSidebarLabels ? (
+                        <div className="chat-thread-card__content">
+                          <strong>{thread.title}</strong>
+                          <span>{memberNameForThread(thread, members)}</span>
                         </div>
+                      ) : null}
+                    </div>
+                    {showSidebarLabels ? (
+                      <>
                         <div className="chat-thread-card__meta">
                           <span className="chat-thread-card__time">{formatThreadTimestamp(thread.lastMessageAt ?? thread.updatedAt)}</span>
                           {unreadCount > 0 ? <span className="chat-unread-badge">{unreadCount}</span> : null}
                         </div>
-                      </div>
-
-                        <div className="chat-thread-card__bottom">
-                          <p className="card__description chat-thread-card__preview">{thread.lastPreview ?? copy.emptyBody}</p>
-                        <div className="actions-row" style={{ flexWrap: "wrap" }}>
+                        <p className="chat-thread-card__preview">{threadPreview}</p>
+                        <div className="chat-thread-card__status-row">
                           {thread.composerState.bridgeState ? (
                             <StatusBadge tone={bridgeTone(thread.composerState.bridgeState)}>
                               {bridgeLabel(thread.composerState.bridgeState)}
@@ -1119,49 +1205,37 @@ export default function ChatPage() {
                             <StatusBadge tone="neutral">{activeToolSummary(thread.composerState.toolActivities)}</StatusBadge>
                           ) : null}
                         </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-              </div>
-            ) : (
+                      </>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="chat-sidebar__empty">
               <EmptyState
                 title={copy.emptyTitle}
                 description={copy.emptyBody}
                 actionLabel={copy.newChat}
                 onAction={handleNewChatAction}
               />
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          )}
+        </div>
       }
       detail={
-        <Card className="chat-main chat-main--telegram">
-          <CardContent className="chat-main__content chat-main__content--telegram">
+        <div className={`chat-main${selectedThread ? "" : " chat-main--empty"}`}>
             {selectedThread ? (
               <>
-                <div className="chat-thread-header">
-                    <div className="chat-thread-header__identity">
-                      <MemberAvatarChip member={selectedMember} />
-                      <div>
-                        <strong>{selectedMember?.name ?? memberNameForThread(selectedThread, members)}</strong>
-                        <p className="card__description">
-                          {selectedThread.composerState.activityLabel ?? selectedMember?.jobTitle ?? copy.subtitle}
-                        </p>
-                        <div className="actions-row" style={{ flexWrap: "wrap", marginTop: 8 }}>
-                          {selectedThread.composerState.bridgeState ? (
-                            <StatusBadge tone={bridgeTone(selectedThread.composerState.bridgeState)}>
-                              {bridgeLabel(selectedThread.composerState.bridgeState)}
-                            </StatusBadge>
-                          ) : null}
-                          {selectedThread.composerState.toolActivities?.length ? (
-                            <StatusBadge tone="neutral">
-                              {activeToolSummary(selectedThread.composerState.toolActivities)}
-                            </StatusBadge>
-                          ) : null}
-                        </div>
-                      </div>
+                <div className="chat-main__hero">
+                  <div className="chat-main__hero-copy">
+                    <MemberAvatarChip member={selectedMember} />
+                    <div className="chat-main__title">
+                      <strong>{selectedMember?.name ?? memberNameForThread(selectedThread, members)}</strong>
+                      <span>{selectedThread.composerState.activityLabel ?? selectedMember?.jobTitle ?? selectedThread.title}</span>
+                      <small>{selectedThread.title}</small>
                     </div>
+                  </div>
 
                   <div className="actions-row">
                     {selectedThread.composerState.status === "error" && lastUserMessage ? (
@@ -1178,17 +1252,44 @@ export default function ChatPage() {
                   </div>
                 </div>
 
+                <div className="chat-main__status">
+                  {selectedThread.composerState.bridgeState ? (
+                    <StatusBadge tone={bridgeTone(selectedThread.composerState.bridgeState)}>
+                      {bridgeLabel(selectedThread.composerState.bridgeState)}
+                    </StatusBadge>
+                  ) : null}
+                  {selectedThread.composerState.toolActivities?.length ? (
+                    <StatusBadge tone="neutral">
+                      {activeToolSummary(selectedThread.composerState.toolActivities)}
+                    </StatusBadge>
+                  ) : null}
+                  {selectedThread.activeRunState ? (
+                    <StatusBadge tone={activityTone(selectedThread.activeRunState)}>
+                      {selectedThread.activeRunState}
+                    </StatusBadge>
+                  ) : null}
+                  {selectedThread.composerState.canAbort ? <Badge tone="info">Live run</Badge> : null}
+                </div>
+
+                {selectedThread.composerState.error ? (
+                  <div className="chat-main__error">
+                    <ErrorState compact title="Could not update this conversation" description={selectedThread.composerState.error} />
+                  </div>
+                ) : null}
+
                 {selectedThread.historyStatus === "unavailable" ? (
-                  <EmptyState
-                    title={copy.unavailableTitle}
-                    description={selectedThread.historyError ?? copy.unavailableBody}
-                    actionLabel={copy.newChat}
-                    onAction={() => void handleCreateThread(selectedThread.memberId)}
-                  />
+                  <div className="chat-main__empty">
+                    <EmptyState
+                      title={copy.unavailableTitle}
+                      description={selectedThread.historyError ?? copy.unavailableBody}
+                      actionLabel={copy.newChat}
+                      onAction={() => void handleCreateThread(selectedThread.memberId)}
+                    />
+                  </div>
                 ) : (
                   <>
                     <div className="chat-transcript-shell">
-                      <div className="chat-transcript chat-transcript--telegram" ref={transcriptRef} onScroll={handleTranscriptScroll}>
+                      <div className="chat-transcript" ref={transcriptRef} onScroll={handleTranscriptScroll}>
                         {threadLoadingId === selectedThread.id ? (
                           <LoadingPanel compact title={copy.loadingThread} description="ChillClaw is syncing the latest messages from OpenClaw." />
                         ) : selectedThread.messages.length > 0 ? (
@@ -1255,12 +1356,14 @@ export default function ChatPage() {
                             );
                           })
                         ) : (
-                          <EmptyState
-                            title={copy.emptyThreadTitle}
-                            description={copy.emptyBody}
-                            actionLabel={copy.newChat}
-                            onAction={handleNewChatAction}
-                          />
+                          <div className="chat-main__empty">
+                            <EmptyState
+                              title={copy.emptyThreadTitle}
+                              description={copy.emptyBody}
+                              actionLabel={copy.newChat}
+                              onAction={handleNewChatAction}
+                            />
+                          </div>
                         )}
                       </div>
 
@@ -1272,52 +1375,53 @@ export default function ChatPage() {
                       ) : null}
                     </div>
 
-                    <div className="chat-composer chat-composer--telegram">
-                      <Textarea
-                        ref={composerRef}
-                        value={draft}
-                        onChange={(event) => setDraft(event.target.value)}
-                        onKeyDown={handleComposerKeyDown}
-                        rows={1}
-                        placeholder={copy.messagePlaceholder.replace("{name}", selectedMember?.name ?? memberNameForThread(selectedThread, members))}
-                      />
-                      {selectedThread.composerState.canAbort ? (
-                        <Button variant="outline" onClick={() => void handleAbort()} loading={selectedThread.composerState.status === "aborting"}>
-                          <Square size={14} />
-                          {copy.stop}
-                        </Button>
-                      ) : (
-                        <Button
-                          disabled={!canSendComposerDraft(draft, selectedThread.composerState.canSend)}
-                          loading={selectedThread.composerState.status === "sending"}
-                          onClick={() => void handleSend()}
-                        >
-                          <SendHorizontal size={14} />
-                          {selectedThread.composerState.status === "sending" ? copy.sending : copy.send}
-                        </Button>
-                      )}
+                    <div className="chat-composer">
+                      <div className="chat-composer__shell">
+                        <Textarea
+                          ref={composerRef}
+                          value={draft}
+                          onChange={(event) => setDraft(event.target.value)}
+                          onKeyDown={handleComposerKeyDown}
+                          rows={1}
+                          placeholder={copy.messagePlaceholder.replace("{name}", selectedMember?.name ?? memberNameForThread(selectedThread, members))}
+                        />
+                        {selectedThread.composerState.canAbort ? (
+                          <Button variant="outline" onClick={() => void handleAbort()} loading={selectedThread.composerState.status === "aborting"}>
+                            <Square size={14} />
+                            {copy.stop}
+                          </Button>
+                        ) : (
+                          <Button
+                            disabled={!canSendComposerDraft(draft, selectedThread.composerState.canSend)}
+                            loading={selectedThread.composerState.status === "sending"}
+                            onClick={() => void handleSend()}
+                          >
+                            <SendHorizontal size={14} />
+                            {selectedThread.composerState.status === "sending" ? copy.sending : copy.send}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </>
                 )}
               </>
             ) : (
-              <EmptyState
-                title={copy.emptyThreadTitle}
-                description={copy.emptyThreadBody}
-                actionLabel={copy.newChat}
-                onAction={handleNewChatAction}
-              />
+              <div className="chat-main__empty">
+                <EmptyState
+                  title={copy.emptyThreadTitle}
+                  description={copy.emptyThreadBody}
+                  actionLabel={copy.newChat}
+                  onAction={handleNewChatAction}
+                />
+              </div>
             )}
-          </CardContent>
-        </Card>
+        </div>
       }
     >
       {error ? (
-        <Card>
-          <CardContent>
-            <ErrorState compact title="Could not update this conversation" description={error} />
-          </CardContent>
-        </Card>
+        <div className="chat-page__error">
+          <ErrorState compact title="Could not update this conversation" description={error} />
+        </div>
       ) : null}
       <NewChatDialog
         open={newChatOpen}

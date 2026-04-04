@@ -381,7 +381,7 @@ test("buildGatewaySocketConnectParams matches the current OpenClaw connect schem
       token: "gateway-token"
     },
     role: "operator",
-    scopes: ["operator.admin"]
+    scopes: ["operator.read", "operator.write"]
   });
 });
 

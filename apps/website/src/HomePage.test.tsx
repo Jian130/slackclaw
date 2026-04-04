@@ -31,7 +31,7 @@ describe("website homepage", () => {
     const markup = renderToStaticMarkup(<App />);
 
     expect(websiteLinks.repository).toBe("https://github.com/Jian130/chillclaw");
-    expect(websiteLinks.downloadMac).toBe("https://github.com/Jian130/chillclaw/releases/download/v0.1.2-r1/ChillClaw-macOS.pkg");
+    expect(websiteLinks.downloadMac).toBe("https://github.com/Jian130/chillclaw/releases/latest/download/ChillClaw-macOS.pkg");
     expect(websiteLinks.releases).toBe("https://github.com/Jian130/chillclaw/releases");
     expect(websiteLinks.docs).toBe("https://github.com/Jian130/chillclaw/tree/main/docs");
     expect(markup).toContain(`href="${websiteLinks.repository}"`);

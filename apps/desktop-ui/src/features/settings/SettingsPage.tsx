@@ -3,11 +3,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  checkAppUpdate,
+  checkEngineUpdates,
   exportDiagnostics,
   installAppService,
   redoOnboarding,
   restartAppService,
-  runUpdate,
   stopChillClawApp,
   uninstallAppService,
   uninstallChillClawApp
@@ -23,6 +24,11 @@ import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
 import { StatusBadge } from "../../shared/ui/StatusBadge.js";
 import { Switch } from "../../shared/ui/Switch.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../shared/ui/Tabs.js";
+import {
+  appUpdateDownloadLabel,
+  openAppUpdateDownload,
+  openAppUpdateReleaseNotes
+} from "./app-updates.js";
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -111,6 +117,94 @@ export default function SettingsPage() {
                 <div className="check-row"><div className="check-row__meta"><strong>Send telemetry</strong><p>Frontend-local preference only until a daemon-backed setting exists.</p></div><Switch checked={state.settings.general.telemetry} onCheckedChange={(checked) => update((current) => ({ ...current, settings: { ...current.settings, general: { ...current.settings.general, telemetry: checked } } }))} /></div>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{copy.appUpdatesTitle}</CardTitle>
+              </CardHeader>
+              <CardContent className="panel-stack">
+                <p className="card__description">{copy.appUpdatesBody}</p>
+                <div className="check-row">
+                  <div className="check-row__meta">
+                    <strong>{overview?.appUpdate.summary ?? copy.appUpdateUnavailable}</strong>
+                    <p>{overview?.appUpdate.detail ?? copy.appUpdateUnavailableBody}</p>
+                  </div>
+                  <StatusBadge tone={overview?.appUpdate.status === "update-available" ? "warning" : overview?.appUpdate.status === "up-to-date" ? "success" : "neutral"}>
+                    {overview?.appUpdate.status === "update-available"
+                      ? copy.appUpdateAvailable
+                      : overview?.appUpdate.status === "up-to-date"
+                        ? copy.appUpdateCurrent
+                        : copy.appUpdateUnavailable}
+                  </StatusBadge>
+                </div>
+                <div className="actions-row">
+                  <Button
+                    disabled={overview?.appUpdate.status !== "update-available"}
+                    onClick={() => {
+                      if (!overview?.appUpdate) return;
+                      if (openAppUpdateDownload(overview.appUpdate)) {
+                        setMessage(overview.appUpdate.summary);
+                      }
+                    }}
+                    variant="outline"
+                  >
+                    <Download size={14} />
+                    {appUpdateDownloadLabel(overview?.appUpdate ?? {
+                      status: "unsupported",
+                      supported: false,
+                      currentVersion: "",
+                      checkedAt: "",
+                      summary: "",
+                      detail: ""
+                    }, copy.downloadUpdate)}
+                  </Button>
+                  <Button
+                    disabled={!overview?.appUpdate?.releaseUrl}
+                    onClick={() => {
+                      if (!overview?.appUpdate) return;
+                      if (openAppUpdateReleaseNotes(overview.appUpdate)) {
+                        setMessage(overview.appUpdate.detail);
+                      }
+                    }}
+                    variant="outline"
+                  >
+                    {copy.viewReleaseNotes}
+                  </Button>
+                  <Button
+                    loading={busy === "app-updates"}
+                    onClick={() =>
+                      void runAction("app-updates", async () => {
+                        const result = await checkAppUpdate();
+                        return { message: result.appUpdate.summary };
+                      })
+                    }
+                    variant="outline"
+                  >
+                    <RefreshCw size={14} />
+                    {busy === "app-updates" ? copy.checkingAppUpdates : copy.checkAppUpdates}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{copy.openClawUpdatesTitle}</CardTitle>
+              </CardHeader>
+              <CardContent className="panel-stack">
+                <p className="card__description">{copy.openClawUpdatesBody}</p>
+                <div className="actions-row">
+                  <Button
+                    loading={busy === "engine-updates"}
+                    onClick={() => void runAction("engine-updates", checkEngineUpdates)}
+                    variant="outline"
+                  >
+                    <RefreshCw size={14} />
+                    {busy === "engine-updates" ? copy.checkingEngineUpdates : copy.checkEngineUpdates}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
@@ -192,14 +286,13 @@ export default function SettingsPage() {
         <TabsContent value="advanced">
           <div className="panel-stack">
             <Card>
+              <CardHeader>
+                <CardTitle>{copy.advanced}</CardTitle>
+              </CardHeader>
               <CardContent className="actions-row">
                 <Button loading={busy === "diagnostics"} onClick={() => void runAction("diagnostics", exportDiagnostics)} variant="outline">
                   <Download size={14} />
                   {busy === "diagnostics" ? "Exporting..." : copy.exportDiagnostics}
-                </Button>
-                <Button loading={busy === "updates"} onClick={() => void runAction("updates", runUpdate)} variant="outline">
-                  <RefreshCw size={14} />
-                  {busy === "updates" ? "Checking..." : copy.checkUpdates}
                 </Button>
                 <Button loading={busy === "stop-app"} onClick={() => void runAction("stop-app", stopChillClawApp)} variant="outline">
                   {busy === "stop-app" ? "Stopping..." : copy.stopApp}

@@ -90,7 +90,7 @@ public final class ChillClawChatViewModel {
 
     public func refresh() async {
         do {
-            let overview = try await transport.fetchOverview()
+            let overview = normalizeOverview(try await transport.fetchOverview())
             self.overview = overview
             self.errorMessage = nil
             guard let current = selectedThreadID(for: overview) else {
@@ -115,7 +115,7 @@ public final class ChillClawChatViewModel {
     public func createThread(memberId: String) async {
         do {
             let response = try await transport.createThread(memberId: memberId)
-            self.overview = response.overview
+            self.overview = normalizeOverview(response.overview)
             self.selectedThread = response.thread
         } catch {
             self.errorMessage = error.localizedDescription
@@ -143,7 +143,7 @@ public final class ChillClawChatViewModel {
 
         do {
             let response = try await transport.sendMessage(threadId: threadId, message: message, clientMessageId: clientMessageId)
-            self.overview = response.overview
+            self.overview = normalizeOverview(response.overview)
             self.errorMessage = nil
             if let thread = response.thread {
                 self.selectedThread = thread
@@ -162,7 +162,7 @@ public final class ChillClawChatViewModel {
         guard let threadId = selectedThread?.id else { return }
         do {
             let response = try await transport.abort(threadId: threadId)
-            self.overview = response.overview
+            self.overview = normalizeOverview(response.overview)
             self.errorMessage = nil
             if let thread = response.thread {
                 self.selectedThread = thread
@@ -230,6 +230,7 @@ public final class ChillClawChatViewModel {
         } else {
             overview.threads.insert(thread, at: 0)
         }
+        overview = normalizeOverview(overview)
     }
 
     private func upsert(detail: ChatThreadDetail) {
@@ -317,6 +318,29 @@ public final class ChillClawChatViewModel {
         return overview.threads.first?.id
     }
 
+    private func normalizeOverview(_ overview: ChatOverview) -> ChatOverview {
+        ChatOverview(threads: collapseDuplicateThreads(overview.threads))
+    }
+
+    private func collapseDuplicateThreads(_ threads: [ChatThreadSummary]) -> [ChatThreadSummary] {
+        let sorted = threads.sorted { left, right in
+            if left.updatedAt != right.updatedAt {
+                return left.updatedAt > right.updatedAt
+            }
+            if left.createdAt != right.createdAt {
+                return left.createdAt > right.createdAt
+            }
+            return left.id > right.id
+        }
+        var seenKeys = Set<String>()
+        return sorted.filter { thread in
+            let key = thread.memberId.isEmpty || thread.agentId.isEmpty
+                ? "thread:\(thread.id)"
+                : "\(thread.memberId):\(thread.agentId)"
+            return seenKeys.insert(key).inserted
+        }
+    }
+
     private var selectedThreadID: String? {
         selectedThread?.id
     }
@@ -368,11 +392,14 @@ public struct ChillClawChatTranscriptView: View {
 
     public var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
+            LazyVStack(alignment: .leading, spacing: 14) {
                 ForEach(thread.messages) { message in
-                    HStack {
-                        if message.role == "user" { Spacer(minLength: 60) }
-                        VStack(alignment: .leading, spacing: 6) {
+                    let isUser = message.role == "user"
+
+                    HStack(alignment: .bottom, spacing: 10) {
+                        if isUser { Spacer(minLength: 72) }
+
+                        VStack(alignment: .leading, spacing: 8) {
                             if nativeChatMessageIsThinking(message) {
                                 HStack(spacing: 8) {
                                     ProgressView()
@@ -414,24 +441,56 @@ public struct ChillClawChatTranscriptView: View {
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
                             }
-                            if let timestamp = message.timestamp {
-                                Text(timestamp)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text(nativeChatDisplayTimestamp(message.timestamp))
+                                .font(.caption)
+                                .foregroundStyle(isUser ? Color.white.opacity(0.84) : .secondary)
                         }
-                        .padding(12)
-                        .background(message.role == "user" ? Color.accentColor.opacity(0.9) : Color.secondary.opacity(0.12))
-                        .foregroundStyle(message.role == "user" ? Color.white : Color.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        if message.role != "user" { Spacer(minLength: 60) }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(
+                                    isUser
+                                        ? AnyShapeStyle(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color.blue,
+                                                    Color.blue.opacity(0.78)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        : AnyShapeStyle(Color.white.opacity(0.94))
+                                )
+                                .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 10)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(isUser ? Color.clear : Color.black.opacity(0.06), lineWidth: 1)
+                        )
+                        .foregroundStyle(isUser ? Color.white : Color.primary)
+
+                        if !isUser { Spacer(minLength: 72) }
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding()
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
         }
     }
+}
+
+private func nativeChatDisplayTimestamp(_ value: String?) -> String {
+    guard let value, !value.isEmpty else { return "" }
+    guard let date = ISO8601DateFormatter().date(from: value) else { return value }
+
+    if Calendar.current.isDateInToday(date) {
+        return date.formatted(.dateTime.hour().minute())
+    }
+
+    return date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
 }
 
 private func canSendChatDraft(_ draft: String, canSend: Bool) -> Bool {

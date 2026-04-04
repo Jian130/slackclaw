@@ -217,7 +217,10 @@ const en: TranslationTree = {
     workspaceHealth: "Workspace Health",
     recentActivity: "Recent Activity",
     employeeStatus: "AI Member Status",
-    quickActions: "Quick Actions"
+    quickActions: "Quick Actions",
+    appUpdateBannerTitle: "App Update Available",
+    appUpdateAvailable: "Update available",
+    downloadUpdate: "Download update"
   },
   members: {
     title: "Digital Employees",
@@ -292,6 +295,8 @@ const en: TranslationTree = {
     createChat: "Create Chat",
     createChatDescription: "Choose the AI member whose OpenClaw agent should own this conversation.",
     threadList: "Conversations",
+    showConversations: "Show conversations",
+    hideConversations: "Hide conversations",
     emptyTitle: "No chats yet",
     emptyBody: "Start a chat with an AI member to create the first OpenClaw-backed conversation.",
     emptyThreadTitle: "Choose a chat",
@@ -368,8 +373,20 @@ const en: TranslationTree = {
     permissionsBody: "Review the macOS permissions ChillClaw may need for Automation, Notifications, Accessibility, Screen Recording, Microphone, Speech Recognition, Camera, and Location.",
     permissionsNativeTitle: "Manage this in the native macOS app",
     permissionsNativeBody: "The local web interface keeps settings aligned, but only the native ChillClaw app can request or refresh macOS permission prompts.",
+    appUpdatesTitle: "App Updates",
+    appUpdatesBody: "Check the latest stable ChillClaw macOS installer and open the signed package download when an update is available.",
+    appUpdateAvailable: "Update available",
+    appUpdateCurrent: "Current",
+    appUpdateUnavailable: "Unavailable",
+    appUpdateUnavailableBody: "ChillClaw can only check app releases from the packaged macOS app.",
+    downloadUpdate: "Download Update",
+    viewReleaseNotes: "View Release Notes",
+    checkAppUpdates: "Check App Updates",
+    checkingAppUpdates: "Checking app updates...",
+    openClawUpdatesTitle: "OpenClaw Runtime",
+    checkEngineUpdates: "Check OpenClaw Updates",
+    checkingEngineUpdates: "Checking OpenClaw...",
     exportDiagnostics: "Export Diagnostics",
-    checkUpdates: "Check for Updates",
     installService: "Install Service",
     restartService: "Restart Service",
     removeService: "Remove Service",
@@ -399,7 +416,7 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       disabled: "已停用"
     },
     shell: {
-      dashboard: "总览",
+    dashboard: "总览",
       onboarding: "引导",
       deploy: "部署",
       config: "配置",
@@ -419,6 +436,15 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       memberPresetSummaryLabel: "预设摘要",
       memberPresetCustomLabel: "自定义设置",
       memberPresetSummaryBody: "选择一个预设，预先载入一套实用的起始配置。"
+    },
+    dashboard: {
+      appUpdateBannerTitle: "有可用应用更新",
+      appUpdateAvailable: "可更新",
+      downloadUpdate: "下载更新"
+    },
+    chatPage: {
+      showConversations: "显示会话",
+      hideConversations: "隐藏会话"
     },
     deploy: {
       infoTitle: "一键部署",
@@ -500,6 +526,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       permissionsBody: "查看 ChillClaw 可能需要的 macOS 权限，包括自动化、通知、辅助功能、屏幕录制、麦克风、语音识别、相机和定位。",
       permissionsNativeTitle: "请在原生 macOS 应用中管理",
       permissionsNativeBody: "本地网页界面只用于保持设置一致，只有原生 ChillClaw 应用才能请求或刷新 macOS 权限弹窗。",
+      appUpdatesTitle: "应用更新",
+      appUpdatesBody: "检查最新稳定版 ChillClaw macOS 安装包，并在有更新时打开已签名的安装包下载页。",
+      appUpdateAvailable: "有可用更新",
+      appUpdateCurrent: "当前版本",
+      appUpdateUnavailable: "不可用",
+      appUpdateUnavailableBody: "只有在打包后的原生 macOS 应用中，ChillClaw 才能检查应用发布版本。",
+      downloadUpdate: "下载更新",
+      viewReleaseNotes: "查看发布说明",
+      checkAppUpdates: "检查应用更新",
+      checkingAppUpdates: "正在检查应用更新...",
+      openClawUpdatesTitle: "OpenClaw 运行时",
+      checkEngineUpdates: "检查 OpenClaw 更新",
+      checkingEngineUpdates: "正在检查 OpenClaw...",
       redoOnboarding: "重新运行引导",
       redoOnboardingBody: "不卸载 ChillClaw，重新运行一次引导设置。",
       redoOnboardingRunning: "正在重置...",
@@ -542,6 +581,15 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       memberPresetSummaryLabel: "プリセット概要",
       memberPresetCustomLabel: "カスタム設定",
       memberPresetSummaryBody: "プリセットを選ぶと、役立つ初期設定をあらかじめ読み込みます。"
+    },
+    dashboard: {
+      appUpdateBannerTitle: "アプリ更新があります",
+      appUpdateAvailable: "更新あり",
+      downloadUpdate: "更新をダウンロード"
+    },
+    chatPage: {
+      showConversations: "会話を表示",
+      hideConversations: "会話を隠す"
     },
     deploy: {
       infoTitle: "ワンクリック配備",
@@ -623,6 +671,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       permissionsBody: "ChillClaw が必要とする可能性のある macOS 権限を確認します。対象はオートメーション、通知、アクセシビリティ、画面収録、マイク、音声認識、カメラ、位置情報です。",
       permissionsNativeTitle: "ネイティブ macOS アプリで管理してください",
       permissionsNativeBody: "ローカル Web インターフェースは設定の整合だけを保ちます。macOS の権限ダイアログを要求または更新できるのはネイティブの ChillClaw アプリだけです。",
+      appUpdatesTitle: "アプリ更新",
+      appUpdatesBody: "最新の安定版 ChillClaw macOS インストーラーを確認し、更新があれば署名済みパッケージのダウンロードを開きます。",
+      appUpdateAvailable: "更新あり",
+      appUpdateCurrent: "最新",
+      appUpdateUnavailable: "利用不可",
+      appUpdateUnavailableBody: "ChillClaw がアプリのリリースを確認できるのは、パッケージ版 macOS アプリからだけです。",
+      downloadUpdate: "更新をダウンロード",
+      viewReleaseNotes: "リリースノートを見る",
+      checkAppUpdates: "アプリ更新を確認",
+      checkingAppUpdates: "アプリ更新を確認中...",
+      openClawUpdatesTitle: "OpenClaw ランタイム",
+      checkEngineUpdates: "OpenClaw 更新を確認",
+      checkingEngineUpdates: "OpenClaw を確認中...",
       redoOnboarding: "オンボーディングをやり直す",
       redoOnboardingBody: "ChillClaw をアンインストールせずに、ガイド付きセットアップをもう一度実行します。",
       redoOnboardingRunning: "リセット中...",
@@ -665,6 +726,15 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       memberPresetSummaryLabel: "프리셋 요약",
       memberPresetCustomLabel: "사용자 설정",
       memberPresetSummaryBody: "프리셋을 선택하면 유용한 시작 구성이 미리 적용됩니다."
+    },
+    dashboard: {
+      appUpdateBannerTitle: "앱 업데이트 사용 가능",
+      appUpdateAvailable: "업데이트 가능",
+      downloadUpdate: "업데이트 다운로드"
+    },
+    chatPage: {
+      showConversations: "대화 목록 보기",
+      hideConversations: "대화 목록 숨기기"
     },
     deploy: {
       infoTitle: "원클릭 배포",
@@ -746,6 +816,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       permissionsBody: "자동화, 알림, 손쉬운 사용, 화면 기록, 마이크, 음성 인식, 카메라, 위치에 대해 ChillClaw가 필요로 할 수 있는 macOS 권한을 확인합니다.",
       permissionsNativeTitle: "기본 macOS 앱에서 관리하세요",
       permissionsNativeBody: "로컬 웹 인터페이스는 설정 상태만 맞춰 줍니다. macOS 권한 프롬프트를 요청하거나 새로 고칠 수 있는 것은 기본 ChillClaw 앱뿐입니다.",
+      appUpdatesTitle: "앱 업데이트",
+      appUpdatesBody: "최신 안정판 ChillClaw macOS 설치 패키지를 확인하고, 업데이트가 있으면 서명된 설치 파일 다운로드를 엽니다.",
+      appUpdateAvailable: "업데이트 가능",
+      appUpdateCurrent: "최신 상태",
+      appUpdateUnavailable: "사용 불가",
+      appUpdateUnavailableBody: "ChillClaw는 패키지된 기본 macOS 앱에서만 앱 릴리스를 확인할 수 있습니다.",
+      downloadUpdate: "업데이트 다운로드",
+      viewReleaseNotes: "릴리스 노트 보기",
+      checkAppUpdates: "앱 업데이트 확인",
+      checkingAppUpdates: "앱 업데이트 확인 중...",
+      openClawUpdatesTitle: "OpenClaw 런타임",
+      checkEngineUpdates: "OpenClaw 업데이트 확인",
+      checkingEngineUpdates: "OpenClaw 확인 중...",
       redoOnboarding: "온보딩 다시 실행",
       redoOnboardingBody: "ChillClaw를 제거하지 않고 안내형 설정을 다시 실행합니다.",
       redoOnboardingRunning: "재설정하는 중...",
@@ -788,6 +871,15 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       memberPresetSummaryLabel: "Resumen del preajuste",
       memberPresetCustomLabel: "Configuración personalizada",
       memberPresetSummaryBody: "Elige un preajuste para cargar una configuración inicial útil."
+    },
+    dashboard: {
+      appUpdateBannerTitle: "Actualización de la app disponible",
+      appUpdateAvailable: "Actualización disponible",
+      downloadUpdate: "Descargar actualización"
+    },
+    chatPage: {
+      showConversations: "Mostrar conversaciones",
+      hideConversations: "Ocultar conversaciones"
     },
     deploy: {
       infoTitle: "Despliegue con un clic",
@@ -869,6 +961,19 @@ const partials: Partial<Record<Locale, Partial<TranslationTree>>> = {
       permissionsBody: "Revisa los permisos de macOS que ChillClaw puede necesitar para Automatización, Notificaciones, Accesibilidad, Grabación de pantalla, Micrófono, Reconocimiento de voz, Cámara y Ubicación.",
       permissionsNativeTitle: "Adminístralo en la app nativa de macOS",
       permissionsNativeBody: "La interfaz web local mantiene los ajustes alineados, pero solo la app nativa de ChillClaw puede solicitar o volver a abrir los avisos de permisos de macOS.",
+      appUpdatesTitle: "Actualizaciones de la app",
+      appUpdatesBody: "Comprueba el instalador estable más reciente de ChillClaw para macOS y abre la descarga del paquete firmado cuando haya una actualización.",
+      appUpdateAvailable: "Actualización disponible",
+      appUpdateCurrent: "Actual",
+      appUpdateUnavailable: "No disponible",
+      appUpdateUnavailableBody: "ChillClaw solo puede comprobar sus lanzamientos desde la app nativa empaquetada de macOS.",
+      downloadUpdate: "Descargar actualización",
+      viewReleaseNotes: "Ver notas de la versión",
+      checkAppUpdates: "Buscar actualizaciones de la app",
+      checkingAppUpdates: "Buscando actualizaciones de la app...",
+      openClawUpdatesTitle: "Runtime de OpenClaw",
+      checkEngineUpdates: "Buscar actualizaciones de OpenClaw",
+      checkingEngineUpdates: "Comprobando OpenClaw...",
       redoOnboarding: "Repetir onboarding",
       redoOnboardingBody: "Vuelve a ejecutar la configuración guiada sin desinstalar ChillClaw.",
       redoOnboardingRunning: "Restableciendo...",

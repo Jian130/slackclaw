@@ -10,18 +10,25 @@ import {
 
 import type { EngineAdapter } from "../engine/adapter.js";
 import { AppServiceManager } from "./app-service-manager.js";
+import { AppUpdateService } from "./app-update-service.js";
 import { getDefaultAppSupportDir } from "../runtime-paths.js";
 import { StateStore } from "./state-store.js";
+import { getProductVersion } from "../product-version.js";
 
 export class OverviewService {
   constructor(
     private readonly adapter: EngineAdapter,
     private readonly store: StateStore,
-    private readonly appServiceManager = new AppServiceManager()
+    private readonly appServiceManager = new AppServiceManager(),
+    private readonly appUpdateService = new AppUpdateService()
   ) {}
 
   async getOverview(): Promise<ProductOverview> {
-    const base = createDefaultProductOverview();
+    const appUpdate = await this.appUpdateService.getStatus();
+    const base = createDefaultProductOverview({
+      appVersion: getProductVersion(),
+      appUpdate
+    });
     const state = await this.store.read();
     const engine = await this.adapter.instances.status();
     const healthChecks = await this.adapter.gateway.healthCheck(state.selectedProfileId);
@@ -53,6 +60,7 @@ export class OverviewService {
         selectedProfileId: state.selectedProfileId
       },
       appService,
+      appUpdate,
       engine,
       capabilities: this.adapter.capabilities,
       installSpec: this.adapter.installSpec,

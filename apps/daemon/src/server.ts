@@ -8,6 +8,7 @@ import { errorToLogDetails, writeErrorLog, writeInfoLog } from "./services/logge
 import { getStaticDir } from "./runtime-paths.js";
 import { findRouteDefinition } from "./routes/index.js";
 import { createServerContext } from "./routes/server-context.js";
+import { getProductVersion } from "./product-version.js";
 export {
   clearRuntimeUninstallState,
   resetStateAfterRuntimeUninstall,
@@ -226,7 +227,7 @@ export function startServer(port = 4545) {
   server.listen(port, "127.0.0.1");
   void writeInfoLog("ChillClaw daemon server started.", {
     port,
-    appVersion: "0.1.2"
+    appVersion: getProductVersion()
   }, {
     scope: "server.startServer"
   });

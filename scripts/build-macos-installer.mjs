@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { chmod, copyFile, cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { writeScriptLogLine } from "./logging.mjs";
@@ -11,7 +11,6 @@ const DIST_DIR = resolve(ROOT, "dist/macos");
 const STAGING_DIR = resolve(ROOT, "dist/.macos-staging");
 const BUILD_DIR = resolve(STAGING_DIR, ".build");
 const APP_NAME = "ChillClaw";
-const APP_VERSION = "0.1.2";
 const APP_BUNDLE = resolve(STAGING_DIR, `${APP_NAME}.app`);
 const APP_CONTENTS = resolve(APP_BUNDLE, "Contents");
 const APP_MACOS = resolve(APP_CONTENTS, "MacOS");
@@ -29,6 +28,18 @@ const PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
 const LAUNCH_AGENT_LABEL = "ai.chillclaw.daemon";
 const SCRIPT_LABEL = "ChillClaw installer";
 const PACKAGED_APP_BUILD_WORKSPACES = ["@chillclaw/contracts", "@chillclaw/daemon", "@chillclaw/desktop-ui"];
+
+async function readProductVersion() {
+  const packageJson = JSON.parse(await readFile(resolve(ROOT, "package.json"), "utf8"));
+  const version = packageJson?.version;
+  if (typeof version !== "string" || version.trim().length === 0) {
+    throw new Error("Root package.json is missing a valid version string.");
+  }
+
+  return version.trim();
+}
+
+const APP_VERSION = await readProductVersion();
 
 function parseArgs(argv) {
   return {
@@ -199,6 +210,8 @@ cat >"$PLIST_PATH" <<EOF
       <string>$APP_ROOT</string>
       <key>CHILLCLAW_PORT</key>
       <string>4545</string>
+      <key>CHILLCLAW_APP_VERSION</key>
+      <string>${APP_VERSION}</string>
       <key>CHILLCLAW_DATA_DIR</key>
       <string>$DATA_DIR</string>
       <key>CHILLCLAW_STATIC_DIR</key>

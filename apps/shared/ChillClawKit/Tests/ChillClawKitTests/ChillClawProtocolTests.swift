@@ -61,6 +61,83 @@ struct ChillClawProtocolTests {
     }
 
     @Test
+    func productOverviewDecodesAppUpdateStatus() throws {
+        let data = """
+        {
+          "appName": "ChillClaw",
+          "appVersion": "0.1.2",
+          "platformTarget": "macOS first",
+          "appUpdate": {
+            "status": "update-available",
+            "supported": true,
+            "currentVersion": "0.1.2",
+            "latestVersion": "0.1.4",
+            "downloadUrl": "https://github.com/Jian130/chillclaw/releases/download/v0.1.4/ChillClaw-macOS.pkg",
+            "releaseUrl": "https://github.com/Jian130/chillclaw/releases/tag/v0.1.4",
+            "publishedAt": "2026-04-04T10:00:00.000Z",
+            "checkedAt": "2026-04-04T11:00:00.000Z",
+            "summary": "ChillClaw 0.1.4 is available.",
+            "detail": "Download the latest signed installer."
+          },
+          "firstRun": {
+            "introCompleted": true,
+            "setupCompleted": true
+          },
+          "appService": {
+            "mode": "launchagent",
+            "installed": true,
+            "running": true,
+            "managedAtLogin": true,
+            "summary": "Running",
+            "detail": "Loaded"
+          },
+          "engine": {
+            "engine": "openclaw",
+            "installed": true,
+            "running": true,
+            "version": "2026.3.13",
+            "summary": "Ready",
+            "lastCheckedAt": "2026-04-04T11:00:00.000Z"
+          },
+          "installSpec": {
+            "engine": "openclaw",
+            "desiredVersion": "latest",
+            "installSource": "npm-local",
+            "prerequisites": ["macOS"]
+          },
+          "capabilities": {
+            "engine": "openclaw",
+            "supportsInstall": true,
+            "supportsUpdate": true,
+            "supportsRecovery": true,
+            "supportsStreaming": true,
+            "runtimeModes": ["gateway"],
+            "supportedChannels": ["telegram"],
+            "starterSkillCategories": ["communication"],
+            "futureLocalModelFamilies": ["qwen"]
+          },
+          "installChecks": [],
+          "channelSetup": {
+            "baseOnboardingCompleted": true,
+            "channels": [],
+            "gatewayStarted": true,
+            "gatewaySummary": "Ready"
+          },
+          "profiles": [],
+          "templates": [],
+          "healthChecks": [],
+          "recoveryActions": [],
+          "recentTasks": []
+        }
+        """.data(using: .utf8)!
+
+        let overview = try JSONDecoder.chillClaw.decode(ProductOverview.self, from: data)
+        #expect(overview.appUpdate.status == "update-available")
+        #expect(overview.appUpdate.latestVersion == "0.1.4")
+        #expect(overview.appUpdate.downloadUrl?.hasSuffix("ChillClaw-macOS.pkg") == true)
+    }
+
+    @Test
     func onboardingStateResponseDecodesDraftAndSummary() throws {
         let data = """
         {

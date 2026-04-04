@@ -21,6 +21,14 @@ test("event publisher emits authoritative snapshot events and returns sync metad
     appName: "ChillClaw",
     appVersion: "0.1.2",
     platformTarget: "macos",
+    appUpdate: {
+      status: "unsupported",
+      supported: false,
+      currentVersion: "0.1.2",
+      checkedAt: new Date().toISOString(),
+      summary: "App updates are available from the packaged macOS app.",
+      detail: "ChillClaw can only check app releases from the packaged macOS app."
+    },
     firstRun: {
       introCompleted: false,
       setupCompleted: false
@@ -88,6 +96,14 @@ test("event bus replays the latest retained snapshot events to new subscribers",
         appName: "ChillClaw",
         appVersion: "0.1.2",
         platformTarget: "macos",
+        appUpdate: {
+          status: "unsupported",
+          supported: false,
+          currentVersion: "0.1.2",
+          checkedAt: new Date().toISOString(),
+          summary: "App updates are available from the packaged macOS app.",
+          detail: "ChillClaw can only check app releases from the packaged macOS app."
+        },
         firstRun: {
           introCompleted: false,
           setupCompleted: false

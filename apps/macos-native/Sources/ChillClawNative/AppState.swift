@@ -258,6 +258,21 @@ final class ChillClawAppState {
         NSWorkspace.shared.open(configuration.fallbackWebURL)
     }
 
+    func openExternalURL(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+
+    func checkAppUpdate() async {
+        do {
+            let response = try await client.checkAppUpdate()
+            overview = response.overview
+            bannerMessage = response.appUpdate.summary
+            errorMessage = nil
+        } catch {
+            presentErrorUnlessCancelled(error)
+        }
+    }
+
     func redoOnboarding() async {
         isLoading = true
         defer { isLoading = false }

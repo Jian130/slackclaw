@@ -134,6 +134,8 @@ flowchart LR
 - `ChillClaw-macOS.pkg` installs `ChillClaw.app` into `/Applications`.
 - The app bundle contains the native macOS client, the built fallback React UI, the daemon, LaunchAgent helper scripts, and OpenClaw bootstrap/install logic.
 - OpenClaw itself is reused when an existing install is already available, or deployed into ChillClaw-managed local app data when setup needs to install it.
+- Stable macOS releases are published from protected GitHub tags in the form `vX.Y.Z`. The packaged app update check and the public website download button both resolve through GitHub Releases rather than hard-coded release pages.
+- The website always points at `releases/latest/download/ChillClaw-macOS.pkg`, so the public macOS download stays current when a new stable release is published.
 
 ### Native macOS client
 

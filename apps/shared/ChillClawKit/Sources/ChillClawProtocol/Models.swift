@@ -416,6 +416,54 @@ public struct AppServiceStatus: Codable, Sendable {
     public var detail: String
 }
 
+public struct AppUpdateStatus: Codable, Sendable {
+    public var status: String
+    public var supported: Bool
+    public var currentVersion: String
+    public var latestVersion: String?
+    public var downloadUrl: String?
+    public var releaseUrl: String?
+    public var publishedAt: String?
+    public var checkedAt: String
+    public var summary: String
+    public var detail: String
+
+    public init(
+        status: String,
+        supported: Bool,
+        currentVersion: String,
+        latestVersion: String? = nil,
+        downloadUrl: String? = nil,
+        releaseUrl: String? = nil,
+        publishedAt: String? = nil,
+        checkedAt: String,
+        summary: String,
+        detail: String
+    ) {
+        self.status = status
+        self.supported = supported
+        self.currentVersion = currentVersion
+        self.latestVersion = latestVersion
+        self.downloadUrl = downloadUrl
+        self.releaseUrl = releaseUrl
+        self.publishedAt = publishedAt
+        self.checkedAt = checkedAt
+        self.summary = summary
+        self.detail = detail
+    }
+
+    public static func unsupported(currentVersion: String = "0.0.0") -> AppUpdateStatus {
+        AppUpdateStatus(
+            status: "unsupported",
+            supported: false,
+            currentVersion: currentVersion,
+            checkedAt: "",
+            summary: "App updates are available from the packaged macOS app.",
+            detail: "ChillClaw can only check GitHub release updates from the packaged macOS app."
+        )
+    }
+}
+
 public struct EngineStatus: Codable, Sendable {
     public var engine: String
     public var installed: Bool
@@ -544,6 +592,7 @@ public struct ProductOverview: Codable, Sendable {
     public var appName: String
     public var appVersion: String
     public var platformTarget: String
+    public var appUpdate: AppUpdateStatus
     public var firstRun: FirstRunState
     public var appService: AppServiceStatus
     public var engine: EngineStatus
@@ -556,6 +605,96 @@ public struct ProductOverview: Codable, Sendable {
     public var healthChecks: [HealthCheckResult]
     public var recoveryActions: [RecoveryAction]
     public var recentTasks: [EngineTaskResult]
+
+    public init(
+        appName: String,
+        appVersion: String,
+        platformTarget: String,
+        appUpdate: AppUpdateStatus = .unsupported(),
+        firstRun: FirstRunState,
+        appService: AppServiceStatus,
+        engine: EngineStatus,
+        installSpec: EngineInstallSpec,
+        capabilities: EngineCapabilities,
+        installChecks: [InstallCheck],
+        channelSetup: ChannelSetupOverview,
+        profiles: [UserProfile],
+        templates: [TaskTemplate],
+        healthChecks: [HealthCheckResult],
+        recoveryActions: [RecoveryAction],
+        recentTasks: [EngineTaskResult]
+    ) {
+        self.appName = appName
+        self.appVersion = appVersion
+        self.platformTarget = platformTarget
+        self.appUpdate = appUpdate
+        self.firstRun = firstRun
+        self.appService = appService
+        self.engine = engine
+        self.installSpec = installSpec
+        self.capabilities = capabilities
+        self.installChecks = installChecks
+        self.channelSetup = channelSetup
+        self.profiles = profiles
+        self.templates = templates
+        self.healthChecks = healthChecks
+        self.recoveryActions = recoveryActions
+        self.recentTasks = recentTasks
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case appName
+        case appVersion
+        case platformTarget
+        case appUpdate
+        case firstRun
+        case appService
+        case engine
+        case installSpec
+        case capabilities
+        case installChecks
+        case channelSetup
+        case profiles
+        case templates
+        case healthChecks
+        case recoveryActions
+        case recentTasks
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let appName = try container.decode(String.self, forKey: .appName)
+        let appVersion = try container.decode(String.self, forKey: .appVersion)
+
+        self.init(
+            appName: appName,
+            appVersion: appVersion,
+            platformTarget: try container.decode(String.self, forKey: .platformTarget),
+            appUpdate: try container.decodeIfPresent(AppUpdateStatus.self, forKey: .appUpdate) ?? .unsupported(currentVersion: appVersion),
+            firstRun: try container.decode(FirstRunState.self, forKey: .firstRun),
+            appService: try container.decode(AppServiceStatus.self, forKey: .appService),
+            engine: try container.decode(EngineStatus.self, forKey: .engine),
+            installSpec: try container.decode(EngineInstallSpec.self, forKey: .installSpec),
+            capabilities: try container.decode(EngineCapabilities.self, forKey: .capabilities),
+            installChecks: try container.decode([InstallCheck].self, forKey: .installChecks),
+            channelSetup: try container.decode(ChannelSetupOverview.self, forKey: .channelSetup),
+            profiles: try container.decode([UserProfile].self, forKey: .profiles),
+            templates: try container.decode([TaskTemplate].self, forKey: .templates),
+            healthChecks: try container.decode([HealthCheckResult].self, forKey: .healthChecks),
+            recoveryActions: try container.decode([RecoveryAction].self, forKey: .recoveryActions),
+            recentTasks: try container.decode([EngineTaskResult].self, forKey: .recentTasks)
+        )
+    }
+}
+
+public struct AppUpdateCheckResponse: Codable, Sendable {
+    public var appUpdate: AppUpdateStatus
+    public var overview: ProductOverview
+
+    public init(appUpdate: AppUpdateStatus, overview: ProductOverview) {
+        self.appUpdate = appUpdate
+        self.overview = overview
+    }
 }
 
 public struct InstallResponse: Codable, Sendable {

@@ -54,4 +54,12 @@ struct ChatPresentationTests {
             ) == true
         )
     }
+
+    @Test
+    func chatSidebarHelpersKeepTheMinimalRailDimensionsConsistent() {
+        #expect(nativeChatSidebarWidth(collapsed: false) == 272)
+        #expect(nativeChatSidebarWidth(collapsed: true) == 76)
+        #expect(nativeChatShowsSidebarLabels(collapsed: false) == true)
+        #expect(nativeChatShowsSidebarLabels(collapsed: true) == false)
+    }
 }

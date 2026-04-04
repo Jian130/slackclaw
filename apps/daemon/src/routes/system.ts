@@ -60,6 +60,28 @@ export const systemRoutes: RouteDefinition[] = [
   },
   {
     method: "GET",
+    match: createPathMatcher("/api/app/update"),
+    snapshotPolicy: "silent",
+    async handle({ context }) {
+      return jsonResponse(await context.appUpdateService.getStatus());
+    }
+  },
+  {
+    method: "POST",
+    match: createPathMatcher("/api/app/update/check"),
+    async handle({ context }) {
+      const appUpdate = await context.appUpdateService.checkForUpdates();
+      const overview = await context.overviewService.getOverview();
+      context.eventPublisher.publishOverviewUpdated(overview);
+
+      return jsonResponse({
+        appUpdate,
+        overview
+      });
+    }
+  },
+  {
+    method: "GET",
     match: createPathMatcher("/api/deploy/targets"),
     async handle({ context }) {
       return jsonResponse(await context.adapter.instances.getDeploymentTargets());
@@ -277,6 +299,13 @@ export const systemRoutes: RouteDefinition[] = [
     async handle({ context, request }) {
       const body = await readJson<EngineTaskRequest>(request);
       return jsonResponse(await context.taskService.runTask(body));
+    }
+  },
+  {
+    method: "POST",
+    match: createPathMatcher("/api/engine/update"),
+    async handle({ context }) {
+      return jsonResponse(await context.adapter.instances.update());
     }
   },
   {

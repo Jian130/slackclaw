@@ -2,6 +2,7 @@ import { createEngineAdapter } from "../engine/registry.js";
 import { createDefaultSecretsAdapter } from "../platform/macos-keychain-secrets-adapter.js";
 import { AppControlService } from "../services/app-control-service.js";
 import { AppServiceManager } from "../services/app-service-manager.js";
+import { AppUpdateService } from "../services/app-update-service.js";
 import { AITeamService } from "../services/ai-team-service.js";
 import { ChatService as DaemonChatService } from "../services/chat-service.js";
 import { ChannelSetupService } from "../services/channel-setup-service.js";
@@ -21,6 +22,7 @@ export interface ServerContext {
   secrets: ReturnType<typeof createDefaultSecretsAdapter>;
   store: StateStore;
   appServiceManager: AppServiceManager;
+  appUpdateService: AppUpdateService;
   overviewService: OverviewService;
   eventBus: EventBusService;
   eventPublisher: EventPublisher;
@@ -41,7 +43,8 @@ export function createServerContext(setServerStop: () => void): ServerContext {
   const secrets = createDefaultSecretsAdapter();
   const store = new StateStore();
   const appServiceManager = new AppServiceManager();
-  const overviewService = new OverviewService(adapter, store, appServiceManager);
+  const appUpdateService = new AppUpdateService();
+  const overviewService = new OverviewService(adapter, store, appServiceManager, appUpdateService);
   const eventBus = new EventBusService();
   const eventPublisher = new EventPublisher(eventBus);
   const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
@@ -68,6 +71,7 @@ export function createServerContext(setServerStop: () => void): ServerContext {
     secrets,
     store,
     appServiceManager,
+    appUpdateService,
     overviewService,
     eventBus,
     eventPublisher,

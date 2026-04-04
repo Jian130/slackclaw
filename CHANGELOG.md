@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 2026-04-04 19:50 CST
+
+- added a GitHub-backed macOS app update flow owned by the daemon, including shared `appUpdate` contracts, new `/api/app/update` and `/api/app/update/check` routes, packaged-version detection, separate ChillClaw-versus-OpenClaw update messaging, and new app-update surfaces across the React and native macOS clients
+- added a stronger GitHub delivery path for macOS with a new `main` CI workflow, a protected stable-release workflow that verifies `vX.Y.Z` tags against `package.json`, signs and notarizes `ChillClaw-macOS.pkg`, publishes generated release notes plus checksums, and keeps the public website download pointing at the latest stable installer asset automatically
+- rebuilt chat toward the approved minimal edge-to-edge layout in both the React and native macOS clients, while tightening shared chat/runtime behavior with collapsible conversation rails, transcript/composer presentation cleanup, signed OpenClaw gateway device auth, backend request-response socket support, and filtering of hidden reasoning wrapper tags from visible assistant text
+
 ### 2026-03-31 21:15 CST
 
 - changed the website download buttons in the hero, navigation, CTA, and footer to point directly at the published macOS installer asset instead of the GitHub releases index, with regression coverage to keep the direct-download target wired correctly

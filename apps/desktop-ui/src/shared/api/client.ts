@@ -3,6 +3,8 @@ import type {
   AITeamActionResponse,
   AITeamOverview,
   AppControlResponse,
+  AppUpdateCheckResponse,
+  AppUpdateStatus,
   AppServiceActionResponse,
   BindAIMemberChannelRequest,
   ChatActionResponse,
@@ -664,8 +666,18 @@ export function runRecovery(actionId: string): Promise<{ result: RecoveryRunResp
   });
 }
 
-export function runUpdate(): Promise<{ message: string }> {
-  return readJson<{ message: string }>("/update", {
+export function fetchAppUpdate(options?: { fresh?: boolean }): Promise<AppUpdateStatus> {
+  return readJson<AppUpdateStatus>("/app/update", options);
+}
+
+export function checkAppUpdate(): Promise<AppUpdateCheckResponse> {
+  return readJson<AppUpdateCheckResponse>("/app/update/check", {
+    method: "POST"
+  });
+}
+
+export function checkEngineUpdates(): Promise<{ message: string }> {
+  return readJson<{ message: string }>("/engine/update", {
     method: "POST"
   });
 }

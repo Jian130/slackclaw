@@ -61,6 +61,17 @@ struct ChatViewModelTests {
     }
 
     @Test
+    func refreshCollapsesDuplicateThreadsAndKeepsTheNewestSelection() async {
+        let transport = DuplicateOverviewChatTransport()
+        let viewModel = ChillClawChatViewModel(transport: transport)
+
+        await viewModel.refresh()
+
+        #expect(viewModel.overview.threads.map(\.id) == ["thread-newer", "thread-other"])
+        #expect(viewModel.selectedThread?.id == "thread-newer")
+    }
+
+    @Test
     func startAppliesIncomingChatEventsToTheSelectedThread() async {
         let transport = StreamingEventChatTransport()
         let viewModel = ChillClawChatViewModel(transport: transport)
@@ -435,6 +446,83 @@ private final class SlowInitialHistoryChatTransport: ChillClawChatTransport, @un
                 messages: []
             ))
         }
+    }
+
+    func createThread(memberId: String) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func sendMessage(threadId: String, message: String, clientMessageId: String?) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func abort(threadId: String) async throws -> ChatActionResponse {
+        .init(status: "completed", message: "ok", overview: .init(threads: []), thread: nil)
+    }
+
+    func events() async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+}
+
+private final class DuplicateOverviewChatTransport: ChillClawChatTransport, @unchecked Sendable {
+    func fetchOverview() async throws -> ChatOverview {
+        .init(threads: [
+            .init(
+                id: "thread-older",
+                memberId: "member-1",
+                agentId: "agent-1",
+                sessionKey: "session-older",
+                title: "Older",
+                createdAt: "2026-03-20T00:00:00.000Z",
+                updatedAt: "2026-03-20T00:00:00.000Z",
+                unreadCount: 0,
+                historyStatus: "ready",
+                composerState: .init(status: "idle", canSend: true, canAbort: false)
+            ),
+            .init(
+                id: "thread-newer",
+                memberId: "member-1",
+                agentId: "agent-1",
+                sessionKey: "session-newer",
+                title: "Newer",
+                createdAt: "2026-03-20T00:00:00.000Z",
+                updatedAt: "2026-03-20T01:00:00.000Z",
+                unreadCount: 0,
+                historyStatus: "ready",
+                composerState: .init(status: "idle", canSend: true, canAbort: false)
+            ),
+            .init(
+                id: "thread-other",
+                memberId: "member-2",
+                agentId: "agent-2",
+                sessionKey: "session-other",
+                title: "Other",
+                createdAt: "2026-03-20T00:00:00.000Z",
+                updatedAt: "2026-03-20T00:30:00.000Z",
+                unreadCount: 0,
+                historyStatus: "ready",
+                composerState: .init(status: "idle", canSend: true, canAbort: false)
+            )
+        ])
+    }
+
+    func fetchThread(threadId: String) async throws -> ChatThreadDetail {
+        .init(
+            id: threadId,
+            memberId: threadId == "thread-other" ? "member-2" : "member-1",
+            agentId: threadId == "thread-other" ? "agent-2" : "agent-1",
+            sessionKey: "session-\(threadId)",
+            title: "Thread",
+            createdAt: "2026-03-20T00:00:00.000Z",
+            updatedAt: threadId == "thread-newer" ? "2026-03-20T01:00:00.000Z" : "2026-03-20T00:30:00.000Z",
+            unreadCount: 0,
+            historyStatus: "ready",
+            composerState: .init(status: "idle", canSend: true, canAbort: false),
+            messages: []
+        )
     }
 
     func createThread(memberId: String) async throws -> ChatActionResponse {

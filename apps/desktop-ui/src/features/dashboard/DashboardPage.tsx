@@ -16,6 +16,7 @@ import { MemberAvatar } from "../../shared/ui/MemberAvatar.js";
 import { MetricCard } from "../../shared/ui/MetricCard.js";
 import { WorkspaceScaffold } from "../../shared/ui/Scaffold.js";
 import { StatusBadge } from "../../shared/ui/StatusBadge.js";
+import { appUpdateDownloadLabel, openAppUpdateDownload } from "../settings/app-updates.js";
 
 function toneColor(tone: string) {
   if (tone === "completed") return "var(--success)";
@@ -102,6 +103,27 @@ export default function DashboardPage() {
           </TagBadge>
         </div>
       </InfoBanner>
+
+      {overview?.appUpdate?.status === "update-available" ? (
+        <InfoBanner
+          accent="orange"
+          icon={<CheckCircle2 size={22} />}
+          title={copy.appUpdateBannerTitle}
+          description={overview.appUpdate.summary}
+        >
+          <div className="actions-row">
+            <StatusBadge tone="warning">{copy.appUpdateAvailable}</StatusBadge>
+            <Button
+              onClick={() => {
+                openAppUpdateDownload(overview.appUpdate);
+              }}
+              variant="outline"
+            >
+              {appUpdateDownloadLabel(overview.appUpdate, copy.downloadUpdate)}
+            </Button>
+          </div>
+        </InfoBanner>
+      ) : null}
 
       <div className="grid--metrics">
         <MetricCard detail={overview?.engine.summary} label="Engine" value={overview?.engine.installed ? "Installed" : "Missing"} />

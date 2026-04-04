@@ -62,6 +62,21 @@ export interface AppServiceStatus {
   detail: string;
 }
 
+export type AppUpdateState = "unsupported" | "up-to-date" | "update-available" | "error";
+
+export interface AppUpdateStatus {
+  status: AppUpdateState;
+  supported: boolean;
+  currentVersion: string;
+  latestVersion?: string;
+  downloadUrl?: string;
+  releaseUrl?: string;
+  publishedAt?: string;
+  checkedAt: string;
+  summary: string;
+  detail: string;
+}
+
 export interface HealthCheckResult {
   id: string;
   title: string;
@@ -1005,6 +1020,7 @@ export interface ProductOverview {
   appName: string;
   appVersion: string;
   platformTarget: string;
+  appUpdate: AppUpdateStatus;
   firstRun: FirstRunState;
   appService: AppServiceStatus;
   engine: EngineStatus;
@@ -1022,6 +1038,11 @@ export interface ProductOverview {
 export interface InstallRequest {
   autoConfigure: boolean;
   forceLocal?: boolean;
+}
+
+export interface AppUpdateCheckResponse {
+  appUpdate: AppUpdateStatus;
+  overview: ProductOverview;
 }
 
 export interface InstallResponse {
@@ -1348,13 +1369,25 @@ export const defaultTemplates: TaskTemplate[] = [
 
 export * from "./compatibility.js";
 
-export function createDefaultProductOverview(): ProductOverview {
+export function createDefaultProductOverview(options?: {
+  appVersion?: string;
+  appUpdate?: AppUpdateStatus;
+}): ProductOverview {
   const now = new Date().toISOString();
+  const appVersion = options?.appVersion?.trim() || "0.0.0";
 
   return {
     appName: "ChillClaw",
-    appVersion: "0.1.2",
+    appVersion,
     platformTarget: "macOS first",
+    appUpdate: options?.appUpdate ?? {
+      status: "unsupported",
+      supported: false,
+      currentVersion: appVersion,
+      checkedAt: now,
+      summary: "App updates are available from the packaged macOS app.",
+      detail: "ChillClaw can only check GitHub release updates from the packaged macOS app."
+    },
     firstRun: {
       introCompleted: false,
       setupCompleted: false,

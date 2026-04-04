@@ -3,6 +3,13 @@ import { randomUUID } from "node:crypto";
 import type { ChatMessage } from "@chillclaw/contracts";
 
 import type { EngineChatLiveEvent } from "../engine/adapter.js";
+import { getProductVersion } from "../product-version.js";
+import {
+  buildOpenClawGatewayDeviceAuthPayload,
+  publicKeyRawBase64UrlFromPem,
+  signOpenClawGatewayDevicePayload,
+  type OpenClawGatewayDeviceIdentity
+} from "./openclaw-gateway-device-auth.js";
 
 interface OpenClawGatewaySocketEnvelope {
   type?: string;
@@ -45,6 +52,7 @@ type GatewaySocketConstructor = new (url: string) => GatewaySocketLike;
 
 type GatewaySocketState = {
   listeners: Set<(event: EngineChatLiveEvent) => void>;
+  pendingRequests: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>;
   socket?: GatewaySocketLike;
   connectPromise?: Promise<void>;
   reconnectTimer?: NodeJS.Timeout;
@@ -55,16 +63,19 @@ type GatewaySocketState = {
 
 export function buildGatewaySocketConnectParams(params: {
   token: string;
+  nonce?: string;
+  deviceIdentity?: OpenClawGatewayDeviceIdentity;
   platform?: string;
   clientVersion?: string;
 }): Record<string, unknown> {
-  return {
+  const scopes = ["operator.read", "operator.write"];
+  const connectParams: Record<string, unknown> = {
     minProtocol: 3,
     maxProtocol: 3,
     client: {
       id: "gateway-client",
       displayName: "ChillClaw daemon",
-      version: params.clientVersion ?? process.env.npm_package_version ?? "0.1.2",
+      version: params.clientVersion ?? process.env.CHILLCLAW_APP_VERSION ?? process.env.npm_package_version ?? getProductVersion(),
       platform: params.platform ?? process.platform,
       mode: "backend"
     },
@@ -73,8 +84,32 @@ export function buildGatewaySocketConnectParams(params: {
       token: params.token
     },
     role: "operator",
-    scopes: ["operator.admin"]
+    scopes
   };
+
+  if (params.deviceIdentity && params.nonce) {
+    const signedAtMs = Date.now();
+    const payload = buildOpenClawGatewayDeviceAuthPayload({
+      deviceId: params.deviceIdentity.deviceId,
+      clientId: "gateway-client",
+      clientMode: "backend",
+      role: "operator",
+      scopes,
+      signedAtMs,
+      token: params.token,
+      nonce: params.nonce,
+      platform: params.platform ?? process.platform
+    });
+    connectParams.device = {
+      id: params.deviceIdentity.deviceId,
+      publicKey: publicKeyRawBase64UrlFromPem(params.deviceIdentity.publicKeyPem),
+      signature: signOpenClawGatewayDevicePayload(params.deviceIdentity.privateKeyPem, payload),
+      signedAt: signedAtMs,
+      nonce: params.nonce
+    };
+  }
+
+  return connectParams;
 }
 
 export function normalizeGatewaySocketUrl(url: string): string {
@@ -89,13 +124,153 @@ export function normalizeGatewaySocketUrl(url: string): string {
   return url;
 }
 
-export function readGatewayChatText(message: unknown): string {
+interface GatewayCodeRegion {
+  start: number;
+  end: number;
+}
+
+const GATEWAY_REASONING_TAG_QUICK_RE = /<\s*\/?\s*(?:think(?:ing)?|thought|antthinking|final|relevant[-_]memories)\b/i;
+const GATEWAY_FINAL_TAG_RE = /<\s*\/?\s*final\b[^<>]*>/gi;
+const GATEWAY_THINKING_TAG_RE = /<\s*(\/?)\s*(?:think(?:ing)?|thought|antthinking)\b[^<>]*>/gi;
+const GATEWAY_MEMORY_TAG_RE = /<\s*(\/?)\s*relevant[-_]memories\b[^<>]*>/gi;
+
+function findGatewayCodeRegions(text: string): GatewayCodeRegion[] {
+  const regions: GatewayCodeRegion[] = [];
+  const fencedRe = /(^|\n)(```|~~~)[^\n]*\n[\s\S]*?(?:\n\2(?:\n|$)|$)/g;
+  for (const match of text.matchAll(fencedRe)) {
+    const start = (match.index ?? 0) + match[1].length;
+    regions.push({ start, end: start + match[0].length - match[1].length });
+  }
+
+  const inlineRe = /`+[^`]+`+/g;
+  for (const match of text.matchAll(inlineRe)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    const insideFenced = regions.some((region) => start >= region.start && end <= region.end);
+    if (!insideFenced) {
+      regions.push({ start, end });
+    }
+  }
+
+  regions.sort((left, right) => left.start - right.start);
+  return regions;
+}
+
+function isInsideGatewayCode(index: number, regions: GatewayCodeRegion[]): boolean {
+  return regions.some((region) => index >= region.start && index < region.end);
+}
+
+function stripGatewayReasoningTags(text: string): string {
+  if (!text || !GATEWAY_REASONING_TAG_QUICK_RE.test(text)) {
+    return text;
+  }
+
+  let cleaned = text;
+  GATEWAY_FINAL_TAG_RE.lastIndex = 0;
+  if (GATEWAY_FINAL_TAG_RE.test(cleaned)) {
+    GATEWAY_FINAL_TAG_RE.lastIndex = 0;
+    const finalMatches: Array<{ start: number; length: number }> = [];
+    const codeRegions = findGatewayCodeRegions(cleaned);
+    for (const match of cleaned.matchAll(GATEWAY_FINAL_TAG_RE)) {
+      const start = match.index ?? 0;
+      if (!isInsideGatewayCode(start, codeRegions)) {
+        finalMatches.push({ start, length: match[0].length });
+      }
+    }
+
+    for (let index = finalMatches.length - 1; index >= 0; index -= 1) {
+      const match = finalMatches[index];
+      cleaned = cleaned.slice(0, match.start) + cleaned.slice(match.start + match.length);
+    }
+  }
+
+  const codeRegions = findGatewayCodeRegions(cleaned);
+  GATEWAY_THINKING_TAG_RE.lastIndex = 0;
+  let result = "";
+  let lastIndex = 0;
+  let inThinking = false;
+
+  for (const match of cleaned.matchAll(GATEWAY_THINKING_TAG_RE)) {
+    const index = match.index ?? 0;
+    const isClose = match[1] === "/";
+
+    if (isInsideGatewayCode(index, codeRegions)) {
+      continue;
+    }
+
+    if (!inThinking) {
+      result += cleaned.slice(lastIndex, index);
+      if (!isClose) {
+        inThinking = true;
+      }
+    } else if (isClose) {
+      inThinking = false;
+    }
+
+    lastIndex = index + match[0].length;
+  }
+
+  if (!inThinking) {
+    result += cleaned.slice(lastIndex);
+  }
+
+  return result;
+}
+
+function stripGatewayMemoryTags(text: string): string {
+  if (!text || !GATEWAY_MEMORY_TAG_RE.test(text)) {
+    GATEWAY_MEMORY_TAG_RE.lastIndex = 0;
+    return text;
+  }
+
+  GATEWAY_MEMORY_TAG_RE.lastIndex = 0;
+  const codeRegions = findGatewayCodeRegions(text);
+  let result = "";
+  let lastIndex = 0;
+  let inMemoryBlock = false;
+
+  for (const match of text.matchAll(GATEWAY_MEMORY_TAG_RE)) {
+    const index = match.index ?? 0;
+    const isClose = match[1] === "/";
+
+    if (isInsideGatewayCode(index, codeRegions)) {
+      continue;
+    }
+
+    if (!inMemoryBlock) {
+      result += text.slice(lastIndex, index);
+      if (!isClose) {
+        inMemoryBlock = true;
+      }
+    } else if (isClose) {
+      inMemoryBlock = false;
+    }
+
+    lastIndex = index + match[0].length;
+  }
+
+  if (!inMemoryBlock) {
+    result += text.slice(lastIndex);
+  }
+
+  return result;
+}
+
+function sanitizeGatewayChatText(text: string): string {
+  const withoutReasoning = stripGatewayReasoningTags(text);
+  const withoutMemories = stripGatewayMemoryTags(withoutReasoning);
+  return withoutMemories.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export function readGatewayChatText(message: unknown, options?: { sanitize?: boolean }): string {
+  const shouldSanitize = options?.sanitize ?? true;
+
   if (!message) {
     return "";
   }
 
   if (typeof message === "string") {
-    return message.trim();
+    return shouldSanitize ? sanitizeGatewayChatText(message) : message.trim();
   }
 
   if (typeof message !== "object" || !("content" in message)) {
@@ -103,12 +278,16 @@ export function readGatewayChatText(message: unknown): string {
   }
 
   const content = (message as { content?: Array<{ type?: string; text?: string }> }).content ?? [];
-
-  return content
+  const text = content
     .filter((part) => part?.type === "text")
     .map((part) => part.text ?? "")
-    .join("")
-    .trim();
+    .join("");
+
+  if (!text.trim()) {
+    return "";
+  }
+
+  return shouldSanitize ? sanitizeGatewayChatText(text) : text.trim();
 }
 
 export function formatOpenClawGatewayToolActivity(payload: GatewaySocketPayload | undefined): string | undefined {
@@ -151,12 +330,13 @@ function readGatewaySocketChallengeNonce(envelope: OpenClawGatewaySocketEnvelope
 export class OpenClawGatewaySocketAdapter {
   private readonly state: GatewaySocketState = {
     listeners: new Set(),
+    pendingRequests: new Map(),
     connected: false
   };
 
   constructor(
     private readonly options: {
-      readConnectionInfo: () => Promise<{ url: string; token: string } | undefined>;
+      readConnectionInfo: () => Promise<{ url: string; token: string; deviceIdentity?: OpenClawGatewayDeviceIdentity } | undefined>;
       onReconnectError?: (error: unknown) => void | Promise<void>;
       websocketFactory?: GatewaySocketConstructor;
     }
@@ -181,6 +361,43 @@ export class OpenClawGatewaySocketAdapter {
     };
   }
 
+  async request<T>(method: string, params: Record<string, unknown>): Promise<T> {
+    await this.ensureConnected();
+
+    const socket = this.state.socket;
+    if (!socket || !this.state.connected) {
+      throw new Error("OpenClaw gateway backend socket is not connected.");
+    }
+
+    const requestId = randomUUID();
+    const requestFrame = JSON.stringify({
+      type: "req",
+      id: requestId,
+      method,
+      params
+    });
+
+    return await new Promise<T>((resolve, reject) => {
+      this.state.pendingRequests.set(requestId, {
+        resolve: (value) => {
+          this.state.pendingRequests.delete(requestId);
+          resolve(value as T);
+        },
+        reject: (error) => {
+          this.state.pendingRequests.delete(requestId);
+          reject(error);
+        }
+      });
+
+      try {
+        socket.send(requestFrame);
+      } catch (error) {
+        const pending = this.state.pendingRequests.get(requestId);
+        pending?.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
   close(): void {
     this.state.intentionalClose = true;
 
@@ -191,6 +408,7 @@ export class OpenClawGatewaySocketAdapter {
 
     this.state.connectPromise = undefined;
     this.state.connected = false;
+    this.rejectPendingRequests(new Error("OpenClaw gateway backend socket closed."));
 
     try {
       this.state.socket?.close();
@@ -209,6 +427,17 @@ export class OpenClawGatewaySocketAdapter {
         // Listener failures should not break the shared bridge.
       }
     }
+  }
+
+  private rejectPendingRequests(error: Error): void {
+    if (this.state.pendingRequests.size === 0) {
+      return;
+    }
+
+    for (const pending of this.state.pendingRequests.values()) {
+      pending.reject(error);
+    }
+    this.state.pendingRequests.clear();
   }
 
   private scheduleReconnect(reason?: string): void {
@@ -315,7 +544,9 @@ export class OpenClawGatewaySocketAdapter {
                 id: this.state.connectRequestId,
                 method: "connect",
                 params: buildGatewaySocketConnectParams({
-                  token: connection.token
+                  token: connection.token,
+                  nonce,
+                  deviceIdentity: connection.deviceIdentity
                 })
               })
             );
@@ -334,6 +565,22 @@ export class OpenClawGatewaySocketAdapter {
             authenticated = true;
             succeed();
             return;
+          }
+
+          if (envelope.id) {
+            const pending = this.state.pendingRequests.get(envelope.id);
+            if (pending) {
+              if (envelope.ok === false) {
+                const detail =
+                  (typeof envelope.error === "string" ? envelope.error : envelope.error?.message) ??
+                  `OpenClaw rejected the ${envelope.id} gateway request.`;
+                pending.reject(new Error(detail));
+                return;
+              }
+
+              pending.resolve(envelope.payload);
+              return;
+            }
           }
 
           if (!authenticated || envelope.type !== "event") {
@@ -428,6 +675,7 @@ export class OpenClawGatewaySocketAdapter {
           this.state.connected = false;
           this.state.socket = undefined;
           this.state.connectPromise = undefined;
+          this.rejectPendingRequests(new Error(event.reason || "OpenClaw closed the backend socket request."));
 
           if (!authenticated) {
             fail(new Error(event.reason || "OpenClaw closed the chat bridge before ChillClaw connected."));

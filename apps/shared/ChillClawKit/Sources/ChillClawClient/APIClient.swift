@@ -101,6 +101,14 @@ public final class ChillClawAPIClient: @unchecked Sendable {
         )
     }
 
+    public func fetchAppUpdate() async throws -> AppUpdateStatus {
+        try await get("/api/app/update")
+    }
+
+    public func checkAppUpdate() async throws -> AppUpdateCheckResponse {
+        try await post("/api/app/update/check", body: EmptyBody())
+    }
+
     public func fetchOverview() async throws -> ProductOverview { try await get("/api/overview?fresh=1") }
     public func fetchDeploymentTargets() async throws -> DeploymentTargetsResponse { try await get("/api/deploy/targets?fresh=1") }
     public func fetchModelConfig() async throws -> ModelConfigOverview { try await get("/api/models/config?fresh=1") }
@@ -136,6 +144,10 @@ public final class ChillClawAPIClient: @unchecked Sendable {
 
     public func restartGateway() async throws -> GatewayActionResponse {
         try await post("/api/deploy/gateway/restart", body: EmptyBody(), timeout: RequestTimeout.longRunning)
+    }
+
+    public func checkEngineUpdates() async throws -> [String: String] {
+        try await post("/api/engine/update", body: EmptyBody())
     }
 
     public func createModelEntry(_ request: SaveModelEntryRequest) async throws -> ModelConfigActionResponse {
@@ -277,7 +289,7 @@ public final class ChillClawAPIClient: @unchecked Sendable {
         try await delete("/api/teams/\(teamId)", body: EmptyBody())
     }
 
-    public func createThread(memberId: String, mode: String = "new") async throws -> ChatActionResponse {
+    public func createThread(memberId: String, mode: String = "reuse-recent") async throws -> ChatActionResponse {
         try await post("/api/chat/threads", body: CreateChatThreadRequest(memberId: memberId, mode: mode))
     }
 

@@ -22,9 +22,11 @@ import {
 } from "./index.js";
 
 test("default product overview starts with OpenClaw not installed", () => {
-  const overview = createDefaultProductOverview();
+  const overview = createDefaultProductOverview({ appVersion: "1.2.3" });
 
   assert.equal(overview.engine.engine, "openclaw");
+  assert.equal(overview.appVersion, "1.2.3");
+  assert.equal(overview.appUpdate.status, "unsupported");
   assert.equal(overview.engine.installed, false);
   assert.equal(overview.installSpec.desiredVersion, "latest");
   assert.equal(overview.templates.length > 4, true);

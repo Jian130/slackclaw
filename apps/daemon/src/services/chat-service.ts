@@ -161,7 +161,9 @@ export class ChatService {
       throw new Error("Choose an AI member with a real OpenClaw agent before starting chat.");
     }
 
-    if (request.mode === "reuse-recent") {
+    const mode = request.mode ?? "reuse-recent";
+
+    if (mode === "reuse-recent") {
       const recent = await this.findRecentThreadForMember(request.memberId, member.agentId);
       if (recent) {
         return {

@@ -51,6 +51,7 @@ import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openc
 import { type CommandResult, probeCommand as probeExternalCommand, resolveCommandFromPath as resolveCommandFromShellPath, runCommand as runExternalCommand } from "../platform/cli-runner.js";
 import { createDefaultSecretsAdapter } from "../platform/macos-keychain-secrets-adapter.js";
 import { OpenClawGatewaySocketAdapter, normalizeGatewaySocketUrl } from "../platform/openclaw-gateway-socket-adapter.js";
+import { loadOrCreateOpenClawGatewayDeviceIdentity } from "../platform/openclaw-gateway-device-auth.js";
 import { modelAuthSecretName, type SecretsAdapter } from "../platform/secrets-adapter.js";
 import {
   listModelProviderDefinitions,
@@ -529,7 +530,8 @@ const gatewaySocketBridge = new OpenClawGatewaySocketAdapter({
 
     return {
       url: normalizeGatewaySocketUrl(url),
-      token
+      token,
+      deviceIdentity: loadOrCreateOpenClawGatewayDeviceIdentity()
     };
   },
   onReconnectError: async (error) => {
@@ -540,6 +542,45 @@ const gatewaySocketBridge = new OpenClawGatewaySocketAdapter({
     });
   }
 });
+
+function shouldFallbackToGatewayCli(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("ChillClaw could not resolve the OpenClaw gateway socket URL or auth token.") ||
+    message.includes("This ChillClaw runtime does not provide WebSocket support.")
+  );
+}
+
+async function runGatewayCliRequest<T>(method: string, params: Record<string, unknown>): Promise<T> {
+  const args = ["gateway", "call", method, "--json", "--params", JSON.stringify(params)];
+
+  if (method === "chat.send") {
+    args.push("--timeout", "30000");
+  }
+
+  const result = await runOpenClaw(args, { allowFailure: true });
+  if (result.code !== 0) {
+    throw new Error(commandFailureText(result) || `ChillClaw could not call OpenClaw gateway method "${method}".`);
+  }
+
+  const parsed =
+    safeJsonParse<T>(result.stdout?.trim()) ??
+    (() => {
+      const raw = result.stdout ?? "";
+      const firstJsonIndex = raw.search(/[{\[]/);
+      if (firstJsonIndex < 0) {
+        return undefined;
+      }
+      const payload = extractBalancedJsonPayload(raw, firstJsonIndex);
+      return payload ? safeJsonParse<T>(payload) : undefined;
+    })();
+
+  if (parsed === undefined) {
+    throw new Error(`ChillClaw could not parse the OpenClaw gateway response for "${method}".`);
+  }
+
+  return parsed;
+}
 
 const readCache = new Map<string, ReadCacheEntry>();
 const commandResolutionCache = new Map<string, CommandResolutionCacheEntry>();
@@ -881,30 +922,6 @@ async function repairLegacyWecomChannelConfigFromFailure(result: CommandResult):
     scope: "openclawAdapter.repairLegacyWecomChannelConfigFromFailure"
   });
   return true;
-}
-
-async function runGatewayCall<T>(
-  method: string,
-  params: Record<string, unknown>,
-  options?: { allowFailure?: boolean; expectFinal?: boolean; timeoutMs?: number }
-): Promise<{ result: CommandResult; payload?: T }> {
-  const args = ["gateway", "call", method, "--json", "--params", JSON.stringify(params)];
-
-  if (options?.expectFinal) {
-    args.push("--expect-final");
-  }
-
-  if (options?.timeoutMs) {
-    args.push("--timeout", String(options.timeoutMs));
-  }
-
-  const result = await runOpenClaw(args, { allowFailure: options?.allowFailure });
-  const payload = safeJsonPayloadParse<T>(result.stdout) ?? safeJsonPayloadParse<T>(result.stderr);
-
-  return {
-    result,
-    payload
-  };
 }
 
 async function runCommand(
@@ -3382,7 +3399,16 @@ export class OpenClawAdapter implements EngineAdapter {
       waitForGatewayReachable: (reason) => this.waitForGatewayReachable(reason)
     });
     const chatService = new OpenClawChatService({
-      runGatewayCall,
+      runGatewayRequest: async (method, params) => {
+        try {
+          return await gatewaySocketBridge.request(method, params);
+        } catch (error) {
+          if (!shouldFallbackToGatewayCli(error)) {
+            throw error;
+          }
+          return await runGatewayCliRequest(method, params);
+        }
+      },
       subscribeToLiveChatEvents: (listener) => gatewaySocketBridge.subscribe(listener)
     });
 

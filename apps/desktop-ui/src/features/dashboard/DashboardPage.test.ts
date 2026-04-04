@@ -64,6 +64,14 @@ describe("DashboardPage model metrics", () => {
       appName: "ChillClaw",
       appVersion: "0.1.2",
       platformTarget: "macOS first",
+      appUpdate: {
+        status: "unsupported",
+        supported: false,
+        currentVersion: "0.1.2",
+        checkedAt: new Date().toISOString(),
+        summary: "App updates are available from the packaged macOS app.",
+        detail: "ChillClaw can only check GitHub release updates from the packaged macOS app."
+      },
       firstRun: {
         introCompleted: true,
         setupCompleted: true,

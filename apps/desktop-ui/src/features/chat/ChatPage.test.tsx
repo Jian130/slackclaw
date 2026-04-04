@@ -4,10 +4,13 @@ import type { AIMemberDetail, ChatThreadDetail, ChatThreadSummary, ChillClawEven
 import {
   applyChatEventToDetail,
   canSendComposerDraft,
+  chatPageClassName,
+  chatSidebarPresentation,
   chatStreamEventFromDaemonEvent,
   inlineToolActivitiesForMessage,
   memberNameForThread,
   preferredNewChatMemberId,
+  storedChatSidebarCollapsed,
   shouldSubmitComposerShortcut,
   sortChatThreads
 } from "./ChatPage.js";
@@ -78,11 +81,29 @@ function detail(): ChatThreadDetail {
 describe("ChatPage helpers", () => {
   it("sorts chat threads with the most recently updated first", () => {
     const ordered = sortChatThreads([
-      summary("older", "2026-03-14T00:00:00.000Z"),
+      {
+        ...summary("older", "2026-03-14T00:00:00.000Z"),
+        memberId: "member-2",
+        agentId: "agent-2"
+      },
       summary("newer", "2026-03-14T02:00:00.000Z")
     ]);
 
     expect(ordered.map((thread) => thread.id)).toEqual(["newer", "older"]);
+  });
+
+  it("keeps only the newest thread per member and agent pairing", () => {
+    const ordered = sortChatThreads([
+      summary("older", "2026-03-14T00:00:00.000Z"),
+      summary("newer", "2026-03-14T02:00:00.000Z"),
+      {
+        ...summary("other-member", "2026-03-14T01:00:00.000Z"),
+        memberId: "member-2",
+        agentId: "agent-2"
+      }
+    ]);
+
+    expect(ordered.map((thread) => thread.id)).toEqual(["newer", "other-member"]);
   });
 
   it("resolves a friendly member name for thread cards", () => {
@@ -99,6 +120,22 @@ describe("ChatPage helpers", () => {
 
   it("returns no preferred member when there is no concrete member context", () => {
     expect(preferredNewChatMemberId("all", members)).toBeUndefined();
+  });
+
+  it("adds the collapse class only for the split sidebar layout", () => {
+    expect(chatSidebarPresentation("split", false)).toBe("expanded");
+    expect(chatSidebarPresentation("split", true)).toBe("collapsed");
+    expect(chatSidebarPresentation("stacked", true)).toBe("stacked");
+    expect(chatPageClassName("split", false)).toBe("chat-page chat-page--split chat-page--sidebar-expanded");
+    expect(chatPageClassName("split", true)).toBe("chat-page chat-page--split chat-page--sidebar-collapsed");
+    expect(chatPageClassName("stacked", true)).toBe("chat-page chat-page--stacked chat-page--sidebar-stacked");
+  });
+
+  it("treats the stored sidebar preference as opt-in and safe by default", () => {
+    expect(storedChatSidebarCollapsed("1")).toBe(true);
+    expect(storedChatSidebarCollapsed("0")).toBe(false);
+    expect(storedChatSidebarCollapsed("unexpected")).toBe(false);
+    expect(storedChatSidebarCollapsed(null)).toBe(false);
   });
 
   it("applies assistant delta and completion events to the active detail", () => {

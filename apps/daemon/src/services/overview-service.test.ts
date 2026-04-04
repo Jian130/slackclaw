@@ -10,6 +10,7 @@ test("overview service returns ChillClaw product data", async () => {
   const overview = await service.getOverview();
 
   assert.equal(overview.appName, "ChillClaw");
+  assert.equal(typeof overview.appUpdate.status, "string");
   assert.equal(overview.engine.installed, true);
   assert.equal(Array.isArray(overview.profiles), true);
   assert.equal(overview.channelSetup.baseOnboardingCompleted, true);

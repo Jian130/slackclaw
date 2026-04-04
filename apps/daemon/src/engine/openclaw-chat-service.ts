@@ -7,7 +7,6 @@ import type {
   SendChatMessageRequest
 } from "@chillclaw/contracts";
 
-import type { CommandResult } from "../platform/cli-runner.js";
 import { readGatewayChatText } from "../platform/openclaw-gateway-socket-adapter.js";
 import type { EngineChatLiveEvent } from "./adapter.js";
 
@@ -33,16 +32,15 @@ interface OpenClawChatMessageJson {
 }
 
 type OpenClawChatAccess = {
-  runGatewayCall: <T>(
+  runGatewayRequest: <T>(
     method: string,
-    params: Record<string, unknown>,
-    options?: { allowFailure?: boolean; timeoutMs?: number }
-  ) => Promise<{ result: CommandResult; payload?: T }>;
+    params: Record<string, unknown>
+  ) => Promise<T>;
   subscribeToLiveChatEvents: (listener: (event: EngineChatLiveEvent) => void) => Promise<() => void>;
 };
 
 function readChatText(message: OpenClawChatMessageJson): string {
-  return readGatewayChatText(message);
+  return readGatewayChatText(message, { sanitize: message.role === "assistant" });
 }
 
 function toVisibleChatRole(role: string | undefined): ChatMessage["role"] | undefined {
@@ -113,17 +111,16 @@ export class OpenClawChatService {
   constructor(private readonly access: OpenClawChatAccess) {}
 
   async getChatThreadDetail(request: { agentId: string; threadId: string; sessionKey: string }): Promise<ChatThreadDetail> {
-    const { result, payload } = await this.access.runGatewayCall<OpenClawChatHistoryJson>(
+    const payload = await this.access.runGatewayRequest<OpenClawChatHistoryJson>(
       "chat.history",
       {
         sessionKey: request.sessionKey,
         limit: 200
-      },
-      { allowFailure: true, timeoutMs: 20000 }
+      }
     );
 
-    if (result.code !== 0 || !payload) {
-      throw new Error(result.stderr || result.stdout || "ChillClaw could not load chat history from OpenClaw.");
+    if (!payload) {
+      throw new Error("ChillClaw could not load chat history from OpenClaw.");
     }
 
     return {
@@ -157,22 +154,14 @@ export class OpenClawChatService {
   async sendChatMessage(
     request: SendChatMessageRequest & { agentId: string; threadId: string; sessionKey: string }
   ): Promise<{ runId?: string }> {
-    const { result, payload } = await this.access.runGatewayCall<{ runId?: string }>(
+    const payload = await this.access.runGatewayRequest<{ runId?: string }>(
       "chat.send",
       {
         sessionKey: request.sessionKey,
         message: request.message,
         idempotencyKey: request.clientMessageId ?? randomUUID()
-      },
-      {
-        allowFailure: true,
-        timeoutMs: 30000
       }
     );
-
-    if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `ChillClaw could not send the message for ${request.threadId}.`);
-    }
 
     return {
       runId: payload?.runId
@@ -180,19 +169,11 @@ export class OpenClawChatService {
   }
 
   async abortChatMessage(request: AbortChatRequest & { agentId: string; threadId: string; sessionKey: string }): Promise<void> {
-    const { result } = await this.access.runGatewayCall(
+    await this.access.runGatewayRequest(
       "chat.abort",
       {
         sessionKey: request.sessionKey
-      },
-      {
-        allowFailure: true,
-        timeoutMs: 15000
       }
     );
-
-    if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `ChillClaw could not stop the active reply for ${request.threadId}.`);
-    }
   }
 }
