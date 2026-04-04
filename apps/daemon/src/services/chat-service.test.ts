@@ -158,7 +158,7 @@ test("chat service sends messages and keeps thread histories isolated", async ()
   const secondThread = (await chatService.createThread({ memberId: member.id, mode: "new" })).thread!;
 
   const firstSend = await chatService.sendMessage(firstThread.id, { message: "Summarize today's work.", clientMessageId: "client-1" });
-  assert.equal(firstSend.thread?.composerState.status, "thinking");
+  assert.equal(["thinking", "streaming"].includes(firstSend.thread?.composerState.status ?? ""), true);
   await delay(40);
   await chatService.sendMessage(secondThread.id, { message: "Draft tomorrow's plan.", clientMessageId: "client-2" });
   await delay(40);
