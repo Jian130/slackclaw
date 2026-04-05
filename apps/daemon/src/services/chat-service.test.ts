@@ -53,6 +53,24 @@ async function createServices(testName: string, options?: { withEvents?: boolean
   };
 }
 
+async function waitForCondition(
+  predicate: () => Promise<boolean> | boolean,
+  timeoutMs = 2000,
+  intervalMs = 10
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() <= deadline) {
+    if (await predicate()) {
+      return;
+    }
+
+    await delay(intervalMs);
+  }
+
+  assert.fail(`Condition was not met within ${timeoutMs}ms.`);
+}
+
 test("chat service creates and reuses member chat threads", async () => {
   const { chatService, member, store } = await createServices("chat-service-create");
 
@@ -263,7 +281,9 @@ test("chat service mirrors chat stream updates onto the daemon event bus", async
   const thread = (await chatService.createThread({ memberId: member.id, mode: "new" })).thread!;
 
   await chatService.sendMessage(thread.id, { message: "Summarize today's work.", clientMessageId: "client-event" });
-  await delay(160);
+  await waitForCondition(
+    () => payloadTypes.includes("assistant-completed") && payloadTypes.includes("assistant-tool-status") && toolPayloads.length > 0
+  );
   unsubscribe();
 
   assert.equal(eventTypes.includes("chat.stream"), true);
@@ -302,7 +322,12 @@ test("chat service publishes connection-state and history-loaded resync events o
     listener({ type: "connected" });
   }
 
-  await delay(50);
+  await waitForCondition(
+    () =>
+      connectionStates.includes("reconnecting") &&
+      connectionStates.includes("connected") &&
+      payloadTypes.includes("history-loaded")
+  );
 
   assert.equal(connectionStates.includes("reconnecting"), true);
   assert.equal(connectionStates.includes("connected"), true);
@@ -336,7 +361,10 @@ test("chat service marks an aborted run with partial assistant output", async ()
   }
 
   await chatService.abortThread(thread.id);
-  await delay(20);
+  await waitForCondition(async () => {
+    const detail = await chatService.getThreadDetail(thread.id);
+    return detail.messages.some((message) => message.interrupted === true);
+  });
 
   const detail = await chatService.getThreadDetail(thread.id);
 
@@ -387,7 +415,10 @@ test("chat service recovers a failed send from OpenClaw history instead of think
   })) as typeof adapter.getChatThreadDetail;
 
   await chatService.sendMessage(thread.id, { message: "Check the latest chat state.", clientMessageId: "client-error" });
-  await delay(1200);
+  await waitForCondition(async () => {
+    const detail = await chatService.getThreadDetail(thread.id);
+    return detail.composerState.status === "error" && detail.messages.some((message) => message.status === "failed");
+  });
 
   const detail = await chatService.getThreadDetail(thread.id);
 
@@ -446,6 +477,17 @@ test("chat service does not duplicate the active user message when history alrea
 
   await chatService.sendMessage(thread.id, { message: messageText, clientMessageId: "client-dedupe" });
 
+  await waitForCondition(async () => {
+    const detail = await chatService.getThreadDetail(thread.id);
+    const userMessages = detail.messages.filter((message) => message.role === "user");
+
+    return (
+      userMessages.length === 1 &&
+      userMessages[0]?.id === "history-user-1" &&
+      detail.messages.some((message) => message.id === `${thread.id}:assistant:stream`)
+    );
+  });
+
   const detail = await chatService.getThreadDetail(thread.id);
   const userMessages = detail.messages.filter((message) => message.role === "user");
 
@@ -455,7 +497,10 @@ test("chat service does not duplicate the active user message when history alrea
   assert.equal(userMessages[0]?.status, "sent");
   assert.equal(detail.messages.some((message) => message.id === `${thread.id}:assistant:stream`), true);
 
-  await delay(1400);
+  await waitForCondition(async () => {
+    const settledDetail = await chatService.getThreadDetail(thread.id);
+    return settledDetail.composerState.status === "idle" && settledDetail.messages.some((message) => message.id === "history-assistant-1");
+  });
 
   const settledDetail = await chatService.getThreadDetail(thread.id);
   assert.equal(settledDetail.composerState.status, "idle");

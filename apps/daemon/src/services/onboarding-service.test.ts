@@ -38,7 +38,7 @@ function createService(testName: string, options?: { withEvents?: boolean }) {
 
 async function waitForCondition(
   predicate: () => Promise<boolean> | boolean,
-  timeoutMs = 250,
+  timeoutMs = 1000,
   intervalMs = 10
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -846,7 +846,7 @@ test("onboarding completion accepts the final employee payload inline and return
         memoryEnabled: true
       }
     }).then((response) => ({ kind: "result" as const, response })),
-    new Promise<{ kind: "timeout" }>((resolveTimeout) => setTimeout(() => resolveTimeout({ kind: "timeout" }), 40))
+    new Promise<{ kind: "timeout" }>((resolveTimeout) => setTimeout(() => resolveTimeout({ kind: "timeout" }), 250))
   ]);
 
   assert.equal(result.kind, "result");

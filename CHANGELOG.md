@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-04-05 11:10 CST
+
+- hardened the daemon CI suite by replacing fixed chat-service sleep windows with condition-based waits and by widening the onboarding async handoff timeout budget, reducing GitHub Actions flakiness without changing product behavior
+
 ### 2026-04-04 19:50 CST
 
 - added a GitHub-backed macOS app update flow owned by the daemon, including shared `appUpdate` contracts, new `/api/app/update` and `/api/app/update/check` routes, packaged-version detection, separate ChillClaw-versus-OpenClaw update messaging, and new app-update surfaces across the React and native macOS clients
