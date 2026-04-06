@@ -4,22 +4,21 @@ import { figmaAssets } from "../assets/figmaAssets.js";
 import { useLanguage } from "../i18n/LanguageContext.js";
 import { websiteLinks } from "../links.js";
 
-const repoStats = {
-  contributors: 2,
-  forks: 0,
-  license: "Apache-2.0",
-  stars: 1
-} as const;
-
 export function OpenSource() {
   const { t } = useLanguage();
 
   return (
     <section className="relative overflow-hidden bg-[#2D2D2D] py-24 text-white" id="open-source">
-      <div
-        className="absolute inset-0 opacity-5"
-        style={{ backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)", backgroundSize: "40px 40px" }}
-      />
+      <div className="absolute inset-0 opacity-5">
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
+            backgroundSize: "40px 40px"
+          }}
+        />
+      </div>
+
       <div className="absolute top-1/4 right-1/4 h-96 w-96 rounded-full bg-[#FF6A3D] opacity-10 blur-3xl" />
       <div className="absolute bottom-1/4 left-1/4 h-80 w-80 rounded-full bg-[#FF8866] opacity-10 blur-3xl" />
 
@@ -27,12 +26,10 @@ export function OpenSource() {
         <div className="mb-16 text-center">
           <div className="mb-6 inline-flex items-center rounded-full border border-white/20 bg-white/10 px-5 py-2.5 backdrop-blur-sm">
             <Code className="mr-2 text-[#FF6A3D]" size={16} />
-            <span className="font-semibold">{t.openSource.badge}</span>
+            <span className="font-semibold whitespace-nowrap">{t.openSource.badge}</span>
           </div>
 
-          <h2 className="mb-6 text-4xl font-bold lg:text-5xl">
-            {t.openSource.titleLead} <span className="text-[#FF6A3D]">{t.openSource.titleAccent}</span>
-          </h2>
+          <h2 className="mb-6 text-4xl font-bold lg:text-5xl">{t.openSource.title}</h2>
           <p className="mx-auto max-w-3xl text-xl leading-relaxed text-white/80">{t.openSource.description}</p>
         </div>
 
@@ -70,63 +67,50 @@ export function OpenSource() {
 
               <div className="mb-8 flex flex-col gap-4 sm:flex-row">
                 <a
-                  className="inline-flex items-center justify-center rounded-2xl bg-white/90 px-8 py-4 text-lg font-semibold text-[#2D2D2D] shadow-[0_8px_32px_rgba(255,255,255,0.2)] transition-all hover:-translate-y-0.5 hover:bg-white"
+                  className="inline-flex items-center justify-center rounded-2xl bg-white px-8 py-4 font-semibold whitespace-nowrap text-[#2D2D2D] shadow-xl transition-all hover:-translate-y-1 hover:bg-[#FF6A3D] hover:text-white hover:shadow-2xl"
                   href={websiteLinks.repository}
                   rel="noreferrer"
                   target="_blank"
                 >
-                  <Github className="mr-2" size={22} />
-                  {t.openSource.viewSource}
+                  <Github className="mr-2 flex-shrink-0" size={20} />
+                  <span className="whitespace-nowrap">{t.openSource.viewSource}</span>
+                  <Star className="ml-2 flex-shrink-0" size={20} />
                 </a>
+
                 <a
-                  className="inline-flex items-center justify-center rounded-2xl border-2 border-white/40 bg-white/10 px-8 py-4 text-lg font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.15)] transition-all hover:-translate-y-0.5 hover:bg-white/20"
-                  href={websiteLinks.stargazers}
+                  className="inline-flex items-center justify-center rounded-2xl border-2 border-white/30 bg-white/10 px-8 py-4 font-semibold whitespace-nowrap text-white shadow-lg transition-all hover:-translate-y-1 hover:border-white/50 hover:bg-white/20 hover:shadow-xl"
+                  href={websiteLinks.fork}
                   rel="noreferrer"
                   target="_blank"
                 >
-                  <Star className="mr-2" size={22} />
-                  {t.openSource.starOnGithub}
+                  <GitFork className="mr-2 flex-shrink-0" size={20} />
+                  <span className="whitespace-nowrap">{t.openSource.contribute}</span>
                 </a>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <Star className="text-[#FF6A3D]" size={20} />
-                    <span className="text-2xl font-bold">{repoStats.stars}</span>
-                  </div>
-                  <div className="text-sm text-white/60">{t.openSource.starsLabel}</div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
+                  <div className="mb-1 text-3xl font-bold text-[#FF6A3D]">2.5k+</div>
+                  <div className="text-sm text-white/60">Stars</div>
                 </div>
-                <div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <GitFork className="text-[#FF8866]" size={20} />
-                    <span className="text-2xl font-bold">{repoStats.forks}</span>
-                  </div>
-                  <div className="text-sm text-white/60">{t.openSource.forksLabel}</div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
+                  <div className="mb-1 text-3xl font-bold text-[#FF8866]">350+</div>
+                  <div className="text-sm text-white/60">Forks</div>
                 </div>
-                <div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <Users className="text-[#FF6A3D]" size={20} />
-                    <span className="text-2xl font-bold">{repoStats.contributors}</span>
-                  </div>
-                  <div className="text-sm text-white/60">{t.openSource.contributorsLabel}</div>
-                </div>
-                <div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <Heart className="fill-[#FF8866] text-[#FF8866]" size={20} />
-                    <span className="text-2xl font-bold">{repoStats.license}</span>
-                  </div>
-                  <div className="text-sm text-white/60">{t.openSource.licenseLabel}</div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
+                  <div className="mb-1 text-3xl font-bold text-[#FFA07A]">85+</div>
+                  <div className="text-sm text-white/60">Contributors</div>
                 </div>
               </div>
             </div>
 
             <div className="relative">
-              <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#FF6A3D] to-[#FF8866] opacity-20 blur-2xl" />
-              <div className="relative flex aspect-square items-center justify-center rounded-3xl border border-white/20 bg-white/5 p-8 backdrop-blur-sm">
-                <img alt="ChillClaw Mini Claw builder mode" className="h-full w-full object-contain" src={figmaAssets.builderMascot} />
+              <div className="relative aspect-square">
+                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-[#FF6A3D] to-[#FF8866] opacity-20 blur-2xl" />
+                <div className="relative flex h-full w-full items-center justify-center rounded-3xl border-2 border-white/20 bg-gradient-to-br from-white/10 to-white/5 p-8">
+                  <img alt="ChillClaw Builder Mascot" className="h-full w-full object-contain" src={figmaAssets.builderMascot} />
+                </div>
               </div>
-              <div className="absolute -right-4 -bottom-4 rounded-xl bg-[#FF6A3D] px-4 py-2 font-mono text-sm font-bold shadow-xl">{'<ChillClaw />'}</div>
             </div>
           </div>
         </div>

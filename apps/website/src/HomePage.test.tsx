@@ -33,20 +33,23 @@ function renderWithStoredLanguage(language: string) {
 }
 
 describe("website homepage", () => {
-  it("renders the Figma-generated anchored sections", () => {
+  it("renders the latest Figma Make landing structure", () => {
     const markup = renderToStaticMarkup(<App />);
 
     expect(markup).toContain("Stay Chill.");
-    expect(markup).toContain("Your AI Mini Claws");
-    expect(markup).toContain("An AI Workstation That Actually Delivers");
+    expect(markup).toContain("Your Mini Claws Handle the Heavy Lifting.");
+    expect(markup).toContain("Simple. Open. Secure.");
+    expect(markup).toContain("Three Steps to Get Started");
     expect(markup).toContain("id=\"features\"");
     expect(markup).toContain("id=\"how-it-works\"");
-    expect(markup).toContain("id=\"work-masters\"");
+    expect(markup).toContain("id=\"mini-claw\"");
     expect(markup).toContain("id=\"open-source\"");
     expect(markup).toContain("id=\"help\"");
     expect(markup).toContain("Meet Your AI Mini Claws");
-    expect(markup).toContain("Open Source &amp; Community");
+    expect(markup).toContain("Built by the Community, For the Community");
     expect(markup).toContain("ChillClaw");
+    expect(markup).not.toContain("id=\"work-masters\"");
+    expect(markup).not.toContain("Start Building Today");
   });
 
   it("uses the same local artwork selections shown in the design screenshots", () => {
@@ -54,7 +57,10 @@ describe("website homepage", () => {
 
     expect(markup).toContain("ai-work-master-mini-claw-1080.webp");
     expect(markup).toContain("ai-work-master-builder-1080.webp");
+    expect(markup).toContain("ai-work-master-assistant-1080.webp");
+    expect(markup).toContain("ai-work-master-coding-1080.webp");
     expect(markup).toContain("ai-work-master-degisn-1080.webp");
+    expect(markup).toContain("ai-work-master-chill-1080.webp");
     expect(markup).toContain("chillclaw-logo-black-2-640.webp");
     expect(markup).toContain("chillclaw-logo-black-1-640.webp");
   });
@@ -80,10 +86,9 @@ describe("website homepage", () => {
   it("keeps the Figma refresh wired through the existing language switcher", () => {
     const markup = renderWithStoredLanguage("zh");
 
-    expect(markup).toContain("发布说明");
-    expect(markup).toContain("工作流地图");
+    expect(markup).toContain("由社区构建，为社区服务");
     expect(markup).toContain("小爪");
-    expect(markup).not.toContain("迷你钳爪");
+    expect(markup).not.toContain("工作流地图");
     expect(markup).not.toContain("Release Notes");
     expect(markup).not.toContain("Workflow Map");
   });

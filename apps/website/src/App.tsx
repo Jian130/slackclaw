@@ -1,4 +1,3 @@
-import { CTA } from "./components/CTA.js";
 import { Features } from "./components/Features.js";
 import { Footer } from "./components/Footer.js";
 import { Hero } from "./components/Hero.js";
@@ -20,7 +19,6 @@ export default function App() {
         <HowItWorks />
         <MascotShowcase />
         <OpenSource />
-        <CTA />
         <Footer />
       </div>
     </LanguageProvider>
