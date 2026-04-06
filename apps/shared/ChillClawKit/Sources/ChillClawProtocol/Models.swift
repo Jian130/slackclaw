@@ -572,6 +572,14 @@ public struct LocalModelRuntimeOverview: Codable, Sendable {
     public var summary: String
     public var detail: String
     public var lastError: String?
+    public var activeAction: String?
+    public var activePhase: String?
+    public var progressMessage: String?
+    public var progressDigest: String?
+    public var progressCompletedBytes: Int?
+    public var progressTotalBytes: Int?
+    public var progressPercent: Int?
+    public var lastProgressAt: String?
     public var recoveryHint: String?
 
     public init(
@@ -592,6 +600,14 @@ public struct LocalModelRuntimeOverview: Codable, Sendable {
         summary: String,
         detail: String,
         lastError: String? = nil,
+        activeAction: String? = nil,
+        activePhase: String? = nil,
+        progressMessage: String? = nil,
+        progressDigest: String? = nil,
+        progressCompletedBytes: Int? = nil,
+        progressTotalBytes: Int? = nil,
+        progressPercent: Int? = nil,
+        lastProgressAt: String? = nil,
         recoveryHint: String? = nil
     ) {
         self.supported = supported
@@ -611,6 +627,14 @@ public struct LocalModelRuntimeOverview: Codable, Sendable {
         self.summary = summary
         self.detail = detail
         self.lastError = lastError
+        self.activeAction = activeAction
+        self.activePhase = activePhase
+        self.progressMessage = progressMessage
+        self.progressDigest = progressDigest
+        self.progressCompletedBytes = progressCompletedBytes
+        self.progressTotalBytes = progressTotalBytes
+        self.progressPercent = progressPercent
+        self.lastProgressAt = lastProgressAt
         self.recoveryHint = recoveryHint
     }
 }

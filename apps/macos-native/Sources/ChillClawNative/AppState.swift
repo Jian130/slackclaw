@@ -176,6 +176,8 @@ final class ChillClawAppState {
     private let loader: ChillClawAppDataLoader
     private let daemonEventStreamFactory: DaemonEventStreamFactory
     private var daemonEventTask: Task<Void, Never>?
+    private var sectionRefreshInFlight = false
+    private var sectionRefreshPending = false
 
     var selectedSection: NativeSection = .dashboard
     var overview: ProductOverview?
@@ -239,20 +241,17 @@ final class ChillClawAppState {
         do {
             try await refreshOverview()
             guard !requiresOnboarding else { return }
-            try await refreshCurrentSectionData()
         } catch {
             presentErrorUnlessCancelled(error)
+            return
         }
+
+        await refreshCurrentSectionDataCoalesced(requiresBootstrap: false)
     }
 
     func refreshCurrentSectionIfNeeded() async {
         guard hasBootstrapped, !requiresOnboarding else { return }
-        do {
-            try await refreshCurrentSectionData()
-            errorMessage = nil
-        } catch {
-            presentErrorUnlessCancelled(error)
-        }
+        await refreshCurrentSectionDataCoalesced()
     }
 
     func applyBanner(_ message: String) {
@@ -356,12 +355,7 @@ final class ChillClawAppState {
         guard !requiresOnboarding else { return }
         guard shouldRefreshNativeSectionForEvent(event, selectedSection: selectedSection) else { return }
 
-        do {
-            try await refreshCurrentSectionData()
-            errorMessage = nil
-        } catch {
-            presentErrorUnlessCancelled(error)
-        }
+        await refreshCurrentSectionDataCoalesced()
     }
 
     func presentErrorUnlessCancelled(_ error: Error) {
@@ -433,6 +427,35 @@ final class ChillClawAppState {
         case .settings:
             break
         }
+    }
+
+    private func refreshCurrentSectionDataCoalesced(requiresBootstrap: Bool = true) async {
+        if requiresBootstrap && !hasBootstrapped {
+            return
+        }
+        guard !requiresOnboarding else { return }
+
+        if sectionRefreshInFlight {
+            sectionRefreshPending = true
+            return
+        }
+
+        repeat {
+            // Coalesce overlapping section refresh requests so the native shell never
+            // starts the same refresh path in parallel. Overlapping refresh tasks have
+            // previously triggered Swift concurrency aborts on macOS.
+            sectionRefreshInFlight = true
+            sectionRefreshPending = false
+
+            do {
+                try await refreshCurrentSectionData()
+                errorMessage = nil
+            } catch {
+                presentErrorUnlessCancelled(error)
+            }
+
+            sectionRefreshInFlight = false
+        } while sectionRefreshPending && (!requiresBootstrap || hasBootstrapped) && !requiresOnboarding
     }
 
     private func updateSelectedMemberForChat() {

@@ -240,6 +240,48 @@ struct AppStateEventTests {
 
         #expect(appState.errorMessage == nil)
     }
+
+    @Test
+    func concurrentSectionRefreshesDoNotStartOverlappingLoads() async {
+        let gate = NativeAsyncGate()
+        let probe = NativeSectionRefreshProbe()
+        let appState = makeEventDrivenAppState(
+            setupCompleted: true,
+            selectedSection: .configuration,
+            loader: .init(
+                fetchOverview: { makeNativeOverview(setupCompleted: true) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: {
+                    let shouldBlock = await probe.beginModelLoad()
+                    if shouldBlock {
+                        await gate.wait()
+                    }
+                    await probe.finishModelLoad()
+                    return emptyNativeModelConfig()
+                },
+                fetchChannelConfig: { emptyNativeChannelConfig() },
+                fetchPluginConfig: { emptyNativePluginConfig() },
+                fetchSkillsConfig: { emptyNativeSkillConfig() },
+                fetchAITeamOverview: { emptyNativeAITeamOverview() }
+            )
+        )
+
+        let firstRefresh = Task {
+            await appState.refreshCurrentSectionIfNeeded()
+        }
+        await waitForModelLoadCallCount(probe, expectedCount: 1)
+
+        let secondRefresh = Task {
+            await appState.refreshCurrentSectionIfNeeded()
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(await probe.maxConcurrentModelLoads() == 1)
+
+        await gate.open()
+        await firstRefresh.value
+        await secondRefresh.value
+    }
 }
 
 private actor NativeEventLoadRecorder {
@@ -251,6 +293,56 @@ private actor NativeEventLoadRecorder {
 
     func events() -> [String] {
         recordedEvents
+    }
+}
+
+private actor NativeAsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let continuations = waiters
+        waiters.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor NativeSectionRefreshProbe {
+    private var modelLoadCalls = 0
+    private var activeModelLoads = 0
+    private var maxActiveModelLoads = 0
+
+    func beginModelLoad() -> Bool {
+        modelLoadCalls += 1
+        activeModelLoads += 1
+        maxActiveModelLoads = max(maxActiveModelLoads, activeModelLoads)
+        return modelLoadCalls == 1
+    }
+
+    func finishModelLoad() {
+        activeModelLoads = max(activeModelLoads - 1, 0)
+    }
+
+    func modelLoadCallCount() -> Int {
+        modelLoadCalls
+    }
+
+    func maxConcurrentModelLoads() -> Int {
+        maxActiveModelLoads
     }
 }
 
@@ -284,6 +376,16 @@ private func makeEventDrivenAppState(
 private func waitForRecordedEventCount(_ recorder: NativeEventLoadRecorder, expectedCount: Int) async {
     for _ in 0 ..< 20 {
         if await recorder.events().count >= expectedCount {
+            return
+        }
+
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+}
+
+private func waitForModelLoadCallCount(_ probe: NativeSectionRefreshProbe, expectedCount: Int) async {
+    for _ in 0 ..< 20 {
+        if await probe.modelLoadCallCount() >= expectedCount {
             return
         }
 

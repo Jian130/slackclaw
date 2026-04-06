@@ -220,6 +220,14 @@ export interface LocalModelRuntimeOverview {
   summary: string;
   detail: string;
   lastError?: string;
+  activeAction?: LocalModelRuntimeAction;
+  activePhase?: LocalModelRuntimePhase;
+  progressMessage?: string;
+  progressDigest?: string;
+  progressCompletedBytes?: number;
+  progressTotalBytes?: number;
+  progressPercent?: number;
+  lastProgressAt?: string;
   recoveryHint?: string;
 }
 

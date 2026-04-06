@@ -141,6 +141,14 @@ test("model config overview serializes providers, runtime models, and saved entr
       totalMemoryGb: 36,
       freeDiskGb: 120,
       chosenModelKey: "ollama/gemma4:e4b",
+      activeAction: "install",
+      activePhase: "downloading-model",
+      progressMessage: "Downloading local model layer.",
+      progressDigest: "sha256:abc123",
+      progressCompletedBytes: 1024,
+      progressTotalBytes: 2048,
+      progressPercent: 50,
+      lastProgressAt: "2026-04-06T00:00:00.000Z",
       summary: "Local AI is ready on this Mac.",
       detail: "ChillClaw connected OpenClaw to the local Ollama runtime."
     },
@@ -173,6 +181,9 @@ test("model config overview serializes providers, runtime models, and saved entr
   assert.equal(parsed.providers[0]?.supportsNoAuth, false);
   assert.equal(parsed.defaultModel, "openai/gpt-5");
   assert.equal(parsed.localRuntime?.chosenModelKey, "ollama/gemma4:e4b");
+  assert.equal(parsed.localRuntime?.activeAction, "install");
+  assert.equal(parsed.localRuntime?.progressDigest, "sha256:abc123");
+  assert.equal(parsed.localRuntime?.progressPercent, 50);
   assert.equal(parsed.savedEntries[0]?.isDefault, true);
 });
 

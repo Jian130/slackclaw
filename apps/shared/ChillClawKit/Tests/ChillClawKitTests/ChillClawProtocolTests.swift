@@ -61,6 +61,60 @@ struct ChillClawProtocolTests {
     }
 
     @Test
+    func localRuntimeProgressEventDecodesExtendedProgressSnapshot() throws {
+        let data = """
+        {
+          "type": "local-runtime.progress",
+          "action": "install",
+          "phase": "downloading-model",
+          "message": "Downloading local model layer.",
+          "localRuntime": {
+            "supported": true,
+            "recommendation": "local",
+            "supportCode": "supported",
+            "status": "downloading-model",
+            "runtimeInstalled": true,
+            "runtimeReachable": true,
+            "modelDownloaded": false,
+            "activeInOpenClaw": false,
+            "recommendedTier": "medium",
+            "requiredDiskGb": 16,
+            "totalMemoryGb": 36,
+            "freeDiskGb": 120,
+            "chosenModelKey": "ollama/gemma4:e4b",
+            "managedEntryId": "managed-ollama-entry",
+            "summary": "Local AI is downloading.",
+            "detail": "Downloading local model layer.",
+            "activeAction": "install",
+            "activePhase": "downloading-model",
+            "progressMessage": "Downloading local model layer.",
+            "progressDigest": "sha256:abc123",
+            "progressCompletedBytes": 1024,
+            "progressTotalBytes": 2048,
+            "progressPercent": 50,
+            "lastProgressAt": "2026-04-06T00:00:00.000Z"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let event = try JSONDecoder.chillClaw.decode(ChillClawEvent.self, from: data)
+        guard case let .localRuntimeProgress(action, phase, percent, message, localRuntime) = event else {
+            Issue.record("Expected localRuntimeProgress event")
+            return
+        }
+
+        #expect(action == "install")
+        #expect(phase == "downloading-model")
+        #expect(percent == nil)
+        #expect(message == "Downloading local model layer.")
+        #expect(localRuntime.activeAction == "install")
+        #expect(localRuntime.progressDigest == "sha256:abc123")
+        #expect(localRuntime.progressCompletedBytes == 1024)
+        #expect(localRuntime.progressTotalBytes == 2048)
+        #expect(localRuntime.progressPercent == 50)
+    }
+
+    @Test
     func productOverviewDecodesAppUpdateStatus() throws {
         let data = """
         {

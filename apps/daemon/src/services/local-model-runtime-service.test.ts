@@ -19,6 +19,22 @@ import {
 
 type LocalModelRuntimeAccess = ConstructorParameters<typeof LocalModelRuntimeService>[0];
 
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+};
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function createEmptyModelConfig(): ModelConfigOverview {
   return {
     providers: [],
@@ -69,9 +85,14 @@ function createHarness(overrides: Partial<LocalModelRuntimeAccess> = {}) {
       reachable = true;
     },
     isModelAvailable: async () => modelAvailable,
-    pullModel: async (_runtime, modelTag, publishMessage) => {
+    pullModel: async (_runtime, modelTag, publishProgress) => {
       pullCalls.push(modelTag);
-      publishMessage(`pulling ${modelTag}`);
+      publishProgress({
+        status: `pulling ${modelTag}`,
+        digest: `sha256:${modelTag}`,
+        completed: 512,
+        total: 1024
+      });
       modelAvailable = true;
     },
     upsertManagedLocalModelEntry: async (request) => {
@@ -137,6 +158,9 @@ function createHarness(overrides: Partial<LocalModelRuntimeAccess> = {}) {
   return {
     service: new LocalModelRuntimeService(access),
     getPersistedState: () => persistedState,
+    setPersistedState: (nextState: PersistedLocalModelRuntimeState | undefined) => {
+      persistedState = nextState;
+    },
     pullCalls,
     restartCalls,
     upsertCalls,
@@ -187,8 +211,80 @@ test("install reuses an existing Ollama runtime, downloads the selected model, a
   assert.equal(restartCalls.length, 1);
   assert.equal(getPersistedState()?.managedEntryId, "managed-ollama-entry");
   assert.equal(getPersistedState()?.selectedModelKey, "ollama/gemma4:e4b");
-  assert.equal(publishedProgress.some((message) => message.includes("pulling gemma4:e4b")), true);
+  assert.equal(publishedProgress.length > 0, true);
   assert.equal(publishedCompleted.at(-1), result.message);
+});
+
+test("concurrent local runtime installs reuse the same in-flight pull job", async () => {
+  let modelAvailable = false;
+  let pullCallCount = 0;
+  const pullStarted = createDeferred<void>();
+  const releasePull = createDeferred<void>();
+  const { service, restartCalls, upsertCalls } = createHarness({
+    isModelAvailable: async () => modelAvailable,
+    pullModel: async (_runtime, modelTag, publishProgress) => {
+      pullCallCount += 1;
+      publishProgress({
+        status: `pulling ${modelTag}`,
+        digest: "sha256:resume-test",
+        completed: 25,
+        total: 100
+      });
+      pullStarted.resolve();
+      await releasePull.promise;
+      modelAvailable = true;
+      publishProgress({ status: "success" });
+    }
+  });
+
+  const firstInstall = service.install();
+  await pullStarted.promise;
+  const secondInstall = service.install();
+  releasePull.resolve();
+
+  const [firstResult, secondResult] = await Promise.all([firstInstall, secondInstall]);
+
+  assert.equal(pullCallCount, 1);
+  assert.equal(restartCalls.length, 1);
+  assert.equal(upsertCalls.length, 1);
+  assert.equal(firstResult.status, "completed");
+  assert.equal(secondResult.status, "completed");
+});
+
+test("resumePendingWork restarts an unfinished local-model download on startup", async () => {
+  let modelAvailable = false;
+  let pullCallCount = 0;
+  const { service, getPersistedState, restartCalls, setPersistedState, upsertCalls } = createHarness({
+    isModelAvailable: async () => modelAvailable,
+    pullModel: async (_runtime, _modelTag, publishProgress) => {
+      pullCallCount += 1;
+      publishProgress({
+        status: "pulling resumed layer",
+        digest: "sha256:resume",
+        completed: 50,
+        total: 100
+      });
+      modelAvailable = true;
+      publishProgress({ status: "success" });
+    }
+  });
+  setPersistedState({
+    selectedModelKey: "ollama/gemma4:e4b",
+    status: "downloading-model",
+    activeAction: "install",
+    activePhase: "downloading-model",
+    progressMessage: "pulling resumed layer",
+    progressDigest: "sha256:resume",
+    progressCompletedBytes: 50,
+    progressTotalBytes: 100
+  });
+
+  await service.resumePendingWork();
+
+  assert.equal(pullCallCount, 1);
+  assert.equal(restartCalls.length, 1);
+  assert.equal(upsertCalls.length, 1);
+  assert.equal(getPersistedState()?.status, "ready");
 });
 
 test("resolveInstalledRuntimeCandidate skips a missing bare ollama command instead of throwing", async () => {

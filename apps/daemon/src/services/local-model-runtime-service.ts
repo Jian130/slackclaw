@@ -32,12 +32,27 @@ export type PersistedLocalModelRuntimeState = {
   selectedModelKey?: string;
   status?: LocalModelRuntimeStatus;
   lastError?: string;
+  activeAction?: LocalModelRuntimeAction;
+  activePhase?: LocalModelRuntimePhase;
+  progressMessage?: string;
+  progressDigest?: string;
+  progressCompletedBytes?: number;
+  progressTotalBytes?: number;
+  progressPercent?: number;
+  lastProgressAt?: string;
 };
 
 export type LocalModelRuntimeResult = {
   status: "completed" | "failed";
   message: string;
   localRuntime: LocalModelRuntimeOverview;
+};
+
+export type PullModelProgress = {
+  status: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
 };
 
 export type LocalModelRuntimeAccess = {
@@ -50,10 +65,16 @@ export type LocalModelRuntimeAccess = {
   isRuntimeReachable: (runtime: ResolvedOllamaRuntime | undefined) => Promise<boolean>;
   startRuntime: (runtime: ResolvedOllamaRuntime) => Promise<void>;
   isModelAvailable: (runtime: ResolvedOllamaRuntime, modelTag: string) => Promise<boolean>;
-  pullModel: (runtime: ResolvedOllamaRuntime, modelTag: string, publishMessage: (message: string) => void) => Promise<void>;
+  pullModel: (runtime: ResolvedOllamaRuntime, modelTag: string, publishProgress: (progress: PullModelProgress) => void | Promise<void>) => Promise<void>;
   upsertManagedLocalModelEntry: (request: ManagedLocalModelEntryRequest) => Promise<ModelConfigActionResponse>;
   restartGateway: () => Promise<GatewayActionResponse>;
-  publishProgress: (action: LocalModelRuntimeAction, phase: LocalModelRuntimePhase, message: string, localRuntime: LocalModelRuntimeOverview) => void;
+  publishProgress: (
+    action: LocalModelRuntimeAction,
+    phase: LocalModelRuntimePhase,
+    message: string,
+    localRuntime: LocalModelRuntimeOverview,
+    percent?: number
+  ) => void;
   publishCompleted: (
     action: LocalModelRuntimeAction,
     status: "completed" | "failed",
@@ -62,8 +83,61 @@ export type LocalModelRuntimeAccess = {
   ) => void;
 };
 
+type ActiveLocalModelRuntimeJob = {
+  action: LocalModelRuntimeAction;
+  promise: Promise<LocalModelRuntimeResult>;
+};
+
+type RetryableError = Error & { retryable?: boolean };
+
+const OLLAMA_API_ORIGIN = "http://127.0.0.1:11434";
+const LOCAL_MODEL_PULL_MAX_ATTEMPTS = 3;
+
 function modelTagFromKey(modelKey: string): string {
   return modelKey.replace(/^ollama\//, "");
+}
+
+function createRetryableError(message: string, retryable: boolean): RetryableError {
+  const error = new Error(message) as RetryableError;
+  error.retryable = retryable;
+  return error;
+}
+
+function isRetryableError(error: unknown): error is RetryableError {
+  return Boolean((error as RetryableError | undefined)?.retryable);
+}
+
+function trimProgressMessage(message: string | undefined, fallback: string): string {
+  const trimmed = message?.trim();
+  return trimmed?.length ? trimmed : fallback;
+}
+
+function describePullProgress(progress: PullModelProgress): string {
+  switch (progress.status) {
+    case "pulling manifest":
+      return "Checking the local model manifest.";
+    case "verifying sha256 digest":
+      return "Verifying the downloaded local model.";
+    case "writing manifest":
+      return "Writing the local model manifest.";
+    case "removing any unused layers":
+      return "Cleaning up unused local model layers.";
+    case "success":
+      return "Local model download complete.";
+    default:
+      if (progress.digest) {
+        return `Downloading local model layer ${progress.digest.slice(0, 12)}.`;
+      }
+      return trimProgressMessage(progress.status, "Downloading the local model.");
+  }
+}
+
+function progressPercentForPull(progress: PullModelProgress): number | undefined {
+  if (progress.status === "success") {
+    return 100;
+  }
+
+  return undefined;
 }
 
 export async function resolveDiskProbePath(targetPath: string): Promise<string> {
@@ -132,6 +206,8 @@ function unsupportedOverview(
 }
 
 export class LocalModelRuntimeService {
+  private activeJob: ActiveLocalModelRuntimeJob | undefined;
+
   constructor(private readonly access: LocalModelRuntimeAccess) {}
 
   async decorateModelConfig(modelConfig: ModelConfigOverview): Promise<ModelConfigOverview> {
@@ -139,6 +215,15 @@ export class LocalModelRuntimeService {
       ...modelConfig,
       localRuntime: await this.getOverview(modelConfig)
     };
+  }
+
+  async resumePendingWork(): Promise<void> {
+    const persisted = await this.access.readPersistedState();
+    if (!inFlightStatus(persisted?.status)) {
+      return;
+    }
+
+    await this.runAction(persisted?.activeAction ?? "install");
   }
 
   async getOverview(existingModelConfig?: ModelConfigOverview): Promise<LocalModelRuntimeOverview> {
@@ -188,7 +273,19 @@ export class LocalModelRuntimeService {
     let summary = "Local AI is available on this Mac.";
     let detail = `ChillClaw recommends the ${recommendedTier.id} Ollama starter tier for this Apple Silicon Mac.`;
 
-    if (status === "ready") {
+    if (status === "installing-runtime") {
+      summary = "Local AI setup is preparing.";
+      detail = trimProgressMessage(persisted?.progressMessage, "ChillClaw is checking the local Ollama runtime.");
+    } else if (status === "starting-runtime") {
+      summary = "Local AI is starting.";
+      detail = trimProgressMessage(persisted?.progressMessage, "ChillClaw is starting the local Ollama runtime.");
+    } else if (status === "downloading-model") {
+      summary = "Local AI is downloading.";
+      detail = trimProgressMessage(persisted?.progressMessage, "ChillClaw is downloading the starter local model.");
+    } else if (status === "configuring-openclaw") {
+      summary = "Local AI is connecting to OpenClaw.";
+      detail = trimProgressMessage(persisted?.progressMessage, "ChillClaw is connecting OpenClaw to the local Ollama runtime.");
+    } else if (status === "ready") {
       summary = "Local AI is ready on this Mac.";
       detail = "ChillClaw connected OpenClaw directly to the local Ollama runtime.";
     } else if (status === "degraded") {
@@ -219,6 +316,14 @@ export class LocalModelRuntimeService {
       summary,
       detail,
       lastError: persisted?.lastError,
+      activeAction: persisted?.activeAction,
+      activePhase: persisted?.activePhase,
+      progressMessage: persisted?.progressMessage,
+      progressDigest: persisted?.progressDigest,
+      progressCompletedBytes: persisted?.progressCompletedBytes,
+      progressTotalBytes: persisted?.progressTotalBytes,
+      progressPercent: persisted?.progressPercent,
+      lastProgressAt: persisted?.lastProgressAt,
       recoveryHint: status === "degraded" || status === "failed" ? "Repair the local Ollama runtime or switch back to a cloud model." : undefined
     };
   }
@@ -232,6 +337,23 @@ export class LocalModelRuntimeService {
   }
 
   private async runAction(action: LocalModelRuntimeAction): Promise<LocalModelRuntimeResult> {
+    if (this.activeJob) {
+      return this.activeJob.promise;
+    }
+
+    const promise = this.executeAction(action).finally(() => {
+      if (this.activeJob?.promise === promise) {
+        this.activeJob = undefined;
+      }
+    });
+    this.activeJob = {
+      action,
+      promise
+    };
+    return promise;
+  }
+
+  private async executeAction(action: LocalModelRuntimeAction): Promise<LocalModelRuntimeResult> {
     const before = await this.getOverview();
     if (!before.supported || before.recommendation === "cloud") {
       const failed = {
@@ -269,9 +391,7 @@ export class LocalModelRuntimeService {
 
       if (!(await this.access.isModelAvailable(runtime, targetModelTag))) {
         await this.setProgressState(action, "downloading-model", "ChillClaw is downloading the starter local model.");
-        await this.access.pullModel(runtime, targetModelTag, asyncMessage => {
-          void this.publishProgressSnapshot(action, "downloading-model", asyncMessage);
-        });
+        await this.pullModelWithRetry(action, runtime, targetModelTag);
       }
 
       await this.setProgressState(action, "configuring-openclaw", "ChillClaw is connecting OpenClaw to the local Ollama runtime.");
@@ -291,7 +411,16 @@ export class LocalModelRuntimeService {
       await this.access.writePersistedState({
         managedEntryId: managedEntry?.id ?? persisted?.managedEntryId,
         selectedModelKey: targetModelKey,
-        status: "ready"
+        status: "ready",
+        activeAction: undefined,
+        activePhase: undefined,
+        progressMessage: undefined,
+        progressDigest: undefined,
+        progressCompletedBytes: undefined,
+        progressTotalBytes: undefined,
+        progressPercent: undefined,
+        lastProgressAt: undefined,
+        lastError: undefined
       });
       const localRuntime = await this.getOverview(mutation.modelConfig);
       const message = "Local AI is ready on this Mac.";
@@ -306,7 +435,15 @@ export class LocalModelRuntimeService {
       await this.access.writePersistedState({
         ...(await this.access.readPersistedState()),
         status: "failed",
-        lastError: error instanceof Error ? error.message : String(error)
+        lastError: error instanceof Error ? error.message : String(error),
+        activeAction: undefined,
+        activePhase: undefined,
+        progressMessage: undefined,
+        progressDigest: undefined,
+        progressCompletedBytes: undefined,
+        progressTotalBytes: undefined,
+        progressPercent: undefined,
+        lastProgressAt: undefined
       });
       const localRuntime = await this.getOverview();
       const message = error instanceof Error ? error.message : "ChillClaw could not finish local AI setup.";
@@ -319,6 +456,31 @@ export class LocalModelRuntimeService {
     }
   }
 
+  private async pullModelWithRetry(
+    action: LocalModelRuntimeAction,
+    runtime: ResolvedOllamaRuntime,
+    modelTag: string
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= LOCAL_MODEL_PULL_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        await this.access.pullModel(runtime, modelTag, async (progress) => {
+          await this.setDownloadProgressState(action, progress);
+        });
+        if (await this.access.isModelAvailable(runtime, modelTag)) {
+          return;
+        }
+        throw createRetryableError("The local model download ended before Ollama reported the model as available.", true);
+      } catch (error) {
+        if (!isRetryableError(error) || attempt >= LOCAL_MODEL_PULL_MAX_ATTEMPTS) {
+          throw error;
+        }
+
+        const retryMessage = `The local model download was interrupted. Retrying (${attempt + 1}/${LOCAL_MODEL_PULL_MAX_ATTEMPTS}).`;
+        await this.setProgressState(action, "downloading-model", retryMessage);
+      }
+    }
+  }
+
   private async setProgressState(action: LocalModelRuntimeAction, status: Extract<
     LocalModelRuntimeStatus,
     "installing-runtime" | "starting-runtime" | "downloading-model" | "configuring-openclaw"
@@ -327,13 +489,41 @@ export class LocalModelRuntimeService {
     await this.access.writePersistedState({
       ...persisted,
       status,
-      lastError: undefined
+      lastError: undefined,
+      activeAction: action,
+      activePhase: progressPhaseForStatus(status),
+      progressMessage: message,
+      progressDigest: status === "downloading-model" ? persisted?.progressDigest : undefined,
+      progressCompletedBytes: status === "downloading-model" ? persisted?.progressCompletedBytes : undefined,
+      progressTotalBytes: status === "downloading-model" ? persisted?.progressTotalBytes : undefined,
+      progressPercent: status === "downloading-model" ? persisted?.progressPercent : undefined,
+      lastProgressAt: new Date().toISOString()
     });
     await this.publishProgressSnapshot(action, progressPhaseForStatus(status), message);
   }
 
+  private async setDownloadProgressState(action: LocalModelRuntimeAction, progress: PullModelProgress): Promise<void> {
+    const message = describePullProgress(progress);
+    const persisted = await this.access.readPersistedState();
+    await this.access.writePersistedState({
+      ...persisted,
+      status: "downloading-model",
+      lastError: undefined,
+      activeAction: action,
+      activePhase: "downloading-model",
+      progressMessage: message,
+      progressDigest: progress.digest,
+      progressCompletedBytes: progress.completed,
+      progressTotalBytes: progress.total,
+      progressPercent: progressPercentForPull(progress),
+      lastProgressAt: new Date().toISOString()
+    });
+    await this.publishProgressSnapshot(action, "downloading-model", message);
+  }
+
   private async publishProgressSnapshot(action: LocalModelRuntimeAction, phase: LocalModelRuntimePhase, message: string): Promise<void> {
-    this.access.publishProgress(action, phase, message, await this.getOverview());
+    const localRuntime = await this.getOverview();
+    this.access.publishProgress(action, phase, message, localRuntime, localRuntime.progressPercent);
   }
 }
 
@@ -448,52 +638,6 @@ async function runLoggedCommand(
   });
 }
 
-async function runLoggedStreamingCommand(
-  scope: string,
-  command: string,
-  args: string[],
-  publishMessage: (message: string) => void,
-  options?: { envOverrides?: Record<string, string | undefined> }
-): Promise<void> {
-  logDevelopmentCommand(scope, command, args);
-
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn(command, args, {
-      env: {
-        ...process.env,
-        ...(options?.envOverrides ?? {})
-      }
-    });
-    let combinedError = "";
-
-    const handleChunk = (chunk: Buffer) => {
-      const lines = chunk
-        .toString()
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      for (const line of lines) {
-        publishMessage(line);
-      }
-    };
-
-    child.stdout.on("data", handleChunk);
-    child.stderr.on("data", (chunk) => {
-      combinedError += chunk.toString();
-      handleChunk(chunk);
-    });
-    child.on("error", rejectPromise);
-    child.on("close", (code) => {
-      if ((code ?? 1) !== 0) {
-        rejectPromise(new Error(combinedError.trim() || `${command} ${args.join(" ")} failed.`));
-        return;
-      }
-
-      resolvePromise();
-    });
-  });
-}
-
 async function waitForRuntime(command: ResolvedOllamaRuntime): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -512,6 +656,98 @@ async function waitForRuntime(command: ResolvedOllamaRuntime): Promise<void> {
   }
 
   throw new Error(`ChillClaw could not reach the local Ollama runtime at ${command.command}.`);
+}
+
+function parseProgressLine(line: string): PullModelProgress | { error: string } {
+  try {
+    return JSON.parse(line) as PullModelProgress | { error: string };
+  } catch {
+    throw createRetryableError(`ChillClaw could not parse Ollama pull progress: ${line}`, true);
+  }
+}
+
+async function readResponseError(response: Response): Promise<string> {
+  try {
+    const payload = await response.json() as { error?: string };
+    if (payload?.error?.trim()) {
+      return payload.error.trim();
+    }
+  } catch {
+    // Fall through to status text below.
+  }
+
+  return trimProgressMessage(response.statusText, `Ollama pull failed with status ${response.status}.`);
+}
+
+async function pullModelViaApi(modelTag: string, publishProgress: (progress: PullModelProgress) => void | Promise<void>): Promise<void> {
+  const response = await fetch(`${OLLAMA_API_ORIGIN}/api/pull`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: modelTag
+    })
+  }).catch((error) => {
+    throw createRetryableError(
+      error instanceof Error ? error.message : "ChillClaw could not reach the local Ollama pull API.",
+      true
+    );
+  });
+
+  if (!response.ok) {
+    throw createRetryableError(await readResponseError(response), response.status >= 500);
+  }
+
+  if (!response.body) {
+    throw createRetryableError("Ollama did not return a download progress stream.", true);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sawSuccess = false;
+
+  const publishParsedLine = async (line: string) => {
+    if (!line.trim()) {
+      return;
+    }
+
+    const parsed = parseProgressLine(line);
+    if ("error" in parsed) {
+      throw createRetryableError(parsed.error, false);
+    }
+
+    if (parsed.status === "success") {
+      sawSuccess = true;
+    }
+    await publishProgress(parsed);
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      await publishParsedLine(line);
+      newlineIndex = buffer.indexOf("\n");
+    }
+  }
+
+  const trailing = `${buffer}${decoder.decode()}`.trim();
+  if (trailing) {
+    await publishParsedLine(trailing);
+  }
+
+  if (!sawSuccess) {
+    throw createRetryableError("Ollama ended the pull stream before reporting success.", true);
+  }
 }
 
 export function createLocalModelRuntimeService(
@@ -625,23 +861,16 @@ export function createLocalModelRuntimeService(
       });
       return result.code === 0;
     },
-    pullModel: async (runtime, modelTag, publishMessage) => {
-      await runLoggedStreamingCommand(
-        "localModelRuntime.pullModel",
-        runtime.command,
-        ["pull", modelTag],
-        publishMessage,
-        {
-          envOverrides: ollamaEnvironment(runtime)
-        }
-      );
+    pullModel: async (_runtime, modelTag, publishProgress) => {
+      await pullModelViaApi(modelTag, publishProgress);
     },
     upsertManagedLocalModelEntry: async (request) => adapter.config.upsertManagedLocalModelEntry(request),
     restartGateway: async () => adapter.gateway.restartGateway(),
-    publishProgress: (action, phase, message, localRuntime) => {
+    publishProgress: (action, phase, message, localRuntime, percent) => {
       eventPublisher?.publishLocalRuntimeProgress({
         action,
         phase,
+        percent,
         message,
         localRuntime
       });

@@ -6,6 +6,8 @@ import type {
   ChannelFieldSummary,
   ChannelSetupState,
   EngineTaskResult,
+  LocalModelRuntimeAction,
+  LocalModelRuntimePhase,
   LocalModelRuntimeStatus,
   OnboardingDraftState,
   PresetSkillSyncOverview,
@@ -105,6 +107,14 @@ export interface LocalModelRuntimeState {
   selectedModelKey?: string;
   status?: LocalModelRuntimeStatus;
   lastError?: string;
+  activeAction?: LocalModelRuntimeAction;
+  activePhase?: LocalModelRuntimePhase;
+  progressMessage?: string;
+  progressDigest?: string;
+  progressCompletedBytes?: number;
+  progressTotalBytes?: number;
+  progressPercent?: number;
+  lastProgressAt?: string;
 }
 
 export interface AppState {

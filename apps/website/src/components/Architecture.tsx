@@ -1,7 +1,7 @@
 import { MousePointerClick, Rocket, Smile, Sparkles } from "lucide-react";
 
-import workflowImage480 from "../assets/4-480.webp";
-import workflowImage720 from "../assets/4-720.webp";
+import workflowImage720 from "../assets/workmasters/ai-work-master-mini-claw-720.webp";
+import workflowImage1080 from "../assets/workmasters/ai-work-master-mini-claw-1080.webp";
 import { useLanguage } from "../i18n/LanguageContext.js";
 
 export function Architecture() {
@@ -25,8 +25,8 @@ export function Architecture() {
                   alt="ChillClaw AI Employee"
                   className="relative z-10 mx-auto h-auto w-full max-w-md"
                   sizes="(min-width: 1024px) 28rem, 80vw"
-                  src={workflowImage720}
-                  srcSet={`${workflowImage480} 480w, ${workflowImage720} 720w`}
+                  src={workflowImage1080}
+                  srcSet={`${workflowImage720} 720w, ${workflowImage1080} 1080w`}
                 />
               </div>
 

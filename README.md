@@ -57,7 +57,7 @@ The root `npm run build` and `npm test` commands now include the website workspa
   - shows the live OpenClaw runtime model chain and ChillClaw-managed configured model records
   - supports model add/edit flows
   - supports default and fallback model selection
-  - supports a daemon-managed local AI setup path that can recommend, install, repair, and surface a local Ollama-backed model runtime
+  - supports a daemon-managed local AI setup path that can recommend, install, repair, resume interrupted downloads, and surface a local Ollama-backed model runtime
   - stages model, channel, skill, and workspace configuration changes immediately without requiring the gateway to be running
   - returns explicit pending-apply state when saved configuration still needs the gateway to reload
   - falls back to direct OpenClaw config writes for known CLI command drift on safe config-backed mutations
@@ -120,6 +120,7 @@ flowchart LR
 - The daemon owns the OpenClaw gateway socket internally for chat and runtime behavior instead of exposing that socket to clients.
 - The daemon-side platform layer now owns explicit filesystem/state, CLI runner, gateway socket, and secrets seams, including a macOS keychain-backed secrets adapter for mirrored user-entered credentials.
 - The daemon also owns managed local-model runtime state, including host inspection, curated Ollama model recommendation, install progress, repair state, and OpenClaw model-entry handoff.
+- Unfinished managed local-model downloads are resumed automatically from persisted daemon state, including the common cases where the client reconnects, the user retries setup, or the daemon restarts while Ollama is still downloading layers.
 - Read-only OpenClaw CLI reads are cached and coalesced inside the daemon per logical refresh cycle so one page load does not fan out into repeated duplicate CLI calls.
 - The engine seam lives behind `EngineAdapter`, so ChillClaw product logic does not talk to OpenClaw directly.
 - `EngineAdapter` is now the composed manager boundary itself rather than a second public flat method bag on top of those managers.

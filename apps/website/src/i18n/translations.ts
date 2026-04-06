@@ -13,6 +13,8 @@ export const translations = {
     nav: {
       features: "Features",
       howItWorks: "How It Works",
+      workMasters: "Mini Claws",
+      openSource: "Open Source",
       help: "Help",
       download: "Download",
       github: "GitHub"
@@ -20,10 +22,10 @@ export const translations = {
     hero: {
       badge: "Your AI Team Awaits",
       title1: "Stay Chill.",
-      title2: "Your AI",
-      title3: "Does the Work",
+      title2: "Your AI Mini Claws",
+      title3: "Handle the Heavy Lifting.",
       description:
-        "Create your own AI employees with one click. ChillClaw makes it effortless to build AI assistants that handle the heavy lifting—no technical skills required.",
+        "Create your own AI Mini Claws with one click. ChillClaw lets you build AI assistants that plan, execute, and deliver work on your Mac with no technical skills required.",
       downloadMac: "Download for macOS",
       seeHow: "See How It Works",
       viewGithub: "View on GitHub",
@@ -37,44 +39,52 @@ export const translations = {
       freeForever: "Free Forever"
     },
     features: {
-      badge: "Why ChillClaw?",
-      title: "Your Personal AI Workforce",
-      description: "Build AI employees that work for you around the clock—no coding, no complexity, just results.",
-      feature1Title: "One-Click AI Employees",
-      feature1Desc: "Create specialized AI assistants instantly. Each one ready to tackle specific tasks while you relax.",
+      badge: "Why ChillClaw",
+      title: "Build Your Personal AI Mini Claw System",
+      description: "ChillClaw transforms how you work with AI by making it simple, private, and powerful.",
+      feature1Title: "One-Click AI Mini Claws",
+      feature1Desc: "Create powerful AI Mini Claws instantly. No configuration, no complexity, just click and deploy.",
       feature2Title: "AI That Helps You Use AI",
-      feature2Desc: "ChillClaw simplifies complex AI tools, making them accessible without the learning curve.",
+      feature2Desc: "ChillClaw makes advanced AI tools accessible to everyone. Your Mini Claw handles the technical details.",
       feature3Title: "Completely Private",
-      feature3Desc: "Everything runs locally on your Mac. Your data never leaves your computer—ever.",
-      feature4Title: "Build Your AI Team",
-      feature4Desc: "Multiple AI employees working together, each with their own specialty and personality.",
-      feature5Title: "Stay Chill",
-      feature5Desc: "Let your AI employees handle the stress while you focus on what you actually enjoy doing.",
+      feature3Desc: "100% local processing. Your data never leaves your Mac. Full privacy and full control.",
+      feature4Title: "Build Your Mini Claw Team",
+      feature4Desc: "Scale your productivity with multiple specialized AI Mini Claws, each tailored to different tasks.",
+      feature5Title: "Stay Chill While Work Gets Done",
+      feature5Desc: "Automate the heavy lifting and focus on what matters. Let your AI Mini Claw team handle the rest.",
       feature6Title: "No Technical Skills",
-      feature6Desc: "Designed for regular people, not developers. If you can click a button, you can use ChillClaw."
+      feature6Desc: "Built for everyone. If you can click a button, you can manage an AI Mini Claw workforce."
     },
     howItWorks: {
       badge: "How It Works",
       title: "Four Steps to Your AI Workforce",
-      description: "Get started in minutes—literally. No tutorials, no manuals, no stress.",
-      step1Title: "Click to Create",
-      step1Desc: "One click creates your first AI employee. No forms, no configuration, just instant setup.",
-      step2Title: "Customize Your Team",
-      step2Desc: "Give each AI employee a specialty—research, writing, data analysis, or whatever you need.",
-      step3Title: "Put Them to Work",
-      step3Desc: "Assign tasks and watch your AI employees complete them while you focus on what matters.",
+      description: "Get started in minutes. No technical knowledge needed.",
+      step1Title: "Create",
+      step1Desc: "Launch ChillClaw and create your first AI Mini Claw with a single click. Choose from pre-built templates or start from scratch.",
+      step2Title: "Customize",
+      step2Desc: "Tailor your AI Mini Claw's capabilities and personality. No coding required, just simple, intuitive controls.",
+      step3Title: "Assign",
+      step3Desc: "Give your Mini Claw tasks and watch it work. From research to content creation, it's got you covered.",
       step4Title: "Stay Chill",
-      step4Desc: "Relax knowing your AI team is handling everything efficiently and privately on your Mac.",
+      step4Desc: "Sit back and stay chill. Your AI Mini Claw handles the heavy lifting while you focus on what matters most.",
       simpleTitle: "Seriously, it's that simple",
       simpleDesc:
         "ChillClaw handles all the technical complexity behind the scenes. You just point, click, and let your AI employees do their thing.",
-      readyBadge: "Ready to Go!"
+      readyBadge: "Ready to Go!",
+      mascotTitle: "Meet Your AI Mini Claw",
+      mascotDescription:
+        "ChillClaw's friendly lobster mascot represents your always-ready AI Mini Claw: smart, capable, and here to help you get things done without the stress.",
+      mascotBullet1: "Learns your workflow and adapts",
+      mascotBullet2: "Works locally on your Mac",
+      mascotBullet3: "Keeps your work private and secure"
     },
     cta: {
       badge: "Start Building Today",
-      title: "Your AI Employees Are Waiting",
+      title: "Your AI Mini Claws Are Waiting",
+      titleLead: "Your AI Mini Claws",
+      titleAccent: "Are Waiting",
       description:
-        "Join people who've already discovered the secret to staying chill while getting more done. Download ChillClaw for macOS and create your first AI employee in under a minute.",
+        "Join people who've already discovered the secret to staying chill while getting more done. Download ChillClaw for macOS and create your first AI Mini Claw in under a minute.",
       downloadMac: "Download for macOS",
       watchDemo: "Watch Demo",
       stat1: "1-Click",
@@ -87,20 +97,50 @@ export const translations = {
     openSource: {
       badge: "Open Source & Community",
       title: "Built by the Community, For the Community",
+      titleLead: "Built by the Community,",
+      titleAccent: "for the Community",
       description:
         "ChillClaw is 100% open source. Explore the code, contribute features, report bugs, or fork it for your own project. Everyone is welcome.",
+      communityTitle: "Join the ChillClaw Community",
+      communityDescription:
+        "Explore the source, follow release updates, open issues, or contribute improvements. ChillClaw is being built in public, and the project history is part of the product story.",
       viewSource: "View Source Code",
       contribute: "Contribute",
       starOnGithub: "Star on GitHub",
-      feature1: "MIT Licensed",
-      feature1Desc: "Free to use, modify, and distribute",
+      feature1: "Apache 2.0 Licensed",
+      feature1Desc: "Open to use, inspect, modify, and distribute under the current project license.",
       feature2: "Community Driven",
-      feature2Desc: "Built with contributions from developers worldwide",
+      feature2Desc: "Built in the open with public issues, releases, and contributor input.",
       feature3: "Transparent",
-      feature3Desc: "All development happens in the open"
+      feature3Desc: "The code, release history, and product direction are visible to everyone.",
+      starsLabel: "Stars",
+      forksLabel: "Forks",
+      contributorsLabel: "Contributors",
+      licenseLabel: "License"
+    },
+    mascotShowcase: {
+      badge: "Meet Your Team",
+      title: "Meet Your AI Mini Claws",
+      description:
+        "One ChillClaw mascot, many work modes. Your Mini Claw adapts to the job while keeping the experience warm, simple, and approachable.",
+      mode1Title: "Focus Mini Claw",
+      mode1Desc: "Deep work and analysis",
+      mode2Title: "Builder Mini Claw",
+      mode2Desc: "Creating and developing",
+      mode3Title: "Analyst Mini Claw",
+      mode3Desc: "Data and insights",
+      mode4Title: "Support Mini Claw",
+      mode4Desc: "Help and assistance",
+      mode5Title: "Creative Mini Claw",
+      mode5Desc: "Design and content",
+      mode6Title: "Chill Mini Claw",
+      mode6Desc: "Casual and friendly",
+      summaryTitle: "One Mini Claw, Infinite Possibilities",
+      summaryDescription:
+        "Your ChillClaw AI Mini Claw evolves with you, learning new skills and adapting to your workflow while keeping things simple and stress free."
     },
     footer: {
-      tagline: "Create AI employees with one click. Stay chill while they work for you.",
+      tagline: "Your personal AI Mini Claw workforce. Stay chill while ChillClaw handles the heavy lifting.",
       product: "Product",
       features: "Features",
       howItWorks: "How It Works",
@@ -116,6 +156,12 @@ export const translations = {
       blog: "Blog",
       privacy: "Privacy",
       terms: "Terms",
+      releaseNotes: "Release Notes",
+      documentation: "Documentation",
+      workflowMap: "Workflow Map",
+      openSource: "Open Source",
+      releases: "Releases",
+      license: "License",
       madeWith: "Made with",
       forPeople: "for people who want to stay chill"
     }
@@ -124,6 +170,8 @@ export const translations = {
     nav: {
       features: "功能特点",
       howItWorks: "工作原理",
+      workMasters: "小爪",
+      openSource: "开源",
       help: "帮助",
       download: "下载",
       github: "GitHub"
@@ -177,11 +225,18 @@ export const translations = {
       step4Desc: "放松心情，知道您的AI团队正在您的Mac上高效且私密地处理一切。",
       simpleTitle: "就是这么简单",
       simpleDesc: "ChillClaw在后台处理所有技术复杂性。您只需指向、点击，让您的AI员工做他们的事情。",
-      readyBadge: "准备就绪！"
+      readyBadge: "准备就绪！",
+      mascotTitle: "认识你的 AI 小爪",
+      mascotDescription: "ChillClaw 友好的龙虾吉祥物代表着你随时待命的 AI 小爪：聪明、能干，帮你轻松把事情办成。",
+      mascotBullet1: "理解你的工作流并持续适应",
+      mascotBullet2: "在你的 Mac 上本地运行",
+      mascotBullet3: "让你的工作保持私密与安全"
     },
     cta: {
       badge: "今天开始构建",
       title: "您的AI员工在等候",
+      titleLead: "你的 AI 小爪",
+      titleAccent: "正在等你",
       description: "加入那些已经发现如何在完成更多工作的同时保持轻松的人们。下载macOS版ChillClaw，在一分钟内创建您的第一个AI员工。",
       downloadMac: "下载macOS版",
       watchDemo: "观看演示",
@@ -195,7 +250,11 @@ export const translations = {
     openSource: {
       badge: "开源 & 社区",
       title: "由社区构建，为社区服务",
+      titleLead: "由社区打造，",
+      titleAccent: "为社区而生",
       description: "ChillClaw是100%开源的。探索代码，贡献功能，报告错误，或将其分叉用于自己的项目。欢迎所有人。",
+      communityTitle: "加入 ChillClaw 社区",
+      communityDescription: "查看源码、关注版本更新、提交 issue，或直接贡献改进。ChillClaw 全程公开构建，项目历程本身就是产品故事的一部分。",
       viewSource: "查看源代码",
       contribute: "贡献",
       starOnGithub: "在GitHub上点赞",
@@ -204,7 +263,30 @@ export const translations = {
       feature2: "社区驱动",
       feature2Desc: "由全球开发者贡献构建",
       feature3: "透明",
-      feature3Desc: "所有开发都在公开进行"
+      feature3Desc: "所有开发都在公开进行",
+      starsLabel: "星标",
+      forksLabel: "分叉",
+      contributorsLabel: "贡献者",
+      licenseLabel: "许可证"
+    },
+    mascotShowcase: {
+      badge: "认识你的团队",
+      title: "认识你的 AI 小爪",
+      description: "一个 ChillClaw 吉祥物，多种工作模式。你的小爪会根据任务切换状态，同时始终保持温暖、简单、好上手。",
+      mode1Title: "专注小爪",
+      mode1Desc: "深度工作与分析",
+      mode2Title: "构建小爪",
+      mode2Desc: "创建与开发",
+      mode3Title: "分析小爪",
+      mode3Desc: "数据与洞察",
+      mode4Title: "支持小爪",
+      mode4Desc: "帮助与协助",
+      mode5Title: "创意小爪",
+      mode5Desc: "设计与内容",
+      mode6Title: "轻松小爪",
+      mode6Desc: "轻松友好的陪伴",
+      summaryTitle: "一只小爪，无限可能",
+      summaryDescription: "你的 ChillClaw AI 小爪会随你一起进化，学习新技能、适应你的工作流，同时保持简单、无压力。"
     },
     footer: {
       tagline: "一键创建AI员工。在他们为您工作时保持轻松。",
@@ -223,6 +305,12 @@ export const translations = {
       blog: "博客",
       privacy: "隐私",
       terms: "条款",
+      releaseNotes: "发布说明",
+      documentation: "文档",
+      workflowMap: "工作流地图",
+      openSource: "开源",
+      releases: "版本发布",
+      license: "许可证",
       madeWith: "用心制作",
       forPeople: "为想要保持轻松的人们"
     }
@@ -231,6 +319,8 @@ export const translations = {
     nav: {
       features: "機能",
       howItWorks: "仕組み",
+      workMasters: "ミニクロー",
+      openSource: "オープンソース",
       help: "ヘルプ",
       download: "ダウンロード",
       github: "GitHub"
@@ -284,11 +374,19 @@ export const translations = {
       step4Desc: "AIチームがMac上で効率的かつプライベートにすべてを処理していることを知ってリラックス。",
       simpleTitle: "本当に、それだけです",
       simpleDesc: "ChillClawは技術的な複雑さをすべて裏で処理。ポイント、クリック、AI従業員に任せるだけ。",
-      readyBadge: "準備完了！"
+      readyBadge: "準備完了！",
+      mascotTitle: "あなたのAIミニクローに会おう",
+      mascotDescription:
+        "ChillClaw の親しみやすいロブスターのマスコットは、いつでも頼れる AI ミニクローを表しています。賢く、頼もしく、ストレスなく物事を進めるのを手伝います。",
+      mascotBullet1: "ワークフローを学び、順応する",
+      mascotBullet2: "Mac上でローカルに動作",
+      mascotBullet3: "作業を安全かつプライベートに保つ"
     },
     cta: {
       badge: "今日から構築",
       title: "AI従業員が待っています",
+      titleLead: "あなたのAIミニクロー",
+      titleAccent: "が待っています",
       description: "リラックスしながらより多くのことを成し遂げる秘密を既に発見した人々に参加。macOS版ChillClawをダウンロードし、1分以内に最初のAI従業員を作成。",
       downloadMac: "macOS版をダウンロード",
       watchDemo: "デモを見る",
@@ -302,8 +400,13 @@ export const translations = {
     openSource: {
       badge: "オープンソース & コミュニティ",
       title: "コミュニティによって構築、コミュニティのために",
+      titleLead: "コミュニティによって作られ、",
+      titleAccent: "コミュニティのために",
       description:
         "ChillClawは100%オープンソースです。コードを探索し、機能を貢献し、バグを報告する、または自分のプロジェクト用にフォークします。誰でも歓迎します。",
+      communityTitle: "ChillClawコミュニティに参加",
+      communityDescription:
+        "ソースを読み、リリースを追い、Issueを開き、改善に貢献しましょう。ChillClaw は公開で開発されており、その歩み自体がプロダクトの物語です。",
       viewSource: "ソースコードを表示",
       contribute: "貢献する",
       starOnGithub: "GitHubでスターをつける",
@@ -312,7 +415,31 @@ export const translations = {
       feature2: "コミュニティ駆動",
       feature2Desc: "世界中の開発者の貢献で構築",
       feature3: "透明性",
-      feature3Desc: "すべての開発は公開で行われます"
+      feature3Desc: "すべての開発は公開で行われます",
+      starsLabel: "スター",
+      forksLabel: "フォーク",
+      contributorsLabel: "コントリビューター",
+      licenseLabel: "ライセンス"
+    },
+    mascotShowcase: {
+      badge: "チームを紹介",
+      title: "あなたのAIミニクローたち",
+      description: "ひとつの ChillClaw マスコットが、さまざまな作業モードに変化します。ミニクローは仕事に合わせて姿を変えながら、親しみやすくシンプルな体験を保ちます。",
+      mode1Title: "集中ミニクロー",
+      mode1Desc: "深い作業と分析",
+      mode2Title: "ビルダーミニクロー",
+      mode2Desc: "制作と開発",
+      mode3Title: "分析ミニクロー",
+      mode3Desc: "データと洞察",
+      mode4Title: "サポートミニクロー",
+      mode4Desc: "支援とサポート",
+      mode5Title: "クリエイティブミニクロー",
+      mode5Desc: "デザインとコンテンツ",
+      mode6Title: "チルミニクロー",
+      mode6Desc: "気軽でフレンドリー",
+      summaryTitle: "ひとつのミニクロー、無限の可能性",
+      summaryDescription:
+        "あなたの ChillClaw AI ミニクローは、新しいスキルを学びながらワークフローに適応し、シンプルでストレスのない体験を保ちます。"
     },
     footer: {
       tagline: "ワンクリックでAI従業員を作成。彼らが働く間リラックス。",
@@ -331,6 +458,12 @@ export const translations = {
       blog: "ブログ",
       privacy: "プライバシー",
       terms: "利用規約",
+      releaseNotes: "リリースノート",
+      documentation: "ドキュメント",
+      workflowMap: "ワークフローマップ",
+      openSource: "オープンソース",
+      releases: "リリース",
+      license: "ライセンス",
       madeWith: "作られた",
       forPeople: "リラックスしたい人々のために"
     }
@@ -339,6 +472,8 @@ export const translations = {
     nav: {
       features: "기능",
       howItWorks: "작동 원리",
+      workMasters: "미니 클로",
+      openSource: "오픈 소스",
       help: "도움말",
       download: "다운로드",
       github: "GitHub"
@@ -392,11 +527,19 @@ export const translations = {
       step4Desc: "AI 팀이 Mac에서 효율적이고 비공개로 모든 것을 처리한다는 것을 알고 편안해지세요.",
       simpleTitle: "진짜로, 그렇게 간단합니다",
       simpleDesc: "ChillClaw는 모든 기술적 복잡성을 뒤에서 처리합니다. 가리키고, 클릭하고, AI 직원이 일하게 하세요.",
-      readyBadge: "준비 완료!"
+      readyBadge: "준비 완료!",
+      mascotTitle: "당신의 AI 미니 클로를 만나보세요",
+      mascotDescription:
+        "ChillClaw의 친근한 바닷가재 마스코트는 언제나 준비된 AI 미니 클로를 상징합니다. 똑똑하고 든든하며, 스트레스 없이 일을 끝내도록 도와줍니다.",
+      mascotBullet1: "당신의 워크플로를 배우고 적응합니다",
+      mascotBullet2: "당신의 Mac에서 로컬로 작동합니다",
+      mascotBullet3: "작업을 비공개로 안전하게 지킵니다"
     },
     cta: {
       badge: "오늘 구축 시작",
       title: "AI 직원이 기다립니다",
+      titleLead: "당신의 AI 미니 클로",
+      titleAccent: "가 기다립니다",
       description: "편안하게 더 많은 일을 완수하는 비밀을 이미 발견한 사람들과 함께하세요. macOS용 ChillClaw를 다운로드하고 1분 안에 첫 AI 직원을 만드세요.",
       downloadMac: "macOS용 다운로드",
       watchDemo: "데모 보기",
@@ -410,8 +553,13 @@ export const translations = {
     openSource: {
       badge: "오픈 소스 & 커뮤니티",
       title: "커뮤니티에 의해 구축, 커뮤니티를 위한",
+      titleLead: "커뮤니티가 만들고,",
+      titleAccent: "커뮤니티를 위해",
       description:
         "ChillClaw는 100% 오픈 소스입니다. 코드를 탐색하고 기능을 기여하고 버그를 보고하거나 자신의 프로젝트를 위해 포크할 수 있습니다. 누구나 환영합니다.",
+      communityTitle: "ChillClaw 커뮤니티에 함께하세요",
+      communityDescription:
+        "소스를 살펴보고, 릴리스를 확인하고, 이슈를 열거나 개선에 기여하세요. ChillClaw는 공개적으로 만들어지고 있으며, 그 기록 자체가 제품 스토리의 일부입니다.",
       viewSource: "소스 코드 보기",
       contribute: "기여하기",
       starOnGithub: "GitHub에서 스타 달기",
@@ -420,7 +568,30 @@ export const translations = {
       feature2: "커뮤니티 주도",
       feature2Desc: "전 세계 개발자의 기여로 구축",
       feature3: "투명성",
-      feature3Desc: "모든 개발이 공개됩니다"
+      feature3Desc: "모든 개발이 공개됩니다",
+      starsLabel: "스타",
+      forksLabel: "포크",
+      contributorsLabel: "기여자",
+      licenseLabel: "라이선스"
+    },
+    mascotShowcase: {
+      badge: "팀을 만나보세요",
+      title: "당신의 AI 미니 클로들",
+      description: "하나의 ChillClaw 마스코트, 다양한 작업 모드. 미니 클로는 일에 맞게 변신하면서도 친근하고 단순한 경험을 유지합니다.",
+      mode1Title: "집중 미니 클로",
+      mode1Desc: "깊이 있는 작업과 분석",
+      mode2Title: "빌더 미니 클로",
+      mode2Desc: "만들기와 개발",
+      mode3Title: "분석 미니 클로",
+      mode3Desc: "데이터와 인사이트",
+      mode4Title: "지원 미니 클로",
+      mode4Desc: "도움과 지원",
+      mode5Title: "크리에이티브 미니 클로",
+      mode5Desc: "디자인과 콘텐츠",
+      mode6Title: "칠 미니 클로",
+      mode6Desc: "편안하고 친근한 분위기",
+      summaryTitle: "하나의 미니 클로, 무한한 가능성",
+      summaryDescription: "당신의 ChillClaw AI 미니 클로는 새로운 기술을 배우고 워크플로에 적응하면서도 단순하고 부담 없는 경험을 유지합니다."
     },
     footer: {
       tagline: "원클릭으로 AI 직원 생성. 그들이 일하는 동안 편안하게.",
@@ -439,6 +610,12 @@ export const translations = {
       blog: "블로그",
       privacy: "개인정보",
       terms: "약관",
+      releaseNotes: "릴리스 노트",
+      documentation: "문서",
+      workflowMap: "워크플로 맵",
+      openSource: "오픈 소스",
+      releases: "릴리스",
+      license: "라이선스",
       madeWith: "만든",
       forPeople: "편안하고 싶은 사람들을 위해"
     }
@@ -447,6 +624,8 @@ export const translations = {
     nav: {
       features: "Características",
       howItWorks: "Cómo Funciona",
+      workMasters: "Mini Garras",
+      openSource: "Código Abierto",
       help: "Ayuda",
       download: "Descargar",
       github: "GitHub"
@@ -502,11 +681,19 @@ export const translations = {
       simpleTitle: "En serio, así de simple",
       simpleDesc:
         "ChillClaw maneja toda la complejidad técnica detrás de escena. Tú solo apuntas, haces clic y dejas que tus empleados de IA hagan lo suyo.",
-      readyBadge: "¡Listo Para Empezar!"
+      readyBadge: "¡Listo Para Empezar!",
+      mascotTitle: "Conoce a tu Mini Garra de IA",
+      mascotDescription:
+        "La amistosa mascota langosta de ChillClaw representa a tu Mini Garra de IA siempre lista: inteligente, capaz y aquí para ayudarte a terminar el trabajo sin estrés.",
+      mascotBullet1: "Aprende tu flujo de trabajo y se adapta",
+      mascotBullet2: "Funciona localmente en tu Mac",
+      mascotBullet3: "Mantiene tu trabajo privado y seguro"
     },
     cta: {
       badge: "Comienza a Construir Hoy",
       title: "Tus Empleados de IA Están Esperando",
+      titleLead: "Tus Mini Garras de IA",
+      titleAccent: "Te Están Esperando",
       description:
         "Únete a las personas que ya descubrieron el secreto para mantener la calma mientras logran más. Descarga ChillClaw para macOS y crea tu primer empleado de IA en menos de un minuto.",
       downloadMac: "Descargar para macOS",
@@ -521,8 +708,13 @@ export const translations = {
     openSource: {
       badge: "Código Abierto & Comunidad",
       title: "Construido por la Comunidad, Para la Comunidad",
+      titleLead: "Construido por la comunidad,",
+      titleAccent: "para la comunidad",
       description:
         "ChillClaw es 100% código abierto. Explora el código, contribuye con características, reporta errores o forkéalo para tu propio proyecto. Todos son bienvenidos.",
+      communityTitle: "Únete a la comunidad de ChillClaw",
+      communityDescription:
+        "Explora el código, sigue las actualizaciones, abre issues o contribuye mejoras. ChillClaw se está construyendo en público y la historia del proyecto forma parte de la historia del producto.",
       viewSource: "Ver Código Fuente",
       contribute: "Contribuir",
       starOnGithub: "Poner Estrella en GitHub",
@@ -531,7 +723,32 @@ export const translations = {
       feature2: "Dirigido por la Comunidad",
       feature2Desc: "Construido con contribuciones de desarrolladores de todo el mundo",
       feature3: "Transparente",
-      feature3Desc: "Todo el desarrollo ocurre en el abierto"
+      feature3Desc: "Todo el desarrollo ocurre en el abierto",
+      starsLabel: "Estrellas",
+      forksLabel: "Bifurcaciones",
+      contributorsLabel: "Colaboradores",
+      licenseLabel: "Licencia"
+    },
+    mascotShowcase: {
+      badge: "Conoce a tu equipo",
+      title: "Conoce a tus Mini Garras de IA",
+      description:
+        "Una mascota de ChillClaw, muchos modos de trabajo. Tu Mini Garra se adapta a la tarea mientras mantiene la experiencia cálida, simple y cercana.",
+      mode1Title: "Mini Garra de Enfoque",
+      mode1Desc: "Trabajo profundo y análisis",
+      mode2Title: "Mini Garra Creadora",
+      mode2Desc: "Crear y desarrollar",
+      mode3Title: "Mini Garra Analista",
+      mode3Desc: "Datos e insights",
+      mode4Title: "Mini Garra de Soporte",
+      mode4Desc: "Ayuda y asistencia",
+      mode5Title: "Mini Garra Creativa",
+      mode5Desc: "Diseño y contenido",
+      mode6Title: "Mini Garra Chill",
+      mode6Desc: "Casual y amistosa",
+      summaryTitle: "Una Mini Garra, posibilidades infinitas",
+      summaryDescription:
+        "Tu Mini Garra de IA de ChillClaw evoluciona contigo, aprende nuevas habilidades y se adapta a tu flujo de trabajo mientras mantiene todo simple y sin estrés."
     },
     footer: {
       tagline: "Crea empleados de IA con un clic. Mantén la calma mientras trabajan para ti.",
@@ -550,6 +767,12 @@ export const translations = {
       blog: "Blog",
       privacy: "Privacidad",
       terms: "Términos",
+      releaseNotes: "Notas de la versión",
+      documentation: "Documentación",
+      workflowMap: "Mapa de flujo",
+      openSource: "Código Abierto",
+      releases: "Versiones",
+      license: "Licencia",
       madeWith: "Hecho con",
       forPeople: "para personas que quieren mantener la calma"
     }

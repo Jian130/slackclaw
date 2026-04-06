@@ -94,6 +94,13 @@ export function startServer(port = 4545) {
   const context = createServerContext(() => {
     server.close();
   });
+  void context.localModelRuntimeService.resumePendingWork().catch((error) => {
+    void writeErrorLog("ChillClaw could not resume a pending local-model download on startup.", {
+      error: errorToLogDetails(error)
+    }, {
+      scope: "server.startServer.resumePendingLocalModelRuntime"
+    });
+  });
   const eventSocketServer = new WebSocketServer({ noServer: true });
 
   eventSocketServer.on("connection", (socket: WebSocket) => {

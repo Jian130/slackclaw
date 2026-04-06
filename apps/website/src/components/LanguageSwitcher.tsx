@@ -23,7 +23,7 @@ export function LanguageSwitcher() {
   return (
     <div className="relative" ref={dropdownRef}>
       <button
-        className="flex items-center gap-2 rounded-lg px-3 py-2 text-[#6b8284] transition-colors hover:bg-[#5eb3b8]/10 hover:text-[#5eb3b8]"
+        className="flex items-center gap-2 rounded-xl px-3 py-2 text-[#666666] transition-colors hover:bg-[#FF6A3D]/10 hover:text-[#FF6A3D]"
         onClick={() => setIsOpen((open) => !open)}
         type="button"
       >
@@ -32,10 +32,10 @@ export function LanguageSwitcher() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-xl border-2 border-[#5eb3b8]/20 bg-white shadow-xl">
+        <div className="absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-2xl border border-[#FF6A3D]/15 bg-white shadow-[0_14px_40px_rgba(45,45,45,0.12)]">
           {Object.entries(languages).map(([code, name]) => (
             <button
-              className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[#5eb3b8]/10"
+              className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[#FFEEE6]"
               key={code}
               onClick={() => {
                 setLanguage(code as Language);
@@ -43,10 +43,10 @@ export function LanguageSwitcher() {
               }}
               type="button"
             >
-              <span className={`text-sm ${language === code ? "font-semibold text-[#5eb3b8]" : "text-[#6b8284]"}`}>
+              <span className={`text-sm ${language === code ? "font-semibold text-[#FF6A3D]" : "text-[#666666]"}`}>
                 {name}
               </span>
-              {language === code ? <Check className="text-[#5eb3b8]" size={16} /> : null}
+              {language === code ? <Check className="text-[#FF6A3D]" size={16} /> : null}
             </button>
           ))}
         </div>

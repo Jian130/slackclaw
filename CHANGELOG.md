@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 2026-04-06 17:55 CST
+
+- changed daemon-managed local AI downloads to stream Ollama pull progress through the backend, persist active local-runtime snapshots, dedupe concurrent install or repair requests, and automatically resume unfinished local-model downloads after reconnects, retries, and daemon restarts
+- extended shared TypeScript and Swift local-runtime contracts so clients can observe active action, phase, digest, byte counts, and last-progress metadata, and hardened the native macOS shell by coalescing overlapping section refreshes that could trigger Swift concurrency aborts during onboarding handoff
+- refreshed the public website to the latest Figma-driven landing structure with new product preview, how-it-works, and mascot showcase sections, repo-owned logo and workmaster assets, corrected GitHub/docs/license links, and broader localized homepage regression coverage
+
 ### 2026-04-05 22:05 CST
 
 - hardened the managed local AI onboarding path after QA by fixing daemon-side Ollama command resolution, preventing stale onboarding draft state from skipping the new step 4 detection screen, and keeping the local-first model decision flow aligned between the daemon, React desktop UI, and native macOS app
