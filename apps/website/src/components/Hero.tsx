@@ -1,107 +1,82 @@
-import { ArrowRight, Code, Download, Github, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Download, Github, Sparkles } from "lucide-react";
 
-import heroImage480 from "../assets/5-480.webp";
-import heroImage720 from "../assets/5-720.webp";
-import { websiteLinks } from "../links.js";
+import { figmaAssets } from "../assets/figmaAssets.js";
 import { useLanguage } from "../i18n/LanguageContext.js";
+import { websiteLinks } from "../links.js";
 
 export function Hero() {
   const { t } = useLanguage();
 
   return (
-    <div className="relative overflow-hidden pb-20 pt-16" id="top">
-      <div className="absolute inset-0 bg-gradient-to-br from-[#5eb3b8]/10 via-[#f8fafa] to-[#f5c563]/10" />
+    <section className="relative overflow-hidden bg-gradient-to-br from-[#FFF8F3] via-[#FFEEE6] to-[#FFE5D9] pt-32 pb-16 lg:pt-44 lg:pb-24" id="top">
+      <div className="absolute top-20 right-10 h-64 w-64 rounded-full bg-[#FF6A3D] opacity-10 blur-3xl" />
+      <div className="absolute bottom-20 left-10 h-96 w-96 rounded-full bg-[#FF8866] opacity-10 blur-3xl" />
 
-      <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-        <div className="grid items-center gap-12 lg:grid-cols-2">
-          <div className="space-y-8">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex items-center rounded-full border-2 border-[#5eb3b8] bg-white px-5 py-2.5 shadow-sm">
-                <Sparkles className="mr-2 text-[#5eb3b8]" size={16} />
-                <span className="text-[#1a2b2e]">{t.hero.badge}</span>
-              </div>
-              <div className="inline-flex items-center rounded-full border-2 border-[#1a2b2e] bg-[#1a2b2e] px-5 py-2.5 text-white shadow-sm">
-                <Code className="mr-2" size={16} />
-                <span>{t.hero.openSourceBadge}</span>
-              </div>
-            </div>
-
-            <h1 className="text-5xl leading-tight font-bold text-[#1a2b2e] lg:text-7xl">
-              {t.hero.title1}{" "}
-              <span className="relative inline-block">
-                <span className="relative z-10 text-[#5eb3b8]">{t.hero.title2}</span>
-                <span className="absolute bottom-2 left-0 h-3 w-full -rotate-1 bg-[#f5c563] opacity-60" />
-              </span>{" "}
-              {t.hero.title3}
+      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+          <div className="space-y-10 text-left">
+            <h1 className="text-5xl leading-tight font-bold text-[#2D2D2D] lg:text-6xl">
+              {t.hero.title1}
+              {t.hero.title2 ? (
+                <>
+                  <br />
+                  {t.hero.title2}
+                </>
+              ) : null}
             </h1>
 
-            <p className="max-w-xl text-xl leading-relaxed text-[#6b8284]">{t.hero.description}</p>
-
-            <div className="flex flex-col gap-4 sm:flex-row">
+            <div className="flex flex-col gap-4 pt-2 sm:flex-row">
               <a
-                className="group inline-flex items-center justify-center rounded-2xl bg-[#5eb3b8] px-8 py-4 text-white shadow-lg transition-all hover:-translate-y-0.5 hover:bg-[#4da0a5] hover:shadow-xl"
+                className="group inline-flex items-center justify-center rounded-lg bg-[#FF6A3D] px-6 py-3.5 font-medium whitespace-nowrap text-white shadow-lg transition-all hover:-translate-y-0.5 hover:bg-[#E55A2F] hover:shadow-xl"
                 href={websiteLinks.downloadMac}
-                rel="noreferrer"
-                target="_blank"
               >
-                <Download className="mr-2" size={20} />
-                {t.hero.downloadMac}
-                <ArrowRight className="ml-2 transition-transform group-hover:translate-x-1" size={20} />
+                <Download className="mr-2 flex-shrink-0" size={20} />
+                <span className="whitespace-nowrap">{t.hero.downloadMac}</span>
+                <ArrowRight className="ml-2 flex-shrink-0 transition-transform group-hover:translate-x-1" size={20} />
               </a>
 
               <a
-                className="inline-flex items-center justify-center rounded-2xl border-2 border-[#1a2b2e] bg-white px-8 py-4 text-[#1a2b2e] shadow-sm transition-all hover:bg-[#1a2b2e] hover:text-white"
+                className="inline-flex items-center justify-center rounded-lg border-2 border-[#2D2D2D] bg-white px-6 py-3.5 font-medium whitespace-nowrap text-[#2D2D2D] shadow-md transition-all hover:-translate-y-0.5 hover:bg-[#2D2D2D] hover:text-white hover:shadow-lg"
                 href={websiteLinks.repository}
                 rel="noreferrer"
                 target="_blank"
               >
-                <Github className="mr-2" size={20} />
-                {t.hero.viewGithub}
+                <Github className="mr-2 flex-shrink-0" size={20} />
+                <span className="whitespace-nowrap">{t.hero.viewGithub}</span>
               </a>
             </div>
 
-            <div className="flex flex-wrap gap-6 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-[#5eb3b8]" />
-                <span className="text-[#6b8284]">{t.hero.feature1}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-[#f5c563]" />
-                <span className="text-[#6b8284]">{t.hero.feature2}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-[#ffa463]" />
-                <span className="text-[#6b8284]">{t.hero.feature3}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-[#1a2b2e]" />
-                <span className="text-[#6b8284]">{t.hero.feature4}</span>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[t.hero.feature1, t.hero.feature2, t.hero.feature3, t.hero.feature4].map((trustPoint) => (
+                <div className="flex items-center gap-2.5 rounded-xl bg-white px-4 py-3 shadow-sm" key={trustPoint}>
+                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-[#FF6A3D]">
+                    <Check className="text-white" size={14} strokeWidth={3} />
+                  </div>
+                  <span className="text-sm font-medium whitespace-nowrap text-[#2D2D2D]">{trustPoint}</span>
+                </div>
+              ))}
             </div>
           </div>
 
           <div className="relative flex justify-center lg:justify-end">
-            <div className="relative w-full max-w-md">
-              <div className="absolute inset-0 rotate-3 rounded-[3rem] bg-gradient-to-br from-[#5eb3b8] to-[#4da0a5] opacity-20" />
-
-              <div className="relative rounded-[3rem] bg-gradient-to-br from-[#5eb3b8] to-[#71c4c9] p-8 shadow-2xl">
+            <div className="relative aspect-square w-full max-w-lg">
+              <div className="absolute inset-0 flex items-center justify-center rounded-[2rem] border-4 border-white/60 bg-gradient-to-br from-[#FFEEE6] to-[#FFF5ED] p-10 shadow-[0_8px_32px_rgba(255,106,61,0.15),0_2px_8px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+                <div className="pointer-events-none absolute inset-2 rounded-[1.5rem] bg-gradient-to-br from-white/40 to-transparent" />
                 <img
-                  alt="ChillClaw character with dragon companion"
-                  className="relative z-10 h-auto w-full"
-                  sizes="(min-width: 1024px) 28rem, 80vw"
-                  src={heroImage720}
-                  srcSet={`${heroImage480} 480w, ${heroImage720} 720w`}
+                  alt="ChillClaw AI Mini Claw - Orange Lobster Mascot"
+                  className="relative z-10 h-full w-full object-contain drop-shadow-2xl"
+                  src={figmaAssets.heroMascot}
                 />
               </div>
 
-              <div className="absolute -bottom-4 -left-4 z-20 hidden rounded-2xl border-2 border-[#5eb3b8] bg-white p-5 shadow-xl sm:block">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#5eb3b8] to-[#71c4c9]">
-                    <Sparkles className="text-white" size={24} />
+              <div className="absolute -right-4 -bottom-4 z-20 rounded-xl border-2 border-[#FF6A3D] bg-white px-4 py-3 shadow-lg">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#FF6A3D] shadow-sm">
+                    <Sparkles className="text-white" size={20} />
                   </div>
                   <div>
-                    <div className="font-semibold whitespace-nowrap text-[#1a2b2e]">{t.hero.aiBadge}</div>
-                    <div className="text-sm whitespace-nowrap text-[#6b8284]">{t.hero.freeForever}</div>
+                    <div className="text-sm font-bold whitespace-nowrap text-[#2D2D2D]">{t.hero.aiBadge}</div>
+                    <div className="text-xs whitespace-nowrap text-[#666666]">{t.hero.deployInstantly}</div>
                   </div>
                 </div>
               </div>
@@ -109,6 +84,6 @@ export function Hero() {
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
