@@ -674,13 +674,22 @@ async function readThroughCache<T>(
   }
 
   const entry: ReadCacheEntry = {
-    expiresAt: now + ttlMs,
+    // Expire settled snapshots relative to when the loader finishes, not when it starts.
+    // Slow OpenClaw reads should still be reusable immediately after they complete.
+    expiresAt: Number.MAX_SAFE_INTEGER,
     promise: Promise.resolve(),
     settled: false
   };
 
   const promise = Promise.resolve()
     .then(loader)
+    .then((value) => {
+      if (readCache.get(key)?.promise === promise && entry.expiresAt !== 0) {
+        entry.expiresAt = Date.now() + ttlMs;
+      }
+
+      return value;
+    })
     .catch((error) => {
       if (readCache.get(key)?.promise === promise) {
         readCache.delete(key);
@@ -3446,6 +3455,7 @@ export class OpenClawAdapter implements EngineAdapter {
     this.config = new OpenClawConfigManager({
       getModelConfig: () => modelsConfigCoordinator.getModelConfig(),
       getModelSelection: () => modelsConfigCoordinator.getModelSelection(),
+      canReuseSavedModelEntry: (entryId) => modelsConfigCoordinator.canReuseSavedModelEntry(entryId),
       createSavedModelEntry: (request) => modelsConfigCoordinator.createSavedModelEntry(request),
       updateSavedModelEntry: (entryId, request) => modelsConfigCoordinator.updateSavedModelEntry(entryId, request),
       upsertManagedLocalModelEntry: (request) => modelsConfigCoordinator.upsertManagedLocalModelEntry(request),

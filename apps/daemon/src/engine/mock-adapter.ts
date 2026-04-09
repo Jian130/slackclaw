@@ -397,6 +397,7 @@ export class MockAdapter implements EngineAdapter {
     this.config = new OpenClawConfigManager({
       getModelConfig: () => this.getModelConfig(),
       getModelSelection: () => this.getModelSelection(),
+      canReuseSavedModelEntry: (entryId) => this.canReuseSavedModelEntry(entryId),
       createSavedModelEntry: (request) => this.createSavedModelEntry(request),
       updateSavedModelEntry: (entryId, request) => this.updateSavedModelEntry(entryId, request),
       upsertManagedLocalModelEntry: (request) => this.upsertManagedLocalModelEntry(request),
@@ -799,6 +800,10 @@ export class MockAdapter implements EngineAdapter {
       defaultModel: defaultEntry?.modelKey,
       defaultEntryId: defaultEntry?.id
     };
+  }
+
+  private async canReuseSavedModelEntry(entryId: string): Promise<boolean> {
+    return this.savedEntries.some((entry) => entry.id === entryId);
   }
 
   async createSavedModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {

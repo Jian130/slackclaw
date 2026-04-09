@@ -200,6 +200,85 @@ test("onboarding state keeps the model step undecided even when a default model 
   assert.equal(repaired.summary.model, undefined);
 });
 
+test("channel-step onboarding state uses the staged draft summary without live rechecks", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-summary-parallel-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService);
+  let statusCalls = 0;
+  let targetCalls = 0;
+  let modelCalls = 0;
+  let channelCalls = 0;
+
+  adapter.instances.status = async () => {
+    statusCalls += 1;
+    throw new Error("Channel-step getState should not re-read engine status.");
+  };
+  adapter.instances.getDeploymentTargets = async () => {
+    targetCalls += 1;
+    throw new Error("Channel-step getState should not re-read deployment targets.");
+  };
+  adapter.config.getModelConfig = async () => {
+    modelCalls += 1;
+    throw new Error("Channel-step getState should not re-read model config.");
+  };
+  Object.assign(channelSetupService, {
+    async getConfigOverview() {
+      channelCalls += 1;
+      throw new Error("Channel-step getState should not re-read channel config.");
+    }
+  });
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "channel",
+        install: {
+          installed: true,
+          version: "2026.4.5",
+          disposition: "reused-existing"
+        },
+        model: {
+          providerId: "openai",
+          modelKey: "openai/gpt-5",
+          entryId: "entry-openai"
+        },
+        channel: {
+          channelId: "telegram",
+          entryId: "telegram:default"
+        }
+      }
+    }
+  }));
+
+  const state = await service.getState();
+
+  assert.deepEqual(state.summary, {
+    install: {
+      installed: true,
+      version: "2026.4.5",
+      disposition: "reused-existing"
+    },
+    model: {
+      providerId: "openai",
+      modelKey: "openai/gpt-5",
+      entryId: "entry-openai"
+    },
+    channel: {
+      channelId: "telegram",
+      entryId: "telegram:default"
+    }
+  });
+  assert.equal(statusCalls, 0);
+  assert.equal(targetCalls, 0);
+  assert.equal(modelCalls, 0);
+  assert.equal(channelCalls, 0);
+});
+
 test("onboarding state repairs later steps from an already configured default model entry", async () => {
   const { adapter, service } = createService("onboarding-service-repair-later-model-step");
 
@@ -231,6 +310,37 @@ test("onboarding state repairs later steps from an already configured default mo
   assert.equal(repaired.draft.model?.providerId, "ollama");
   assert.equal(repaired.draft.model?.modelKey, "ollama/gemma4:e4b");
   assert.equal(repaired.summary.model?.entryId, repaired.draft.model?.entryId);
+});
+
+test("onboarding state sends later drafts back to the model step when the default cloud model is not reusable", async () => {
+  const { adapter, service } = createService("onboarding-service-repair-later-cloud-model-step");
+
+  Object.assign(adapter.config as object, {
+    async canReuseSavedModelEntry(entryId: string) {
+      assert.equal(entryId, "mock-openai-gpt-4o-mini");
+      return false;
+    }
+  });
+
+  await service.updateState({
+    currentStep: "channel",
+    install: {
+      installed: true,
+      version: "2026.4.5",
+      disposition: "reused-existing"
+    },
+    permissions: {
+      confirmed: true,
+      confirmedAt: new Date().toISOString()
+    },
+    model: undefined
+  });
+
+  const repaired = await service.getState();
+
+  assert.equal(repaired.draft.currentStep, "model");
+  assert.equal(repaired.draft.model, undefined);
+  assert.equal(repaired.summary.model, undefined);
 });
 
 test("navigating from the local model step to the channel step recovers the managed local model entry", async () => {
@@ -1004,6 +1114,61 @@ test("skipping onboarding to the dashboard bypasses AI employee creation and gat
   assert.equal(memberCreateCalls, 0);
   assert.equal(adapter.gatewayFinalizeCalls, 0);
   assert.equal(state.onboarding, undefined);
+});
+
+test("onboarding completion rejects unreusable cloud model entries before creating the AI employee", async () => {
+  const { adapter, service, aiTeamService } = createService("onboarding-service-complete-requires-reusable-model-auth");
+  let memberCreateCalls = 0;
+
+  Object.assign(adapter.config as object, {
+    async canReuseSavedModelEntry(entryId: string) {
+      assert.equal(entryId, "mock-openai-gpt-4o-mini");
+      return false;
+    }
+  });
+  Object.assign(aiTeamService, {
+    async saveMemberForOnboarding() {
+      memberCreateCalls += 1;
+      throw new Error("Onboarding should reject unreusable model auth before creating the AI employee.");
+    }
+  });
+
+  await service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "reused-existing"
+    },
+    permissions: {
+      confirmed: true,
+      confirmedAt: "2026-03-24T00:01:00.000Z"
+    },
+    model: {
+      providerId: "openai",
+      modelKey: "openai/gpt-4o-mini",
+      entryId: "mock-openai-gpt-4o-mini"
+    },
+    channel: {
+      channelId: "wechat",
+      entryId: "wechat:default"
+    },
+    channelProgress: {
+      status: "staged",
+      message: "WeChat is staged."
+    },
+    employee: {
+      name: "Alex Morgan",
+      jobTitle: "Research Analyst",
+      avatarPresetId: "onboarding-analyst"
+    }
+  });
+
+  await assert.rejects(
+    () => service.complete({ destination: "chat" }),
+    /re-save the first model/i
+  );
+  assert.equal(memberCreateCalls, 0);
 });
 
 test("onboarding completion binds the selected channel to the created AI employee", async () => {

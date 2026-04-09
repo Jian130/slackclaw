@@ -301,6 +301,36 @@ test("forced app update check refreshes overview state and engine update alias r
   }
 });
 
+test("legacy onboarding setup route returns route not found", async () => {
+  const previousEngine = process.env.CHILLCLAW_ENGINE;
+  process.env.CHILLCLAW_ENGINE = "mock";
+
+  const server = startServer(0);
+  await once(server, "listening");
+  const port = (server.address() as AddressInfo).port;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/onboarding/setup`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        autoConfigure: true,
+        forceLocal: true
+      })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 404);
+    assert.equal(payload.error, "Route not found.");
+  } finally {
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    if (previousEngine === undefined) delete process.env.CHILLCLAW_ENGINE;
+    else process.env.CHILLCLAW_ENGINE = previousEngine;
+  }
+});
+
 test("server matches mutable skill routes from pathname instead of raw request.url", async () => {
   const previousEngine = process.env.CHILLCLAW_ENGINE;
   process.env.CHILLCLAW_ENGINE = "mock";

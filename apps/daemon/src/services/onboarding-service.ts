@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 
 import type {
   ChannelConfigActionResponse,
@@ -32,6 +33,7 @@ import type { PresetSkillService } from "./preset-skill-service.js";
 import { SetupService } from "./setup-service.js";
 import { AITeamService } from "./ai-team-service.js";
 import type { LocalModelRuntimeService } from "./local-model-runtime-service.js";
+import { formatConsoleLine } from "./logger.js";
 import { StateStore, defaultOnboardingDraftState, type OnboardingWarmupState } from "./state-store.js";
 
 const onboardingUiConfig = resolveOnboardingUiConfig();
@@ -208,8 +210,18 @@ export class OnboardingService {
   }
 
   async getState(): Promise<OnboardingStateResponse> {
+    const t0 = performance.now();
+
+    const t1 = performance.now();
     const { state } = await this.readResolvedDraftState();
-    return this.buildStateResponse(state);
+    console.log(formatConsoleLine(`readResolvedDraftState: ${(performance.now() - t1).toFixed(1)}ms`, { scope: "onboarding.getState" }));
+
+    const t2 = performance.now();
+    const result = await this.buildStateResponse(state);
+    console.log(formatConsoleLine(`buildStateResponse: ${(performance.now() - t2).toFixed(1)}ms`, { scope: "onboarding.getState" }));
+
+    console.log(formatConsoleLine(`total: ${(performance.now() - t0).toFixed(1)}ms`, { scope: "onboarding.getState" }));
+    return result;
   }
 
   async updateState(
@@ -575,6 +587,9 @@ export class OnboardingService {
       if (!brainEntryId) {
         throw new Error("Save the first model before creating the AI employee.");
       }
+      if (!(await this.adapter.config.canReuseSavedModelEntry(brainEntryId))) {
+        throw new Error("Re-save the first model in Configuration before finishing onboarding.");
+      }
 
       const presetSkillIds = resolvePresetSkillIds(employee);
       const warmupTargetMode = onboardingTargetMode(completionDraft.install);
@@ -881,12 +896,18 @@ export class OnboardingService {
     state: Awaited<ReturnType<StateStore["read"]>>;
     draft: ReturnType<typeof defaultOnboardingDraftState>;
   }> {
+    const t0 = performance.now();
     const current = await this.store.read();
+    console.log(formatConsoleLine(`store.read: ${(performance.now() - t0).toFixed(1)}ms`, { scope: "onboarding.readResolvedDraftState" }));
+
     const existingDraft = {
       ...(current.onboarding?.draft ?? defaultOnboardingDraftState()),
       employee: normalizedEmployeeState(current.onboarding?.draft?.employee)
     };
+
+    const t1 = performance.now();
     const repairedDraft = await this.repairProgressedDraft(existingDraft);
+    console.log(formatConsoleLine(`repairProgressedDraft: ${(performance.now() - t1).toFixed(1)}ms`, { scope: "onboarding.readResolvedDraftState" }));
 
     if (JSON.stringify(this.repairableDraftFields(existingDraft)) === JSON.stringify(this.repairableDraftFields(repairedDraft))) {
       return {
@@ -963,13 +984,15 @@ export class OnboardingService {
         modelConfig.savedEntries.find((entry) => entry.modelKey === modelConfig.defaultModel) ??
         modelConfig.savedEntries[0];
 
-      if (preferredEntry) {
+      if (preferredEntry && await this.adapter.config.canReuseSavedModelEntry(preferredEntry.id)) {
         repaired.model = {
           providerId: preferredEntry.providerId,
           modelKey: preferredEntry.modelKey,
           methodId: preferredEntry.authMethodId,
           entryId: preferredEntry.id
         };
+      } else {
+        repaired.currentStep = "model";
       }
     }
 
@@ -1174,14 +1197,27 @@ export class OnboardingService {
       ...(state.onboarding?.draft ?? defaultOnboardingDraftState()),
       employee: normalizedEmployeeState(state.onboarding?.draft?.employee)
     };
-    const summary =
-      draft.currentStep === "model"
-        ? this.buildDraftSummary(draft)
-        : await this.buildSummary(draft);
+
+    // Use draft summary for reads — the draft is already validated by mutations,
+    // and calling buildSummary here hits OpenClaw CLI on every poll (10-40s cost).
+    const tSummary = performance.now();
+    const summary = this.buildDraftSummary(draft);
+    console.log(formatConsoleLine(`buildDraftSummary (step=${draft.currentStep}): ${(performance.now() - tSummary).toFixed(1)}ms`, { scope: "onboarding.buildStateResponse" }));
+
+    const tRuntime = performance.now();
     const localRuntime =
       draft.currentStep === "model" && this.localModelRuntimeService
         ? await this.localModelRuntimeService.getOverview()
         : undefined;
+    if (draft.currentStep === "model") {
+      console.log(formatConsoleLine(`localModelRuntimeService.getOverview: ${(performance.now() - tRuntime).toFixed(1)}ms`, { scope: "onboarding.buildStateResponse" }));
+    }
+
+    const tPreset = performance.now();
+    const presetSkillSync = this.presetSkillService ? await this.presetSkillService.getOverview() : undefined;
+    if (this.presetSkillService) {
+      console.log(formatConsoleLine(`presetSkillService.getOverview: ${(performance.now() - tPreset).toFixed(1)}ms`, { scope: "onboarding.buildStateResponse" }));
+    }
 
     return {
       firstRun: {
@@ -1193,7 +1229,7 @@ export class OnboardingService {
       config: onboardingUiConfig,
       summary,
       localRuntime,
-      presetSkillSync: this.presetSkillService ? await this.presetSkillService.getOverview() : undefined
+      presetSkillSync
     };
   }
 
@@ -1249,14 +1285,29 @@ export class OnboardingService {
 
   private async buildSummary(draft: ReturnType<typeof defaultOnboardingDraftState>): Promise<OnboardingCompletionSummary> {
     const summary: OnboardingCompletionSummary = {};
+    const draftModel = draft.model;
+    const draftChannel = draft.channel;
+    const draftEmployee = draft.employee;
+    const needsAiTeam = Boolean(draftEmployee?.memberId);
 
-    if (draft.install) {
-      summary.install = await this.detectInstallState(draft.install);
+    // Fetch all required engine state in parallel to avoid sequential CLI latency.
+    const t = performance.now();
+    const [installState, modelConfig, channelConfig, aiTeam] = await Promise.all([
+      draft.install ? this.detectInstallState(draft.install) : Promise.resolve(undefined),
+      draftModel ? this.adapter.config.getModelConfig() : Promise.resolve(undefined),
+      draftChannel ? this.channelSetupService.getConfigOverview() : Promise.resolve(undefined),
+      needsAiTeam ? this.aiTeamService.getOverview() : Promise.resolve(undefined)
+    ]);
+    console.log(formatConsoleLine(
+      `parallel fetch (install=${!!draft.install}, model=${!!draftModel}, channel=${!!draftChannel}, aiTeam=${needsAiTeam}): ${(performance.now() - t).toFixed(1)}ms`,
+      { scope: "onboarding.buildSummary" }
+    ));
+
+    if (installState) {
+      summary.install = installState;
     }
 
-    if (draft.model) {
-      const draftModel = draft.model;
-      const modelConfig = await this.adapter.config.getModelConfig();
+    if (draftModel && modelConfig) {
       const matchedEntry = resolveSavedModelEntry(modelConfig.savedEntries, {
         entryId: draftModel.entryId,
         providerId: draftModel.providerId,
@@ -1274,9 +1325,7 @@ export class OnboardingService {
         : draftModel;
     }
 
-    if (draft.channel) {
-      const draftChannel = draft.channel;
-      const channelConfig = await this.channelSetupService.getConfigOverview();
+    if (draftChannel && channelConfig) {
       const matchedEntry = draftChannel.entryId
         ? channelConfig.entries.find((entry) => entry.id === draftChannel.entryId)
         : channelConfig.entries.find((entry) => entry.channelId === draftChannel.channelId);
@@ -1289,13 +1338,11 @@ export class OnboardingService {
         : draftChannel;
     }
 
-    if (draft.employee) {
-      const draftEmployee = draft.employee;
+    if (draftEmployee) {
       if (!draftEmployee.memberId) {
         summary.employee = draftEmployee;
       } else {
-        const aiTeam = await this.aiTeamService.getOverview();
-        const matchedMember = aiTeam.members.find((member) => member.id === draftEmployee.memberId);
+        const matchedMember = aiTeam?.members.find((member) => member.id === draftEmployee.memberId);
 
         summary.employee = matchedMember
           ? {

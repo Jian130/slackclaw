@@ -681,7 +681,10 @@ export class ChannelsConfigCoordinator {
     }
 
     const startPromise = (async () => {
-      const env = this.access.buildCommandEnv();
+      // Resolve the managed openclaw binary so its directory is prepended to PATH.
+      // The weixin-installer checks for `openclaw` on PATH and fails if it's not found.
+      const openclawCommand = await this.access.resolveOpenClawCommand();
+      const env = this.access.buildCommandEnv(openclawCommand ?? undefined);
       const command = await this.ensureWechatInstallerCommand();
 
       const installerArgs = ["install"];

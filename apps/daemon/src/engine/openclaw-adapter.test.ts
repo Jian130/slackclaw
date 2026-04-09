@@ -965,6 +965,21 @@ test("fresh model invalidation reuses an in-flight model snapshot instead of sta
   });
 });
 
+test("slow model snapshots stay cached after they finish loading", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    await adapter.config.getModelConfig();
+    await adapter.config.getModelConfig();
+
+    const commands = await readCommands(logPath);
+
+    assert.equal(countCommands(commands, "models list --json"), 1);
+    assert.equal(countCommands(commands, "models status --json"), 1);
+    assert.equal(countCommands(commands, "models list --all --json"), 1);
+  }, {
+    slowModelReads: true
+  });
+});
+
 test("OpenClaw model config clears stale configured models when the live runtime is clean", async () => {
   await withFakeOpenClaw(async ({ adapter, dataDir }) => {
     const statePath = resolve(dataDir, "openclaw-state.json");

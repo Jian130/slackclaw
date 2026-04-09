@@ -34,6 +34,7 @@ test("config manager stores model auth secrets through the secrets adapter befor
         defaultModel: response.modelConfig.defaultModel,
         defaultEntryId: response.modelConfig.defaultEntryId
       }),
+      canReuseSavedModelEntry: async () => true,
       createSavedModelEntry: async () => response,
       updateSavedModelEntry: async () => response,
       upsertManagedLocalModelEntry: async () => response,

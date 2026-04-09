@@ -9,8 +9,11 @@ import type {
   SaveModelEntryRequest
 } from "@chillclaw/contracts";
 
+import { performance } from "node:perf_hooks";
+
 import { jsonResponse, readJson } from "./http.js";
 import { createPathMatcher } from "./matchers.js";
+import { formatConsoleLine } from "../services/logger.js";
 import type { RouteDefinition } from "./types.js";
 
 const matchOnboardingModelAuthSession = createPathMatcher("/api/onboarding/model/auth/session/:sessionId");
@@ -22,24 +25,19 @@ const matchOnboardingChannelSessionInput = createPathMatcher("/api/onboarding/ch
 export const onboardingRoutes: RouteDefinition[] = [
   {
     method: "POST",
-    match: createPathMatcher("/api/first-run/intro"),
+    match: createPathMatcher("/api/onboarding/intro"),
     async handle({ context }) {
       return jsonResponse(await context.setupService.markIntroCompleted());
-    }
-  },
-  {
-    method: "POST",
-    match: createPathMatcher("/api/first-run/setup"),
-    async handle({ context, request }) {
-      const body = await readJson<InstallRequest>(request);
-      return jsonResponse(await context.setupService.runFirstRunSetup({ forceLocal: body.forceLocal ?? true }));
     }
   },
   {
     method: "GET",
     match: createPathMatcher("/api/onboarding/state"),
     async handle({ context }) {
-      return jsonResponse(await context.onboardingService.getState());
+      const t0 = performance.now();
+      const result = await context.onboardingService.getState();
+      console.log(formatConsoleLine(`GET /api/onboarding/state: ${(performance.now() - t0).toFixed(1)}ms`, { scope: "route" }));
+      return jsonResponse(result);
     }
   },
   {

@@ -507,6 +507,31 @@ export class ModelsConfigCoordinator {
     };
   }
 
+  async canReuseSavedModelEntry(entryId: string): Promise<boolean> {
+    await this.getModelConfig();
+    const state = this.access.normalizeStateFlags(await this.access.readAdapterState());
+    const entry = state.modelEntries?.find((item) => item.id === entryId);
+
+    if (!entry) {
+      return false;
+    }
+
+    const provider = providerDefinitionById(entry.providerId);
+    const method = entry.authMethodId
+      ? provider?.authMethods.find((item) => item.id === entry.authMethodId)
+      : undefined;
+
+    if (!method) {
+      return false;
+    }
+
+    if (method.kind === "local") {
+      return true;
+    }
+
+    return this.access.hasReusableAuthForSavedModelEntry(entry, entry.providerId, method);
+  }
+
   async getModelConfig(): Promise<ModelConfigOverview> {
     const snapshot = await this.access.readModelSnapshot();
 

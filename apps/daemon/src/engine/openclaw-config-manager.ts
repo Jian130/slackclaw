@@ -35,6 +35,7 @@ import { NoopSecretsAdapter, modelAuthSecretName, type SecretsAdapter } from "..
 type ConfigAccess = {
   getModelConfig: () => Promise<ModelConfigOverview>;
   getModelSelection: () => Promise<Pick<ModelConfigOverview, "savedEntries" | "defaultEntryId" | "defaultModel">>;
+  canReuseSavedModelEntry: (entryId: string) => Promise<boolean>;
   createSavedModelEntry: (request: SaveModelEntryRequest) => Promise<ModelConfigActionResponse>;
   updateSavedModelEntry: (entryId: string, request: SaveModelEntryRequest) => Promise<ModelConfigActionResponse>;
   upsertManagedLocalModelEntry: (request: ManagedLocalModelEntryRequest) => Promise<ModelConfigActionResponse>;
@@ -102,6 +103,10 @@ export class OpenClawConfigManager implements ConfigManager {
 
   getModelSelection() {
     return this.access.getModelSelection();
+  }
+
+  canReuseSavedModelEntry(entryId: string) {
+    return this.access.canReuseSavedModelEntry(entryId);
   }
 
   async createSavedModelEntry(request: SaveModelEntryRequest) {

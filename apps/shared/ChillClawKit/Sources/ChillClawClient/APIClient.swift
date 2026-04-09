@@ -94,11 +94,7 @@ public final class ChillClawAPIClient: @unchecked Sendable {
     }
 
     public func runFirstRunSetup(forceLocal: Bool = true) async throws -> SetupRunResponse {
-        try await post(
-            "/api/first-run/setup",
-            body: InstallRequest(autoConfigure: true, forceLocal: forceLocal),
-            timeout: RequestTimeout.longRunning
-        )
+        try await installOnboardingRuntime(forceLocal: forceLocal)
     }
 
     public func fetchAppUpdate() async throws -> AppUpdateStatus {

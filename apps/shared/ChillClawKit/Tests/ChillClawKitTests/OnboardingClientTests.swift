@@ -780,7 +780,7 @@ struct OnboardingClientTests {
 
         let request = try #require(await recorder.lastRequest())
         #expect(request.httpMethod == "POST")
-        #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/first-run/setup")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/onboarding/runtime/install")
         #expect(request.timeoutInterval == 300)
     }
 

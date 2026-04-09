@@ -230,7 +230,7 @@ export function restartGateway(): Promise<GatewayActionResponse> {
 }
 
 export function markFirstRunIntroComplete(): Promise<ProductOverview> {
-  return readJson<ProductOverview>("/first-run/intro", {
+  return readJson<ProductOverview>("/onboarding/intro", {
     method: "POST"
   });
 }
@@ -437,10 +437,7 @@ export function repairLocalModelRuntime(): Promise<LocalModelRuntimeActionRespon
 }
 
 export function runFirstRunSetup(forceLocal = true): Promise<SetupRunResponse> {
-  return readJson<SetupRunResponse>("/first-run/setup", {
-    method: "POST",
-    body: JSON.stringify({ autoConfigure: true, forceLocal })
-  });
+  return installOnboardingRuntime(forceLocal);
 }
 
 export function installChillClaw(

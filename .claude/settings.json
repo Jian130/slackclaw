@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Read(//Users/home/.claude/projects/-Users-home-Projects-chillclaw/**)",
+      "Bash(python3 -c \" import sys, json lines = sys.stdin.read\\(\\).strip\\(\\).split\\('\\\\n'\\) for line in lines[-30:]: try: obj = json.loads\\(line\\) role = obj.get\\('role', ''\\) content = obj.get\\('content', ''\\) if isinstance\\(content, str\\) and content.strip\\(\\): print\\(f'[{role}]: {content[:300]}'\\) elif isinstance\\(content, list\\): for c in content: if isinstance\\(c, dict\\): if c.get\\('type'\\) == 'text': print\\(f'[{role}]: {c[\\\\\"text\\\\\"][:300]}'\\) elif c.get\\('type'\\) == 'tool_use': print\\(f'[{role}/tool_use]: {c[\\\\\"name\\\\\"]}'\\) elif c.get\\('type'\\) == 'tool_result': result_content = c.get\\('content', ''\\) if isinstance\\(result_content, list\\): for r in result_content: if isinstance\\(r, dict\\) and r.get\\('type'\\) == 'text': print\\(f'[tool_result]: {r[\\\\\"text\\\\\"][:200]}'\\) elif isinstance\\(result_content, str\\): print\\(f'[tool_result]: {result_content[:200]}'\\) except: pass \")"
+    ]
+  }
+}

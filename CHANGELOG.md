@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 2026-04-09 23:22 CST
+
+- hardened onboarding route and completion behavior by moving intro and runtime-install callers onto the canonical `/api/onboarding/*` endpoints, rejecting final completion when a staged cloud model can no longer reuse its saved auth, and sending stale later-step drafts back to model selection instead of pretending setup can still finish
+- reduced expensive onboarding and engine rereads by reusing staged draft summaries during onboarding polling, parallelizing live summary fetches when a full summary is still needed, and fixing slow OpenClaw model snapshots so completed reads stay cached for the intended TTL instead of expiring immediately
+- fixed managed personal WeChat installer PATH resolution, added machine-readable daemon OpenAPI reference files beside the route docs, and expanded daemon, web, and native macOS regression coverage for the renamed onboarding endpoints and the new auth-reuse and state-repair edge cases
+
 ### 2026-04-06 17:55 CST
 
 - changed daemon-managed local AI downloads to stream Ollama pull progress through the backend, persist active local-runtime snapshots, dedupe concurrent install or repair requests, and automatically resume unfinished local-model downloads after reconnects, retries, and daemon restarts

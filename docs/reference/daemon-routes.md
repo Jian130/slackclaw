@@ -66,8 +66,7 @@ This document lists the current daemon HTTP surface after the route-module refac
 
 | Method | Path | Primary owner | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/api/first-run/intro` | `StateStore` via `OnboardingService` helpers | Mark the intro screen as completed and return updated overview-first-run state. |
-| `POST` | `/api/first-run/setup` | `SetupService` | Run the first-run setup/install flow. |
+| `POST` | `/api/onboarding/intro` | `StateStore` via `OnboardingService` helpers | Mark the intro screen as completed and return updated overview-first-run state. |
 | `GET` | `/api/onboarding/state` | `OnboardingService` | Return the full guided onboarding draft, summary, and daemon-owned curated config metadata. |
 | `POST` | `/api/onboarding/navigate` | `OnboardingService` | Move between onboarding steps while preserving the draft. |
 | `POST` | `/api/onboarding/runtime/detect` | `OnboardingService` | Detect existing runtime state for onboarding. |

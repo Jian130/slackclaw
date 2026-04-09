@@ -1,0 +1,2066 @@
+openapi: 3.0.3
+info:
+  title: ChillClaw Daemon API
+  version: "1.0"
+  description: |
+    Local HTTP API served by the ChillClaw daemon on 127.0.0.1:4545.
+    All endpoints return JSON. POST/PATCH/DELETE requests accept a JSON body.
+
+    **WebSocket**: Connect to `ws://127.0.0.1:4545/api/events` for live event push.
+    HTTP GET on `/api/events` returns 426 Upgrade Required.
+
+    **Long-running endpoints** (marked ⏳) invoke external processes such as
+    install, update, repair, or model download. They can take several minutes.
+    Neither the server nor the default fetch() client sets a request timeout,
+    which is the primary cause of apparent hangs. Callers should set an
+    AbortSignal with a generous timeout (e.g. 10–15 min) and the server should
+    set `server.requestTimeout` to a matching value.
+
+    **Stale client routes**: Several routes called in the React client
+    (`/channels/telegram`, `/channels/whatsapp/*`, `/channels/wechat`,
+    `/channels/feishu` non-callback, `/channels/feishu/prepare`,
+    `/channels/feishu/approve`, `/channels/gateway/start`) have no matching
+    handler in the daemon and will return 404.
+
+servers:
+  - url: http://127.0.0.1:4545/api
+    description: Local daemon
+
+tags:
+  - name: system
+    description: Ping, overview, app control, diagnostics, recovery
+  - name: deploy
+    description: Deployment targets and gateway lifecycle
+  - name: install
+    description: Legacy engine install/uninstall/update
+  - name: service
+    description: macOS LaunchAgent / app-service management
+  - name: onboarding
+    description: Guided onboarding wizard (intro, setup, and step-by-step state machine)
+  - name: models
+    description: Model provider config, saved entries, auth, local runtime
+  - name: channels
+    description: Channel (integration) config and sessions
+  - name: plugins
+    description: Plugin install, update, remove
+  - name: skills
+    description: Skill catalog, marketplace, install, update, remove
+  - name: tasks
+    description: Engine task execution
+  - name: chat
+    description: Chat threads and messages
+  - name: ai-team
+    description: AI team overview (member/team mutation routes return 501)
+
+paths:
+
+  # ── System ────────────────────────────────────────────────────────────────
+
+  /ping:
+    get:
+      operationId: ping
+      tags: [system]
+      summary: Health check
+      responses:
+        "200":
+          description: Daemon is reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+
+  /overview:
+    get:
+      operationId: getOverview
+      tags: [system]
+      summary: Product overview (health, engine status, recovery actions)
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: ProductOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductOverview"
+
+  /app/update:
+    get:
+      operationId: getAppUpdate
+      tags: [system]
+      summary: Current app update status
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: AppUpdateStatus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppUpdateStatus"
+
+  /app/update/check:
+    post:
+      operationId: checkAppUpdate
+      tags: [system]
+      summary: Trigger an update check and return the result with a fresh overview
+      responses:
+        "200":
+          description: AppUpdateCheckResponse
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  appUpdate:
+                    $ref: "#/components/schemas/AppUpdateStatus"
+                  overview:
+                    $ref: "#/components/schemas/ProductOverview"
+
+  /app/stop:
+    post:
+      operationId: stopApp
+      tags: [system]
+      summary: Stop the ChillClaw app
+      responses:
+        "200":
+          description: AppControlResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppControlResponse"
+
+  /app/uninstall:
+    post:
+      operationId: uninstallApp
+      tags: [system]
+      summary: Uninstall the ChillClaw app
+      responses:
+        "200":
+          description: AppControlResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppControlResponse"
+
+  /diagnostics:
+    get:
+      operationId: exportDiagnostics
+      tags: [system]
+      summary: Export a diagnostics bundle to disk
+      responses:
+        "200":
+          description: Path of the written bundle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  path: { type: string }
+
+  /recovery/{actionId}:
+    post:
+      operationId: runRecovery
+      tags: [system]
+      summary: ⏳ Execute a recovery action
+      parameters:
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Recovery result with updated overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    $ref: "#/components/schemas/RecoveryRunResponse"
+                  overview:
+                    $ref: "#/components/schemas/ProductOverview"
+        "404":
+          description: Unknown recovery action
+
+  # ── Service ───────────────────────────────────────────────────────────────
+
+  /service/status:
+    get:
+      operationId: getServiceStatus
+      tags: [service]
+      summary: macOS LaunchAgent / app-service status
+      responses:
+        "200":
+          description: AppServiceStatus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppServiceStatus"
+
+  /service/install:
+    post:
+      operationId: installService
+      tags: [service]
+      summary: Install the app service (LaunchAgent)
+      responses:
+        "200":
+          description: Action result with overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceActionWithOverview"
+
+  /service/restart:
+    post:
+      operationId: restartService
+      tags: [service]
+      summary: Restart the app service
+      responses:
+        "200":
+          description: Action result with overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceActionWithOverview"
+
+  /service/uninstall:
+    post:
+      operationId: uninstallService
+      tags: [service]
+      summary: Uninstall the app service
+      responses:
+        "200":
+          description: Action result with overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceActionWithOverview"
+
+  # ── Deploy ────────────────────────────────────────────────────────────────
+
+  /deploy/targets:
+    get:
+      operationId: getDeploymentTargets
+      tags: [deploy]
+      summary: List all deployment targets and their current status
+      responses:
+        "200":
+          description: DeploymentTargetsResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentTargetsResponse"
+
+  /deploy/targets/{targetId}/install:
+    post:
+      operationId: installDeploymentTarget
+      tags: [deploy]
+      summary: ⏳ Install a deployment target
+      parameters:
+        - $ref: "#/components/parameters/targetId"
+      responses:
+        "200":
+          description: DeploymentTargetActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentTargetActionResponse"
+
+  /deploy/targets/{targetId}/update:
+    post:
+      operationId: updateDeploymentTarget
+      tags: [deploy]
+      summary: ⏳ Update a deployment target
+      parameters:
+        - $ref: "#/components/parameters/targetId"
+      responses:
+        "200":
+          description: DeploymentTargetActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentTargetActionResponse"
+
+  /deploy/targets/{targetId}/uninstall:
+    post:
+      operationId: uninstallDeploymentTarget
+      tags: [deploy]
+      summary: ⏳ Uninstall a deployment target
+      parameters:
+        - $ref: "#/components/parameters/targetId"
+      responses:
+        "200":
+          description: DeploymentTargetActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentTargetActionResponse"
+
+  /deploy/gateway/restart:
+    post:
+      operationId: restartGateway
+      tags: [deploy]
+      summary: ⏳ Restart the OpenClaw gateway
+      responses:
+        "200":
+          description: GatewayActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayActionResponse"
+
+  # ── Install (legacy) ──────────────────────────────────────────────────────
+
+  /install:
+    post:
+      operationId: installEngine
+      tags: [install]
+      summary: ⏳ Install the OpenClaw engine
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallRequest"
+      responses:
+        "200":
+          description: Install result with overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  install:
+                    $ref: "#/components/schemas/InstallResponse"
+                  overview:
+                    $ref: "#/components/schemas/ProductOverview"
+
+  /engine/uninstall:
+    post:
+      operationId: uninstallEngine
+      tags: [install]
+      summary: ⏳ Uninstall the OpenClaw engine
+      responses:
+        "200":
+          description: Uninstall result with overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    $ref: "#/components/schemas/EngineActionResponse"
+                  overview:
+                    $ref: "#/components/schemas/ProductOverview"
+
+  /engine/update:
+    post:
+      operationId: updateEngine
+      tags: [install]
+      summary: ⏳ Update the OpenClaw engine (canonical path)
+      responses:
+        "200":
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngineActionResponse"
+
+  /update:
+    post:
+      operationId: updateEngineAlias
+      tags: [install]
+      summary: ⏳ Update the OpenClaw engine (alias for /engine/update)
+      responses:
+        "200":
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngineActionResponse"
+
+  # ── Onboarding entrypoints ────────────────────────────────────────────────
+
+  /onboarding/intro:
+    post:
+      operationId: markFirstRunIntroComplete
+      tags: [onboarding]
+      summary: Mark the intro screen as completed
+      responses:
+        "200":
+          description: ProductOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductOverview"
+
+  # ── Onboarding ────────────────────────────────────────────────────────────
+
+  /onboarding/state:
+    get:
+      operationId: getOnboardingState
+      tags: [onboarding]
+      summary: Current onboarding wizard state
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/navigate:
+    post:
+      operationId: navigateOnboardingStep
+      tags: [onboarding]
+      summary: Navigate to a specific onboarding step
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingStepNavigationRequest"
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/runtime/detect:
+    post:
+      operationId: detectOnboardingRuntime
+      tags: [onboarding]
+      summary: ⏳ Detect an existing compatible OpenClaw runtime
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/runtime/install:
+    post:
+      operationId: installOnboardingRuntime
+      tags: [onboarding]
+      summary: ⏳ Install OpenClaw runtime during onboarding
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallRequest"
+      responses:
+        "200":
+          description: SetupRunResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupRunResponse"
+
+  /onboarding/runtime/reuse:
+    post:
+      operationId: reuseOnboardingRuntime
+      tags: [onboarding]
+      summary: Adopt the detected existing runtime
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/runtime/update:
+    post:
+      operationId: updateOnboardingRuntime
+      tags: [onboarding]
+      summary: ⏳ Update the runtime during onboarding
+      responses:
+        "200":
+          description: SetupRunResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupRunResponse"
+
+  /onboarding/permissions/confirm:
+    post:
+      operationId: confirmOnboardingPermissions
+      tags: [onboarding]
+      summary: Confirm OS permissions during onboarding
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/model/entries:
+    post:
+      operationId: saveOnboardingModelEntry
+      tags: [onboarding]
+      summary: Save or authenticate a model entry during onboarding
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveModelEntryRequest"
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+
+  /onboarding/model/auth/session/{sessionId}:
+    get:
+      operationId: getOnboardingModelAuthSession
+      tags: [onboarding]
+      summary: Poll an interactive model auth session during onboarding
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      responses:
+        "200":
+          description: ModelAuthSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelAuthSessionResponse"
+
+  /onboarding/model/auth/session/{sessionId}/input:
+    post:
+      operationId: submitOnboardingModelAuthSessionInput
+      tags: [onboarding]
+      summary: Submit input for an interactive model auth session during onboarding
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelAuthSessionInputRequest"
+      responses:
+        "200":
+          description: ModelAuthSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelAuthSessionResponse"
+
+  /onboarding/model/reset:
+    post:
+      operationId: resetOnboardingModelDraft
+      tags: [onboarding]
+      summary: Reset the model draft in onboarding
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/channel/entries:
+    post:
+      operationId: saveOnboardingChannelEntry
+      tags: [onboarding]
+      summary: Create a channel entry during onboarding
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveChannelEntryRequest"
+      responses:
+        "200":
+          description: ChannelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelConfigActionResponse"
+
+  /onboarding/channel/entries/{entryId}:
+    patch:
+      operationId: updateOnboardingChannelEntry
+      tags: [onboarding]
+      summary: Update a channel entry during onboarding
+      parameters:
+        - $ref: "#/components/parameters/entryId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveChannelEntryRequest"
+      responses:
+        "200":
+          description: ChannelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelConfigActionResponse"
+
+  /onboarding/channel/session/{sessionId}:
+    get:
+      operationId: getOnboardingChannelSession
+      tags: [onboarding]
+      summary: Poll a channel setup session during onboarding
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      responses:
+        "200":
+          description: ChannelSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelSessionResponse"
+
+  /onboarding/channel/session/{sessionId}/input:
+    post:
+      operationId: submitOnboardingChannelSessionInput
+      tags: [onboarding]
+      summary: Submit input for a channel setup session during onboarding
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelSessionInputRequest"
+      responses:
+        "200":
+          description: ChannelSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelSessionResponse"
+
+  /onboarding/channel/reset:
+    post:
+      operationId: resetOnboardingChannelDraft
+      tags: [onboarding]
+      summary: Reset the channel draft in onboarding
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/employee:
+    post:
+      operationId: saveOnboardingEmployeeDraft
+      tags: [onboarding]
+      summary: Save AI employee draft during onboarding
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingEmployeeState"
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/reset:
+    post:
+      operationId: resetOnboarding
+      tags: [onboarding]
+      summary: Reset the entire onboarding flow
+      responses:
+        "200":
+          description: OnboardingStateResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+
+  /onboarding/complete:
+    post:
+      operationId: completeOnboarding
+      tags: [onboarding]
+      summary: ⏳ Finalize onboarding and apply all staged config
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteOnboardingRequest"
+      responses:
+        "200":
+          description: CompleteOnboardingResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompleteOnboardingResponse"
+
+  # ── Models ────────────────────────────────────────────────────────────────
+
+  /models/config:
+    get:
+      operationId: getModelConfig
+      tags: [models]
+      summary: Model config overview (providers, entries, local runtime)
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: ModelConfigOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigOverview"
+
+  /models/entries:
+    post:
+      operationId: createSavedModelEntry
+      tags: [models]
+      summary: Create a saved model entry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveModelEntryRequest"
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+
+  /models/entries/{entryId}:
+    patch:
+      operationId: updateSavedModelEntry
+      tags: [models]
+      summary: Update a saved model entry
+      parameters:
+        - $ref: "#/components/parameters/entryId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveModelEntryRequest"
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+    delete:
+      operationId: removeSavedModelEntry
+      tags: [models]
+      summary: Remove a saved model entry
+      parameters:
+        - $ref: "#/components/parameters/entryId"
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+
+  /models/default-entry:
+    post:
+      operationId: setDefaultModelEntry
+      tags: [models]
+      summary: Set the default saved model entry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetDefaultModelEntryRequest"
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+
+  /models/default:
+    post:
+      operationId: setDefaultModel
+      tags: [models]
+      summary: Set the default model key
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modelKey]
+              properties:
+                modelKey: { type: string }
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+
+  /models/fallbacks:
+    post:
+      operationId: replaceFallbackModelEntries
+      tags: [models]
+      summary: Replace the ordered list of fallback model entries
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceFallbackModelEntriesRequest"
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+
+  /models/auth:
+    post:
+      operationId: authenticateModelProvider
+      tags: [models]
+      summary: Authenticate a model provider (may start an interactive session)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelAuthRequest"
+      responses:
+        "200":
+          description: ModelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelConfigActionResponse"
+
+  /models/auth/session/{sessionId}:
+    get:
+      operationId: getModelAuthSession
+      tags: [models]
+      summary: Poll an interactive model auth session
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      responses:
+        "200":
+          description: ModelAuthSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelAuthSessionResponse"
+
+  /models/auth/session/{sessionId}/input:
+    post:
+      operationId: submitModelAuthSessionInput
+      tags: [models]
+      summary: Submit input for an interactive model auth session
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelAuthSessionInputRequest"
+      responses:
+        "200":
+          description: ModelAuthSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelAuthSessionResponse"
+
+  /models/local-runtime/install:
+    post:
+      operationId: installLocalModelRuntime
+      tags: [models]
+      summary: ⏳ Install Ollama and download the local model
+      responses:
+        "200":
+          description: LocalModelRuntimeActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalModelRuntimeActionResponse"
+
+  /models/local-runtime/repair:
+    post:
+      operationId: repairLocalModelRuntime
+      tags: [models]
+      summary: ⏳ Repair Ollama or the local model installation
+      responses:
+        "200":
+          description: LocalModelRuntimeActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalModelRuntimeActionResponse"
+
+  # ── Channels ──────────────────────────────────────────────────────────────
+
+  /channels/config:
+    get:
+      operationId: getChannelConfig
+      tags: [channels]
+      summary: Channel config overview
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: ChannelConfigOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelConfigOverview"
+
+  /channels/entries:
+    post:
+      operationId: createChannelEntry
+      tags: [channels]
+      summary: Create a new channel entry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveChannelEntryRequest"
+      responses:
+        "200":
+          description: ChannelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelConfigActionResponse"
+
+  /channels/entries/{entryId}:
+    patch:
+      operationId: updateChannelEntry
+      tags: [channels]
+      summary: Update a channel entry
+      parameters:
+        - $ref: "#/components/parameters/entryId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveChannelEntryRequest"
+      responses:
+        "200":
+          description: ChannelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelConfigActionResponse"
+    delete:
+      operationId: removeChannelEntry
+      tags: [channels]
+      summary: Remove a channel entry
+      parameters:
+        - $ref: "#/components/parameters/entryId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveChannelEntryRequest"
+      responses:
+        "200":
+          description: ChannelConfigActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelConfigActionResponse"
+
+  /channels/session/{sessionId}:
+    get:
+      operationId: getChannelSession
+      tags: [channels]
+      summary: Poll an interactive channel setup session
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      responses:
+        "200":
+          description: ChannelSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelSessionResponse"
+
+  /channels/session/{sessionId}/input:
+    post:
+      operationId: submitChannelSessionInput
+      tags: [channels]
+      summary: Submit input for a channel setup session
+      parameters:
+        - $ref: "#/components/parameters/sessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelSessionInputRequest"
+      responses:
+        "200":
+          description: ChannelSessionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelSessionResponse"
+
+  /channels/feishu/callback:
+    get:
+      operationId: feishuCallbackProbe
+      tags: [channels]
+      summary: Feishu callback reachability probe
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: feishuCallback
+      tags: [channels]
+      summary: Receive a Feishu webhook event or challenge
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Challenge echo or ok
+
+  # ── Plugins ───────────────────────────────────────────────────────────────
+
+  /plugins/config:
+    get:
+      operationId: getPluginConfig
+      tags: [plugins]
+      summary: Plugin config overview
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: PluginConfigOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginConfigOverview"
+
+  /plugins/{pluginId}/install:
+    post:
+      operationId: installPlugin
+      tags: [plugins]
+      summary: ⏳ Install a plugin
+      parameters:
+        - $ref: "#/components/parameters/pluginId"
+      responses:
+        "200":
+          description: PluginActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginActionResponse"
+
+  /plugins/{pluginId}/update:
+    post:
+      operationId: updatePlugin
+      tags: [plugins]
+      summary: ⏳ Update a plugin
+      parameters:
+        - $ref: "#/components/parameters/pluginId"
+      responses:
+        "200":
+          description: PluginActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginActionResponse"
+
+  /plugins/{pluginId}:
+    delete:
+      operationId: removePlugin
+      tags: [plugins]
+      summary: Remove a plugin
+      parameters:
+        - $ref: "#/components/parameters/pluginId"
+      responses:
+        "200":
+          description: PluginActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginActionResponse"
+
+  # ── Skills ────────────────────────────────────────────────────────────────
+
+  /skills/config:
+    get:
+      operationId: getSkillConfig
+      tags: [skills]
+      summary: Skill catalog overview (installed skills)
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: SkillCatalogOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillCatalogOverview"
+
+  /skills/install:
+    post:
+      operationId: installMarketplaceSkill
+      tags: [skills]
+      summary: ⏳ Install a skill from the marketplace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSkillRequest"
+      responses:
+        "200":
+          description: SkillCatalogActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillCatalogActionResponse"
+
+  /skills/custom:
+    post:
+      operationId: createCustomSkill
+      tags: [skills]
+      summary: Create a custom skill
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveCustomSkillRequest"
+      responses:
+        "200":
+          description: SkillCatalogActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillCatalogActionResponse"
+
+  /skills/preset-sync/repair:
+    post:
+      operationId: repairPresetSkillSync
+      tags: [skills]
+      summary: Re-sync built-in preset skills
+      responses:
+        "200":
+          description: SkillCatalogActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillCatalogActionResponse"
+
+  /skills/marketplace/explore:
+    get:
+      operationId: exploreSkillMarketplace
+      tags: [skills]
+      summary: Fetch featured marketplace skills (top 10)
+      responses:
+        "200":
+          description: Array of SkillMarketplaceEntry
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SkillMarketplaceEntry"
+
+  /skills/marketplace/search:
+    get:
+      operationId: searchMarketplaceSkills
+      tags: [skills]
+      summary: Search the skill marketplace
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search query
+      responses:
+        "200":
+          description: Array of SkillMarketplaceEntry
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SkillMarketplaceEntry"
+
+  /skills/marketplace/{slug}:
+    get:
+      operationId: getMarketplaceSkillDetail
+      tags: [skills]
+      summary: Marketplace skill detail by slug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SkillMarketplaceDetail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillMarketplaceDetail"
+
+  /skills/{skillId}:
+    get:
+      operationId: getInstalledSkillDetail
+      tags: [skills]
+      summary: Installed skill detail
+      parameters:
+        - $ref: "#/components/parameters/skillId"
+      responses:
+        "200":
+          description: InstalledSkillDetail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledSkillDetail"
+    patch:
+      operationId: updateSkill
+      tags: [skills]
+      summary: Update an installed skill
+      parameters:
+        - $ref: "#/components/parameters/skillId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSkillRequest"
+      responses:
+        "200":
+          description: SkillCatalogActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillCatalogActionResponse"
+    delete:
+      operationId: removeSkill
+      tags: [skills]
+      summary: Remove an installed skill
+      parameters:
+        - $ref: "#/components/parameters/skillId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveSkillRequest"
+      responses:
+        "200":
+          description: SkillCatalogActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillCatalogActionResponse"
+
+  # ── Tasks ─────────────────────────────────────────────────────────────────
+
+  /tasks:
+    post:
+      operationId: runTask
+      tags: [tasks]
+      summary: ⏳ Run an engine task
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EngineTaskRequest"
+      responses:
+        "200":
+          description: EngineTaskResult
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngineTaskResult"
+
+  # ── Chat ──────────────────────────────────────────────────────────────────
+
+  /chat/overview:
+    get:
+      operationId: getChatOverview
+      tags: [chat]
+      summary: Chat overview (thread list)
+      responses:
+        "200":
+          description: ChatOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatOverview"
+
+  /chat/threads:
+    post:
+      operationId: createChatThread
+      tags: [chat]
+      summary: Create a new chat thread
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChatThreadRequest"
+      responses:
+        "200":
+          description: ChatActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatActionResponse"
+
+  /chat/threads/{threadId}:
+    get:
+      operationId: getChatThread
+      tags: [chat]
+      summary: Get a chat thread with its messages
+      parameters:
+        - $ref: "#/components/parameters/threadId"
+      responses:
+        "200":
+          description: ChatThreadDetail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatThreadDetail"
+
+  /chat/threads/{threadId}/messages:
+    post:
+      operationId: sendChatMessage
+      tags: [chat]
+      summary: ⏳ Send a message and wait for the AI response
+      parameters:
+        - $ref: "#/components/parameters/threadId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendChatMessageRequest"
+      responses:
+        "200":
+          description: ChatActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatActionResponse"
+
+  /chat/threads/{threadId}/abort:
+    post:
+      operationId: abortChatThread
+      tags: [chat]
+      summary: Abort an in-progress chat response
+      parameters:
+        - $ref: "#/components/parameters/threadId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AbortChatRequest"
+      responses:
+        "200":
+          description: ChatActionResponse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatActionResponse"
+
+  # ── AI Team ───────────────────────────────────────────────────────────────
+
+  /ai-team/overview:
+    get:
+      operationId: getAITeamOverview
+      tags: [ai-team]
+      summary: AI team overview (members, capabilities)
+      parameters:
+        - $ref: "#/components/parameters/fresh"
+      responses:
+        "200":
+          description: AITeamOverview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AITeamOverview"
+
+  /ai-members:
+    post:
+      operationId: createAIMember
+      tags: [ai-team]
+      summary: "[501] Create an AI member — not yet implemented"
+      responses:
+        "501":
+          description: Not implemented
+
+  /ai-members/{memberId}:
+    patch:
+      operationId: updateAIMember
+      tags: [ai-team]
+      summary: "[501] Update an AI member — not yet implemented"
+      parameters:
+        - $ref: "#/components/parameters/memberId"
+      responses:
+        "501":
+          description: Not implemented
+    delete:
+      operationId: deleteAIMember
+      tags: [ai-team]
+      summary: "[501] Delete an AI member — not yet implemented"
+      parameters:
+        - $ref: "#/components/parameters/memberId"
+      responses:
+        "501":
+          description: Not implemented
+
+  /ai-members/{memberId}/bindings:
+    get:
+      operationId: getAIMemberBindings
+      tags: [ai-team]
+      summary: "[501] Get AI member channel bindings — not yet implemented"
+      parameters:
+        - $ref: "#/components/parameters/memberId"
+      responses:
+        "501":
+          description: Not implemented
+    post:
+      operationId: bindAIMemberChannel
+      tags: [ai-team]
+      summary: "[501] Bind AI member to a channel — not yet implemented"
+      parameters:
+        - $ref: "#/components/parameters/memberId"
+      responses:
+        "501":
+          description: Not implemented
+    delete:
+      operationId: unbindAIMemberChannel
+      tags: [ai-team]
+      summary: "[501] Unbind AI member from a channel — not yet implemented"
+      parameters:
+        - $ref: "#/components/parameters/memberId"
+      responses:
+        "501":
+          description: Not implemented
+
+  /teams:
+    post:
+      operationId: createTeam
+      tags: [ai-team]
+      summary: "[501] Create a team — not yet implemented"
+      responses:
+        "501":
+          description: Not implemented
+
+  /teams/{teamId}:
+    patch:
+      operationId: updateTeam
+      tags: [ai-team]
+      summary: "[501] Update a team — not yet implemented"
+      parameters:
+        - $ref: "#/components/parameters/teamId"
+      responses:
+        "501":
+          description: Not implemented
+    delete:
+      operationId: deleteTeam
+      tags: [ai-team]
+      summary: "[501] Delete a team — not yet implemented"
+      parameters:
+        - $ref: "#/components/parameters/teamId"
+      responses:
+        "501":
+          description: Not implemented
+
+components:
+  parameters:
+    fresh:
+      name: fresh
+      in: query
+      description: Pass `1` to bypass the read cache and force a fresh read from the engine
+      schema:
+        type: string
+        enum: ["1"]
+    targetId:
+      name: targetId
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [standard, managed-local]
+    entryId:
+      name: entryId
+      in: path
+      required: true
+      schema:
+        type: string
+    sessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+    pluginId:
+      name: pluginId
+      in: path
+      required: true
+      schema:
+        type: string
+    skillId:
+      name: skillId
+      in: path
+      required: true
+      schema:
+        type: string
+    threadId:
+      name: threadId
+      in: path
+      required: true
+      schema:
+        type: string
+    memberId:
+      name: memberId
+      in: path
+      required: true
+      schema:
+        type: string
+    teamId:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+
+    # ── Shared primitives ──────────────────────────────────────────────────
+
+    Severity:
+      type: string
+      enum: [ok, info, warning, error]
+
+    MutationSyncMeta:
+      type: object
+      properties:
+        epoch: { type: string }
+        revision: { type: integer }
+        settled: { type: boolean }
+
+    EngineStatus:
+      type: object
+      properties:
+        engine: { type: string }
+        installed: { type: boolean }
+        running: { type: boolean }
+        version: { type: string }
+        summary: { type: string }
+        pendingGatewayApply: { type: boolean }
+        lastCheckedAt: { type: string, format: date-time }
+
+    RecoveryAction:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        title: { type: string }
+        description: { type: string }
+        safetyLevel: { type: string, enum: [safe, review, destructive] }
+        expectedImpact: { type: string }
+
+    HealthCheckResult:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        severity:
+          $ref: "#/components/schemas/Severity"
+        summary: { type: string }
+        detail: { type: string }
+        remediationActionIds:
+          type: array
+          items: { type: string }
+
+    # ── Overview ──────────────────────────────────────────────────────────
+
+    ProductOverview:
+      type: object
+      description: Top-level product health and status snapshot
+      properties:
+        engineStatus:
+          $ref: "#/components/schemas/EngineStatus"
+        healthChecks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthCheckResult"
+        recoveryActions:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoveryAction"
+        appUpdate:
+          $ref: "#/components/schemas/AppUpdateStatus"
+
+    AppUpdateStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [unsupported, up-to-date, update-available, error]
+        supported: { type: boolean }
+        currentVersion: { type: string }
+        latestVersion: { type: string }
+        downloadUrl: { type: string }
+        releaseUrl: { type: string }
+        publishedAt: { type: string, format: date-time }
+        checkedAt: { type: string, format: date-time }
+        summary: { type: string }
+        detail: { type: string }
+
+    AppControlResponse:
+      type: object
+      properties:
+        status: { type: string }
+        message: { type: string }
+
+    AppServiceStatus:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [launchagent, adhoc, unmanaged]
+        installed: { type: boolean }
+        running: { type: boolean }
+        managedAtLogin: { type: boolean }
+        label: { type: string }
+        summary: { type: string }
+        detail: { type: string }
+
+    AppServiceActionResponse:
+      type: object
+      properties:
+        status: { type: string }
+        message: { type: string }
+
+    ServiceActionWithOverview:
+      type: object
+      properties:
+        result:
+          $ref: "#/components/schemas/AppServiceActionResponse"
+        overview:
+          $ref: "#/components/schemas/ProductOverview"
+
+    RecoveryRunResponse:
+      type: object
+      properties:
+        actionId: { type: string }
+        status: { type: string, enum: [completed, failed] }
+        message: { type: string }
+
+    # ── Deploy ────────────────────────────────────────────────────────────
+
+    DeploymentTargetStatus:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        installMode: { type: string }
+        installed: { type: boolean }
+        installable: { type: boolean }
+        planned: { type: boolean }
+        recommended: { type: boolean }
+        active: { type: boolean }
+        version: { type: string }
+        desiredVersion: { type: string }
+        latestVersion: { type: string }
+        updateAvailable: { type: boolean }
+        summary: { type: string }
+        updateSummary: { type: string }
+        requirements:
+          type: array
+          items: { type: string }
+
+    DeploymentTargetsResponse:
+      type: object
+      properties:
+        checkedAt: { type: string, format: date-time }
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeploymentTargetStatus"
+
+    DeploymentTargetActionResponse:
+      type: object
+      properties:
+        targetId: { type: string }
+        status: { type: string, enum: [completed, failed] }
+        message: { type: string }
+        engineStatus:
+          $ref: "#/components/schemas/EngineStatus"
+
+    GatewayActionResponse:
+      type: object
+      properties:
+        status: { type: string }
+        message: { type: string }
+        engineStatus:
+          $ref: "#/components/schemas/EngineStatus"
+
+    # ── Install ───────────────────────────────────────────────────────────
+
+    InstallRequest:
+      type: object
+      properties:
+        autoConfigure: { type: boolean, default: true }
+        forceLocal: { type: boolean, default: false }
+
+    InstallResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [completed, failed] }
+        message: { type: string }
+        engineStatus:
+          $ref: "#/components/schemas/EngineStatus"
+
+    EngineActionResponse:
+      type: object
+      properties:
+        status: { type: string }
+        message: { type: string }
+        engineStatus:
+          $ref: "#/components/schemas/EngineStatus"
+
+    # ── First run / Setup ─────────────────────────────────────────────────
+
+    SetupRunResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [completed, failed] }
+        message: { type: string }
+        engineStatus:
+          $ref: "#/components/schemas/EngineStatus"
+        overview:
+          $ref: "#/components/schemas/ProductOverview"
+
+    # ── Onboarding ────────────────────────────────────────────────────────
+
+    OnboardingStepNavigationRequest:
+      type: object
+      properties:
+        step: { type: string }
+
+    OnboardingEmployeeState:
+      type: object
+      additionalProperties: true
+
+    OnboardingStateResponse:
+      type: object
+      description: Full onboarding wizard state
+      additionalProperties: true
+
+    CompleteOnboardingRequest:
+      type: object
+      additionalProperties: true
+
+    CompleteOnboardingResponse:
+      type: object
+      properties:
+        overview:
+          $ref: "#/components/schemas/ProductOverview"
+
+    # ── Models ────────────────────────────────────────────────────────────
+
+    ModelConfigOverview:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelProviderConfig"
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelCatalogEntry"
+        defaultModel: { type: string }
+        configuredModelKeys:
+          type: array
+          items: { type: string }
+        savedEntries:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedModelEntry"
+        defaultEntryId: { type: string }
+        fallbackEntryIds:
+          type: array
+          items: { type: string }
+        localRuntime:
+          $ref: "#/components/schemas/LocalModelRuntimeOverview"
+
+    ModelProviderConfig:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        description: { type: string }
+        configured: { type: boolean }
+        modelCount: { type: integer }
+        sampleModels:
+          type: array
+          items: { type: string }
+
+    ModelCatalogEntry:
+      type: object
+      properties:
+        key: { type: string }
+        name: { type: string }
+        input: { type: string }
+        contextWindow: { type: integer }
+        local: { type: boolean }
+        available: { type: boolean }
+        missing: { type: boolean }
+        tags:
+          type: array
+          items: { type: string }
+
+    SavedModelEntry:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        providerId: { type: string }
+        modelKey: { type: string }
+        agentId: { type: string }
+        isDefault: { type: boolean }
+        isFallback: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    LocalModelRuntimeOverview:
+      type: object
+      properties:
+        supported: { type: boolean }
+        status:
+          type: string
+          enum: [unchecked, idle, installing-runtime, starting-runtime, downloading-model, configuring-openclaw, ready, degraded, cloud-recommended, failed]
+        runtimeInstalled: { type: boolean }
+        runtimeReachable: { type: boolean }
+        modelDownloaded: { type: boolean }
+        activeInOpenClaw: { type: boolean }
+        summary: { type: string }
+        detail: { type: string }
+        activeAction: { type: string }
+        activePhase: { type: string }
+        progressMessage: { type: string }
+        progressPercent: { type: number }
+        progressCompletedBytes: { type: integer }
+        progressTotalBytes: { type: integer }
+        lastError: { type: string }
+        recoveryHint: { type: string }
+
+    SaveModelEntryRequest:
+      type: object
+      additionalProperties: true
+
+    SetDefaultModelEntryRequest:
+      type: object
+      properties:
+        entryId: { type: string }
+
+    ReplaceFallbackModelEntriesRequest:
+      type: object
+      properties:
+        entryIds:
+          type: array
+          items: { type: string }
+
+    ModelAuthRequest:
+      type: object
+      additionalProperties: true
+
+    ModelAuthSessionInputRequest:
+      type: object
+      additionalProperties: true
+
+    ModelAuthSessionResponse:
+      type: object
+      additionalProperties: true
+
+    ModelConfigActionResponse:
+      type: object
+      properties:
+        status: { type: string }
+        modelConfig:
+          $ref: "#/components/schemas/ModelConfigOverview"
+        overview:
+          $ref: "#/components/schemas/ProductOverview"
+        epoch: { type: string }
+        revision: { type: integer }
+        settled: { type: boolean }
+
+    LocalModelRuntimeActionResponse:
+      type: object
+      properties:
+        action: { type: string, enum: [install, repair] }
+        status: { type: string, enum: [completed, failed, in-progress] }
+        message: { type: string }
+        localRuntime:
+          $ref: "#/components/schemas/LocalModelRuntimeOverview"
+        modelConfig:
+          $ref: "#/components/schemas/ModelConfigOverview"
+        overview:
+          $ref: "#/components/schemas/ProductOverview"
+        epoch: { type: string }
+        revision: { type: integer }
+        settled: { type: boolean }
+
+    # ── Channels ──────────────────────────────────────────────────────────
+
+    ChannelConfigOverview:
+      type: object
+      additionalProperties: true
+
+    SaveChannelEntryRequest:
+      type: object
+      additionalProperties: true
+
+    RemoveChannelEntryRequest:
+      type: object
+      properties:
+        entryId: { type: string }
+
+    ChannelSessionInputRequest:
+      type: object
+      additionalProperties: true
+
+    ChannelSessionResponse:
+      type: object
+      additionalProperties: true
+
+    ChannelConfigActionResponse:
+      type: object
+      additionalProperties: true
+
+    # ── Plugins ───────────────────────────────────────────────────────────
+
+    PluginConfigOverview:
+      type: object
+      additionalProperties: true
+
+    PluginActionResponse:
+      type: object
+      additionalProperties: true
+
+    # ── Skills ────────────────────────────────────────────────────────────
+
+    SkillCatalogOverview:
+      type: object
+      additionalProperties: true
+
+    InstallSkillRequest:
+      type: object
+      additionalProperties: true
+
+    SaveCustomSkillRequest:
+      type: object
+      additionalProperties: true
+
+    UpdateSkillRequest:
+      type: object
+      additionalProperties: true
+
+    RemoveSkillRequest:
+      type: object
+      additionalProperties: true
+
+    SkillCatalogActionResponse:
+      type: object
+      additionalProperties: true
+
+    SkillMarketplaceEntry:
+      type: object
+      additionalProperties: true
+
+    SkillMarketplaceDetail:
+      type: object
+      additionalProperties: true
+
+    InstalledSkillDetail:
+      type: object
+      additionalProperties: true
+
+    # ── Tasks ─────────────────────────────────────────────────────────────
+
+    EngineTaskRequest:
+      type: object
+      required: [prompt, profileId]
+      properties:
+        prompt: { type: string }
+        profileId: { type: string }
+        templateId: { type: string }
+        memberId: { type: string }
+        memberAgentId: { type: string }
+
+    EngineTaskResult:
+      type: object
+      properties:
+        taskId: { type: string }
+        title: { type: string }
+        status: { type: string, enum: [running, completed, failed] }
+        summary: { type: string }
+        output: { type: string }
+        nextActions:
+          type: array
+          items: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              label: { type: string }
+              status: { type: string, enum: [pending, running, done] }
+
+    # ── Chat ──────────────────────────────────────────────────────────────
+
+    ChatOverview:
+      type: object
+      additionalProperties: true
+
+    CreateChatThreadRequest:
+      type: object
+      additionalProperties: true
+
+    ChatActionResponse:
+      type: object
+      additionalProperties: true
+
+    ChatThreadDetail:
+      type: object
+      additionalProperties: true
+
+    SendChatMessageRequest:
+      type: object
+      additionalProperties: true
+
+    AbortChatRequest:
+      type: object
+      additionalProperties: true
+
+    # ── AI Team ─────────────────────���─────────────────────────────────────
+
+    AITeamOverview:
+      type: object
+      additionalProperties: true
