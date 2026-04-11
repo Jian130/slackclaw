@@ -950,6 +950,30 @@ func resolveNativeOnboardingModelViewState(
     return .init(kind: .configure, provider: provider, entry: selectedEntry)
 }
 
+func resolveNativeOnboardingHasManagedModelSelection(
+    draftModelEntryID: String?,
+    summaryModelEntryID: String?,
+    localRuntime: LocalModelRuntimeOverview?
+) -> Bool {
+    let hasPersistedModel =
+        !(draftModelEntryID ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !(summaryModelEntryID ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let managedEntryID = (localRuntime?.managedEntryId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let hasManagedLocalRuntimeEntry = !managedEntryID.isEmpty
+    let hasActiveLocalRuntimeSelection = localRuntime?.activeInOpenClaw == true
+    return hasPersistedModel || hasManagedLocalRuntimeEntry || hasActiveLocalRuntimeSelection
+}
+
+func resolveNativeOnboardingLocalRuntimeConnected(
+    draftModelEntryID: String?,
+    summaryModelEntryID: String?,
+    localRuntime: LocalModelRuntimeOverview?
+) -> Bool {
+    _ = draftModelEntryID
+    _ = summaryModelEntryID
+    return localRuntime?.activeInOpenClaw == true
+}
+
 func resolveNativeOnboardingModelStepMode(
     bootstrapPending: Bool,
     providerId: String,
@@ -960,18 +984,26 @@ func resolveNativeOnboardingModelStepMode(
     summaryModelEntryID: String?,
     localRuntime: LocalModelRuntimeOverview?
 ) -> NativeOnboardingModelStepMode {
-    let hasPersistedModel = !(draftModelEntryID ?? "").isEmpty || !(summaryModelEntryID ?? "").isEmpty
+    let hasManagedModelSelection = resolveNativeOnboardingHasManagedModelSelection(
+        draftModelEntryID: draftModelEntryID,
+        summaryModelEntryID: summaryModelEntryID,
+        localRuntime: localRuntime
+    )
     let hasCloudFlow =
         !providerId.isEmpty ||
         selectedProviderPresent ||
         !(activeModelAuthSessionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-        (modelViewKind == .configure && !hasPersistedModel)
+        (modelViewKind == .configure && !hasManagedModelSelection)
 
-    if modelViewKind == .connected || localRuntime?.activeInOpenClaw == true {
+    if modelViewKind == .connected || resolveNativeOnboardingLocalRuntimeConnected(
+        draftModelEntryID: draftModelEntryID,
+        summaryModelEntryID: summaryModelEntryID,
+        localRuntime: localRuntime
+    ) {
         return .connected
     }
 
-    if hasCloudFlow || hasPersistedModel {
+    if hasCloudFlow || hasManagedModelSelection {
         return .cloudConfig
     }
 

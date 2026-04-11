@@ -206,6 +206,48 @@ test("reconcileSavedEntriesWithRuntime converts implicit main entries into runti
   assert.deepEqual(reconciled.entries[0]?.profileIds, []);
 });
 
+test("reconcileSavedEntriesWithRuntime backfills local auth metadata for runtime-derived Ollama entries", () => {
+  const entries = [
+    {
+      id: "runtime:ollama-gemma4-e2b",
+      label: "Ollama gemma4:e2b",
+      providerId: "ollama",
+      modelKey: "ollama/gemma4:e2b",
+      agentId: "",
+      agentDir: "",
+      workspaceDir: "",
+      authMethodId: undefined,
+      authModeLabel: undefined,
+      profileLabel: undefined,
+      profileIds: [],
+      isDefault: true,
+      isFallback: false,
+      createdAt: "2026-04-10T00:00:00.000Z",
+      updatedAt: "2026-04-10T00:00:00.000Z"
+    }
+  ];
+  const configuredModels: ModelCatalogEntry[] = [
+    {
+      key: "ollama/gemma4:e2b",
+      name: "gemma4:e2b",
+      input: "text",
+      contextWindow: 131072,
+      local: true,
+      available: true,
+      tags: ["default", "configured"],
+      missing: false
+    }
+  ];
+
+  const reconciled = reconcileSavedEntriesWithRuntime(entries as never[], configuredModels, "ollama/gemma4:e2b");
+  const localEntry = reconciled.entries[0];
+
+  assert.equal(localEntry?.id, "runtime:ollama-gemma4-e2b");
+  assert.equal(localEntry?.authMethodId, "ollama-local");
+  assert.equal(localEntry?.authModeLabel, "Local");
+  assert.equal(reconciled.defaultEntryId, "runtime:ollama-gemma4-e2b");
+});
+
 test("removeRuntimeDerivedModelFromConfig clears a last default runtime model", () => {
   const config = {
     agents: {

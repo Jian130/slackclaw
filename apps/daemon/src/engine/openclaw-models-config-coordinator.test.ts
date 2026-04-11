@@ -233,6 +233,37 @@ test("authenticateModelProvider starts MiniMax global OAuth with an explicit met
   ]);
 });
 
+test("canReuseSavedModelEntry treats runtime-derived local entries as reusable even when auth metadata is missing", async () => {
+  const { coordinator, setAdapterState } = createCoordinatorTestHarness({
+    isRuntimeDerivedModelEntryId: (entryId) => entryId.startsWith("runtime:")
+  });
+
+  setAdapterState({
+    modelEntries: [
+      {
+        id: "runtime:ollama-gemma4-e2b",
+        label: "Local AI on this Mac",
+        providerId: "ollama",
+        modelKey: "ollama/gemma4:e2b",
+        agentId: "",
+        agentDir: "",
+        workspaceDir: "",
+        authMethodId: undefined,
+        profileIds: [],
+        isDefault: true,
+        isFallback: false,
+        createdAt: "2026-04-10T00:00:00.000Z",
+        updatedAt: "2026-04-10T00:00:00.000Z"
+      }
+    ],
+    defaultModelEntryId: "runtime:ollama-gemma4-e2b",
+    fallbackModelEntryIds: []
+  });
+
+  const reusable = await coordinator.canReuseSavedModelEntry("runtime:ollama-gemma4-e2b");
+  assert.equal(reusable, true);
+});
+
 test("authenticateModelProvider starts MiniMax China OAuth with an explicit method", async () => {
   const { coordinator, interactiveCalls, loggedCommands } = createCoordinatorTestHarness();
   const request: ModelAuthRequest = {

@@ -262,6 +262,24 @@ final class ChillClawAppState {
         bannerMessage = nil
     }
 
+    func applyOverviewSnapshot(
+        _ snapshot: ProductOverview,
+        allowSetupCompletedRegression: Bool = false
+    ) {
+        var normalized = snapshot
+
+        if !allowSetupCompletedRegression,
+           overview?.firstRun.setupCompleted == true,
+           normalized.firstRun.setupCompleted == false
+        {
+            // Keep the onboarding gate stable if a late event arrives with stale first-run state.
+            normalized.firstRun.setupCompleted = true
+        }
+
+        overview = normalized
+        syncChatSendBlockReason()
+    }
+
     var requiresOnboarding: Bool {
         guard let overview else { return false }
         return !overview.firstRun.setupCompleted
@@ -278,8 +296,7 @@ final class ChillClawAppState {
     func checkAppUpdate() async {
         do {
             let response = try await client.checkAppUpdate()
-            overview = response.overview
-            syncChatSendBlockReason()
+            applyOverviewSnapshot(response.overview)
             bannerMessage = response.appUpdate.summary
             errorMessage = nil
         } catch {
@@ -294,7 +311,7 @@ final class ChillClawAppState {
         do {
             _ = try await client.resetOnboarding()
             selectedSection = .dashboard
-            try await refreshOverview()
+            try await refreshOverview(allowSetupCompletedRegression: true)
             bannerMessage = "Returning to guided setup."
             errorMessage = nil
         } catch {
@@ -323,8 +340,7 @@ final class ChillClawAppState {
 
         switch event {
         case let .overviewUpdated(snapshot):
-            overview = snapshot.data
-            syncChatSendBlockReason()
+            applyOverviewSnapshot(snapshot.data)
         case let .aiTeamUpdated(snapshot):
             aiTeamOverview = snapshot.data
             updateSelectedMemberForChat()
@@ -385,9 +401,9 @@ final class ChillClawAppState {
         return false
     }
 
-    private func refreshOverview() async throws {
-        self.overview = try await loader.fetchOverview()
-        syncChatSendBlockReason()
+    private func refreshOverview(allowSetupCompletedRegression: Bool = false) async throws {
+        let snapshot = try await loader.fetchOverview()
+        applyOverviewSnapshot(snapshot, allowSetupCompletedRegression: allowSetupCompletedRegression)
         self.errorMessage = nil
     }
 

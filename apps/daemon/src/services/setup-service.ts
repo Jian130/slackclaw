@@ -88,7 +88,7 @@ export class SetupService {
       detail: installResult.message
     });
 
-    const overview = await this.overviewService.getOverview();
+    const overview = await this.overviewService.getOverview({ includeLocalRuntime: false });
     const failedStep = steps.find((step) => step.status === "failed");
 
     return {

@@ -329,7 +329,19 @@ final class NativeOnboardingViewModel {
     }
 
     var localRuntimeConnected: Bool {
-        localRuntime?.activeInOpenClaw == true
+        resolveNativeOnboardingLocalRuntimeConnected(
+            draftModelEntryID: currentDraft.model?.entryId,
+            summaryModelEntryID: onboardingState?.summary.model?.entryId,
+            localRuntime: localRuntime
+        )
+    }
+
+    var hasManagedLocalRuntimeModelSelection: Bool {
+        resolveNativeOnboardingHasManagedModelSelection(
+            draftModelEntryID: currentDraft.model?.entryId,
+            summaryModelEntryID: onboardingState?.summary.model?.entryId,
+            localRuntime: localRuntime
+        )
     }
 
     var localRuntimeStatusTone: NativeStatusTone {
@@ -489,6 +501,8 @@ final class NativeOnboardingViewModel {
 
     var selectedBrainEntryId: String? {
         selectedModelEntry?.id
+            ?? onboardingState?.summary.model?.entryId
+            ?? currentDraft.model?.entryId
     }
 
     var previewAvatarPreset: NativeOnboardingAvatarPreset {
@@ -545,7 +559,7 @@ final class NativeOnboardingViewModel {
     }
 
     private func applyCompletedOnboarding(_ result: CompleteOnboardingResponse) {
-        appState.overview = result.overview
+        appState.applyOverviewSnapshot(result.overview)
         completedOnboarding = result
         completionWarmupTaskID = result.warmupTaskId
         completionWarmupStatus = result.warmupTaskId == nil ? nil : .running
@@ -717,7 +731,7 @@ final class NativeOnboardingViewModel {
 
         do {
             let result = try await appState.client.updateOnboardingRuntime()
-            appState.overview = result.overview
+            appState.applyOverviewSnapshot(result.overview)
             if let onboarding = result.onboarding {
                 applyOnboardingState(onboarding)
             }
@@ -753,6 +767,47 @@ final class NativeOnboardingViewModel {
     }
 
     func advancePastModel() async {
+        pageError = nil
+
+        if localRuntimeConnected, !hasManagedLocalRuntimeModelSelection {
+            modelBusy = "adopt-local-runtime"
+            defer {
+                if modelBusy == "adopt-local-runtime" {
+                    modelBusy = ""
+                }
+            }
+
+            do {
+                let result = try await appState.client.installLocalModelRuntime()
+                appState.applyOverviewSnapshot(result.overview)
+                appState.modelConfig = result.modelConfig
+                localRuntimeSnapshot = result.localRuntime
+                localRuntimeMessage = result.message
+
+                let settled = try await settleAfterMutation(
+                    mutate: { result },
+                    applyState: { [self] state in
+                        applyOnboardingState(state)
+                    },
+                    readFresh: { [self] in
+                        try await appState.client.fetchOnboardingState(fresh: true)
+                    },
+                    isSettled: { state, _ in
+                        state.draft.model?.entryId != nil ||
+                        state.summary.model?.entryId != nil ||
+                        state.localRuntime?.activeInOpenClaw == true
+                    }
+                )
+
+                if !settled.settled {
+                    throw NativeClientError.runtime("ChillClaw is still connecting the local Ollama model. Please try Next again.")
+                }
+            } catch {
+                presentErrorUnlessCancelled(error)
+                return
+            }
+        }
+
         await goToStep(.channel)
     }
 
@@ -795,7 +850,7 @@ final class NativeOnboardingViewModel {
 
         do {
             let result = try await appState.client.installOnboardingRuntime()
-            appState.overview = result.overview
+            appState.applyOverviewSnapshot(result.overview)
             _ = try await readFreshDeploymentTargets()
             if let onboarding = result.onboarding {
                 applyOnboardingState(onboarding)
@@ -919,6 +974,13 @@ final class NativeOnboardingViewModel {
                 _ = try? await self.readFreshChannelConfig()
             }
         } catch {
+            if await recoverOnboardingChannelSaveAfterTimeout(
+                error,
+                channelId: selectedChannelPresentation.id,
+                preferredEntryId: selectedChannelEntry?.id
+            ) {
+                return
+            }
             presentErrorUnlessCancelled(error)
         }
     }
@@ -978,6 +1040,8 @@ final class NativeOnboardingViewModel {
     }
 
     func createEmployee() async {
+        guard !employeeBusy else { return }
+
         guard
             selectedBrainEntryId != nil,
             let selectedEmployeePreset,
@@ -1028,7 +1092,7 @@ final class NativeOnboardingViewModel {
             }
 
             let result = try await appState.client.completeOnboarding(.init(destination: destination))
-            appState.overview = result.overview
+            appState.applyOverviewSnapshot(result.overview)
             await enterDestination(destination, refreshAll: false)
         } catch {
             if await recoverOnboardingCompletionAfterTimeout(error, destination: destination) {
@@ -1048,7 +1112,7 @@ final class NativeOnboardingViewModel {
             }
 
             let result = try await appState.client.completeOnboarding(.init(destination: .dashboard))
-            appState.overview = result.overview
+            appState.applyOverviewSnapshot(result.overview)
             await enterDestination(.dashboard, refreshAll: false)
         } catch {
             if await recoverOnboardingCompletionAfterTimeout(error, destination: .dashboard) {
@@ -1525,7 +1589,7 @@ final class NativeOnboardingViewModel {
 
     private func readFreshOverview() async throws -> ProductOverview {
         let overview = try await appState.client.fetchOverview()
-        appState.overview = overview
+        appState.applyOverviewSnapshot(overview)
         return overview
     }
 
@@ -1564,7 +1628,7 @@ final class NativeOnboardingViewModel {
             (currentDraft.activeModelAuthSessionId ?? "").isEmpty &&
             currentDraft.model?.entryId == nil &&
             onboardingState?.summary.model?.entryId == nil &&
-            localRuntime?.activeInOpenClaw != true &&
+            !localRuntimeConnected &&
             providerId.isEmpty &&
             modelViewState.kind == .picker
     }
@@ -1679,7 +1743,7 @@ final class NativeOnboardingViewModel {
                 action == "repair"
                 ? try await appState.client.repairLocalModelRuntime()
                 : try await appState.client.installLocalModelRuntime()
-            appState.overview = result.overview
+            appState.applyOverviewSnapshot(result.overview)
             appState.modelConfig = result.modelConfig
             localRuntimeSnapshot = result.localRuntime
             localRuntimeMessage = result.message
@@ -1717,7 +1781,7 @@ final class NativeOnboardingViewModel {
 
         if var overview = appState.overview {
             overview.localRuntime = localRuntime
-            appState.overview = overview
+            appState.applyOverviewSnapshot(overview)
         }
 
         if var modelConfig = appState.modelConfig {
@@ -1812,6 +1876,80 @@ final class NativeOnboardingViewModel {
         return false
     }
 
+    private func recoverOnboardingChannelSaveAfterTimeout(
+        _ error: Error,
+        channelId: SupportedChannelId,
+        preferredEntryId: String?
+    ) async -> Bool {
+        guard isRecoverableOnboardingCompletionTimeout(error) else {
+            return false
+        }
+
+        for attempt in 0..<12 {
+            var resolvedChannelId = channelId
+            var resolvedEntryId = preferredEntryId
+
+            if let next = try? await appState.client.fetchOnboardingState(fresh: true) {
+                applyOnboardingState(next)
+
+                resolvedChannelId = next.draft.channel?.channelId ?? resolvedChannelId
+                resolvedEntryId = next.draft.channel?.entryId ?? resolvedEntryId
+
+                if next.draft.currentStep == .employee {
+                    pageError = nil
+                    return true
+                }
+
+                if let sessionId = next.draft.activeChannelSessionId, !sessionId.isEmpty {
+                    do {
+                        try await resumeChannelSession(sessionId: sessionId, draftChannel: next.draft.channel)
+                        pageError = nil
+                        return true
+                    } catch {
+                        if await handleMissingOnboardingChannelSession(error) {
+                            pageError = nil
+                            return true
+                        }
+                    }
+                }
+            }
+
+            if let channelConfig = try? await readFreshChannelConfig(),
+               let activeSession = channelConfig.activeSession,
+               activeSession.channelId == resolvedChannelId
+            {
+                startChannelSessionPolling(
+                    sessionId: activeSession.id,
+                    channelId: resolvedChannelId,
+                    preferredEntryId: resolvedEntryId ?? activeSession.entryId
+                )
+                pageError = nil
+                return true
+            }
+
+            if (try? await maybeAdvanceCompletedChannelSetupIfNeeded(
+                channelId: resolvedChannelId,
+                preferredEntryId: resolvedEntryId
+            )) == true {
+                pageError = nil
+                return true
+            }
+
+            if let entry = resolvedChannelEntry(channelId: resolvedChannelId, preferredEntryId: resolvedEntryId),
+               entry.status == "awaiting-pairing" || entry.status == "completed" || entry.status == "configured"
+            {
+                pageError = nil
+                return true
+            }
+
+            if attempt < 11 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+
+        return false
+    }
+
     private func recoverOnboardingCompletionAfterTimeout(
         _ error: Error,
         destination: OnboardingDestination?
@@ -1878,7 +2016,7 @@ final class NativeOnboardingViewModel {
 
         switch event {
         case let .overviewUpdated(snapshot):
-            appState.overview = snapshot.data
+            appState.applyOverviewSnapshot(snapshot.data)
         case let .modelConfigUpdated(snapshot):
             appState.modelConfig = snapshot.data
         case let .channelConfigUpdated(snapshot):

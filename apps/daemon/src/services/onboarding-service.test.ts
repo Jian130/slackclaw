@@ -378,6 +378,65 @@ test("navigating from the local model step to the channel step recovers the mana
   assert.equal(updated.summary.model?.entryId, updated.draft.model?.entryId);
 });
 
+test("navigating from an already active local runtime to channels avoids live model config reads", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-navigate-local-runtime-lightweight-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  let modelConfigCalls = 0;
+  adapter.config.getModelConfig = async () => {
+    modelConfigCalls += 1;
+    throw new Error("Local runtime navigation should not reload OpenClaw model config.");
+  };
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let localRuntimeCalls = 0;
+  const localRuntimeService = {
+    async getOverview() {
+      localRuntimeCalls += 1;
+      return {
+        supported: true,
+        recommendation: "local" as const,
+        supportCode: "supported" as const,
+        status: "ready" as const,
+        runtimeInstalled: true,
+        runtimeReachable: true,
+        modelDownloaded: true,
+        activeInOpenClaw: true,
+        chosenModelKey: "ollama/gemma4:e2b",
+        summary: "Local AI is ready on this Mac.",
+        detail: "OpenClaw is already pointed at the local Ollama runtime."
+      };
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview"> as LocalModelRuntimeService;
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, undefined, undefined, localRuntimeService);
+
+  await service.updateState({
+    currentStep: "model",
+    install: {
+      installed: true,
+      version: "2026.4.5",
+      disposition: "reused-existing"
+    },
+    permissions: {
+      confirmed: true,
+      confirmedAt: new Date().toISOString()
+    },
+    model: undefined
+  });
+
+  const updated = await service.navigateStep({ step: "channel" });
+
+  assert.equal(updated.draft.currentStep, "channel");
+  assert.equal(updated.draft.model?.providerId, "ollama");
+  assert.equal(updated.draft.model?.methodId, "ollama-local");
+  assert.equal(updated.draft.model?.modelKey, "ollama/gemma4:e2b");
+  assert.equal(updated.draft.model?.entryId, "runtime:ollama-gemma4-e2b");
+  assert.equal(updated.summary.model?.entryId, "runtime:ollama-gemma4-e2b");
+  assert.equal(localRuntimeCalls, 1);
+  assert.equal(modelConfigCalls, 0);
+});
+
 test("onboarding state includes the daemon-owned local runtime for the model step", async () => {
   const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-model-local-runtime-${randomUUID()}.json`);
   const adapter = new MockAdapter();
@@ -1171,6 +1230,66 @@ test("onboarding completion rejects unreusable cloud model entries before creati
   assert.equal(memberCreateCalls, 0);
 });
 
+test("onboarding completion resolves stale local runtime model draft IDs before creating the AI employee", async () => {
+  const { adapter, service, aiTeamService } = createService("onboarding-service-complete-stale-local-runtime-model");
+
+  await adapter.config.upsertManagedLocalModelEntry({
+    label: "Local AI on this Mac",
+    providerId: "ollama",
+    methodId: "ollama-local",
+    modelKey: "ollama/gemma4:e2b",
+    entryId: "runtime:ollama-gemma4-e2b"
+  });
+
+  await service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.4.11",
+      disposition: "installed-managed"
+    },
+    permissions: {
+      confirmed: true,
+      confirmedAt: "2026-04-11T00:00:00.000Z"
+    },
+    model: {
+      providerId: "ollama",
+      methodId: "ollama-local",
+      modelKey: "ollama/gemma4:e2b",
+      entryId: "a3d597e8-3a50-4ce9-8372-4fadcd903e00"
+    },
+    channel: {
+      channelId: "telegram",
+      entryId: "telegram:default"
+    },
+    channelProgress: {
+      status: "staged",
+      requiresGatewayApply: true
+    }
+  });
+
+  const result = await service.complete({
+    destination: "chat",
+    employee: {
+      name: "AI Ryo",
+      jobTitle: "Research Analyst",
+      avatarPresetId: "onboarding-analyst",
+      presetId: "research-analyst",
+      presetSkillIds: [],
+      knowledgePackIds: [],
+      workStyles: ["Analytical"],
+      memoryEnabled: true
+    }
+  });
+  const team = await aiTeamService.getOverview();
+  const member = team.members.find((entry) => entry.name === "AI Ryo");
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.summary.model?.entryId, "runtime:ollama-gemma4-e2b");
+  assert.equal(result.summary.employee?.name, "AI Ryo");
+  assert.equal(member?.brain?.entryId, "runtime:ollama-gemma4-e2b");
+});
+
 test("onboarding completion binds the selected channel to the created AI employee", async () => {
   const { service, aiTeamService } = createService("onboarding-service-complete-binds-channel");
 
@@ -1949,6 +2068,71 @@ test("onboarding completion repairs employee-step drafts that lost staged channe
   assert.equal(result.status, "completed");
   assert.equal(result.summary.channel?.channelId, "wechat");
   assert.equal(result.summary.channel?.entryId, "wechat:default");
+});
+
+test("onboarding completion tolerates stale channel session markers on the employee step", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-stale-channel-session-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  let channelOverviewCalls = 0;
+  Object.assign(channelSetupService, {
+    async getConfigOverview() {
+      channelOverviewCalls += 1;
+      throw new Error("Finalize should not require channel overview when employee-step channel draft is already selected.");
+    }
+  });
+  const aiTeamService = new AITeamService(adapter, store);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService);
+
+  await service.updateState(
+    {
+      currentStep: "employee",
+      install: {
+        installed: true,
+        version: "2026.3.13",
+        disposition: "reused-existing"
+      },
+      permissions: {
+        confirmed: true,
+        confirmedAt: "2026-03-24T00:01:00.000Z"
+      },
+      model: {
+        providerId: "openai",
+        modelKey: "openai/gpt-4o-mini",
+        entryId: "mock-openai-gpt-4o-mini"
+      },
+      channel: {
+        channelId: "wechat",
+        entryId: "wechat:default"
+      },
+      channelProgress: {
+        status: "capturing",
+        sessionId: "wechat:default:login",
+        message: "WeChat login is still running."
+      },
+      activeChannelSessionId: "wechat:default:login",
+      employee: {
+        name: "Ai Ryo",
+        jobTitle: "AI Assistant",
+        avatarPresetId: "onboarding-analyst",
+        presetId: "research-analyst",
+        presetSkillIds: ["research-brief", "status-writer"],
+        knowledgePackIds: ["company-handbook", "delivery-playbook"],
+        workStyles: ["Analytical", "Concise"],
+        memoryEnabled: true
+      }
+    },
+    { responseSummaryMode: "draft" }
+  );
+
+  const result = await service.complete({ destination: "chat" });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.summary.channel?.channelId, "wechat");
+  assert.equal(result.summary.channel?.entryId, "wechat:default");
+  assert.equal(channelOverviewCalls, 0);
 });
 
 test("onboarding completion avoids rebuilding expensive live summaries during finalize", async () => {

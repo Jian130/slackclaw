@@ -18,6 +18,7 @@ import type {
 import { normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";
 import { FilesystemStateAdapter } from "../platform/filesystem-state-adapter.js";
 import { getDataDir } from "../runtime-paths.js";
+import { formatConsoleLine } from "./logger.js";
 
 export interface StoredChannelEntryState {
   id: string;
@@ -198,6 +199,25 @@ function normalizeAppState(state: AppState): AppState {
     ...state,
     localModelRuntime: normalizeLocalModelRuntimeState(state.localModelRuntime)
   };
+}
+
+function summarizeStateForLog(state: AppState): string {
+  const draft = state.onboarding?.draft;
+  const draftParts = draft
+    ? [
+        `step=${draft.currentStep}`,
+        `modelEntryId=${draft.model?.entryId ?? "(none)"}`,
+        `modelKey=${draft.model?.modelKey ?? "(none)"}`,
+        `channelEntryId=${draft.channel?.entryId ?? "(none)"}`
+      ]
+    : ["onboarding=(none)"];
+
+  return [
+    ...draftParts,
+    `setupCompleted=${state.setupCompletedAt ? "true" : "false"}`,
+    `warmups=${Object.keys(state.onboardingWarmups ?? {}).length}`,
+    `members=${Object.keys(state.aiTeam?.members ?? {}).length}`
+  ].join(" ");
 }
 
 function containsLegacyWechatWorkMetadata(value: string | undefined): boolean {
@@ -411,6 +431,7 @@ export class StateStore {
   }
 
   private async readPersisted(): Promise<AppState> {
+    console.log(formatConsoleLine(`read ${this.filePath}`, { scope: "stateStore" }));
     const persisted = await this.filesystem.readJson(this.filePath, DEFAULT_STATE);
     return normalizeAppState(migrateLegacyWechatChannelOnboarding(migrateLegacyOnboardingPresetSkills({ ...DEFAULT_STATE, ...persisted } as AppState)));
   }
@@ -427,13 +448,18 @@ export class StateStore {
   }
 
   async write(nextState: AppState): Promise<void> {
-    await this.enqueueMutation(() => this.filesystem.writeJson(this.filePath, normalizeAppState(nextState)));
+    await this.enqueueMutation(() => {
+      const normalized = normalizeAppState(nextState);
+      console.log(formatConsoleLine(`write ${this.filePath} ${summarizeStateForLog(normalized)}`, { scope: "stateStore" }));
+      return this.filesystem.writeJson(this.filePath, normalized);
+    });
   }
 
   async update(updater: (current: AppState) => AppState): Promise<AppState> {
     return this.enqueueMutation(async () => {
       const current = await this.readPersisted();
       const next = normalizeAppState(updater(current));
+      console.log(formatConsoleLine(`write ${this.filePath} ${summarizeStateForLog(next)}`, { scope: "stateStore" }));
       await this.filesystem.writeJson(this.filePath, next);
       return next;
     });

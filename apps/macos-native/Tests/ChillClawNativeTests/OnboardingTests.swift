@@ -20,6 +20,25 @@ struct OnboardingTests {
     }
 
     @Test
+    func appStateIgnoresStaleOnboardingDowngradeAfterSetupCompletes() {
+        let appState = ChillClawAppState()
+
+        appState.applyOverviewSnapshot(makeOverview(setupCompleted: true))
+        appState.applyOverviewSnapshot(makeOverview(setupCompleted: false))
+
+        #expect(appState.overview?.firstRun.setupCompleted == true)
+        #expect(appState.requiresOnboarding == false)
+
+        appState.applyOverviewSnapshot(
+            makeOverview(setupCompleted: false),
+            allowSetupCompletedRegression: true
+        )
+
+        #expect(appState.overview?.firstRun.setupCompleted == false)
+        #expect(appState.requiresOnboarding == true)
+    }
+
+    @Test
     func onboardingDestinationMapsToNativeSection() {
         #expect(onboardingDestinationSection(.team) == .team)
         #expect(onboardingDestinationSection(.dashboard) == .dashboard)
@@ -103,6 +122,20 @@ struct OnboardingTests {
         )
 
         #expect(source.contains("disabled: viewModel.modelBusy == \"save\" || requiredModelFieldsMissing"))
+    }
+
+    @Test
+    func createEmployeeButtonDisablesWhileCreating() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/ChillClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("disabled: viewModel.employeeBusy"))
     }
 
     @Test
@@ -856,6 +889,130 @@ struct OnboardingTests {
     }
 
     @Test
+    func advancingFromModelTreatsRuntimeDerivedLocalModelAsConnected() async throws {
+        let recorder = NativeRequestRecorder()
+        let runtimeDerivedRuntime = makeLocalRuntime(
+            recommendation: "local",
+            status: "ready",
+            activeInOpenClaw: true,
+            managedEntryId: "runtime:ollama-gemma4-e2b"
+        )
+        let managedRuntime = makeLocalRuntime(
+            recommendation: "local",
+            status: "ready",
+            activeInOpenClaw: true,
+            managedEntryId: "local-managed-entry"
+        )
+        let managedEntry = SavedModelEntry(
+            id: "local-managed-entry",
+            label: "Local AI on this Mac",
+            providerId: "ollama",
+            modelKey: "ollama/gemma4:e2b",
+            agentId: "",
+            authMethodId: "ollama-local",
+            isDefault: true,
+            isFallback: false,
+            createdAt: "2026-03-30T00:00:00.000Z",
+            updatedAt: "2026-03-30T00:00:00.000Z"
+        )
+        let managedModelConfig = ModelConfigOverview(
+            providers: [],
+            models: [],
+            defaultModel: managedEntry.modelKey,
+            configuredModelKeys: [managedEntry.modelKey],
+            savedEntries: [managedEntry],
+            defaultEntryId: managedEntry.id,
+            fallbackEntryIds: [],
+            localRuntime: managedRuntime
+        )
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/models/local-runtime/install"):
+                let body = try JSONEncoder.chillClaw.encode(
+                    LocalModelRuntimeActionResponse(
+                        epoch: "epoch-1",
+                        revision: 1,
+                        settled: true,
+                        action: "install",
+                        status: "completed",
+                        message: "Local AI is ready on this Mac.",
+                        localRuntime: managedRuntime,
+                        modelConfig: managedModelConfig,
+                        overview: makeOverview(setupCompleted: false, localRuntime: managedRuntime)
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            case ("GET", "/api/onboarding/state"):
+                var state = makeOnboardingStateResponse(step: .model, localRuntime: managedRuntime)
+                state.draft.model = .init(
+                    providerId: "ollama",
+                    modelKey: "ollama/gemma4:e2b",
+                    methodId: "ollama-local",
+                    entryId: managedEntry.id
+                )
+                let body = try JSONEncoder.chillClaw.encode(state)
+                return (jsonResponse(url: url), body)
+            case ("POST", "/api/onboarding/navigate"):
+                var state = makeOnboardingStateResponse(step: .channel, localRuntime: managedRuntime)
+                state.draft.model = .init(
+                    providerId: "ollama",
+                    modelKey: "ollama/gemma4:e2b",
+                    methodId: "ollama-local",
+                    entryId: managedEntry.id
+                )
+                let body = try JSONEncoder.chillClaw.encode(state)
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = ChillClawChatViewModel(transport: FakeChatTransport())
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false, installed: true, running: true, version: "2026.3.13") },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig(localRuntime: runtimeDerivedRuntime) },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+        appState.overview = makeOverview(setupCompleted: false, localRuntime: runtimeDerivedRuntime)
+        appState.modelConfig = emptyModelConfig(localRuntime: runtimeDerivedRuntime)
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model, localRuntime: runtimeDerivedRuntime)
+
+        await viewModel.advancePastModel()
+
+        let urls = await recorder.recordedURLs()
+        #expect(!urls.contains("http://127.0.0.1:4545/api/models/local-runtime/install"))
+        #expect(!urls.contains("http://127.0.0.1:4545/api/onboarding/state?fresh=1"))
+        #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/navigate"))
+        #expect(viewModel.currentStep == .channel)
+        #expect(viewModel.pageError == nil)
+    }
+
+    @Test
     func onboardingInstallTargetPrefersTheActiveInstalledRuntime() {
         let target = resolveNativeOnboardingInstallTarget(
             overview: makeOverview(setupCompleted: false, installed: true, running: true, version: "2026.3.13"),
@@ -1486,6 +1643,42 @@ struct OnboardingTests {
                 draftModelEntryID: nil,
                 summaryModelEntryID: nil,
                 localRuntime: makeLocalRuntime(recommendation: "local", status: "ready", activeInOpenClaw: true)
+            ) == .connected
+        )
+
+        let runtimeDerivedLocalRuntime = makeLocalRuntime(
+            recommendation: "local",
+            status: "ready",
+            activeInOpenClaw: true,
+            managedEntryId: "runtime:ollama-gemma4-e2b"
+        )
+
+        #expect(
+            resolveNativeOnboardingLocalRuntimeConnected(
+                draftModelEntryID: nil,
+                summaryModelEntryID: nil,
+                localRuntime: runtimeDerivedLocalRuntime
+            ) == true
+        )
+
+        #expect(
+            resolveNativeOnboardingHasManagedModelSelection(
+                draftModelEntryID: nil,
+                summaryModelEntryID: nil,
+                localRuntime: runtimeDerivedLocalRuntime
+            ) == true
+        )
+
+        #expect(
+            resolveNativeOnboardingModelStepMode(
+                bootstrapPending: false,
+                providerId: "",
+                selectedProviderPresent: false,
+                modelViewKind: .picker,
+                activeModelAuthSessionId: nil,
+                draftModelEntryID: nil,
+                summaryModelEntryID: nil,
+                localRuntime: runtimeDerivedLocalRuntime
             ) == .connected
         )
     }
@@ -2301,6 +2494,146 @@ struct OnboardingTests {
         #expect(viewModel.currentStep == .employee)
         #expect(viewModel.currentDraft.channel?.entryId == completedEntry.id)
         #expect(viewModel.currentDraft.activeChannelSessionId == nil)
+        #expect(viewModel.channelBusy == false)
+    }
+
+    @Test
+    func savingPersonalWechatChannelRecoversWhenInitialSaveTimesOut() async throws {
+        actor OnboardingStateReadCounter {
+            private var count = 0
+
+            func next() -> Int {
+                count += 1
+                return count
+            }
+        }
+
+        let recorder = NativeRequestRecorder()
+        let stateReadCounter = OnboardingStateReadCounter()
+        let sessionId = "wechat:default:login"
+        let awaitingEntry = ConfiguredChannelEntry(
+            id: "wechat:default",
+            channelId: .wechat,
+            label: "WeChat",
+            status: "awaiting-pairing",
+            summary: "Waiting for QR confirmation.",
+            detail: "Installer is still running.",
+            maskedConfigSummary: [],
+            editableValues: [:],
+            pairingRequired: false,
+            lastUpdatedAt: "2026-03-28T00:00:00.000Z"
+        )
+        let completedEntry = ConfiguredChannelEntry(
+            id: "wechat:default",
+            channelId: .wechat,
+            label: "WeChat",
+            status: "completed",
+            summary: "WeChat is configured in OpenClaw.",
+            detail: "The QR-first login finished successfully.",
+            maskedConfigSummary: [],
+            editableValues: [:],
+            pairingRequired: false,
+            lastUpdatedAt: "2026-03-28T00:00:05.000Z"
+        )
+        let completedConfig = ChannelConfigOverview(
+            baseOnboardingCompleted: true,
+            capabilities: [],
+            entries: [completedEntry],
+            activeSession: nil,
+            gatewaySummary: "Gateway ready"
+        )
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/channel/entries"):
+                throw URLError(.timedOut)
+            case ("GET", "/api/onboarding/state"):
+                if await stateReadCounter.next() == 1 {
+                    var nextState = makeOnboardingStateResponse(step: .channel)
+                    nextState.draft.channel = .init(channelId: .wechat, entryId: awaitingEntry.id)
+                    nextState.draft.activeChannelSessionId = sessionId
+                    nextState.draft.channelProgress = .init(status: .capturing, sessionId: sessionId, message: "Started WeChat login", requiresGatewayApply: false)
+                    let body = try JSONEncoder.chillClaw.encode(nextState)
+                    return (jsonResponse(url: url), body)
+                }
+
+                var nextState = makeOnboardingStateResponse(step: .employee)
+                nextState.draft.channel = .init(channelId: .wechat, entryId: completedEntry.id)
+                nextState.draft.channelProgress = .init(status: .staged, sessionId: sessionId, message: completedEntry.summary, requiresGatewayApply: false)
+                let body = try JSONEncoder.chillClaw.encode(nextState)
+                return (jsonResponse(url: url), body)
+            case ("GET", "/api/onboarding/channel/session/wechat:default:login"):
+                var nextState = makeOnboardingStateResponse(step: .employee)
+                nextState.draft.channel = .init(channelId: .wechat, entryId: completedEntry.id)
+                nextState.draft.channelProgress = .init(status: .staged, sessionId: sessionId, message: completedEntry.summary, requiresGatewayApply: false)
+                let body = try JSONEncoder.chillClaw.encode(
+                    ChannelSessionResponse(
+                        session: .init(
+                            id: sessionId,
+                            channelId: .wechat,
+                            entryId: awaitingEntry.id,
+                            status: "running",
+                            message: "WeChat login is waiting for QR confirmation.",
+                            logs: [
+                                "Starting the personal WeChat installer.",
+                                "QR code ready. Scan with WeChat to continue."
+                            ],
+                            launchUrl: nil,
+                            inputPrompt: nil
+                        ),
+                        channelConfig: completedConfig,
+                        onboarding: nextState
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = ChillClawChatViewModel(transport: FakeChatTransport())
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .channel)
+        viewModel.updateSelectedChannel(.wechat)
+
+        await viewModel.saveChannel()
+        await waitForRecordedURLCount(recorder, expectedCount: 4)
+
+        let urls = await recorder.recordedURLs()
+        #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/channel/entries"))
+        #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/state?fresh=1"))
+        #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/channel/session/\(sessionId)?fresh=1"))
+        #expect(viewModel.currentStep == .employee)
+        #expect(viewModel.currentDraft.channel?.entryId == completedEntry.id)
+        #expect(viewModel.pageError == nil)
         #expect(viewModel.channelBusy == false)
     }
 
@@ -3943,6 +4276,190 @@ struct OnboardingTests {
         #expect(payload.employee?.name == "AI Ryo")
         #expect(payload.employee?.jobTitle == "Research Analyst")
     }
+
+    @Test
+    func createEmployeeIgnoresSecondTapWhileRequestIsInFlight() async throws {
+        let recorder = NativeRequestRecorder()
+        let savedEntry = SavedModelEntry(
+            id: "model-entry-1",
+            label: "MiniMax",
+            providerId: "minimax",
+            modelKey: "minimax/MiniMax-M2.7",
+            agentId: "agent-1",
+            authMethodId: "minimax-api",
+            authModeLabel: "API Key",
+            profileLabel: "Default",
+            isDefault: true,
+            isFallback: false,
+            createdAt: "2026-03-30T00:00:00.000Z",
+            updatedAt: "2026-03-30T00:00:00.000Z"
+        )
+        let savedConfig = ModelConfigOverview(
+            providers: [],
+            models: [],
+            defaultModel: savedEntry.modelKey,
+            configuredModelKeys: [savedEntry.modelKey],
+            savedEntries: [savedEntry],
+            defaultEntryId: savedEntry.id,
+            fallbackEntryIds: []
+        )
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/complete"):
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                let payload = try JSONEncoder.chillClaw.encode(
+                    CompleteOnboardingResponse(
+                        status: "completed",
+                        destination: .chat,
+                        summary: .init(),
+                        overview: makeOverview(setupCompleted: true)
+                    )
+                )
+                return (jsonResponse(url: url), payload)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: { configuration }
+        )
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: { true }),
+            processManager: DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true }),
+            chatViewModel: ChillClawChatViewModel(transport: FakeChatTransport()),
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { savedConfig },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+        appState.modelConfig = savedConfig
+
+        let viewModel = NativeOnboardingViewModel(appState: appState)
+        var onboardingState = makeOnboardingStateResponse(step: .employee)
+        onboardingState.draft.model = .init(
+            providerId: savedEntry.providerId,
+            modelKey: savedEntry.modelKey,
+            methodId: savedEntry.authMethodId,
+            entryId: savedEntry.id
+        )
+        viewModel.onboardingState = onboardingState
+        viewModel.selectedEmployeePresetId = viewModel.employeePresets.first?.id ?? ""
+        viewModel.employeeName = "AI Ryo"
+        viewModel.employeeJobTitle = "Research Analyst"
+
+        let firstTap = Task {
+            await viewModel.createEmployee()
+        }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(viewModel.employeeBusy == true)
+
+        let secondTap = Task {
+            await viewModel.createEmployee()
+        }
+
+        await firstTap.value
+        await secondTap.value
+
+        let completeRequests = await recorder.recordedRequests().filter {
+            $0.url?.path == "/api/onboarding/complete"
+        }
+        #expect(completeRequests.count == 1)
+    }
+
+    @Test
+    func createEmployeeAllowsDraftModelEntryBeforeModelConfigRefreshes() async throws {
+        let recorder = NativeRequestRecorder()
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/complete"):
+                let payload = try JSONEncoder.chillClaw.encode(
+                    CompleteOnboardingResponse(
+                        status: "completed",
+                        destination: .chat,
+                        summary: .init(),
+                        overview: makeOverview(setupCompleted: true)
+                    )
+                )
+                return (jsonResponse(url: url), payload)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: { configuration }
+        )
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: { true }),
+            processManager: DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true }),
+            chatViewModel: ChillClawChatViewModel(transport: FakeChatTransport()),
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+        appState.modelConfig = nil
+
+        let viewModel = NativeOnboardingViewModel(appState: appState)
+        var onboardingState = makeOnboardingStateResponse(step: .employee)
+        onboardingState.draft.model = .init(
+            providerId: "ollama",
+            modelKey: "ollama/gemma4:e2b",
+            methodId: "ollama-local",
+            entryId: "a3d597e8-3a50-4ce9-8372-4fadcd903e00"
+        )
+        onboardingState.summary.model = .init(
+            providerId: "ollama",
+            modelKey: "ollama/gemma4:e2b",
+            methodId: "ollama-local",
+            entryId: "a3d597e8-3a50-4ce9-8372-4fadcd903e00"
+        )
+        onboardingState.draft.channel = .init(channelId: .wechat, entryId: "wechat:default")
+        onboardingState.draft.channelProgress = .init(status: .staged, message: "WeChat is staged.")
+        viewModel.onboardingState = onboardingState
+        viewModel.selectedEmployeePresetId = viewModel.employeePresets.first?.id ?? ""
+        viewModel.employeeName = "AI Ryo"
+        viewModel.employeeJobTitle = "Research Analyst"
+
+        #expect(viewModel.selectedBrainEntryId == "a3d597e8-3a50-4ce9-8372-4fadcd903e00")
+
+        await viewModel.createEmployee()
+        await waitForRecordedURLCount(recorder, expectedCount: 1)
+
+        let completeRequests = await recorder.recordedRequests().filter {
+            $0.url?.path == "/api/onboarding/complete"
+        }
+        #expect(completeRequests.count == 1)
+    }
 }
 
 private func makeOverview(
@@ -4023,7 +4540,8 @@ private func makeLocalRuntime(
     progressMessage: String? = nil,
     progressCompletedBytes: Int? = nil,
     progressTotalBytes: Int? = nil,
-    chosenModelKey: String? = nil
+    chosenModelKey: String? = nil,
+    managedEntryId: String? = nil
 ) -> LocalModelRuntimeOverview {
     .init(
         supported: supported,
@@ -4039,7 +4557,7 @@ private func makeLocalRuntime(
         totalMemoryGb: supported ? 18 : 8,
         freeDiskGb: supported ? 96 : 12,
         chosenModelKey: chosenModelKey ?? (supported ? "qwen2.5:7b-instruct" : nil),
-        managedEntryId: activeInOpenClaw ? "local-managed-entry" : nil,
+        managedEntryId: managedEntryId ?? (activeInOpenClaw ? "local-managed-entry" : nil),
         summary: supported ? "Local AI is available on this Mac." : "Cloud AI is recommended on this Mac.",
         detail: supported ? "ChillClaw can prepare a managed local model." : "This Mac should use cloud AI instead.",
         lastError: status == "failed" ? "Local runtime setup failed." : nil,

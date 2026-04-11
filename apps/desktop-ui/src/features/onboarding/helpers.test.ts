@@ -1111,6 +1111,7 @@ describe("onboarding helpers", () => {
       activeModelAuthSessionId: undefined,
       draftModelEntryId: undefined,
       summaryModelEntryId: "managed-ollama-entry",
+      localRuntimeManagedEntryId: "managed-ollama-entry",
       localRuntime: {
         supported: true,
         recommendation: "local",
@@ -1122,6 +1123,60 @@ describe("onboarding helpers", () => {
         activeInOpenClaw: true,
         summary: "Local AI is ready on this Mac.",
         detail: "ChillClaw connected OpenClaw directly to the local Ollama runtime."
+      }
+    });
+
+    expect(mode).toBe("connected");
+  });
+
+  it("treats an active local runtime as connected even before a managed entry is staged", () => {
+    const mode = resolveOnboardingModelStepMode({
+      bootstrapPending: false,
+      providerId: "",
+      selectedProviderPresent: false,
+      modelViewKind: "picker",
+      activeModelAuthSessionId: undefined,
+      draftModelEntryId: undefined,
+      summaryModelEntryId: undefined,
+      localRuntimeManagedEntryId: undefined,
+      localRuntime: {
+        supported: true,
+        recommendation: "local",
+        supportCode: "supported",
+        status: "ready",
+        runtimeInstalled: true,
+        runtimeReachable: true,
+        modelDownloaded: true,
+        activeInOpenClaw: true,
+        summary: "Local AI is ready on this Mac.",
+        detail: "OpenClaw is already pointed at the local Ollama runtime."
+      }
+    });
+
+    expect(mode).toBe("connected");
+  });
+
+  it("treats runtime-derived local entry ids as connected when OpenClaw is already active", () => {
+    const mode = resolveOnboardingModelStepMode({
+      bootstrapPending: false,
+      providerId: "",
+      selectedProviderPresent: false,
+      modelViewKind: "picker",
+      activeModelAuthSessionId: undefined,
+      draftModelEntryId: undefined,
+      summaryModelEntryId: undefined,
+      localRuntimeManagedEntryId: "runtime:ollama-gemma4-e2b",
+      localRuntime: {
+        supported: true,
+        recommendation: "local",
+        supportCode: "supported",
+        status: "ready",
+        runtimeInstalled: true,
+        runtimeReachable: true,
+        modelDownloaded: true,
+        activeInOpenClaw: true,
+        summary: "Local AI is ready on this Mac.",
+        detail: "OpenClaw is already pointed at the local Ollama runtime."
       }
     });
 

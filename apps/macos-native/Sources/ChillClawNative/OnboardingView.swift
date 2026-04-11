@@ -1904,7 +1904,8 @@ struct NativeOnboardingView: View {
     private var createEmployeeButton: some View {
         NativeOnboardingActionButton(
             variant: nativeOnboardingForwardActionVariant(),
-            disabled: viewModel.selectedEmployeePreset == nil
+            disabled: viewModel.employeeBusy
+                || viewModel.selectedEmployeePreset == nil
                 || viewModel.selectedBrainEntryId == nil
                 || viewModel.employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || viewModel.employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

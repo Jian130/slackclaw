@@ -16,6 +16,10 @@ import { StateStore } from "./state-store.js";
 import { getProductVersion } from "../product-version.js";
 import type { LocalModelRuntimeService } from "./local-model-runtime-service.js";
 
+export type OverviewReadOptions = {
+  includeLocalRuntime?: boolean;
+};
+
 export class OverviewService {
   constructor(
     private readonly adapter: EngineAdapter,
@@ -25,7 +29,7 @@ export class OverviewService {
     private readonly localModelRuntimeService?: LocalModelRuntimeService
   ) {}
 
-  async getOverview(): Promise<ProductOverview> {
+  async getOverview(options?: OverviewReadOptions): Promise<ProductOverview> {
     const appUpdate = await this.appUpdateService.getStatus();
     const base = createDefaultProductOverview({
       appVersion: getProductVersion(),
@@ -53,7 +57,8 @@ export class OverviewService {
     };
     const onboardingCompleted = true;
     const nextChannelId = (["telegram", "whatsapp", "feishu", "wechat"] as const).find((channelId) => mergedChannels[channelId].status !== "completed");
-    const localRuntime = this.localModelRuntimeService
+    const includeLocalRuntime = options?.includeLocalRuntime ?? true;
+    const localRuntime = includeLocalRuntime && this.localModelRuntimeService
       ? await this.localModelRuntimeService.getOverview()
       : base.localRuntime;
     const recoveryActions = [...base.recoveryActions];

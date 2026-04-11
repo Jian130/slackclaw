@@ -2,14 +2,17 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 import type {
+  ChannelConfigOverview,
   ChannelConfigActionResponse,
   ChannelSessionInputRequest,
   ChannelSessionResponse,
   CompleteOnboardingRequest,
   CompleteOnboardingResponse,
+  LocalModelRuntimeOverview,
   ModelAuthSessionInputRequest,
   ModelAuthSessionResponse,
   ModelConfigActionResponse,
+  OnboardingModelState,
   OnboardingCompletionSummary,
   OnboardingEmployeeState,
   OnboardingInstallState,
@@ -123,6 +126,32 @@ function modelKeyMatches(left: string | undefined, right: string | undefined): b
   return Boolean(leftNormalized) && leftNormalized === rightNormalized;
 }
 
+function runtimeDerivedModelEntryId(modelKey: string): string {
+  return `runtime:${modelKey.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}`;
+}
+
+function onboardingModelFromLocalRuntime(
+  localRuntime: LocalModelRuntimeOverview | undefined
+): OnboardingModelState | undefined {
+  const modelKey = localRuntime?.chosenModelKey?.trim();
+  if (
+    !localRuntime?.activeInOpenClaw ||
+    localRuntime.status !== "ready" ||
+    !localRuntime.runtimeReachable ||
+    !localRuntime.modelDownloaded ||
+    !modelKey?.startsWith("ollama/")
+  ) {
+    return undefined;
+  }
+
+  return {
+    providerId: "ollama",
+    modelKey,
+    methodId: "ollama-local",
+    entryId: localRuntime.managedEntryId?.trim() || runtimeDerivedModelEntryId(modelKey)
+  };
+}
+
 function resolveSavedModelEntry(
   savedEntries: ModelConfigActionResponse["modelConfig"]["savedEntries"],
   criteria: {
@@ -158,6 +187,18 @@ function resolveSavedModelEntry(
   }
 
   return providerEntries.length === 1 ? providerEntries[0] : undefined;
+}
+
+function onboardingModelFromSavedEntry(
+  entry: ModelConfigActionResponse["modelConfig"]["savedEntries"][number],
+  fallback?: OnboardingModelState
+): OnboardingModelState {
+  return {
+    providerId: entry.providerId,
+    modelKey: entry.modelKey,
+    methodId: entry.authMethodId ?? fallback?.methodId,
+    entryId: entry.id
+  };
 }
 
 function resolveAvatarPreset(presetId: string | undefined) {
@@ -289,23 +330,31 @@ export class OnboardingService {
         ? await this.repairProgressedDraft({
             ...draft,
             currentStep: request.step
+          }, {
+            allowLocalRuntimeModelRepair: request.step === "channel"
           })
         : draft;
-    const summary = await this.buildSummary(navigationDraft);
+    const canUseDraftNavigationSummary = request.step === "channel" && Boolean(navigationDraft.model?.entryId);
+    const summary = canUseDraftNavigationSummary
+      ? this.buildDraftSummary(navigationDraft)
+      : await this.buildSummary(navigationDraft);
 
     if (!this.canNavigateToStep(draft.currentStep, request.step, navigationDraft, summary)) {
       throw new Error("Finish the earlier onboarding steps before moving ahead.");
     }
 
-    return this.updateState({
-      currentStep: request.step,
-      install: navigationDraft.install,
-      permissions: navigationDraft.permissions,
-      model: navigationDraft.model,
-      channel: navigationDraft.channel,
-      channelProgress: navigationDraft.channelProgress,
-      activeChannelSessionId: navigationDraft.activeChannelSessionId
-    });
+    return this.updateState(
+      {
+        currentStep: request.step,
+        install: navigationDraft.install,
+        permissions: navigationDraft.permissions,
+        model: navigationDraft.model,
+        channel: navigationDraft.channel,
+        channelProgress: navigationDraft.channelProgress,
+        activeChannelSessionId: navigationDraft.activeChannelSessionId
+      },
+      canUseDraftNavigationSummary ? { responseSummaryMode: "draft" } : undefined
+    );
   }
 
   async detectRuntime(): Promise<OnboardingStateResponse> {
@@ -583,11 +632,31 @@ export class OnboardingService {
         throw new Error("Enter the AI employee profile before finishing onboarding.");
       }
 
-      const brainEntryId = summary.model?.entryId ?? completionDraft.model?.entryId;
+      let brainEntryId = summary.model?.entryId ?? completionDraft.model?.entryId;
+      let canReuseBrainEntry = brainEntryId
+        ? await this.adapter.config.canReuseSavedModelEntry(brainEntryId)
+        : false;
+
+      if (brainEntryId && !canReuseBrainEntry) {
+        const resolvedModel = await this.resolveSavedModelForFinalize(summary.model ?? completionDraft.model);
+        if (resolvedModel?.entryId && resolvedModel.entryId !== brainEntryId) {
+          const canReuseResolvedEntry = await this.adapter.config.canReuseSavedModelEntry(resolvedModel.entryId);
+          if (canReuseResolvedEntry) {
+            summary.model = resolvedModel;
+            brainEntryId = resolvedModel.entryId;
+            canReuseBrainEntry = true;
+          }
+        }
+      }
+
+      console.log(formatConsoleLine(
+        `brainEntryId=${brainEntryId ?? "(missing)"} summaryModelEntryId=${summary.model?.entryId ?? "(none)"} draftModelEntryId=${completionDraft.model?.entryId ?? "(none)"} reusable=${canReuseBrainEntry}`,
+        { scope: "onboarding.complete" }
+      ));
       if (!brainEntryId) {
         throw new Error("Save the first model before creating the AI employee.");
       }
-      if (!(await this.adapter.config.canReuseSavedModelEntry(brainEntryId))) {
+      if (!canReuseBrainEntry) {
         throw new Error("Re-save the first model in Configuration before finishing onboarding.");
       }
 
@@ -954,7 +1023,8 @@ export class OnboardingService {
   }
 
   private async repairProgressedDraft(
-    draft: ReturnType<typeof defaultOnboardingDraftState>
+    draft: ReturnType<typeof defaultOnboardingDraftState>,
+    options?: { allowLocalRuntimeModelRepair?: boolean }
   ): Promise<ReturnType<typeof defaultOnboardingDraftState>> {
     const repaired = {
       ...draft,
@@ -978,21 +1048,29 @@ export class OnboardingService {
     // Keep the model step undecided so clients can still run local-vs-cloud detection
     // instead of silently inheriting an unrelated saved default model.
     if (!repaired.model && stepIsAtOrAfter(repaired.currentStep, "channel")) {
-      const modelConfig = await this.adapter.config.getModelConfig();
-      const preferredEntry =
-        modelConfig.savedEntries.find((entry) => entry.id === modelConfig.defaultEntryId) ??
-        modelConfig.savedEntries.find((entry) => entry.modelKey === modelConfig.defaultModel) ??
-        modelConfig.savedEntries[0];
+      const activeLocalModel = options?.allowLocalRuntimeModelRepair
+        ? await this.resolveActiveLocalRuntimeModelState()
+        : undefined;
 
-      if (preferredEntry && await this.adapter.config.canReuseSavedModelEntry(preferredEntry.id)) {
-        repaired.model = {
-          providerId: preferredEntry.providerId,
-          modelKey: preferredEntry.modelKey,
-          methodId: preferredEntry.authMethodId,
-          entryId: preferredEntry.id
-        };
+      if (activeLocalModel) {
+        repaired.model = activeLocalModel;
       } else {
-        repaired.currentStep = "model";
+        const modelConfig = await this.adapter.config.getModelConfig();
+        const preferredEntry =
+          modelConfig.savedEntries.find((entry) => entry.id === modelConfig.defaultEntryId) ??
+          modelConfig.savedEntries.find((entry) => entry.modelKey === modelConfig.defaultModel) ??
+          modelConfig.savedEntries[0];
+
+        if (preferredEntry && await this.adapter.config.canReuseSavedModelEntry(preferredEntry.id)) {
+          repaired.model = {
+            providerId: preferredEntry.providerId,
+            modelKey: preferredEntry.modelKey,
+            methodId: preferredEntry.authMethodId,
+            entryId: preferredEntry.id
+          };
+        } else {
+          repaired.currentStep = "model";
+        }
       }
     }
 
@@ -1039,6 +1117,18 @@ export class OnboardingService {
     return repaired;
   }
 
+  private async resolveActiveLocalRuntimeModelState(): Promise<OnboardingModelState | undefined> {
+    if (!this.localModelRuntimeService) {
+      return undefined;
+    }
+
+    try {
+      return onboardingModelFromLocalRuntime(await this.localModelRuntimeService.getOverview());
+    } catch {
+      return undefined;
+    }
+  }
+
   private canNavigateToStep(
     currentStep: OnboardingStep,
     targetStep: OnboardingStep,
@@ -1082,7 +1172,7 @@ export class OnboardingService {
       throw new Error("Save the first model before finishing onboarding.");
     }
 
-    if (!this.isChannelStaged(draft) || !summary.channel?.entryId) {
+    if (!summary.channel?.entryId) {
       throw new Error("Finish staging the first channel before finishing onboarding.");
     }
 
@@ -1237,12 +1327,82 @@ export class OnboardingService {
     draft: ReturnType<typeof defaultOnboardingDraftState>
   ): Promise<OnboardingCompletionSummary> {
     const summary = this.buildDraftSummary(draft);
+    const canTrustDraftChannelForFinalize =
+      stepIsAtOrAfter(draft.currentStep, "employee") && Boolean(draft.channel?.entryId);
 
     if (draft.install) {
       summary.install = await this.detectInstallState(draft.install);
     }
 
+    // Finalization must tolerate stale draft channel-progress flags by verifying
+    // the currently staged channel entry from live channel config.
+    if (!this.isChannelStaged(draft) && !canTrustDraftChannelForFinalize) {
+      summary.channel = undefined;
+    }
+
+    const deferredWechatEntry = await this.resolveDeferredWechatStageEntry(draft);
+    if (deferredWechatEntry) {
+      summary.channel = {
+        channelId: deferredWechatEntry.channelId,
+        entryId: deferredWechatEntry.id
+      };
+      return summary;
+    }
+
+    if (!summary.channel?.entryId && (draft.channel || stepIsAtOrAfter(draft.currentStep, "channel"))) {
+      try {
+        const channelConfig = await this.channelSetupService.getConfigOverview();
+        const matchedEntry =
+          (draft.channel?.entryId
+            ? channelConfig.entries.find((entry) => entry.id === draft.channel?.entryId)
+            : undefined) ??
+          (draft.channel?.channelId
+            ? channelConfig.entries.find((entry) => entry.channelId === draft.channel?.channelId)
+            : undefined) ??
+          [...channelConfig.entries]
+            .filter((entry) => this.isChannelEntryReadyForFinalize(entry.status))
+            .sort((left, right) => {
+              const leftTime = Date.parse(left.lastUpdatedAt ?? "");
+              const rightTime = Date.parse(right.lastUpdatedAt ?? "");
+              return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+            })[0];
+
+        if (matchedEntry && this.isChannelEntryReadyForFinalize(matchedEntry.status)) {
+          summary.channel = {
+            channelId: matchedEntry.channelId,
+            entryId: matchedEntry.id
+          };
+        }
+      } catch {
+        // Keep finalization on draft-only fallback when channel overview refresh fails.
+      }
+    }
+
     return summary;
+  }
+
+  private async resolveSavedModelForFinalize(
+    model: OnboardingModelState | undefined
+  ): Promise<OnboardingModelState | undefined> {
+    if (!model) {
+      return undefined;
+    }
+
+    const modelConfig = await this.adapter.config.getModelConfig();
+    const matchedEntry = resolveSavedModelEntry(modelConfig.savedEntries, {
+      entryId: model.entryId,
+      providerId: model.providerId,
+      modelKey: model.modelKey,
+      preferDefault: true
+    });
+
+    return matchedEntry ? onboardingModelFromSavedEntry(matchedEntry, model) : undefined;
+  }
+
+  private isChannelEntryReadyForFinalize(
+    status: ChannelConfigOverview["entries"][number]["status"] | undefined
+  ): boolean {
+    return status === "completed" || status === "awaiting-pairing" || status === "ready";
   }
 
   private shouldReuseDraftSummary(
@@ -1315,14 +1475,7 @@ export class OnboardingService {
         preferDefault: true
       });
 
-      summary.model = matchedEntry
-        ? {
-            providerId: matchedEntry.providerId,
-            modelKey: matchedEntry.modelKey,
-            methodId: matchedEntry.authMethodId ?? draftModel.methodId,
-            entryId: matchedEntry.id
-          }
-        : draftModel;
+      summary.model = matchedEntry ? onboardingModelFromSavedEntry(matchedEntry, draftModel) : draftModel;
     }
 
     if (draftChannel && channelConfig) {

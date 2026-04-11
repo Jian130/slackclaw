@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 2026-04-11 18:24 CST
+
+- hardened the managed local AI onboarding handoff so ChillClaw can recover an already-installed Ollama model, keep the channel step from repeatedly rebuilding slow model summaries, and resolve stale draft model entry IDs to the current OpenClaw saved runtime entry before creating the AI employee
+- fixed the personal WeChat and final AI employee steps across the daemon, React onboarding helpers, shared Swift client, and native macOS onboarding so staged channel setup, duplicate create taps, busy-state recovery, and draft model selection stay usable through slow OpenClaw status calls
+- expanded daemon, web, shared Swift, and native macOS regression coverage for the repaired onboarding state transitions, model/channel config reuse, QR/channel progress, and create-AI-employee enablement paths, with additional state and adapter handoff logging for debugging
+
 ### 2026-04-09 23:22 CST
 
 - hardened onboarding route and completion behavior by moving intro and runtime-install callers onto the canonical `/api/onboarding/*` endpoints, rejecting final completion when a staged cloud model can no longer reuse its saved auth, and sending stale later-step drafts back to model selection instead of pretending setup can still finish

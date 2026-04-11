@@ -358,8 +358,10 @@ export function resolveOnboardingModelStepMode(args: {
   activeModelAuthSessionId?: string;
   draftModelEntryId?: string;
   summaryModelEntryId?: string;
+  localRuntimeManagedEntryId?: string;
   localRuntime?: ModelConfigOverview["localRuntime"];
 }): OnboardingModelStepMode {
+  void args.localRuntimeManagedEntryId;
   const hasPersistedModel = Boolean(args.draftModelEntryId || args.summaryModelEntryId);
   const hasCloudFlow =
     Boolean(args.providerId) ||

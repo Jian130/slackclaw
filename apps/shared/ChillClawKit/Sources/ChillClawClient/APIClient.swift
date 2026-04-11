@@ -203,9 +203,14 @@ public final class ChillClawAPIClient: @unchecked Sendable {
 
     public func saveOnboardingChannelEntry(entryId: String?, request: SaveChannelEntryRequest) async throws -> ChannelConfigActionResponse {
         if let entryId {
-            return try await patch("/api/onboarding/channel/entries/\(entryId)", body: request)
+            return try await self.request(
+                "/api/onboarding/channel/entries/\(entryId)",
+                method: "PATCH",
+                body: request,
+                timeout: RequestTimeout.longRunning
+            )
         }
-        return try await post("/api/onboarding/channel/entries", body: request)
+        return try await post("/api/onboarding/channel/entries", body: request, timeout: RequestTimeout.longRunning)
     }
 
     public func resetOnboardingChannelDraft() async throws -> OnboardingStateResponse {

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
+import { createDefaultProductOverview } from "@chillclaw/contracts";
+
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { EventBusService } from "./event-bus-service.js";
 import { EventPublisher } from "./event-publisher.js";
@@ -56,6 +58,26 @@ test("first-run setup defaults to the managed local OpenClaw runtime", async () 
   await service.runFirstRunSetup();
 
   assert.equal(installOptions?.forceLocal, true);
+});
+
+test("first-run setup returns a lightweight overview without model-runtime probing", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/setup-service-lightweight-overview-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  let includeLocalRuntime: boolean | undefined;
+  const overviewService = {
+    async getOverview(options?: { includeLocalRuntime?: boolean }) {
+      includeLocalRuntime = options?.includeLocalRuntime;
+      return createDefaultProductOverview();
+    }
+  } as OverviewService;
+  const service = new SetupService(adapter, store, overviewService);
+
+  const result = await service.runFirstRunSetup();
+
+  assert.equal(result.status, "completed");
+  assert.equal(includeLocalRuntime, false);
+  assert.equal(result.overview.localRuntime?.status, "unchecked");
 });
 
 test("first-run setup publishes deploy progress and completion events", async () => {

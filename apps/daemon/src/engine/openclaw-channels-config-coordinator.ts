@@ -116,6 +116,23 @@ function channelLabel(channelId: SupportedChannelId): string {
       : channelId[0].toUpperCase() + channelId.slice(1);
 }
 
+function isWechatQrGlyphLine(line: string): boolean {
+  return /[█▀▄▌▐]/u.test(line);
+}
+
+function isWechatQrSignalLine(line: string): boolean {
+  const normalized = line.toLowerCase();
+
+  return (
+    normalized.includes("qrcode=") ||
+    normalized.includes("liteapp.weixin.qq.com") ||
+    normalized.includes("qr code") ||
+    normalized.includes("scan with wechat") ||
+    normalized.includes("scan qrcode") ||
+    normalized.includes("scan the code")
+  );
+}
+
 export class ChannelsConfigCoordinator {
   private activeLoginSession?: LoginSessionState;
   private pendingWechatLoginStart?: Promise<{ message: string; channel: ChannelSetupState }>;
@@ -685,6 +702,7 @@ export class ChannelsConfigCoordinator {
       // The weixin-installer checks for `openclaw` on PATH and fails if it's not found.
       const openclawCommand = await this.access.resolveOpenClawCommand();
       const env = this.access.buildCommandEnv(openclawCommand ?? undefined);
+      const existingWechatEntryIds = await this.readCurrentWechatEntryIds();
       const command = await this.ensureWechatInstallerCommand();
 
       const installerArgs = ["install"];
@@ -735,8 +753,10 @@ export class ChannelsConfigCoordinator {
         ],
         child
       };
+      let installerHasQrSignal = false;
+      let installerQrGlyphLines = 0;
       this.activeLoginSession = sessionState;
-      void this.monitorWechatRuntimeSave(sessionState);
+      void this.monitorWechatRuntimeSave(sessionState, () => installerHasQrSignal, existingWechatEntryIds);
 
       const pushLog = (text: string) => {
         if (this.activeLoginSession !== sessionState) {
@@ -749,6 +769,10 @@ export class ChannelsConfigCoordinator {
           .filter(Boolean);
         if (lines.length === 0) {
           return;
+        }
+        installerQrGlyphLines += lines.filter(isWechatQrGlyphLine).length;
+        if (installerQrGlyphLines >= 4 || lines.some(isWechatQrSignalLine)) {
+          installerHasQrSignal = true;
         }
         sessionState.logs.push(...lines);
         sessionState.logs = sessionState.logs.slice(-40);
@@ -870,7 +894,30 @@ export class ChannelsConfigCoordinator {
     return (await this.getActiveChannelSession()) ?? session;
   }
 
-  private async monitorWechatRuntimeSave(sessionState: LoginSessionState): Promise<void> {
+  private async readCurrentWechatEntryIds(): Promise<Set<string>> {
+    try {
+      const snapshot = await this.access.readChannelSnapshot();
+      return new Set(
+        this.access
+          .buildLiveChannelEntries(snapshot.list, snapshot.status)
+          .filter(
+            (entry) =>
+              entry.channelId === "wechat" &&
+              entry.status !== "not-started" &&
+              entry.status !== "failed"
+          )
+          .map((entry) => entry.id)
+      );
+    } catch {
+      return new Set();
+    }
+  }
+
+  private async monitorWechatRuntimeSave(
+    sessionState: LoginSessionState,
+    canTrustSavedEntry: () => boolean,
+    existingWechatEntryIds: ReadonlySet<string>
+  ): Promise<void> {
     const intervalMs = this.access.wechatRuntimeDetectionIntervalMs ?? 2_000;
 
     while (this.activeLoginSession === sessionState) {
@@ -878,11 +925,17 @@ export class ChannelsConfigCoordinator {
         return;
       }
 
+      if (!canTrustSavedEntry()) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        continue;
+      }
+
       try {
         const snapshot = await this.access.readChannelSnapshot();
         const savedEntry = this.access.buildLiveChannelEntries(snapshot.list, snapshot.status).find(
           (entry) =>
             entry.channelId === "wechat" &&
+            !existingWechatEntryIds.has(entry.id) &&
             entry.status !== "not-started" &&
             entry.status !== "failed"
         );

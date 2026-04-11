@@ -522,6 +522,9 @@ export class ModelsConfigCoordinator {
       : undefined;
 
     if (!method) {
+      if (this.access.isRuntimeDerivedModelEntryId(entry.id) && provider?.authMethods.some((item) => item.kind === "local")) {
+        return true;
+      }
       return false;
     }
 

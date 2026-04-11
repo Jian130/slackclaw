@@ -84,7 +84,7 @@ import {
   getManagedOpenClawDir,
   getManagedWechatInstallerDir
 } from "../runtime-paths.js";
-import { errorToLogDetails, logDevelopmentCommand, writeErrorLog, writeInfoLog } from "../services/logger.js";
+import { errorToLogDetails, formatConsoleLine, logDevelopmentCommand, writeErrorLog, writeInfoLog } from "../services/logger.js";
 
 interface OpenClawStatusJson {
   setup?: {
@@ -491,7 +491,10 @@ const modelAuthSessions = new Map<string, RuntimeModelAuthSession>();
 
 const READ_CACHE_TTL_MS = {
   engine: 1000,
-  models: 1000,
+  // 5 s gives the second getModelConfig() call a wide window even on slow CI where
+  // ensureSavedModelState + reconcileSavedModelState can take a few hundred ms after
+  // the parallel-sleep loader finishes.
+  models: 5000,
   channels: 1000,
   skills: 1000,
   agents: 1000,
@@ -1886,6 +1889,7 @@ function gatewayReachabilitySummary(snapshot: EngineReadSnapshot): string {
 
 async function readAdapterState(): Promise<OpenClawAdapterState> {
   try {
+    console.log(formatConsoleLine(`read ${getOpenClawStatePath()}`, { scope: "openclawAdapter.state" }));
     const raw = await readFile(getOpenClawStatePath(), "utf8");
     return JSON.parse(raw) as OpenClawAdapterState;
   } catch {
@@ -1895,6 +1899,10 @@ async function readAdapterState(): Promise<OpenClawAdapterState> {
 
 async function writeAdapterState(nextState: OpenClawAdapterState): Promise<void> {
   await mkdir(getDataDir(), { recursive: true });
+  console.log(formatConsoleLine(
+    `write ${getOpenClawStatePath()} modelEntries=${(nextState.modelEntries ?? []).map((entry) => entry.id).join(",") || "(none)"} default=${nextState.defaultModelEntryId ?? "(none)"} fallbacks=${(nextState.fallbackModelEntryIds ?? []).join(",") || "(none)"}`,
+    { scope: "openclawAdapter.state" }
+  ));
   await writeFile(getOpenClawStatePath(), JSON.stringify(nextState, null, 2));
 }
 
@@ -2522,6 +2530,30 @@ function normalizeImplicitMainSavedEntry(
   };
 }
 
+function backfillRuntimeEntryAuthMethod(
+  entry: SavedModelEntryState,
+  modelKey: string,
+  now: string
+): SavedModelEntryState {
+  if (!isRuntimeDerivedModelEntryId(entry.id) || entry.authMethodId) {
+    return entry;
+  }
+
+  const provider = providerDefinitionByModelKey(modelKey) ?? providerDefinitionById(entry.providerId);
+  const localMethod = provider?.authMethods.find((method) => method.kind === "local");
+  if (!localMethod) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    providerId: provider?.id ?? entry.providerId,
+    authMethodId: localMethod.id,
+    authModeLabel: entry.authModeLabel ?? authModeLabelForMethodKind(localMethod.kind),
+    updatedAt: now
+  };
+}
+
 export function reconcileSavedEntriesWithRuntime(
   entries: SavedModelEntryState[],
   configuredModels: ModelCatalogEntry[],
@@ -2541,12 +2573,13 @@ export function reconcileSavedEntriesWithRuntime(
     const entry = normalizeImplicitMainSavedEntry(rawEntry, configuredModels, now);
     const resolvedModelKey =
       resolveCatalogModelKey(configuredModels, entry.modelKey, { providerId: entry.providerId }) ?? entry.modelKey;
+    const nextEntry = backfillRuntimeEntryAuthMethod(entry, resolvedModelKey, now);
     const existing = entriesByModelKey.get(resolvedModelKey) ?? [];
     existing.push(
-      resolvedModelKey === entry.modelKey
-        ? entry
+      resolvedModelKey === nextEntry.modelKey
+        ? nextEntry
         : {
-            ...entry,
+            ...nextEntry,
             modelKey: resolvedModelKey,
             updatedAt: now
           }
@@ -3894,6 +3927,7 @@ export class OpenClawAdapter implements EngineAdapter {
     const createdAt = new Date().toISOString();
     const agentDir = status?.agentDir ?? getMainOpenClawAgentDir();
     const summary = await this.modelsConfigCoordinator.readEntryAuthSummary(agentDir, provider?.id);
+    const localMethod = provider?.authMethods.find((method) => method.kind === "local") ?? provider?.authMethods[0];
     const runtimeEntryId = runtimeEntryIdForModelKey(modelKey);
 
     return {
@@ -3907,8 +3941,8 @@ export class OpenClawAdapter implements EngineAdapter {
           agentId: "",
           agentDir: "",
           workspaceDir: "",
-          authMethodId: undefined,
-          authModeLabel: summary.authModeLabel,
+          authMethodId: localMethod?.id,
+          authModeLabel: summary.authModeLabel ?? authModeLabelForMethodKind(localMethod?.kind),
           profileLabel: summary.profileLabel,
           profileIds: [],
           isDefault: true,

@@ -856,6 +856,73 @@ struct OnboardingClientTests {
     }
 
     @Test
+    func saveOnboardingChannelEntryUsesExtendedTimeout() async throws {
+        let recorder = RequestRecorder()
+        let session = await recorder.session(
+            statusCode: 200,
+            body: """
+            {
+              "status": "interactive",
+              "message": "Started WeChat login",
+              "channelConfig": {
+                "baseOnboardingCompleted": true,
+                "capabilities": [],
+                "entries": [],
+                "activeSession": null,
+                "gatewaySummary": "Gateway ready"
+              },
+              "session": null,
+              "requiresGatewayApply": false,
+              "onboarding": {
+                "firstRun": {
+                  "introCompleted": true,
+                  "setupCompleted": false
+                },
+                "draft": {
+                  "currentStep": "channel",
+                  "channel": {
+                    "channelId": "wechat",
+                    "entryId": "wechat:default"
+                  },
+                  "activeChannelSessionId": "wechat:default:login"
+                },
+                "config": {
+                  "modelProviders": [],
+                  "channels": [],
+                  "employeePresets": []
+                },
+                "summary": {}
+              }
+            }
+            """
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: {
+                .init(
+                    daemonURL: URL(string: "http://127.0.0.1:4545")!,
+                    fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+                )
+            }
+        )
+
+        _ = try await client.saveOnboardingChannelEntry(
+            entryId: nil,
+            request: .init(
+                channelId: "wechat",
+                entryId: nil,
+                values: [:],
+                action: "save"
+            )
+        )
+
+        let request = try #require(await recorder.lastRequest())
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/onboarding/channel/entries")
+        #expect(request.timeoutInterval == 300)
+    }
+
+    @Test
     func chatEventsAreDerivedFromDaemonEvents() async throws {
         let session = URLSession(configuration: .ephemeral)
         let client = ChillClawAPIClient(
