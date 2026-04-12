@@ -1,7 +1,7 @@
 export const websiteLinks = {
   repository: "https://github.com/jian130/chillclaw",
   fork: "https://github.com/jian130/chillclaw/fork",
-  downloadMac: "https://github.com/jian130/chillclaw/releases/latest/download/ChillClaw-macOS.pkg",
+  downloadMac: "https://github.com/jian130/chillclaw/releases/latest/download/ChillClaw-macOS.dmg",
   releases: "https://github.com/jian130/chillclaw/releases",
   docs: "https://github.com/jian130/chillclaw/tree/main/docs",
   readme: "https://github.com/jian130/chillclaw/blob/main/README.md",
