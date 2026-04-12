@@ -47,3 +47,17 @@ test("macOS installer builder exposes staging-only and DMG-only release modes", 
   assert.match(buildScript, /--dmg-only/);
   assert.match(buildScript, /No staged ChillClaw\.app found/);
 });
+
+test("local macOS installer builds warn before users share unsigned DMGs", async () => {
+  const [buildScript, readme] = await Promise.all([
+    readRepoFile("scripts/build-macos-installer.mjs"),
+    readRepoFile("README.md")
+  ]);
+
+  assert.match(buildScript, /warnAboutLocalDistributionReadiness/);
+  assert.match(buildScript, /Gatekeeper may report ChillClaw as damaged/);
+  assert.match(buildScript, /Use the signed and notarized GitHub release DMG/);
+  assert.match(buildScript, /!options\.stageOnly && !options\.dmgOnly/);
+  assert.match(readme, /local smoke testing/);
+  assert.match(readme, /signed and notarized GitHub release DMG/);
+});

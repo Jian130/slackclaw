@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-04-12 18:08 CST
+
+- clarified the macOS installer flow by warning that local `npm run build:mac-installer` DMGs are same-machine smoke artifacts, updating README release guidance to use the signed and notarized GitHub release DMG on other Macs, and adding release-script coverage so the local-distribution warning stays in place
+
 ### 2026-04-12 17:40 CST
 
 - split GitHub Actions JavaScript test validation by workspace package and added matching root package scripts, so CI identifies whether contracts, daemon, desktop UI, website, or release-script coverage failed without relying on unavailable combined logs

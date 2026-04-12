@@ -424,6 +424,18 @@ async function applyInstallerFileIcon(installerPath) {
   await run("SetFile", ["-a", "C", installerPath]);
 }
 
+function warnAboutLocalDistributionReadiness() {
+  writeScriptLogLine({
+    label: SCRIPT_LABEL,
+    scope: "build-macos-installer.distribution",
+    stream: "stderr",
+    message:
+      `Built ${DMG_OUTPUT} for local smoke testing only. ` +
+      "Gatekeeper may report ChillClaw as damaged if this unsigned local DMG is shared with another Mac. " +
+      "Use the signed and notarized GitHub release DMG for other computers."
+  });
+}
+
 const options = parseArgs(process.argv.slice(2));
 
 if (!options.dmgOnly) {
@@ -437,6 +449,10 @@ if (!options.stageOnly) {
   }
 
   await buildInstaller();
+}
+
+if (!options.stageOnly && !options.dmgOnly) {
+  warnAboutLocalDistributionReadiness();
 }
 
 writeScriptLogLine({

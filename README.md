@@ -368,7 +368,7 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 
 ## macOS installer
 
-Build a distributable macOS app bundle and drag-to-Applications disk image with:
+Build a local smoke testing macOS app bundle and drag-to-Applications disk image with:
 
 `npm run build:mac-installer`
 
@@ -407,7 +407,10 @@ This produces:
 The installer builder stages the `.app` bundle in a temporary directory under `dist/`, then creates a drag-to-Applications DMG containing a native SwiftUI `ChillClaw.app` that talks to the bundled self-contained `chillclaw-daemon`.
 The packaged ChillClaw daemon still does not depend on a separate Homebrew-style Node runtime on the target Mac.
 
+The local `npm run build:mac-installer` output is for same-machine smoke testing. Do not share that DMG with another Mac because it is not Developer ID signed or notarized by the local build command, and macOS Gatekeeper may report ChillClaw as damaged.
+
 Release CI uses the same installer builder in two phases: `--stage-only` creates the app bundle for signing, and `--dmg-only` creates the final DMG from that signed staged app.
+Use the signed and notarized GitHub release DMG for other computers.
 
 The packaged app also includes LaunchAgent helper scripts so ChillClaw can run as a login-time background service on macOS.
 The native client first tries to attach to an already-running daemon, then installs or refreshes the LaunchAgent if needed, and falls back to the bundled web UI only as an explicit recovery path.
