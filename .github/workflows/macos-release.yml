@@ -104,7 +104,6 @@ jobs:
           codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$APP_PATH/Contents/MacOS/ChillClaw"
           codesign --force --deep --sign "$APP_IDENTITY" --options runtime --timestamp "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          spctl --assess --type execute --verbose=2 "$APP_PATH"
 
       - name: Build signed disk image
         env:

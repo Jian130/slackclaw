@@ -40,6 +40,21 @@ test("macOS release workflow signs the staged app before building and notarizing
   assert.ok(dmgIndex < notarizeIndex);
 });
 
+test("macOS release workflow waits for notarization before Gatekeeper assessment", async () => {
+  const workflow = await readRepoFile(".github/workflows/macos-release.yml");
+
+  assert.doesNotMatch(workflow, /spctl --assess .*"\$APP_PATH"/);
+
+  const stapleIndex = workflow.indexOf('xcrun stapler staple "$INSTALLER_PATH"');
+  const installerAssessIndex = workflow.indexOf(
+    'spctl --assess --type open --context context:primary-signature --verbose=2 "$INSTALLER_PATH"'
+  );
+
+  assert.notEqual(stapleIndex, -1);
+  assert.notEqual(installerAssessIndex, -1);
+  assert.ok(stapleIndex < installerAssessIndex);
+});
+
 test("macOS installer builder exposes staging-only and DMG-only release modes", async () => {
   const buildScript = await readRepoFile("scripts/build-macos-installer.mjs");
 

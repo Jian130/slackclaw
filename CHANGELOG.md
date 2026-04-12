@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-04-12 20:00 CST
+
+- fixed the macOS release workflow by deferring Gatekeeper assessment until after the signed DMG is notarized and stapled, avoiding the pre-notarization `Unnotarized Developer ID` rejection
+
 ### 2026-04-12 19:34 CST
 
 - pointed the tag-driven macOS release workflow at the GitHub `macos-app` environment so Developer ID signing and notarization secrets can be managed from the environment the repo now uses for app releases
