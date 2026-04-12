@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-04-12 17:40 CST
+
+- split GitHub Actions JavaScript test validation by workspace package and added matching root package scripts, so CI identifies whether contracts, daemon, desktop UI, website, or release-script coverage failed without relying on unavailable combined logs
+
 ### 2026-04-12 17:30 CST
 
 - hardened the daemon CI suite by replacing short fixed polling loops in the OpenClaw adapter tests with condition-based waits for model auth and personal WeChat installer sessions, reducing GitHub Actions timing flakes while preserving fast local exits

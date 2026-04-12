@@ -32,8 +32,17 @@ jobs:
       - name: Build workspaces
         run: npm run build
 
-      - name: Run JavaScript workspace tests
-        run: npm run test:workspaces
+      - name: Run contracts tests
+        run: npm run test:contracts
+
+      - name: Run daemon tests
+        run: npm run test:daemon
+
+      - name: Run desktop UI tests
+        run: npm run test:desktop-ui
+
+      - name: Run website tests
+        run: npm run test:website
 
       - name: Run release script tests
         run: npm run test:scripts
