@@ -6,6 +6,34 @@ import Testing
 @Suite(.serialized)
 struct OnboardingClientTests {
     @Test
+    func pingUsesShortStartupTimeoutBeforeDaemonLaunch() async throws {
+        let recorder = RequestRecorder()
+        let session = await recorder.session(
+            statusCode: 200,
+            body: """
+            {
+              "ok": true
+            }
+            """
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: {
+                .init(
+                    daemonURL: URL(string: "http://127.0.0.1:4545")!,
+                    fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+                )
+            }
+        )
+
+        #expect(try await client.ping())
+        let request = try #require(await recorder.lastRequest())
+        #expect(request.httpMethod == "GET")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/ping")
+        #expect(request.timeoutInterval == 2)
+    }
+
+    @Test
     func fetchOnboardingStateUsesFreshEndpoint() async throws {
         let recorder = RequestRecorder()
         let session = await recorder.session(

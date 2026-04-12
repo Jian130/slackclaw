@@ -4,6 +4,10 @@
 
 ## 0.1.4 - 2026-04-12
 
+### 2026-04-12 21:42 CST
+
+- fixed clean macOS app startup so the native client creates `~/Library/Application Support/ChillClaw` before daemon reachability checks, uses a short pre-launch ping timeout, and gives launchd enough time for the packaged daemon to become reachable
+
 ### 2026-04-12 20:52 CST
 
 - fixed a native macOS startup crash in signed app builds by replacing SwiftPM `Bundle.module` startup resource lookups with a packaged-app-safe resolver for `Contents/Resources` and copied Swift resource bundles

@@ -27,6 +27,7 @@ public enum ChillClawClientError: Error, LocalizedError {
 
 public final class ChillClawAPIClient: @unchecked Sendable {
     private enum RequestTimeout {
+        static let ping: TimeInterval = 2
         static let longRunning: TimeInterval = 1_200
     }
 
@@ -49,7 +50,7 @@ public final class ChillClawAPIClient: @unchecked Sendable {
     }
 
     public func ping() async throws -> Bool {
-        let _: PingResponse = try await get("/api/ping")
+        let _: PingResponse = try await get("/api/ping", timeout: RequestTimeout.ping)
         return true
     }
 
@@ -328,8 +329,8 @@ public final class ChillClawAPIClient: @unchecked Sendable {
         daemonEventStreamClient.daemonEvents()
     }
 
-    private func get<T: Decodable>(_ path: String) async throws -> T {
-        try await request(path, method: "GET", body: Optional<EmptyBody>.none)
+    private func get<T: Decodable>(_ path: String, timeout: TimeInterval? = nil) async throws -> T {
+        try await request(path, method: "GET", body: Optional<EmptyBody>.none, timeout: timeout)
     }
 
     private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, timeout: TimeInterval? = nil) async throws -> T {

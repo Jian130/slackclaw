@@ -39,6 +39,24 @@ struct LaunchAgentStatus: Equatable, Sendable {
     var detail: String
 }
 
+struct NativeDaemonSupportPaths: Equatable, Sendable {
+    var appSupport: String
+    var dataDir: String
+    var logDir: String
+}
+
+enum NativeDaemonSupport {
+    @discardableResult
+    static func ensureDirectories(homeDirectory: String = NSHomeDirectory()) throws -> NativeDaemonSupportPaths {
+        let appSupport = (homeDirectory as NSString).appendingPathComponent("Library/Application Support/ChillClaw")
+        let dataDir = (appSupport as NSString).appendingPathComponent("data")
+        let logDir = (appSupport as NSString).appendingPathComponent("logs")
+        try FileManager.default.createDirectory(atPath: dataDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
+        return .init(appSupport: appSupport, dataDir: dataDir, logDir: logDir)
+    }
+}
+
 protocol LaunchAgentControlling: AnyObject, Sendable {
     func installAndStart() async throws
     func stopAndRemove() async throws
@@ -93,15 +111,12 @@ actor LaunchAgentManager: LaunchAgentControlling {
         try FileManager.default.createDirectory(atPath: launchAgentsDir, withIntermediateDirectories: true)
         let plistPath = launchAgentPlistPath()
         let appRoot = try appRootPath()
-        let appSupport = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/ChillClaw")
-        let dataDir = (appSupport as NSString).appendingPathComponent("data")
-        let logDir = (appSupport as NSString).appendingPathComponent("logs")
-        try FileManager.default.createDirectory(atPath: dataDir, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
+        let supportPaths = try NativeDaemonSupport.ensureDirectories()
         let runScript = ((appRoot as NSString).appendingPathComponent("app/scripts/run-daemon.sh"))
         let staticDir = ((appRoot as NSString).appendingPathComponent("app/ui"))
         let bootstrap = ((appRoot as NSString).appendingPathComponent("app/scripts/bootstrap-openclaw.mjs"))
-        let logPath = (logDir as NSString).appendingPathComponent("daemon.log")
+        let logPath = (supportPaths.logDir as NSString).appendingPathComponent("daemon.log")
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
 
         let plist = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -121,8 +136,12 @@ actor LaunchAgentManager: LaunchAgentControlling {
             <string>\(appRoot)</string>
             <key>CHILLCLAW_PORT</key>
             <string>4545</string>
+            <key>CHILLCLAW_APP_VERSION</key>
+            <string>\(appVersion)</string>
             <key>CHILLCLAW_DATA_DIR</key>
-            <string>\(dataDir)</string>
+            <string>\(supportPaths.dataDir)</string>
+            <key>CHILLCLAW_LOG_DIR</key>
+            <string>\(supportPaths.logDir)</string>
             <key>CHILLCLAW_STATIC_DIR</key>
             <string>\(staticDir)</string>
             <key>CHILLCLAW_OPENCLAW_BOOTSTRAP_SCRIPT</key>
@@ -213,21 +232,30 @@ enum DaemonProcessStatus: Equatable {
 @MainActor
 @Observable
 final class DaemonProcessManager {
+    private static let reachabilityTimeoutSeconds: TimeInterval = 20
+    private static let reachabilityDelayNanoseconds: UInt64 = 250_000_000
+
     private let launchAgent: LaunchAgentControlling
     private let ping: @Sendable () async throws -> Bool
+    private let prepareStartup: @Sendable () async throws -> Void
 
     private(set) var status: DaemonProcessStatus = .stopped
 
     init(
         launchAgent: LaunchAgentControlling = LaunchAgentManager(),
-        ping: @escaping @Sendable () async throws -> Bool
+        ping: @escaping @Sendable () async throws -> Bool,
+        prepareStartup: @escaping @Sendable () async throws -> Void = {
+            _ = try NativeDaemonSupport.ensureDirectories()
+        }
     ) {
         self.launchAgent = launchAgent
         self.ping = ping
+        self.prepareStartup = prepareStartup
     }
 
     func ensureRunning() async {
         do {
+            try await prepareStartup()
             if try await ping() {
                 status = .attachedExisting(details: "Using existing ChillClaw daemon")
                 return
@@ -235,12 +263,9 @@ final class DaemonProcessManager {
 
             status = .starting
             try await launchAgent.installAndStart()
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                if (try? await ping()) == true {
-                    status = .running(details: "Daemon reachable")
-                    return
-                }
+            if await waitUntilReachable() {
+                status = .running(details: "Daemon reachable")
+                return
             }
             status = .failed("ChillClaw daemon did not become reachable in time.")
         } catch {
@@ -250,14 +275,12 @@ final class DaemonProcessManager {
 
     func restart() async {
         do {
+            try await prepareStartup()
             status = .starting
             try await launchAgent.restart()
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                if (try? await ping()) == true {
-                    status = .running(details: "Daemon reachable")
-                    return
-                }
+            if await waitUntilReachable() {
+                status = .running(details: "Daemon reachable")
+                return
             }
             status = .failed("ChillClaw daemon did not come back after restart.")
         } catch {
@@ -272,5 +295,16 @@ final class DaemonProcessManager {
         } catch {
             status = .failed(error.localizedDescription)
         }
+    }
+
+    private func waitUntilReachable() async -> Bool {
+        let deadline = Date().addingTimeInterval(Self.reachabilityTimeoutSeconds)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: Self.reachabilityDelayNanoseconds)
+            if (try? await ping()) == true {
+                return true
+            }
+        }
+        return false
     }
 }

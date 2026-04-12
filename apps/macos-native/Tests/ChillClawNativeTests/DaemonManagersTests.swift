@@ -6,6 +6,20 @@ import Testing
 @MainActor
 struct DaemonManagersTests {
     @Test
+    func daemonSupportCreatesApplicationSupportDataAndLogDirectories() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chillclaw-native-support-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let paths = try NativeDaemonSupport.ensureDirectories(homeDirectory: home.path)
+
+        #expect(FileManager.default.fileExists(atPath: paths.appSupport))
+        #expect(FileManager.default.fileExists(atPath: paths.dataDir))
+        #expect(FileManager.default.fileExists(atPath: paths.logDir))
+        #expect(paths.appSupport.hasSuffix("Library/Application Support/ChillClaw"))
+    }
+
+    @Test
     func endpointStorePublishesReadyWhenPingSucceeds() async throws {
         let store = DaemonEndpointStore(
             configuration: .init(
@@ -39,6 +53,29 @@ struct DaemonManagersTests {
         #expect(await launchAgent.currentStartAttempts() == 1)
         #expect(manager.status == .running(details: "Daemon reachable"))
     }
+
+    @Test
+    func processManagerPreparesSupportDirectoriesBeforeInitialPing() async throws {
+        let launchAgent = FakeLaunchAgentController()
+        let recorder = StartupEventRecorder()
+        let manager = DaemonProcessManager(
+            launchAgent: launchAgent,
+            ping: {
+                await recorder.record("ping")
+                return await launchAgent.currentStartAttempts() > 0
+            },
+            prepareStartup: {
+                await recorder.record("prepare")
+            }
+        )
+
+        await manager.ensureRunning()
+
+        let events = await recorder.recordedEvents()
+        #expect(events.prefix(2) == ["prepare", "ping"])
+        #expect(await launchAgent.currentStartAttempts() == 1)
+        #expect(manager.status == .running(details: "Daemon reachable"))
+    }
 }
 
 private actor FakeLaunchAgentController: LaunchAgentControlling {
@@ -58,5 +95,17 @@ private actor FakeLaunchAgentController: LaunchAgentControlling {
 
     func currentStartAttempts() -> Int {
         startAttempts
+    }
+}
+
+private actor StartupEventRecorder {
+    private var events: [String] = []
+
+    func record(_ event: String) {
+        events.append(event)
+    }
+
+    func recordedEvents() -> [String] {
+        events
     }
 }
