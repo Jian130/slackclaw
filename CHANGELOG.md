@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-04-12 19:34 CST
+
+- pointed the tag-driven macOS release workflow at the GitHub `macos-app` environment so Developer ID signing and notarization secrets can be managed from the environment the repo now uses for app releases
+
 ### 2026-04-12 18:08 CST
 
 - clarified the macOS installer flow by warning that local `npm run build:mac-installer` DMGs are same-machine smoke artifacts, updating README release guidance to use the signed and notarized GitHub release DMG on other Macs, and adding release-script coverage so the local-distribution warning stays in place

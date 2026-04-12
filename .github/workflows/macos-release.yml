@@ -15,7 +15,7 @@ concurrency:
 jobs:
   release:
     environment:
-      name: macos-release
+      name: macos-app
     runs-on: macos-26
     env:
       APP_PATH: dist/.macos-staging/ChillClaw.app
