@@ -80,6 +80,9 @@ function updateResourceRevision(event: ChillClawEvent) {
     case "preset-skill-sync.updated":
       lastSeenByResource.set("preset-skill-sync", { epoch: event.snapshot.epoch, revision: event.snapshot.revision });
       break;
+    case "downloads.updated":
+      lastSeenByResource.set("downloads", { epoch: event.snapshot.epoch, revision: event.snapshot.revision });
+      break;
     default:
       return;
   }

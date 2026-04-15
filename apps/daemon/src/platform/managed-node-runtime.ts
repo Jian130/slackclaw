@@ -1,9 +1,6 @@
-import { createWriteStream } from "node:fs";
 import { copyFile, cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
-import { get } from "node:https";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, resolve } from "node:path";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -56,25 +53,12 @@ async function downloadArchive(url: string, destination: string): Promise<void> 
     return;
   }
 
-  await new Promise<void>((resolvePromise, reject) => {
-    const request = get(url, (response) => {
-      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        response.resume();
-        downloadArchive(response.headers.location, destination).then(resolvePromise, reject);
-        return;
-      }
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    await copyFile(url, destination);
+    return;
+  }
 
-      if (response.statusCode !== 200) {
-        response.resume();
-        reject(new Error(`Node runtime download failed with HTTP ${response.statusCode ?? "unknown"}.`));
-        return;
-      }
-
-      pipeline(response, createWriteStream(destination)).then(resolvePromise, reject);
-    });
-
-    request.on("error", reject);
-  });
+  throw new Error("ChillClaw requires DownloadManager to fetch the managed Node.js runtime archive before installation.");
 }
 
 async function extractArchive(archivePath: string, destinationDir: string): Promise<void> {

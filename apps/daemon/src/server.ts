@@ -97,6 +97,13 @@ export function startServer(port = 4545) {
   const context = createServerContext(() => {
     server.close();
   });
+  void context.downloadManager.resumePersistedJobs().catch((error) => {
+    void writeErrorLog("ChillClaw could not resume pending downloads on startup.", {
+      error: errorToLogDetails(error)
+    }, {
+      scope: "server.startServer.resumeDownloads"
+    });
+  });
   void context.localModelRuntimeService.resumePendingWork().catch((error) => {
     void writeErrorLog("ChillClaw could not resume a pending local-model download on startup.", {
       error: errorToLogDetails(error)

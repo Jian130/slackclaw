@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { RuntimeManager, type RuntimeResourceProvider, type RuntimeManagerState } from "./runtime-manager.js";
-import type { RuntimeResourceManifest } from "./types.js";
+import type { RuntimeArtifactManifest, RuntimeResourceManifest } from "./types.js";
 
 function manifest(
   id: string,
@@ -86,6 +86,10 @@ function createHarness(args: {
   manifests: RuntimeResourceManifest[];
   updateManifests?: RuntimeResourceManifest[];
   providers: RuntimeResourceProvider[];
+  downloadArtifact?: (context: {
+    resource: RuntimeResourceManifest;
+    artifact: RuntimeArtifactManifest;
+  }) => Promise<{ artifact: RuntimeArtifactManifest; jobId?: string }>;
 }) {
   let state: RuntimeManagerState | undefined;
   const progress: string[] = [];
@@ -100,6 +104,7 @@ function createHarness(args: {
       state = nextState;
     },
     providers: args.providers,
+    downloadArtifact: args.downloadArtifact,
     publishProgress: ({ resourceId, action }) => {
       progress.push(`${resourceId}:${action}`);
     },
@@ -149,6 +154,48 @@ test("prepare installs dependencies first and prefers bundled source before down
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test("prepare delegates downloadable runtime artifacts before invoking the provider", async () => {
+  const log: string[] = [];
+  const runtime = manifest("node-npm-runtime", "22.22.2", {
+    sourcePolicy: ["download"],
+    artifacts: [{ source: "download", url: "https://example.invalid/node.tgz", format: "tgz", sizeBytes: 12 }]
+  });
+  const { manager, getState } = createHarness({
+    manifests: [runtime],
+    providers: [
+      createProvider("node-npm-runtime", log, {
+        async prepare(context) {
+          assert.equal(context.artifact?.path, "/tmp/chillclaw/downloads/node.tgz");
+          log.push(`prepare:${context.manifest.id}:${context.source}:${context.artifact?.path}`);
+          return {
+            version: context.manifest.version,
+            changed: true,
+            summary: "Node runtime installed.",
+            detail: "Node runtime installed from downloaded archive."
+          };
+        }
+      })
+    ],
+    downloadArtifact: async ({ resource, artifact }) => {
+      assert.equal(resource.id, "node-npm-runtime");
+      assert.equal(artifact.url, "https://example.invalid/node.tgz");
+      return {
+        artifact: {
+          ...artifact,
+          path: "/tmp/chillclaw/downloads/node.tgz"
+        },
+        jobId: "download-node"
+      };
+    }
+  });
+
+  const result = await manager.prepare("node-npm-runtime");
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(log, ["prepare:node-npm-runtime:download:/tmp/chillclaw/downloads/node.tgz"]);
+  assert.equal(getState()?.resources["node-npm-runtime"]?.downloadJobId, "download-node");
 });
 
 test("stage update records the staged version without changing the active install", async () => {

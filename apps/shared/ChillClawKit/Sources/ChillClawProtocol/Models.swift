@@ -583,6 +583,7 @@ public struct LocalModelRuntimeOverview: Codable, Sendable {
     public var progressTotalBytes: Int?
     public var progressPercent: Int?
     public var lastProgressAt: String?
+    public var downloadJobId: String?
     public var recoveryHint: String?
 
     public init(
@@ -611,6 +612,7 @@ public struct LocalModelRuntimeOverview: Codable, Sendable {
         progressTotalBytes: Int? = nil,
         progressPercent: Int? = nil,
         lastProgressAt: String? = nil,
+        downloadJobId: String? = nil,
         recoveryHint: String? = nil
     ) {
         self.supported = supported
@@ -638,7 +640,143 @@ public struct LocalModelRuntimeOverview: Codable, Sendable {
         self.progressTotalBytes = progressTotalBytes
         self.progressPercent = progressPercent
         self.lastProgressAt = lastProgressAt
+        self.downloadJobId = downloadJobId
         self.recoveryHint = recoveryHint
+    }
+}
+
+public struct DownloadSource: Codable, Sendable {
+    public var kind: String
+    public var url: String?
+    public var fallbackUrls: [String]?
+    public var path: String?
+    public var modelTag: String?
+    public var endpoint: String?
+
+    public init(kind: String, url: String? = nil, fallbackUrls: [String]? = nil, path: String? = nil, modelTag: String? = nil, endpoint: String? = nil) {
+        self.kind = kind
+        self.url = url
+        self.fallbackUrls = fallbackUrls
+        self.path = path
+        self.modelTag = modelTag
+        self.endpoint = endpoint
+    }
+}
+
+public struct DownloadError: Codable, Sendable {
+    public var code: String
+    public var message: String
+    public var retriable: Bool
+
+    public init(code: String, message: String, retriable: Bool) {
+        self.code = code
+        self.message = message
+        self.retriable = retriable
+    }
+}
+
+public struct DownloadJob: Codable, Sendable, Identifiable {
+    public var id: String
+    public var type: String
+    public var artifactId: String
+    public var displayName: String
+    public var version: String?
+    public var source: DownloadSource
+    public var destinationPath: String
+    public var tempPath: String
+    public var expectedBytes: Int?
+    public var requiredBytes: Int?
+    public var downloadedBytes: Int
+    public var progress: Int
+    public var checksum: String?
+    public var status: String
+    public var priority: Int
+    public var silent: Bool
+    public var requester: String
+    public var dedupeKey: String?
+    public var createdAt: Int
+    public var updatedAt: Int
+    public var completedAt: Int?
+    public var error: DownloadError?
+
+    public init(
+        id: String,
+        type: String,
+        artifactId: String,
+        displayName: String,
+        version: String? = nil,
+        source: DownloadSource,
+        destinationPath: String,
+        tempPath: String,
+        expectedBytes: Int? = nil,
+        requiredBytes: Int? = nil,
+        downloadedBytes: Int,
+        progress: Int,
+        checksum: String? = nil,
+        status: String,
+        priority: Int,
+        silent: Bool,
+        requester: String,
+        dedupeKey: String? = nil,
+        createdAt: Int,
+        updatedAt: Int,
+        completedAt: Int? = nil,
+        error: DownloadError? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.artifactId = artifactId
+        self.displayName = displayName
+        self.version = version
+        self.source = source
+        self.destinationPath = destinationPath
+        self.tempPath = tempPath
+        self.expectedBytes = expectedBytes
+        self.requiredBytes = requiredBytes
+        self.downloadedBytes = downloadedBytes
+        self.progress = progress
+        self.checksum = checksum
+        self.status = status
+        self.priority = priority
+        self.silent = silent
+        self.requester = requester
+        self.dedupeKey = dedupeKey
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.completedAt = completedAt
+        self.error = error
+    }
+}
+
+public struct DownloadManagerOverview: Codable, Sendable {
+    public var checkedAt: String
+    public var jobs: [DownloadJob]
+    public var activeCount: Int
+    public var queuedCount: Int
+    public var failedCount: Int
+    public var summary: String
+
+    public init(checkedAt: String, jobs: [DownloadJob], activeCount: Int, queuedCount: Int, failedCount: Int, summary: String) {
+        self.checkedAt = checkedAt
+        self.jobs = jobs
+        self.activeCount = activeCount
+        self.queuedCount = queuedCount
+        self.failedCount = failedCount
+        self.summary = summary
+    }
+}
+
+public struct DownloadActionResponse: Codable, Sendable {
+    public var status: String
+    public var message: String
+    public var job: DownloadJob?
+    public var downloads: DownloadManagerOverview
+
+    public init(status: String, message: String, job: DownloadJob? = nil, downloads: DownloadManagerOverview) {
+        self.status = status
+        self.message = message
+        self.job = job
+        self.downloads = downloads
     }
 }
 
@@ -655,6 +793,7 @@ public struct RuntimeResourceOverview: Codable, Sendable, Identifiable {
     public var latestApprovedVersion: String?
     public var stagedVersion: String?
     public var activePath: String?
+    public var downloadJobId: String?
     public var updateAvailable: Bool
     public var blockingResourceIds: [String]?
     public var summary: String
@@ -676,6 +815,7 @@ public struct RuntimeResourceOverview: Codable, Sendable, Identifiable {
         latestApprovedVersion: String? = nil,
         stagedVersion: String? = nil,
         activePath: String? = nil,
+        downloadJobId: String? = nil,
         updateAvailable: Bool,
         blockingResourceIds: [String]? = nil,
         summary: String,
@@ -696,6 +836,7 @@ public struct RuntimeResourceOverview: Codable, Sendable, Identifiable {
         self.latestApprovedVersion = latestApprovedVersion
         self.stagedVersion = stagedVersion
         self.activePath = activePath
+        self.downloadJobId = downloadJobId
         self.updateAvailable = updateAvailable
         self.blockingResourceIds = blockingResourceIds
         self.summary = summary

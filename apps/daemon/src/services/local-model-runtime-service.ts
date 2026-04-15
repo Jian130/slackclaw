@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { homedir, tmpdir } from "node:os";
-import { chmod, copyFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { stat } from "node:fs/promises";
 import { delimiter, dirname, join, resolve } from "node:path";
 
 import type {
@@ -15,12 +15,13 @@ import type {
 
 import { chooseLocalModelTier, type LocalModelHostSnapshot } from "../config/local-model-runtime-catalog.js";
 import type { ManagedLocalModelEntryRequest } from "../engine/adapter.js";
-import { getManagedOllamaBinDir, getManagedOllamaCliPath, getManagedOllamaDir, getManagedOllamaModelsDir } from "../runtime-paths.js";
+import { getManagedOllamaCliPath, getManagedOllamaDir, getManagedOllamaModelsDir } from "../runtime-paths.js";
 import { logDevelopmentCommand } from "./logger.js";
 import { StateStore } from "./state-store.js";
 import type { EventPublisher } from "./event-publisher.js";
 import type { EngineAdapter } from "../engine/adapter.js";
 import type { RuntimeManager } from "../runtime-manager/runtime-manager.js";
+import type { DownloadManager } from "../download-manager/download-manager.js";
 
 export type ResolvedOllamaRuntime = {
   command: string;
@@ -41,6 +42,7 @@ export type PersistedLocalModelRuntimeState = {
   progressTotalBytes?: number;
   progressPercent?: number;
   lastProgressAt?: string;
+  downloadJobId?: string;
 };
 
 export type LocalModelRuntimeResult = {
@@ -54,6 +56,7 @@ export type PullModelProgress = {
   digest?: string;
   total?: number;
   completed?: number;
+  downloadJobId?: string;
 };
 
 export type LocalModelRuntimeAccess = {
@@ -91,10 +94,7 @@ type ActiveLocalModelRuntimeJob = {
 
 type RetryableError = Error & { retryable?: boolean };
 
-const OLLAMA_API_ORIGIN = "http://127.0.0.1:11434";
 const LOCAL_MODEL_PULL_MAX_ATTEMPTS = 3;
-const DEFAULT_MANAGED_OLLAMA_VERSION = process.env.CHILLCLAW_MANAGED_OLLAMA_VERSION?.trim() || "0.20.6";
-const DEFAULT_MANAGED_OLLAMA_ARCHIVE_NAME = "ollama-darwin.tgz";
 
 function modelTagFromKey(modelKey: string): string {
   return modelKey.replace(/^ollama\//, "");
@@ -162,10 +162,6 @@ export async function resolveDiskProbePath(targetPath: string): Promise<string> 
       candidate = parent;
     }
   }
-}
-
-function defaultManagedOllamaArchiveUrl(): string {
-  return `https://github.com/ollama/ollama/releases/download/v${DEFAULT_MANAGED_OLLAMA_VERSION}/${DEFAULT_MANAGED_OLLAMA_ARCHIVE_NAME}`;
 }
 
 function activeLocalEntry(modelSelection: Pick<ModelConfigOverview, "savedEntries" | "defaultEntryId" | "defaultModel">) {
@@ -341,6 +337,7 @@ export class LocalModelRuntimeService {
       progressTotalBytes: persisted?.progressTotalBytes,
       progressPercent: persisted?.progressPercent,
       lastProgressAt: persisted?.lastProgressAt,
+      downloadJobId: persisted?.downloadJobId,
       recoveryHint: status === "degraded" || status === "failed" ? "Repair the local Ollama runtime or switch back to a cloud model." : undefined
     };
   }
@@ -437,6 +434,7 @@ export class LocalModelRuntimeService {
         progressTotalBytes: undefined,
         progressPercent: undefined,
         lastProgressAt: undefined,
+        downloadJobId: persisted?.downloadJobId,
         lastError: undefined
       });
       const localRuntime = await this.getOverview(mutation.modelConfig);
@@ -514,6 +512,7 @@ export class LocalModelRuntimeService {
       progressCompletedBytes: status === "downloading-model" ? persisted?.progressCompletedBytes : undefined,
       progressTotalBytes: status === "downloading-model" ? persisted?.progressTotalBytes : undefined,
       progressPercent: status === "downloading-model" ? persisted?.progressPercent : undefined,
+      downloadJobId: status === "downloading-model" ? persisted?.downloadJobId : undefined,
       lastProgressAt: new Date().toISOString()
     });
     await this.publishProgressSnapshot(action, progressPhaseForStatus(status), message);
@@ -533,6 +532,7 @@ export class LocalModelRuntimeService {
       progressCompletedBytes: progress.completed,
       progressTotalBytes: progress.total,
       progressPercent: progressPercentForPull(progress),
+      downloadJobId: progress.downloadJobId ?? persisted?.downloadJobId,
       lastProgressAt: new Date().toISOString()
     });
     await this.publishProgressSnapshot(action, "downloading-model", message);
@@ -675,103 +675,66 @@ async function waitForRuntime(command: ResolvedOllamaRuntime): Promise<void> {
   throw new Error(`ChillClaw could not reach the local Ollama runtime at ${command.command}.`);
 }
 
-function parseProgressLine(line: string): PullModelProgress | { error: string } {
-  try {
-    return JSON.parse(line) as PullModelProgress | { error: string };
-  } catch {
-    throw createRetryableError(`ChillClaw could not parse Ollama pull progress: ${line}`, true);
-  }
-}
-
-async function readResponseError(response: Response): Promise<string> {
-  try {
-    const payload = await response.json() as { error?: string };
-    if (payload?.error?.trim()) {
-      return payload.error.trim();
-    }
-  } catch {
-    // Fall through to status text below.
-  }
-
-  return trimProgressMessage(response.statusText, `Ollama pull failed with status ${response.status}.`);
-}
-
-async function pullModelViaApi(modelTag: string, publishProgress: (progress: PullModelProgress) => void | Promise<void>): Promise<void> {
-  const response = await fetch(`${OLLAMA_API_ORIGIN}/api/pull`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
+async function pullModelViaDownloadManager(
+  downloadManager: DownloadManager,
+  modelTag: string,
+  publishProgress: (progress: PullModelProgress) => void | Promise<void>
+): Promise<void> {
+  const job = await downloadManager.enqueue({
+    type: "model",
+    artifactId: `ollama-model:${modelTag}`,
+    displayName: `Local model ${modelTag}`,
+    source: {
+      kind: "ollama-pull",
+      modelTag
     },
-    body: JSON.stringify({
-      model: modelTag
-    })
-  }).catch((error) => {
-    throw createRetryableError(
-      error instanceof Error ? error.message : "ChillClaw could not reach the local Ollama pull API.",
-      true
-    );
+    priority: 20,
+    silent: false,
+    requester: "model-manager",
+    dedupeKey: `model:ollama:${modelTag}`,
+    destinationPolicy: {
+      baseDir: "cache",
+      fileName: `${safeDownloadFileName(modelTag)}.json`
+    }
   });
 
-  if (!response.ok) {
-    throw createRetryableError(await readResponseError(response), response.status >= 500);
-  }
-
-  if (!response.body) {
-    throw createRetryableError("Ollama did not return a download progress stream.", true);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let sawSuccess = false;
-
-  const publishParsedLine = async (line: string) => {
-    if (!line.trim()) {
-      return;
+  const unsubscribe = downloadManager.subscribe((event) => {
+    if (event.type === "download.progress" && event.jobId === job.id) {
+      void publishProgress({
+        status: "downloading model",
+        completed: event.downloadedBytes,
+        total: event.totalBytes,
+        downloadJobId: job.id
+      });
     }
-
-    const parsed = parseProgressLine(line);
-    if ("error" in parsed) {
-      throw createRetryableError(parsed.error, false);
+    if (event.type === "download.completed" && event.job.id === job.id) {
+      void publishProgress({
+        status: "success",
+        downloadJobId: job.id
+      });
     }
+  });
 
-    if (parsed.status === "success") {
-      sawSuccess = true;
+  try {
+    const completed = await downloadManager.waitForJob(job.id);
+    if (completed.status !== "completed") {
+      throw createRetryableError(completed.error?.message ?? "The local model download did not finish.", true);
     }
-    await publishProgress(parsed);
-  };
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    let newlineIndex = buffer.indexOf("\n");
-    while (newlineIndex >= 0) {
-      const line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      await publishParsedLine(line);
-      newlineIndex = buffer.indexOf("\n");
-    }
+  } finally {
+    unsubscribe();
   }
+}
 
-  const trailing = `${buffer}${decoder.decode()}`.trim();
-  if (trailing) {
-    await publishParsedLine(trailing);
-  }
-
-  if (!sawSuccess) {
-    throw createRetryableError("Ollama ended the pull stream before reporting success.", true);
-  }
+function safeDownloadFileName(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "ollama-model";
 }
 
 export function createLocalModelRuntimeService(
   adapter: EngineAdapter,
   store: StateStore,
   eventPublisher?: EventPublisher,
-  runtimeManager?: RuntimeManager
+  runtimeManager?: RuntimeManager,
+  downloadManager?: DownloadManager
 ): LocalModelRuntimeService {
   return new LocalModelRuntimeService({
     inspectHost: async () => {
@@ -816,38 +779,7 @@ export function createLocalModelRuntimeService(
         return resolved;
       }
 
-      const workspace = await mkdtemp(resolve(tmpdir(), "chillclaw-ollama-"));
-      const archivePath = resolve(workspace, DEFAULT_MANAGED_OLLAMA_ARCHIVE_NAME);
-      const extractedPath = resolve(workspace, "extracted");
-      await mkdir(getManagedOllamaDir(), { recursive: true });
-      await mkdir(getManagedOllamaBinDir(), { recursive: true });
-
-      try {
-        await runLoggedCommand("localModelRuntime.installManagedRuntime", "curl", [
-          "-L",
-          defaultManagedOllamaArchiveUrl(),
-          "-o",
-          archivePath
-        ]);
-        await mkdir(extractedPath, { recursive: true });
-        await runLoggedCommand("localModelRuntime.installManagedRuntime", "tar", [
-          "-xzf",
-          archivePath,
-          "-C",
-          extractedPath
-        ]);
-        await copyFile(resolve(extractedPath, "ollama"), getManagedOllamaCliPath());
-        await chmod(getManagedOllamaCliPath(), 0o755);
-
-        await mkdir(getManagedOllamaModelsDir(), { recursive: true });
-        return {
-          command: getManagedOllamaCliPath(),
-          source: "managed-install" as const,
-          managed: true
-        };
-      } finally {
-        await rm(workspace, { recursive: true, force: true });
-      }
+      throw new Error("ChillClaw requires RuntimeManager to prepare the managed Ollama runtime.");
     },
     isRuntimeReachable: async () => {
       try {
@@ -880,7 +812,10 @@ export function createLocalModelRuntimeService(
       return result.code === 0;
     },
     pullModel: async (_runtime, modelTag, publishProgress) => {
-      await pullModelViaApi(modelTag, publishProgress);
+      if (!downloadManager) {
+        throw new Error("ChillClaw requires DownloadManager to pull local Ollama models.");
+      }
+      await pullModelViaDownloadManager(downloadManager, modelTag, publishProgress);
     },
     upsertManagedLocalModelEntry: async (request) => adapter.config.upsertManagedLocalModelEntry(request),
     restartGateway: async () => adapter.gateway.restartGateway(),

@@ -62,6 +62,17 @@ This document lists the current daemon HTTP surface after the route-module refac
 | `POST` | `/api/runtime/resources/:resourceId/apply-update` | `RuntimeManager` + `EventPublisher` | Apply a staged runtime update and roll back automatically when provider verification fails. |
 | `POST` | `/api/runtime/resources/:resourceId/rollback` | `RuntimeManager` + `EventPublisher` | Restore the previous recorded runtime version after a failed apply. |
 
+## `routes/downloads.ts`
+
+| Method | Path | Primary owner | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/downloads` | `DownloadManager` | Return the retained download overview with all known jobs and active transfer state. |
+| `GET` | `/api/downloads/:jobId` | `DownloadManager` | Return one download job by ID. |
+| `POST` | `/api/downloads/:jobId/pause` | `DownloadManager` | Pause a queued or active job when the executor supports interruption. |
+| `POST` | `/api/downloads/:jobId/resume` | `DownloadManager` | Requeue a paused, failed, or interrupted job and return the updated job state. |
+| `POST` | `/api/downloads/:jobId/cancel` | `DownloadManager` | Cancel a queued or active job and abort any in-process transfer. |
+| `DELETE` | `/api/downloads/:jobId` | `DownloadManager` | Remove a terminal or inactive job from persisted download state. |
+
 ## `routes/models.ts`
 
 | Method | Path | Primary owner | Purpose |
@@ -160,4 +171,5 @@ These routes are still registered so older clients fail explicitly instead of fa
 - The server shell owns transport concerns: request parsing, route resolution, cache invalidation, WebSocket upgrades, and static asset fallback.
 - Most ChillClaw business orchestration lives in daemon services such as `OverviewService`, `OnboardingService`, `ChannelSetupService`, `ChatService`, `SkillService`, `PluginService`, and `TaskService`.
 - Generic prerequisite lifecycle lives in `RuntimeManager`; feature services and adapters should ask it for Node/npm, managed OpenClaw, Ollama, and local model catalog resources instead of adding separate installer paths.
+- Download transfer lifecycle lives in `DownloadManager`; runtime, local-model, updater, and future package flows should delegate raw HTTP/file/Ollama-pull transfer work there instead of adding parallel download implementations.
 - Engine-specific behavior stays behind `EngineAdapter` and its OpenClaw implementation.

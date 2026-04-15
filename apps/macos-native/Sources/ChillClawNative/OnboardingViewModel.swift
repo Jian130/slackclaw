@@ -2091,7 +2091,8 @@ final class NativeOnboardingViewModel {
             let .runtimeCompleted(_, _, _, _, runtimeManager),
             let .runtimeUpdateStaged(_, _, _, runtimeManager):
             appState.applyRuntimeManagerOverview(runtimeManager)
-        case .skillCatalogUpdated, .pluginConfigUpdated, .deployProgress, .deployCompleted, .gatewayStatus, .chatStream, .configApplied:
+        case .skillCatalogUpdated, .pluginConfigUpdated, .deployProgress, .deployCompleted, .gatewayStatus, .chatStream, .configApplied,
+             .downloadsUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             break
         }
 

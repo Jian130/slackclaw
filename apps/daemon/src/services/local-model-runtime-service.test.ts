@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 
 import type {
   GatewayActionResponse,
+  LocalModelRuntimeOverview,
   ModelConfigActionResponse,
   ModelConfigOverview
 } from "@chillclaw/contracts";
@@ -53,6 +54,7 @@ function createHarness(overrides: Partial<LocalModelRuntimeAccess> = {}) {
   const restartCalls: string[] = [];
   const upsertCalls: Array<{ label: string; providerId: string; methodId: string; modelKey: string; entryId?: string }> = [];
   const publishedProgress: string[] = [];
+  const publishedRuntimeProgress: LocalModelRuntimeOverview[] = [];
   const publishedCompleted: string[] = [];
 
   let persistedState: PersistedLocalModelRuntimeState | undefined;
@@ -151,8 +153,9 @@ function createHarness(overrides: Partial<LocalModelRuntimeAccess> = {}) {
       };
       return response;
     },
-    publishProgress: (_action, _phase, message) => {
+    publishProgress: (_action, _phase, message, localRuntime) => {
       publishedProgress.push(message);
+      publishedRuntimeProgress.push(localRuntime);
     },
     publishCompleted: (_action, _status, message) => {
       publishedCompleted.push(message);
@@ -170,6 +173,7 @@ function createHarness(overrides: Partial<LocalModelRuntimeAccess> = {}) {
     restartCalls,
     upsertCalls,
     publishedProgress,
+    publishedRuntimeProgress,
     publishedCompleted
   };
 }
@@ -254,6 +258,33 @@ test("install reuses an existing Ollama runtime, downloads the selected model, a
   assert.equal(getPersistedState()?.selectedModelKey, "ollama/gemma4:e2b");
   assert.equal(publishedProgress.length > 0, true);
   assert.equal(publishedCompleted.at(-1), result.message);
+});
+
+test("local model progress preserves the backing download job id", async () => {
+  let modelAvailable = false;
+  const { service, publishedRuntimeProgress } = createHarness({
+    isModelAvailable: async () => modelAvailable,
+    pullModel: async (_runtime, _modelTag, publishProgress) => {
+      await publishProgress({
+        status: "pulling model layer",
+        completed: 64,
+        total: 128,
+        downloadJobId: "download-local-model"
+      });
+      modelAvailable = true;
+      await publishProgress({
+        status: "success",
+        downloadJobId: "download-local-model"
+      });
+    }
+  });
+
+  await service.install();
+
+  const downloadingSnapshot = publishedRuntimeProgress.find((snapshot) => snapshot.downloadJobId === "download-local-model");
+  assert.equal(downloadingSnapshot?.downloadJobId, "download-local-model");
+  assert.equal(downloadingSnapshot?.progressCompletedBytes, 64);
+  assert.equal(downloadingSnapshot?.progressTotalBytes, 128);
 });
 
 test("concurrent local runtime installs reuse the same in-flight pull job", async () => {

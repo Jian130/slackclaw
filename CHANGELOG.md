@@ -2,8 +2,14 @@
 
 ## Unreleased
 
-### 2026-04-15 14:31 CST
+## 0.1.7 - 2026-04-15
 
+### 2026-04-15 16:12 CST
+
+- added a daemon-owned Download Manager foundation with persisted queue state, deduped jobs, restart recovery, HTTP/file artifact executors, Ollama pull jobs, checksum and size validation, cancel/resume actions, retained `downloads.updated` snapshots, and live download events
+- moved runtime artifact transfers and managed local-model pulls behind the Download Manager while keeping install, unpack, activation, and OpenClaw npm install behavior in the existing runtime and local-model services
+- extended shared TypeScript, React client, and Swift protocol contracts with download job models, events, `downloadJobId` links, and `/api/downloads` route support for future unified Downloads surfaces
+- updated daemon architecture docs to show Download Manager as the central transfer subsystem for runtime artifacts, Ollama model pulls, and future downloadable packages
 - fixed daemon test discovery in GitHub Actions by replacing shell-expanded globs with a deterministic Node test-file runner, ensuring root-level and nested daemon tests run consistently on Ubuntu and adding per-file CI annotations for future daemon test failures
 
 ## 0.1.6 - 2026-04-15

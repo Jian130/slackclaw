@@ -38,3 +38,28 @@ test("event bus delivers typed events to multiple subscribers", async () => {
   assert.deepEqual(second, ["deploy.progress", "gateway.status"]);
   assert.equal(bus.listenerCount(), 1);
 });
+
+test("event bus retains the latest downloads snapshot for late subscribers", () => {
+  const bus = new EventBusService();
+
+  bus.publish({
+    type: "downloads.updated",
+    snapshot: {
+      epoch: "downloads-test",
+      revision: 1,
+      data: {
+        checkedAt: "2026-04-15T00:00:00.000Z",
+        jobs: [],
+        activeCount: 0,
+        queuedCount: 0,
+        failedCount: 0,
+        summary: "No downloads are running."
+      }
+    }
+  });
+
+  assert.deepEqual(
+    bus.getRetainedEvents().map((event) => event.type),
+    ["downloads.updated"]
+  );
+});

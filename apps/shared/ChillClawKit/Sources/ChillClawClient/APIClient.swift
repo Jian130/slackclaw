@@ -114,6 +114,8 @@ public final class ChillClawAPIClient: @unchecked Sendable {
     }
 
     public func fetchOverview() async throws -> ProductOverview { try await get("/api/overview?fresh=1") }
+    public func fetchDownloads() async throws -> DownloadManagerOverview { try await get("/api/downloads") }
+    public func fetchDownloadJob(jobId: String) async throws -> DownloadJob { try await get("/api/downloads/\(Self.pathComponent(jobId))") }
     public func fetchRuntimeResources() async throws -> RuntimeManagerOverview { try await get("/api/runtime/resources") }
     public func fetchDeploymentTargets() async throws -> DeploymentTargetsResponse { try await get("/api/deploy/targets?fresh=1") }
     public func fetchModelConfig() async throws -> ModelConfigOverview { try await get("/api/models/config?fresh=1") }
@@ -185,6 +187,22 @@ public final class ChillClawAPIClient: @unchecked Sendable {
 
     public func repairLocalModelRuntime() async throws -> LocalModelRuntimeActionResponse {
         try await post("/api/models/local-runtime/repair", body: EmptyBody(), timeout: RequestTimeout.longRunning)
+    }
+
+    public func pauseDownload(jobId: String) async throws -> DownloadActionResponse {
+        try await post("/api/downloads/\(Self.pathComponent(jobId))/pause", body: EmptyBody())
+    }
+
+    public func resumeDownload(jobId: String) async throws -> DownloadActionResponse {
+        try await post("/api/downloads/\(Self.pathComponent(jobId))/resume", body: EmptyBody())
+    }
+
+    public func cancelDownload(jobId: String) async throws -> DownloadActionResponse {
+        try await post("/api/downloads/\(Self.pathComponent(jobId))/cancel", body: EmptyBody())
+    }
+
+    public func removeDownload(jobId: String) async throws -> DownloadActionResponse {
+        try await delete("/api/downloads/\(Self.pathComponent(jobId))", body: EmptyBody())
     }
 
     public func prepareRuntimeResource(_ resourceId: String) async throws -> RuntimeActionResponse {

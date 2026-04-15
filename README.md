@@ -72,7 +72,7 @@ The root `npm run build` and `npm test` commands now include the website workspa
   - offers a managed local AI option on supported Apple Silicon Macs, showing storage impact and install progress while the daemon installs Ollama and stages a local OpenClaw model automatically
   - uses daemon-owned onboarding UI config so the curated model and channel choices stay aligned across clients
   - resolves curated onboarding AI employee presets, managed preset skills, and onboarding avatar presentation from the daemon-owned preset catalog instead of client-local preset definitions
-  - documents the current six-step onboarding flow, completion handoff, and remaining target-contract gaps in [docs/reference/onboarding-design.md](/Users/home/Ryo/Projects/chillclaw/docs/reference/onboarding-design.md)
+  - documents the current six-step onboarding flow, completion handoff, and remaining target-contract gaps in [docs/reference/onboarding-design.md](docs/reference/onboarding-design.md)
 - Chat page:
   - supports real multi-thread chat with AI members backed by OpenClaw agents
   - creates or reuses chat threads per AI member
@@ -121,8 +121,9 @@ flowchart LR
 - The native macOS app state, native onboarding flow, and native chat transport all listen to the shared daemon event bus so overview, step-scoped onboarding data, active sections, and live chat transcript updates reconcile through one WebSocket channel.
 - The daemon owns the OpenClaw gateway socket internally for chat and runtime behavior instead of exposing that socket to clients.
 - The daemon-side platform layer now owns explicit filesystem/state, CLI runner, gateway socket, and secrets seams, including a macOS keychain-backed secrets adapter for mirrored user-entered credentials.
+- The daemon owns a centralized Download Manager for runtime artifacts, Ollama model pulls, and future package downloads. It persists queue state under the ChillClaw data directory, emits retained `downloads.updated` snapshots plus live job events, and exposes `/api/downloads` for client parity.
 - The daemon also owns managed local-model runtime state, including host inspection, curated Ollama model recommendation, install progress, repair state, and OpenClaw model-entry handoff.
-- The daemon Runtime Manager owns generic prerequisite lifecycle for Node/npm, managed OpenClaw, Ollama, and local model catalog metadata. It reads a packaged `runtime-manifest.lock.json`, can check a curated update feed, stages approved updates silently, and applies them only through safe/explicit runtime actions with rollback state. See [docs/reference/runtime-manager.md](/Users/home/Ryo/Projects/chillclaw/docs/reference/runtime-manager.md).
+- The daemon Runtime Manager owns generic prerequisite lifecycle for Node/npm, managed OpenClaw, Ollama, and local model catalog metadata. It reads a packaged `runtime-manifest.lock.json`, can check a curated update feed, stages approved updates silently, and applies them only through safe/explicit runtime actions with rollback state. See [docs/reference/runtime-manager.md](docs/reference/runtime-manager.md).
 - Unfinished managed local-model downloads are resumed automatically from persisted daemon state, including the common cases where the client reconnects, the user retries setup, or the daemon restarts while Ollama is still downloading layers.
 - Read-only OpenClaw CLI reads are cached and coalesced inside the daemon per logical refresh cycle so one page load does not fan out into repeated duplicate CLI calls.
 - The engine seam lives behind `EngineAdapter`, so ChillClaw product logic does not talk to OpenClaw directly.
@@ -226,7 +227,7 @@ If you still want to run pieces separately for debugging:
 2. `npm run dev:ui`
 3. optionally run `npm run bootstrap:openclaw` if you want to prepare OpenClaw ahead of time instead of using the in-product install flow
 
-For the upstream OpenClaw CLI surface, config tree, and the exact commands ChillClaw uses today for install, models, channels, agents, and chat, see [docs/reference/openclaw-commands.md](/Users/home/Ryo/Projects/chillclaw/docs/reference/openclaw-commands.md).
+For the upstream OpenClaw CLI surface, config tree, and the exact commands ChillClaw uses today for install, models, channels, agents, and chat, see [docs/reference/openclaw-commands.md](docs/reference/openclaw-commands.md).
 
 ## Engine compatibility workflow
 
@@ -263,7 +264,7 @@ When a user installs and opens ChillClaw for the first time today:
 
 1. ChillClaw opens a six-step onboarding flow at `/onboarding`.
 2. `Welcome` initializes the guided setup and stores onboarding draft progress in the daemon-backed state store.
-3. `Install OpenClaw` detects compatible runtime state, lets the user reuse or update an existing runtime when possible, and installs the managed runtime when needed. On clean Macs, ChillClaw downloads its own Node.js/npm toolchain into app data before installing OpenClaw.
+3. `Install OpenClaw` detects compatible runtime state, lets the user reuse or update an existing runtime when possible, and installs the managed runtime when needed. On clean Macs, ChillClaw prepares its own Node.js/npm toolchain in app data through the Runtime Manager and Download Manager before running the managed OpenClaw install.
 4. `Permissions` records the onboarding permissions acknowledgement and unlocks the model step.
 5. `Configure Model` saves the first real model entry and handles any interactive provider auth through the daemon-owned onboarding route family.
 6. `Configure Channel` saves one launch channel configuration for Telegram, WhatsApp, Feishu, WeChat Work, or personal WeChat without requiring the gateway to be running yet.
@@ -284,7 +285,7 @@ The current guided flow uses one final apply point:
 5. `Configure First Channel`: show only the curated onboarding channels and save channel config only
 6. `Create AI Employee`: let the user pick a preset and enter name/title, then create the first AI employee and apply all staged runtime changes once
 
-The detailed sequence diagrams, invariants, and remaining implementation gaps live in [docs/reference/onboarding-design.md](/Users/home/Ryo/Projects/chillclaw/docs/reference/onboarding-design.md).
+The detailed sequence diagrams, invariants, and remaining implementation gaps live in [docs/reference/onboarding-design.md](docs/reference/onboarding-design.md).
 
 ### Onboarding design baseline
 
@@ -298,7 +299,7 @@ Onboarding screens follow a centered macOS setup layout rather than a full-width
 - onboarding spacing and shapes follow an 8-point grid with `32` outer padding, `24` feature-card padding, `24` outer radius, `16` feature-card radius, and `48–52px` primary CTA height
 - native onboarding windows default to `1280 × 860`, stay resizable, and use `960 × 720` as the minimum size
 
-For the full reference, see [docs/reference/onboarding-design.md](/Users/home/Ryo/Projects/chillclaw/docs/reference/onboarding-design.md).
+For the full reference, see [docs/reference/onboarding-design.md](docs/reference/onboarding-design.md).
 
 ## Channel setup
 
@@ -367,7 +368,7 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 - During install or reuse, ChillClaw forces the OpenClaw gateway config back to ChillClaw's safe local baseline: `gateway.mode=local`, `gateway.bind=loopback`, token auth enabled, existing token preserved when present, and inherited `gateway.remote` overrides removed.
 - Once that managed runtime exists, ChillClaw prefers it over an incompatible system-level OpenClaw.
 - If the user clicks `Deploy OpenClaw locally`, ChillClaw deploys the managed local runtime even when a compatible system OpenClaw already exists.
-- Runtime prerequisites are prepared through the daemon Runtime Manager. Packaged builds can satisfy Node/npm and Ollama from bundled artifacts; development and recovery paths can still fall back to approved downloads.
+- Runtime prerequisites are prepared through the daemon Runtime Manager. Packaged builds can satisfy Node/npm and Ollama from bundled artifacts; development and recovery paths delegate approved artifact transfers to the daemon Download Manager before install/unpack logic runs.
 - If required managed prerequisites cannot be prepared, setup fails with a direct prerequisite message instead of pretending installation succeeded.
 - UI install/setup errors now surface the daemon's real error message instead of only showing a generic HTTP status.
 

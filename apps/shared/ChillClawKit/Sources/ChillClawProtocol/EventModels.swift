@@ -34,6 +34,11 @@ public enum ChillClawEvent: Codable, Sendable {
     case pluginConfigUpdated(snapshot: RevisionedSnapshot<PluginConfigOverview>)
     case skillCatalogUpdated(snapshot: RevisionedSnapshot<SkillCatalogOverview>)
     case presetSkillSyncUpdated(snapshot: RevisionedSnapshot<PresetSkillSyncOverview>)
+    case downloadsUpdated(snapshot: RevisionedSnapshot<DownloadManagerOverview>)
+    case downloadProgress(jobId: String, downloadedBytes: Int, totalBytes: Int?, progress: Int, speedBps: Int?)
+    case downloadStatus(jobId: String, status: String)
+    case downloadCompleted(job: DownloadJob)
+    case downloadFailed(jobId: String, error: DownloadError)
     case deployProgress(correlationId: String, targetId: String, phase: ChillClawDeployPhase, percent: Int?, message: String)
     case deployCompleted(correlationId: String, targetId: String, status: String, message: String, engineStatus: EngineStatus)
     case gatewayStatus(reachable: Bool, pendingGatewayApply: Bool, summary: String)
@@ -72,6 +77,13 @@ public enum ChillClawEvent: Codable, Sendable {
         case runtimeManager
         case version
         case snapshot
+        case jobId
+        case downloadedBytes
+        case totalBytes
+        case progress
+        case speedBps
+        case job
+        case error
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,6 +105,28 @@ public enum ChillClawEvent: Codable, Sendable {
             self = .skillCatalogUpdated(snapshot: try container.decode(RevisionedSnapshot<SkillCatalogOverview>.self, forKey: .snapshot))
         case "preset-skill-sync.updated":
             self = .presetSkillSyncUpdated(snapshot: try container.decode(RevisionedSnapshot<PresetSkillSyncOverview>.self, forKey: .snapshot))
+        case "downloads.updated":
+            self = .downloadsUpdated(snapshot: try container.decode(RevisionedSnapshot<DownloadManagerOverview>.self, forKey: .snapshot))
+        case "download.progress":
+            self = .downloadProgress(
+                jobId: try container.decode(String.self, forKey: .jobId),
+                downloadedBytes: try container.decode(Int.self, forKey: .downloadedBytes),
+                totalBytes: try container.decodeIfPresent(Int.self, forKey: .totalBytes),
+                progress: try container.decode(Int.self, forKey: .progress),
+                speedBps: try container.decodeIfPresent(Int.self, forKey: .speedBps)
+            )
+        case "download.status":
+            self = .downloadStatus(
+                jobId: try container.decode(String.self, forKey: .jobId),
+                status: try container.decode(String.self, forKey: .status)
+            )
+        case "download.completed":
+            self = .downloadCompleted(job: try container.decode(DownloadJob.self, forKey: .job))
+        case "download.failed":
+            self = .downloadFailed(
+                jobId: try container.decode(String.self, forKey: .jobId),
+                error: try container.decode(DownloadError.self, forKey: .error)
+            )
         case "deploy.progress":
             self = .deployProgress(
                 correlationId: try container.decode(String.self, forKey: .correlationId),
@@ -210,6 +244,27 @@ public enum ChillClawEvent: Codable, Sendable {
         case let .presetSkillSyncUpdated(snapshot):
             try container.encode("preset-skill-sync.updated", forKey: .type)
             try container.encode(snapshot, forKey: .snapshot)
+        case let .downloadsUpdated(snapshot):
+            try container.encode("downloads.updated", forKey: .type)
+            try container.encode(snapshot, forKey: .snapshot)
+        case let .downloadProgress(jobId, downloadedBytes, totalBytes, progress, speedBps):
+            try container.encode("download.progress", forKey: .type)
+            try container.encode(jobId, forKey: .jobId)
+            try container.encode(downloadedBytes, forKey: .downloadedBytes)
+            try container.encodeIfPresent(totalBytes, forKey: .totalBytes)
+            try container.encode(progress, forKey: .progress)
+            try container.encodeIfPresent(speedBps, forKey: .speedBps)
+        case let .downloadStatus(jobId, status):
+            try container.encode("download.status", forKey: .type)
+            try container.encode(jobId, forKey: .jobId)
+            try container.encode(status, forKey: .status)
+        case let .downloadCompleted(job):
+            try container.encode("download.completed", forKey: .type)
+            try container.encode(job, forKey: .job)
+        case let .downloadFailed(jobId, error):
+            try container.encode("download.failed", forKey: .type)
+            try container.encode(jobId, forKey: .jobId)
+            try container.encode(error, forKey: .error)
         case let .deployProgress(correlationId, targetId, phase, percent, message):
             try container.encode("deploy.progress", forKey: .type)
             try container.encode(correlationId, forKey: .correlationId)

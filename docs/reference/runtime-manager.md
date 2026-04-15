@@ -4,6 +4,8 @@ This document is the project reference for ChillClaw-managed prerequisite runtim
 
 The Runtime Manager lives in the daemon and owns generic runtime lifecycle work that should not be duplicated by deploy, onboarding, local AI, or client code.
 
+Runtime artifacts that need HTTP or file transfer are delegated to the daemon Download Manager. The Runtime Manager still decides which resource/version/platform artifact is required; the Download Manager owns queueing, dedupe, resume, checksum verification, temp files, final placement, and download events.
+
 ## Goals
 
 - Minimize first-run download time by preferring packaged runtime artifacts.
@@ -94,7 +96,7 @@ That script fills `runtime-artifacts/node/...` with the runnable Node.js distrib
 
 `check-update` compares the installed version with the curated update feed.
 
-`stage-update` downloads or copies the approved artifact into staging state without changing the active install. Staging must pass digest verification before the resource is reported as staged.
+`stage-update` requests the approved artifact through the Download Manager or copies an already-packaged artifact into staging state without changing the active install. Staging must pass digest verification before the resource is reported as staged.
 
 On daemon startup and then on a cached interval, the server may silently call the Runtime Manager's approved-update staging path. This stages only already-installed resources whose update policy allows silent staging.
 
@@ -171,8 +173,8 @@ The Runtime Manager installs and updates the Ollama CLI only. It does not bundle
 
 - host support checks
 - model recommendations
-- model download progress
-- interrupted model pull resume
+- local-runtime progress snapshots for current clients
+- Download Manager job coordination for Ollama model pulls
 - OpenClaw local model entry handoff
 
 Ollama updates must not delete or replace the managed model directory.

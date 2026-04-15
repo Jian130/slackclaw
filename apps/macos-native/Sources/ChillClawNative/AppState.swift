@@ -31,7 +31,7 @@ func shouldRefreshNativeOverviewForEvent(_ event: ChillClawEvent) -> Bool {
     switch event {
     case .overviewUpdated:
         return false
-    case .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+    case .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
         return false
     case .localRuntimeProgress, .localRuntimeCompleted:
         return false
@@ -41,7 +41,7 @@ func shouldRefreshNativeOverviewForEvent(_ event: ChillClawEvent) -> Bool {
         return true
     case let .taskProgress(_, status, _):
         return status != .running
-    case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress:
+    case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
         return false
     }
 }
@@ -52,7 +52,7 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
         switch event {
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated:
             return false
-        case .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
             return false
         case .localRuntimeProgress, .localRuntimeCompleted:
             return false
@@ -62,12 +62,12 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return true
         case let .taskProgress(_, status, _):
             return status != .running
-        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress:
+        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             return false
         }
     case .deploy:
         switch event {
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
             return false
         case .localRuntimeProgress, .localRuntimeCompleted:
             return false
@@ -75,14 +75,14 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .deployCompleted, .gatewayStatus:
             return true
-        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .taskProgress:
+        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             return false
         }
     case .configuration:
         switch event {
         case .modelConfigUpdated, .channelConfigUpdated:
             return false
-        case .overviewUpdated, .aiTeamUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .aiTeamUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
             return false
         case .localRuntimeProgress, .localRuntimeCompleted:
             return false
@@ -90,20 +90,20 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .channelSessionUpdated:
             return true
-        case .configApplied, .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress:
+        case .configApplied, .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             return false
         }
     case .plugins:
         switch event {
         case .pluginConfigUpdated:
             return false
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
             return false
         case .localRuntimeProgress, .localRuntimeCompleted:
             return false
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return false
-        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .configApplied:
+        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .configApplied, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             return false
         }
     case .skills:
@@ -112,13 +112,13 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .configApplied:
             return false
-        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
             return false
         case .localRuntimeProgress, .localRuntimeCompleted:
             return false
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return false
-        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated:
+        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             return false
         }
     case .members, .team, .chat:
@@ -127,13 +127,13 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .configApplied:
             return false
-        case .overviewUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+        case .overviewUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
             return false
         case .localRuntimeProgress, .localRuntimeCompleted:
             return false
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return false
-        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated:
+        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             return false
         }
     case .settings:
@@ -372,7 +372,7 @@ final class ChillClawAppState {
             pluginConfig = snapshot.data
         case let .skillCatalogUpdated(snapshot):
             skillConfig = snapshot.data
-        case .presetSkillSyncUpdated:
+        case .presetSkillSyncUpdated, .downloadsUpdated:
             break
         case .localRuntimeProgress, .localRuntimeCompleted:
             break
@@ -380,7 +380,7 @@ final class ChillClawAppState {
             let .runtimeCompleted(_, _, _, _, runtimeManager),
             let .runtimeUpdateStaged(_, _, _, runtimeManager):
             applyRuntimeManagerOverview(runtimeManager)
-        case .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .channelSessionUpdated, .configApplied:
+        case .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .channelSessionUpdated, .configApplied, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
             break
         }
 

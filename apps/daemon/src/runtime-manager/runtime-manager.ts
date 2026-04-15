@@ -39,6 +39,10 @@ interface RuntimeManagerOptions {
   readState: () => Promise<RuntimeManagerState | undefined>;
   writeState: (state: RuntimeManagerState) => Promise<void>;
   providers: RuntimeResourceProvider[];
+  downloadArtifact?: (context: {
+    resource: RuntimeResourceManifest;
+    artifact: RuntimeArtifactManifest;
+  }) => Promise<{ artifact: RuntimeArtifactManifest; jobId?: string }>;
   publishProgress?: (args: RuntimeManagerPublishProgressArgs & { runtimeManager: RuntimeManagerOverview }) => void | Promise<void>;
   publishCompleted?: (args: RuntimeManagerPublishCompletedArgs & { runtimeManager: RuntimeManagerOverview }) => void | Promise<void>;
   publishUpdateStaged?: (args: RuntimeManagerPublishUpdateStagedArgs & { runtimeManager: RuntimeManagerOverview }) => void | Promise<void>;
@@ -151,6 +155,7 @@ export class RuntimeManager {
       stagedManifest: update,
       latestApprovedVersion: update.version,
       source: source.source,
+      downloadJobId: source.downloadJobId,
       lastCheckedAt: new Date().toISOString(),
       lastUpdatedAt: new Date().toISOString(),
       lastError: undefined
@@ -446,6 +451,7 @@ export class RuntimeManager {
       installedVersion: result.version ?? resource.version,
       activePath: result.activePath ?? resource.activePath,
       source: source.source,
+      downloadJobId: source.downloadJobId,
       lastCheckedAt: new Date().toISOString(),
       lastUpdatedAt: new Date().toISOString(),
       lastError: undefined
@@ -504,6 +510,7 @@ export class RuntimeManager {
       latestApprovedVersion,
       stagedVersion: resourceState.stagedVersion,
       activePath: resourceState.activePath ?? inspection?.activePath ?? resource.activePath,
+      downloadJobId: resourceState.downloadJobId,
       updateAvailable: Boolean(resourceState.stagedVersion ?? latestApprovedVersion),
       blockingResourceIds: resource.dependencies.map((dependencyId) => dependencyId as RuntimeResourceId),
       summary:
@@ -547,11 +554,20 @@ export class RuntimeManager {
   private async resolveSource(resource: RuntimeResourceManifest): Promise<{
     source: RuntimeSourcePolicy;
     artifact?: RuntimeArtifactManifest;
+    downloadJobId?: string;
   }> {
     for (const source of resource.sourcePolicy) {
       const candidates = resource.artifacts.filter((artifact) => artifact.source === source);
       for (const artifact of candidates) {
         if (await artifactUsable(artifact)) {
+          if (artifact.url && this.options.downloadArtifact) {
+            const downloaded = await this.options.downloadArtifact({ resource, artifact });
+            return {
+              source,
+              artifact: downloaded.artifact,
+              downloadJobId: downloaded.jobId
+            };
+          }
           return {
             source,
             artifact

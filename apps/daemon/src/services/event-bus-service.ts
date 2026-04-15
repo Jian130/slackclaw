@@ -42,6 +42,7 @@ function retainedEventKey(event: ChillClawEvent): string | undefined {
     case "plugin-config.updated":
     case "skill-catalog.updated":
     case "preset-skill-sync.updated":
+    case "downloads.updated":
       return event.type;
     default:
       return undefined;

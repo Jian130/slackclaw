@@ -116,6 +116,7 @@ export interface LocalModelRuntimeState {
   progressTotalBytes?: number;
   progressPercent?: number;
   lastProgressAt?: string;
+  downloadJobId?: string;
 }
 
 export interface AppState {

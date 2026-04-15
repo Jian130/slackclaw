@@ -70,6 +70,18 @@ export function getRuntimeManagerStatePath(): string {
   return resolve(getDataDir(), "runtime-manager-state.json");
 }
 
+export function getDownloadManagerStatePath(): string {
+  return resolve(getDataDir(), "download-manager-state.json");
+}
+
+export function getDownloadCacheDir(): string {
+  return resolve(getDataDir(), "downloads", "cache");
+}
+
+export function getDownloadTempDir(): string {
+  return resolve(getDataDir(), "downloads", "tmp");
+}
+
 export function getAppRootDir(): string | undefined {
   return process.env.CHILLCLAW_APP_ROOT;
 }

@@ -13,6 +13,7 @@ import {
   type ChillClawEvent,
   type ChatOverview,
   type ChannelConfigOverview,
+  type DownloadJob,
   type ModelConfigOverview,
   type MutationSyncMeta,
   type OnboardingStateResponse,
@@ -236,6 +237,70 @@ test("runtime manager overview serializes staged updates", () => {
   assert.equal(parsed.resources[0]?.status, "staged-update");
   assert.equal(parsed.resources[0]?.stagedVersion, "0.20.6");
   assert.equal(parsed.resources[0]?.updateAvailable, true);
+});
+
+test("download jobs and events serialize backend-managed download state", () => {
+  const job: DownloadJob = {
+    id: "download-runtime-1",
+    type: "runtime",
+    artifactId: "ollama-runtime",
+    displayName: "Ollama runtime",
+    version: "0.20.6",
+    source: {
+      kind: "http",
+      url: "https://example.invalid/ollama.tgz",
+      fallbackUrls: ["https://mirror.example.invalid/ollama.tgz"]
+    },
+    destinationPath: "/tmp/chillclaw/downloads/cache/ollama-runtime.tgz",
+    tempPath: "/tmp/chillclaw/downloads/tmp/ollama-runtime.tgz.part",
+    expectedBytes: 2048,
+    downloadedBytes: 1024,
+    progress: 50,
+    checksum: "abc123",
+    status: "downloading",
+    priority: 10,
+    silent: true,
+    requester: "runtime-manager",
+    dedupeKey: "runtime:ollama-runtime:0.20.6:darwin-arm64",
+    createdAt: 1770000000000,
+    updatedAt: 1770000001000,
+    metadata: {
+      platform: "darwin-arm64"
+    }
+  };
+  const event: ChillClawEvent = {
+    type: "downloads.updated",
+    snapshot: {
+      epoch: "downloads-test",
+      revision: 1,
+      data: {
+        checkedAt: "2026-04-15T00:00:00.000Z",
+        jobs: [job],
+        activeCount: 1,
+        queuedCount: 0,
+        failedCount: 0,
+        summary: "1 download is active."
+      }
+    }
+  };
+  const progress: ChillClawEvent = {
+    type: "download.progress",
+    jobId: job.id,
+    downloadedBytes: 1024,
+    totalBytes: 2048,
+    progress: 50,
+    speedBps: 4096
+  };
+
+  const parsedJob = JSON.parse(JSON.stringify(job)) as DownloadJob;
+  const parsedEvent = JSON.parse(JSON.stringify(event)) as ChillClawEvent;
+  const parsedProgress = JSON.parse(JSON.stringify(progress)) as ChillClawEvent;
+
+  assert.equal(parsedJob.source.kind, "http");
+  assert.equal(parsedJob.status, "downloading");
+  assert.equal(parsedJob.metadata?.platform, "darwin-arm64");
+  assert.equal(parsedEvent.type, "downloads.updated");
+  assert.equal(parsedProgress.type, "download.progress");
 });
 
 test("onboarding state response serializes the optional local runtime snapshot", () => {

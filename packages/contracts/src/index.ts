@@ -228,7 +228,106 @@ export interface LocalModelRuntimeOverview {
   progressTotalBytes?: number;
   progressPercent?: number;
   lastProgressAt?: string;
+  downloadJobId?: string;
   recoveryHint?: string;
+}
+
+export type DownloadJobType = "runtime" | "model" | "skill-asset" | "update" | "sandbox-image" | "other";
+export type DownloadJobStatus =
+  | "queued"
+  | "preparing"
+  | "downloading"
+  | "paused"
+  | "verifying"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type DownloadSource =
+  | {
+      kind: "http";
+      url: string;
+      fallbackUrls?: string[];
+    }
+  | {
+      kind: "file";
+      path: string;
+    }
+  | {
+      kind: "ollama-pull";
+      modelTag: string;
+      endpoint?: string;
+    };
+
+export interface DownloadDestinationPolicy {
+  baseDir: "runtime" | "models" | "cache" | "assets";
+  fileName?: string;
+}
+
+export interface DownloadError {
+  code: string;
+  message: string;
+  retriable: boolean;
+}
+
+export interface DownloadJob {
+  id: string;
+  type: DownloadJobType;
+  artifactId: string;
+  displayName: string;
+  version?: string;
+  source: DownloadSource;
+  destinationPath: string;
+  tempPath: string;
+  expectedBytes?: number;
+  requiredBytes?: number;
+  downloadedBytes: number;
+  progress: number;
+  checksum?: string;
+  status: DownloadJobStatus;
+  priority: number;
+  silent: boolean;
+  requester: "runtime-manager" | "model-manager" | "installer" | "system" | string;
+  dedupeKey?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  error?: DownloadError;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DownloadRequest {
+  artifactId: string;
+  type: DownloadJobType;
+  displayName: string;
+  source: DownloadSource;
+  version?: string;
+  expectedBytes?: number;
+  requiredBytes?: number;
+  checksum?: string;
+  priority?: number;
+  silent?: boolean;
+  requester?: DownloadJob["requester"];
+  dedupeKey?: string;
+  destinationPolicy: DownloadDestinationPolicy;
+  metadata?: Record<string, unknown>;
+  autoStart?: boolean;
+}
+
+export interface DownloadManagerOverview {
+  checkedAt: string;
+  jobs: DownloadJob[];
+  activeCount: number;
+  queuedCount: number;
+  failedCount: number;
+  summary: string;
+}
+
+export interface DownloadActionResponse {
+  status: "completed" | "failed";
+  message: string;
+  job?: DownloadJob;
+  downloads: DownloadManagerOverview;
 }
 
 export type RuntimeResourceId =
@@ -293,6 +392,7 @@ export interface RuntimeResourceOverview {
   latestApprovedVersion?: string;
   stagedVersion?: string;
   activePath?: string;
+  downloadJobId?: string;
   updateAvailable: boolean;
   blockingResourceIds?: RuntimeResourceId[];
   summary: string;
@@ -1118,6 +1218,32 @@ export type ChillClawEvent =
   | {
       type: "preset-skill-sync.updated";
       snapshot: RevisionedSnapshot<PresetSkillSyncOverview>;
+    }
+  | {
+      type: "downloads.updated";
+      snapshot: RevisionedSnapshot<DownloadManagerOverview>;
+    }
+  | {
+      type: "download.progress";
+      jobId: string;
+      downloadedBytes: number;
+      totalBytes?: number;
+      progress: number;
+      speedBps?: number;
+    }
+  | {
+      type: "download.status";
+      jobId: string;
+      status: DownloadJobStatus;
+    }
+  | {
+      type: "download.completed";
+      job: DownloadJob;
+    }
+  | {
+      type: "download.failed";
+      jobId: string;
+      error: DownloadError;
     }
   | {
       type: "deploy.progress";

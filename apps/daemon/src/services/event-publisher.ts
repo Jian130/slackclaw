@@ -3,6 +3,10 @@ import type {
   ChatStreamEvent,
   ChannelSession,
   ChannelConfigOverview,
+  DownloadError,
+  DownloadJob,
+  DownloadJobStatus,
+  DownloadManagerOverview,
   DeploymentTargetId,
   EngineStatus,
   LocalModelRuntimeAction,
@@ -133,6 +137,47 @@ export class EventPublisher {
   }): void {
     this.bus.publish({
       type: "runtime.update-staged",
+      ...args
+    });
+  }
+
+  publishDownloadsUpdated(downloads: DownloadManagerOverview): MutationSyncMeta {
+    return this.publishSnapshot("downloads", downloads, (snapshot) => ({
+      type: "downloads.updated",
+      snapshot
+    }));
+  }
+
+  publishDownloadProgress(args: {
+    jobId: string;
+    downloadedBytes: number;
+    totalBytes?: number;
+    progress: number;
+    speedBps?: number;
+  }): void {
+    this.bus.publish({
+      type: "download.progress",
+      ...args
+    });
+  }
+
+  publishDownloadStatus(args: { jobId: string; status: DownloadJobStatus }): void {
+    this.bus.publish({
+      type: "download.status",
+      ...args
+    });
+  }
+
+  publishDownloadCompleted(job: DownloadJob): void {
+    this.bus.publish({
+      type: "download.completed",
+      job
+    });
+  }
+
+  publishDownloadFailed(args: { jobId: string; error: DownloadError }): void {
+    this.bus.publish({
+      type: "download.failed",
       ...args
     });
   }

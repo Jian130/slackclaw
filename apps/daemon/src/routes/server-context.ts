@@ -1,4 +1,6 @@
 import { createEngineAdapter } from "../engine/registry.js";
+import { createDownloadManager } from "../download-manager/default-download-manager.js";
+import type { DownloadManager } from "../download-manager/download-manager.js";
 import { createDefaultSecretsAdapter } from "../platform/macos-keychain-secrets-adapter.js";
 import { createRuntimeManager } from "../runtime-manager/default-runtime-manager.js";
 import type { RuntimeManager } from "../runtime-manager/runtime-manager.js";
@@ -26,6 +28,7 @@ export interface ServerContext {
   store: StateStore;
   appServiceManager: AppServiceManager;
   appUpdateService: AppUpdateService;
+  downloadManager: DownloadManager;
   runtimeManager: RuntimeManager;
   overviewService: OverviewService;
   localModelRuntimeService: LocalModelRuntimeService;
@@ -50,9 +53,10 @@ export function createServerContext(setServerStop: () => void): ServerContext {
   const appUpdateService = new AppUpdateService();
   const eventBus = new EventBusService();
   const eventPublisher = new EventPublisher(eventBus);
-  const runtimeManager = createRuntimeManager(eventPublisher);
+  const downloadManager = createDownloadManager(eventBus);
+  const runtimeManager = createRuntimeManager(eventPublisher, downloadManager);
   const adapter = createEngineAdapter({ runtimeManager });
-  const localModelRuntimeService = createLocalModelRuntimeService(adapter, store, eventPublisher, runtimeManager);
+  const localModelRuntimeService = createLocalModelRuntimeService(adapter, store, eventPublisher, runtimeManager, downloadManager);
   const overviewService = new OverviewService(adapter, store, appServiceManager, appUpdateService, localModelRuntimeService, runtimeManager);
   const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
   const channelSetupService = new ChannelSetupService(adapter, store, eventPublisher, secrets);
@@ -80,6 +84,7 @@ export function createServerContext(setServerStop: () => void): ServerContext {
     store,
     appServiceManager,
     appUpdateService,
+    downloadManager,
     runtimeManager,
     overviewService,
     localModelRuntimeService,

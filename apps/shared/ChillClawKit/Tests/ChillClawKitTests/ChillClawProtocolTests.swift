@@ -115,6 +115,101 @@ struct ChillClawProtocolTests {
     }
 
     @Test
+    func downloadEventsDecodeBackendManagedJobs() throws {
+        let updatedData = """
+        {
+          "type": "downloads.updated",
+          "snapshot": {
+            "epoch": "downloads-test",
+            "revision": 4,
+            "data": {
+              "checkedAt": "2026-04-15T00:00:00.000Z",
+              "jobs": [
+                {
+                  "id": "download-1",
+                  "type": "model",
+                  "artifactId": "ollama-model:gemma4:e2b",
+                  "displayName": "Local model gemma4:e2b",
+                  "source": {
+                    "kind": "ollama-pull",
+                    "modelTag": "gemma4:e2b"
+                  },
+                  "destinationPath": "/tmp/gemma4-e2b.json",
+                  "tempPath": "/tmp/gemma4-e2b.part",
+                  "downloadedBytes": 512,
+                  "progress": 50,
+                  "status": "downloading",
+                  "priority": 20,
+                  "silent": false,
+                  "requester": "model-manager",
+                  "dedupeKey": "model:ollama:gemma4:e2b",
+                  "createdAt": 1770000000000,
+                  "updatedAt": 1770000001000
+                }
+              ],
+              "activeCount": 1,
+              "queuedCount": 0,
+              "failedCount": 0,
+              "summary": "1 download is active."
+            }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let updated = try JSONDecoder.chillClaw.decode(ChillClawEvent.self, from: updatedData)
+        guard case let .downloadsUpdated(snapshot) = updated else {
+            Issue.record("Expected downloadsUpdated event")
+            return
+        }
+        #expect(snapshot.revision == 4)
+        #expect(snapshot.data.jobs.first?.source.modelTag == "gemma4:e2b")
+        #expect(snapshot.data.jobs.first?.downloadedBytes == 512)
+
+        let progressData = """
+        {
+          "type": "download.progress",
+          "jobId": "download-1",
+          "downloadedBytes": 1024,
+          "totalBytes": 2048,
+          "progress": 50,
+          "speedBps": 4096
+        }
+        """.data(using: .utf8)!
+
+        let progress = try JSONDecoder.chillClaw.decode(ChillClawEvent.self, from: progressData)
+        guard case let .downloadProgress(jobId, downloadedBytes, totalBytes, progressPercent, speedBps) = progress else {
+            Issue.record("Expected downloadProgress event")
+            return
+        }
+        #expect(jobId == "download-1")
+        #expect(downloadedBytes == 1024)
+        #expect(totalBytes == 2048)
+        #expect(progressPercent == 50)
+        #expect(speedBps == 4096)
+
+        let failedData = """
+        {
+          "type": "download.failed",
+          "jobId": "download-1",
+          "error": {
+            "code": "checksum-mismatch",
+            "message": "Downloaded checksum mismatch.",
+            "retriable": true
+          }
+        }
+        """.data(using: .utf8)!
+
+        let failed = try JSONDecoder.chillClaw.decode(ChillClawEvent.self, from: failedData)
+        guard case let .downloadFailed(jobId, error) = failed else {
+            Issue.record("Expected downloadFailed event")
+            return
+        }
+        #expect(jobId == "download-1")
+        #expect(error.code == "checksum-mismatch")
+        #expect(error.retriable == true)
+    }
+
+    @Test
     func productOverviewDecodesAppUpdateStatus() throws {
         let data = """
         {

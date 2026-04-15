@@ -307,6 +307,98 @@ struct OnboardingClientTests {
     }
 
     @Test
+    func fetchDownloadsUsesDaemonDownloadsEndpoint() async throws {
+        let recorder = RequestRecorder()
+        let session = await recorder.session(
+            statusCode: 200,
+            body: """
+            {
+              "checkedAt": "2026-04-15T00:00:00.000Z",
+              "jobs": [],
+              "activeCount": 0,
+              "queuedCount": 0,
+              "failedCount": 0,
+              "summary": "No downloads are running."
+            }
+            """
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: {
+                .init(
+                    daemonURL: URL(string: "http://127.0.0.1:4545")!,
+                    fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+                )
+            }
+        )
+
+        let downloads = try await client.fetchDownloads()
+
+        #expect(downloads.jobs.isEmpty)
+        let request = try #require(await recorder.lastRequest())
+        #expect(request.httpMethod == "GET")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/downloads")
+    }
+
+    @Test
+    func pauseDownloadPostsToDownloadActionEndpoint() async throws {
+        let recorder = RequestRecorder()
+        let session = await recorder.session(
+            statusCode: 200,
+            body: """
+            {
+              "status": "completed",
+              "message": "Download paused.",
+              "job": {
+                "id": "download-1",
+                "type": "runtime",
+                "artifactId": "node-npm-runtime",
+                "displayName": "Node.js runtime",
+                "source": {
+                  "kind": "http",
+                  "url": "https://example.invalid/node.tgz"
+                },
+                "destinationPath": "/tmp/node.tgz",
+                "tempPath": "/tmp/node.part",
+                "downloadedBytes": 0,
+                "progress": 0,
+                "status": "paused",
+                "priority": 10,
+                "silent": true,
+                "requester": "runtime-manager",
+                "createdAt": 1770000000000,
+                "updatedAt": 1770000001000
+              },
+              "downloads": {
+                "checkedAt": "2026-04-15T00:00:00.000Z",
+                "jobs": [],
+                "activeCount": 0,
+                "queuedCount": 0,
+                "failedCount": 0,
+                "summary": "No downloads are running."
+              }
+            }
+            """
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: {
+                .init(
+                    daemonURL: URL(string: "http://127.0.0.1:4545")!,
+                    fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+                )
+            }
+        )
+
+        let response = try await client.pauseDownload(jobId: "download-1")
+
+        #expect(response.job?.status == "paused")
+        let request = try #require(await recorder.lastRequest())
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:4545/api/downloads/download-1/pause")
+    }
+
+    @Test
     func navigateOnboardingUsesStepScopedPostBody() async throws {
         let recorder = RequestRecorder()
         let session = await recorder.session(

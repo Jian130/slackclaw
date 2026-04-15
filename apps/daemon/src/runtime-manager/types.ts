@@ -60,6 +60,7 @@ export interface RuntimeResourceStoredState {
   lastUpdatedAt?: string;
   lastError?: string;
   source?: RuntimeSourcePolicy;
+  downloadJobId?: string;
 }
 
 export interface RuntimeManagerState {

@@ -20,6 +20,9 @@ import type {
   CompleteOnboardingResponse,
   DeploymentTargetActionResponse,
   DeploymentTargetsResponse,
+  DownloadActionResponse,
+  DownloadJob,
+  DownloadManagerOverview,
   EngineActionResponse,
   EngineTaskRequest,
   EngineTaskResult,
@@ -88,6 +91,7 @@ type JsonRequestInit = RequestInit & {
 function getGetCacheMs(path: string): number | undefined {
   if (
     path.startsWith("/overview") ||
+    path.startsWith("/downloads") ||
     path.startsWith("/runtime/resources") ||
     path.startsWith("/onboarding/state") ||
     path.startsWith("/deploy/targets") ||
@@ -200,6 +204,38 @@ export function fetchOverview(options?: { fresh?: boolean }): Promise<ProductOve
 
 export function fetchRuntimeResources(options?: { fresh?: boolean }): Promise<RuntimeManagerOverview> {
   return readJson<RuntimeManagerOverview>("/runtime/resources", options);
+}
+
+export function fetchDownloads(options?: { fresh?: boolean }): Promise<DownloadManagerOverview> {
+  return readJson<DownloadManagerOverview>("/downloads", options);
+}
+
+export function fetchDownloadJob(jobId: string, options?: { fresh?: boolean }): Promise<DownloadJob> {
+  return readJson<DownloadJob>(`/downloads/${encodeURIComponent(jobId)}`, options);
+}
+
+export function pauseDownload(jobId: string): Promise<DownloadActionResponse> {
+  return readJson<DownloadActionResponse>(`/downloads/${encodeURIComponent(jobId)}/pause`, {
+    method: "POST"
+  });
+}
+
+export function resumeDownload(jobId: string): Promise<DownloadActionResponse> {
+  return readJson<DownloadActionResponse>(`/downloads/${encodeURIComponent(jobId)}/resume`, {
+    method: "POST"
+  });
+}
+
+export function cancelDownload(jobId: string): Promise<DownloadActionResponse> {
+  return readJson<DownloadActionResponse>(`/downloads/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST"
+  });
+}
+
+export function removeDownload(jobId: string): Promise<DownloadActionResponse> {
+  return readJson<DownloadActionResponse>(`/downloads/${encodeURIComponent(jobId)}`, {
+    method: "DELETE"
+  });
 }
 
 export function prepareRuntimeResource(resourceId: string): Promise<RuntimeActionResponse> {

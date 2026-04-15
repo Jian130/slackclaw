@@ -9,7 +9,8 @@ export type RevisionedResource =
   | "channel-config"
   | "plugin-config"
   | "skill-catalog"
-  | "preset-skill-sync";
+  | "preset-skill-sync"
+  | "downloads";
 
 export class RevisionStore {
   private readonly epoch = randomUUID();

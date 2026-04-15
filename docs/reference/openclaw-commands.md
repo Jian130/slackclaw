@@ -26,8 +26,8 @@ Primary upstream docs:
 
 Relevant ChillClaw integration files:
 
-- [apps/daemon/src/engine/openclaw-adapter.ts](/Users/home/Ryo/Projects/chillclaw/apps/daemon/src/engine/openclaw-adapter.ts)
-- [scripts/bootstrap-openclaw.mjs](/Users/home/Ryo/Projects/chillclaw/scripts/bootstrap-openclaw.mjs)
+- [apps/daemon/src/engine/openclaw-adapter.ts](../../apps/daemon/src/engine/openclaw-adapter.ts)
+- [scripts/bootstrap-openclaw.mjs](../../scripts/bootstrap-openclaw.mjs)
 
 ## Mental model
 

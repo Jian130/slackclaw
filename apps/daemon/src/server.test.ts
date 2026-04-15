@@ -55,6 +55,7 @@ test("snapshot GET routes do not emit snapshot events back onto the bus", () => 
   assert.equal(shouldPublishSnapshotForRoute("GET", "/api/plugins/config"), false);
   assert.equal(shouldPublishSnapshotForRoute("GET", "/api/skills/config"), false);
   assert.equal(shouldPublishSnapshotForRoute("GET", "/api/ai-team/overview"), false);
+  assert.equal(shouldPublishSnapshotForRoute("GET", "/api/downloads"), false);
 });
 
 test("mutation routes still publish snapshot events", () => {

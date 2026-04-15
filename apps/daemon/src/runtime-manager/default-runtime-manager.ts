@@ -28,6 +28,7 @@ import {
 } from "../runtime-paths.js";
 import { logDevelopmentCommand } from "../services/logger.js";
 import type { EventPublisher } from "../services/event-publisher.js";
+import type { DownloadManager } from "../download-manager/download-manager.js";
 import { RuntimeManager } from "./runtime-manager.js";
 import type {
   RuntimeArtifactManifest,
@@ -41,7 +42,7 @@ const DEFAULT_OPENCLAW_VERSION = process.env.CHILLCLAW_MANAGED_OPENCLAW_VERSION?
 const DEFAULT_OLLAMA_VERSION = process.env.CHILLCLAW_MANAGED_OLLAMA_VERSION?.trim() || "0.20.6";
 const DEFAULT_OLLAMA_CLI_ARCHIVE_NAME = "ollama-darwin.tgz";
 
-export function createRuntimeManager(eventPublisher?: EventPublisher): RuntimeManager {
+export function createRuntimeManager(eventPublisher?: EventPublisher, downloadManager?: DownloadManager): RuntimeManager {
   return new RuntimeManager({
     loadManifest: loadPackagedRuntimeManifest,
     loadUpdateManifest: loadRuntimeUpdateManifest,
@@ -53,10 +54,74 @@ export function createRuntimeManager(eventPublisher?: EventPublisher): RuntimeMa
       createOllamaRuntimeProvider(),
       createLocalModelCatalogProvider()
     ],
+    downloadArtifact: downloadManager
+      ? ({ resource, artifact }) => downloadRuntimeArtifact(downloadManager, resource, artifact)
+      : undefined,
     publishProgress: (args) => eventPublisher?.publishRuntimeProgress(args),
     publishCompleted: (args) => eventPublisher?.publishRuntimeCompleted(args),
     publishUpdateStaged: (args) => eventPublisher?.publishRuntimeUpdateStaged(args)
   });
+}
+
+async function downloadRuntimeArtifact(
+  downloadManager: DownloadManager,
+  resource: RuntimeResourceManifest,
+  artifact: RuntimeArtifactManifest
+): Promise<{ artifact: RuntimeArtifactManifest; jobId?: string }> {
+  if (!artifact.url) {
+    return { artifact };
+  }
+
+  const source = artifact.url.startsWith("file://")
+    ? { kind: "file" as const, path: fileURLToPath(artifact.url) }
+    : { kind: "http" as const, url: artifact.url };
+  const fileName = `${safeRuntimeFileName(resource.id)}-${safeRuntimeFileName(resource.version)}-${downloadFileName(artifact.url)}`;
+  const job = await downloadManager.enqueue({
+    type: "runtime",
+    artifactId: String(resource.id),
+    displayName: resource.label,
+    version: resource.version,
+    source,
+    expectedBytes: artifact.sizeBytes,
+    requiredBytes: artifact.sizeBytes,
+    checksum: artifact.sha256,
+    priority: 10,
+    silent: true,
+    requester: "runtime-manager",
+    dedupeKey: `runtime:${resource.id}:${resource.version}:${artifact.url}`,
+    destinationPolicy: {
+      baseDir: "cache",
+      fileName
+    },
+    metadata: {
+      format: artifact.format,
+      installDir: resource.installDir
+    }
+  });
+  const completed = await downloadManager.waitForJob(job.id);
+  if (completed.status !== "completed") {
+    throw new Error(completed.error?.message ?? `${resource.label} download did not complete.`);
+  }
+
+  return {
+    artifact: {
+      ...artifact,
+      path: completed.destinationPath
+    },
+    jobId: completed.id
+  };
+}
+
+function downloadFileName(url: string): string {
+  try {
+    return safeRuntimeFileName(new URL(url).pathname.split("/").filter(Boolean).at(-1) ?? "artifact");
+  } catch {
+    return "artifact";
+  }
+}
+
+function safeRuntimeFileName(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "artifact";
 }
 
 async function loadPackagedRuntimeManifest(): Promise<RuntimeManifestDocument> {
@@ -285,7 +350,7 @@ function createNodeRuntimeProvider(): RuntimeResourceProvider {
       const runtimeDir = context.source === "bundled" && context.artifact?.format === "directory"
         ? context.artifact.path
         : undefined;
-      const archiveUrl = context.source === "bundled" && context.artifact?.path && context.artifact.format !== "directory"
+      const archiveUrl = context.artifact?.path && context.artifact.format !== "directory"
         ? pathToFileURL(context.artifact.path).toString()
         : context.artifact?.url;
       const invocation = await ensureManagedNodeNpmInvocation({
@@ -606,20 +671,20 @@ async function resolveOllamaCliArtifact(
     return findOllamaCliInDirectory(artifact.path);
   }
 
+  let sourceArchivePath = archivePath;
   await mkdir(dirname(archivePath), { recursive: true });
-  if (!artifact?.path || artifact.format !== "tgz") {
+  if (artifact?.path && artifact.format === "tgz") {
+    sourceArchivePath = artifact.path;
+  } else {
     if (source === "bundled" && artifact?.path) {
       await copyFile(artifact.path, archivePath);
     } else {
-      const url = artifact?.url ?? defaultOllamaCliArchiveUrl(DEFAULT_OLLAMA_VERSION);
-      await runCommand("/usr/bin/curl", ["-L", url, "-o", archivePath], {
-        beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.ollama.download", command, args)
-      });
+      throw new Error("ChillClaw requires DownloadManager to fetch the managed Ollama archive before installation.");
     }
   }
 
   await mkdir(extractedPath, { recursive: true });
-  await runCommand("/usr/bin/tar", ["-xzf", archivePath, "-C", extractedPath], {
+  await runCommand("/usr/bin/tar", ["-xzf", sourceArchivePath, "-C", extractedPath], {
     beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.ollama.extract", command, args)
   });
   return findOllamaCliInDirectory(extractedPath);
