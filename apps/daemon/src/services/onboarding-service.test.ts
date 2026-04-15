@@ -2583,15 +2583,15 @@ test("onboarding state exposes the curated model providers for step 3", async ()
   assert.equal(state.config?.modelProviders?.[2]?.authMethods[1]?.label, "OpenAI Codex OAuth");
   assert.deepEqual(
     state.config?.channels?.map((channel) => channel.id),
-    ["wechat-work", "wechat", "feishu", "telegram"]
+    ["wechat"]
   );
   assert.deepEqual(
     state.config?.channels?.map((channel) => channel.label),
-    ["WeChat Work (WeCom)", "WeChat", "Feishu", "Telegram"]
+    ["WeChat"]
   );
   assert.deepEqual(
     state.config?.channels?.map((channel) => channel.setupKind),
-    ["wechat-work-guided", "wechat-guided", "feishu-guided", "telegram-guided"]
+    ["wechat-guided"]
   );
   assert.deepEqual(
     state.config?.employeePresets?.map((preset) => preset.id),

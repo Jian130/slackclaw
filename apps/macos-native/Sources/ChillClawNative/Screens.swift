@@ -1334,7 +1334,7 @@ struct ConfigurationScreen: View {
             if entries.isEmpty {
                 EmptyState(
                     title: "No channels are configured yet",
-                    description: "Add Telegram, WhatsApp, Feishu, or WeChat to start managing communication channels in ChillClaw.",
+                    description: "Add personal WeChat to start managing communication in ChillClaw.",
                     symbol: "message"
                 )
             } else {

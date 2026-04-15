@@ -22,7 +22,7 @@ let nativeOnboardingAvatarPresets: [NativeOnboardingAvatarPreset] = [
     .init(id: "onboarding-visionary", label: "Onboarding Visionary", emoji: "🚀", accent: "#afc6f0", theme: "onboarding", resourceName: "onboarding-visionary"),
 ]
 
-let nativeOnboardingChannelIDs: Set<SupportedChannelId> = [.wechatWork, .wechat, .feishu, .telegram]
+let nativeOnboardingChannelIDs: Set<SupportedChannelId> = [.wechat]
 let nativeOnboardingStepOrder: [OnboardingStep] = [.welcome, .install, .permissions, .model, .channel, .employee]
 let nativeOnboardingPreferredColorScheme: ColorScheme = .light
 let nativeOnboardingTextPrimary = Color(red: 0.09, green: 0.12, blue: 0.18)

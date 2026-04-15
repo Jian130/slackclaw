@@ -374,15 +374,13 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 
 ## macOS installer
 
-Build a local smoke testing macOS app bundle and drag-to-Applications disk image with:
-
-`npm run build:mac-installer`
-
-Stable release packaging prepares runnable CLI payloads first with:
+Prepare the bundled CLI runtimes, then build a local smoke testing macOS app bundle and drag-to-Applications disk image with:
 
 `npm run prepare:runtime-artifacts`
 
-That step downloads and stages the extracted Node.js runtime directory plus the standalone `ollama` CLI binary under `runtime-artifacts`. It deliberately does not stage `Ollama.app`, `Ollama.dmg`, or other runtime installer/UI payloads.
+`npm run build:mac-installer`
+
+The prepare step downloads and stages the extracted Node.js runtime directory for the current Mac architecture plus the standalone `ollama` CLI binary under `runtime-artifacts`. The installer builder requires those runnable CLI payloads and executes the packaged Node/npm binaries during staging so a DMG cannot ship with a manifest that points at missing or wrong-architecture runtime files. It deliberately does not stage `Ollama.app`, `Ollama.dmg`, or other runtime installer/UI payloads.
 
 This installer build compiles the packaged app prerequisites:
 

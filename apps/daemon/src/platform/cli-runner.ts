@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 
 export interface CommandResult {
   code: number;
+  signal?: NodeJS.Signals;
   stdout: string;
   stderr: string;
 }
@@ -41,9 +42,10 @@ export async function runCommand(
       reject(error);
     });
 
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       const result: CommandResult = {
         code: code ?? 1,
+        signal: signal ?? undefined,
         stdout: stdout.trim(),
         stderr: stderr.trim()
       };

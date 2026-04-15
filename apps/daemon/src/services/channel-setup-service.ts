@@ -124,6 +124,7 @@ const CHANNEL_CAPABILITIES: ChannelCapability[] = [
     guidedSetupKind: "wechat"
   }
 ];
+const USER_VISIBLE_CHANNEL_CAPABILITIES = CHANNEL_CAPABILITIES.filter((capability) => capability.id === "wechat");
 
 function defaultChannelMap(): Record<SupportedChannelId, ChannelSetupState> {
   return defaultChannelSetupStateMap();
@@ -497,7 +498,7 @@ export class ChannelSetupService {
 
     return {
       baseOnboardingCompleted: onboardingCompleted,
-      capabilities: CHANNEL_CAPABILITIES,
+      capabilities: USER_VISIBLE_CHANNEL_CAPABILITIES,
       entries,
       activeSession,
       gatewaySummary: gatewaySummary(engine.pendingGatewayApply === true, engine.pendingGatewayApplySummary, channels)
@@ -535,7 +536,7 @@ export class ChannelSetupService {
 
     return {
       baseOnboardingCompleted: true,
-      capabilities: CHANNEL_CAPABILITIES,
+      capabilities: USER_VISIBLE_CHANNEL_CAPABILITIES,
       entries,
       activeSession,
       // Interactive onboarding sessions are staged-only and should not probe the live gateway.

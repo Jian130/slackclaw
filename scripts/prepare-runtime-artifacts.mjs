@@ -56,8 +56,9 @@ function downloadArtifact(resource) {
 }
 
 async function prepareNodeRuntime(resource) {
-  const artifact = bundledArtifact(resource, "directory");
-  const targetDir = resolve(ARTIFACT_ROOT, artifact.path);
+  bundledArtifact(resource, "directory");
+  const distName = currentNodeDistName(resource.version);
+  const targetDir = resolve(ARTIFACT_ROOT, "node", distName);
   const nodeBin = join(targetDir, "bin", "node");
   const npmBin = join(targetDir, "bin", "npm");
   if (await executable(nodeBin) && await executable(npmBin)) {
@@ -65,7 +66,6 @@ async function prepareNodeRuntime(resource) {
     return;
   }
 
-  const distName = basename(artifact.path);
   const archiveName = `${distName}.tar.gz`;
   const baseUrl = `https://nodejs.org/dist/v${resource.version}`;
   const archiveUrl = `${baseUrl}/${archiveName}`;
@@ -90,6 +90,11 @@ async function prepareNodeRuntime(resource) {
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+function currentNodeDistName(version) {
+  const arch = process.arch === "x64" ? "x64" : "arm64";
+  return `node-v${version}-darwin-${arch}`;
 }
 
 async function prepareOllamaRuntime(resource) {

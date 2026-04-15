@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 
 import { writeScriptLogLine } from "./logging.mjs";
 
@@ -35,7 +35,6 @@ const APP_ICON_PNG_SOURCE = resolve(MACOS_NATIVE_PACKAGE_DIR, "Sources/ChillClaw
 const APP_BRAND_LOGO_SOURCE = resolve(MACOS_NATIVE_PACKAGE_DIR, "Sources/ChillClawNative/Resources", APP_BRAND_LOGO_FILENAME);
 const RUNTIME_MANIFEST_SOURCE = resolve(ROOT, "runtime-manifest.lock.json");
 const RUNTIME_ARTIFACTS_SOURCE = resolve(ROOT, "runtime-artifacts");
-const REQUIRE_CLI_RUNTIME_ARTIFACTS = process.env.CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS === "1";
 const DMG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.dmg`);
 const LEGACY_PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
 const INSTALLER_ICON_PNG = resolve(BUILD_DIR, "installer-icon.png");
@@ -93,13 +92,14 @@ function run(command, args) {
   });
 }
 
-function capture(command, args) {
+function capture(command, args, env) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "inherit"],
       env: {
         ...process.env,
+        ...env,
         NO_COLOR: "1"
       }
     });
@@ -417,23 +417,68 @@ async function copyRuntimeArtifacts() {
 
   await copyFile(RUNTIME_MANIFEST_SOURCE, resolve(APP_RUNTIME_ARTIFACTS, "runtime-manifest.lock.json"));
   await assertNoInstallerRuntimePayloads(APP_RUNTIME_ARTIFACTS);
-  if (REQUIRE_CLI_RUNTIME_ARTIFACTS) {
-    await assertPackagedCliRuntimeArtifacts();
-  }
+  await assertPackagedCliRuntimeArtifacts();
 }
 
 async function assertPackagedCliRuntimeArtifacts() {
   const manifest = JSON.parse(await readFile(resolve(APP_RUNTIME_ARTIFACTS, "runtime-manifest.lock.json"), "utf8"));
   const node = runtimeResourceFor(manifest, "node-npm-runtime");
   const ollama = runtimeResourceFor(manifest, "ollama-runtime");
-  const nodeArtifact = bundledArtifactFor(node, "directory");
   const ollamaArtifact = bundledArtifactFor(ollama, "file");
-  const nodeDir = resolve(APP_RUNTIME_ARTIFACTS, nodeArtifact.path);
+  bundledArtifactFor(node, "directory");
+  const nodeDir = resolve(APP_RUNTIME_ARTIFACTS, "node", currentNodeDistName(node.version));
   const ollamaPath = resolve(APP_RUNTIME_ARTIFACTS, ollamaArtifact.path);
 
   await requireExecutablePath(resolve(nodeDir, "bin/node"), "Packaged Node.js runtime node is not executable.");
   await requireExecutablePath(resolve(nodeDir, "bin/npm"), "Packaged Node.js runtime npm is not executable.");
+  await runPackagedRuntimeCommand(
+    resolve(nodeDir, "bin", "node"),
+    ["--version"],
+    "Packaged Node.js runtime node cannot run.",
+    packagedRuntimeEnv(nodeDir)
+  );
+  await runPackagedRuntimeCommand(
+    resolve(nodeDir, "bin", "npm"),
+    ["--version"],
+    "Packaged Node.js runtime npm cannot run.",
+    packagedRuntimeEnv(nodeDir)
+  );
+  await runPackagedRuntimeCommand(
+    resolve(nodeDir, "bin", "node"),
+    [resolve(nodeDir, "lib", "node_modules", "npm", "bin", "npm-cli.js"), "--version"],
+    "Packaged Node.js runtime npm CLI cannot run through node.",
+    packagedRuntimeEnv(nodeDir)
+  );
   await requireExecutablePath(ollamaPath, "Packaged Ollama runtime is missing the runnable ollama CLI binary.");
+}
+
+function currentNodeDistName(version) {
+  const arch = process.arch === "x64" ? "x64" : "arm64";
+  return `node-v${version}-darwin-${arch}`;
+}
+
+function packagedRuntimeEnv(nodeDir) {
+  const runtimeBin = resolve(nodeDir, "bin");
+  const pathEntries = [
+    runtimeBin,
+    ...(process.env.PATH ? process.env.PATH.split(delimiter) : []),
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin"
+  ];
+
+  return {
+    PATH: [...new Set(pathEntries)].join(delimiter)
+  };
+}
+
+async function runPackagedRuntimeCommand(command, args, message, env) {
+  try {
+    await capture(command, args, env);
+  } catch (error) {
+    throw new Error(`${message} ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function runtimeResourceFor(manifest, id) {

@@ -4,14 +4,15 @@ import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  getAppRootDir,
   getManagedNodeBinDir,
   getManagedNodeBinPath,
   getManagedNodeDir,
   getManagedNodeDistName,
   getManagedNodeInstallDir,
   getManagedNodeNpmBinPath,
-  getManagedNodeVersion
 } from "../runtime-paths.js";
+import { errorToLogDetails, formatConsoleLine } from "../services/logger.js";
 import { probeCommand, runCommand } from "./cli-runner.js";
 
 export interface ManagedNodeInvocation {
@@ -25,8 +26,72 @@ export interface ManagedNodeInstallOptions {
   runtimeDir?: string;
 }
 
-function managedNodeArchiveUrl(options?: ManagedNodeInstallOptions): string {
-  return options?.archiveUrl?.trim() || process.env.CHILLCLAW_MANAGED_NODE_DIST_URL?.trim() || `https://nodejs.org/dist/v${getManagedNodeVersion()}/${getManagedNodeDistName()}.tar.gz`;
+function managedNodeArchiveUrl(options?: ManagedNodeInstallOptions): string | undefined {
+  return options?.archiveUrl?.trim() || process.env.CHILLCLAW_MANAGED_NODE_DIST_URL?.trim() || undefined;
+}
+
+function getManagedNodeNpmCliPath(): string {
+  return resolve(getManagedNodeInstallDir(), "lib", "node_modules", "npm", "bin", "npm-cli.js");
+}
+
+function shouldLogManagedNodeRuntime(): boolean {
+  if (process.env.CHILLCLAW_LOG_RUNTIME_DIAGNOSTICS === "0") {
+    return false;
+  }
+
+  return process.env.CHILLCLAW_LOG_RUNTIME_DIAGNOSTICS === "1" || Boolean(getAppRootDir());
+}
+
+function logManagedNodeRuntime(scope: string, message: string): void {
+  if (!shouldLogManagedNodeRuntime()) {
+    return;
+  }
+
+  console.log(formatConsoleLine(message, { scope: `managedNodeRuntime.${scope}` }));
+}
+
+function summarizeCommandOutput(output: string): string {
+  const normalized = output.replace(/\s+/gu, " ").trim();
+  if (normalized.length <= 300) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 300)}...`;
+}
+
+function renderCommand(command: string, args: string[]): string {
+  return [command, ...args].join(" ");
+}
+
+async function probeManagedNodeCommand(label: string, command: string, args: string[]): Promise<boolean> {
+  try {
+    const result = await runCommand(command, args, {
+      allowFailure: true,
+      env: managedNodeEnv(command)
+    });
+    if (result.code === 0) {
+      logManagedNodeRuntime(
+        "probe",
+        `${label} succeeded: ${renderCommand(command, args)}${result.stdout ? ` output=${summarizeCommandOutput(result.stdout)}` : ""}`
+      );
+      return true;
+    }
+
+    logManagedNodeRuntime(
+      "probe",
+      `${label} failed: ${renderCommand(command, args)} code=${result.code}` +
+        `${result.signal ? ` signal=${result.signal}` : ""}` +
+        `${result.stderr ? ` stderr=${summarizeCommandOutput(result.stderr)}` : ""}` +
+        `${result.stdout ? ` stdout=${summarizeCommandOutput(result.stdout)}` : ""}`
+    );
+    return false;
+  } catch (error) {
+    logManagedNodeRuntime(
+      "probe",
+      `${label} failed to spawn: ${renderCommand(command, args)} details=${JSON.stringify(errorToLogDetails(error))}`
+    );
+    return false;
+  }
 }
 
 function managedNodeEnv(command?: string): NodeJS.ProcessEnv {
@@ -73,9 +138,7 @@ async function extractArchive(archivePath: string, destinationDir: string): Prom
 }
 
 async function probeManagedNpm(command: string): Promise<boolean> {
-  return probeCommand(command, ["--version"], {
-    env: managedNodeEnv(command)
-  });
+  return probeManagedNodeCommand("npm shim", command, ["--version"]);
 }
 
 async function installManagedNodeRuntime(options?: ManagedNodeInstallOptions): Promise<void> {
@@ -87,13 +150,31 @@ async function installManagedNodeRuntime(options?: ManagedNodeInstallOptions): P
   try {
     await mkdir(getManagedNodeDir(), { recursive: true });
     if (options?.runtimeDir) {
+      logManagedNodeRuntime(
+        "install",
+        `copying bundled Node.js runtime from ${options.runtimeDir} to ${installPath} via ${workspace}`
+      );
       await cp(options.runtimeDir, extractedPath, { recursive: true, force: true, verbatimSymlinks: true });
     } else {
-      await downloadArchive(managedNodeArchiveUrl(options), archivePath);
+      const archiveUrl = managedNodeArchiveUrl(options);
+      if (!archiveUrl) {
+        throw new Error(
+          "ChillClaw could not find its packaged Node.js runtime archive. Rebuild the installer after running npm run prepare:runtime-artifacts."
+        );
+      }
+      logManagedNodeRuntime("install", `installing Node.js runtime from archive into ${installPath}`);
+      await downloadArchive(archiveUrl, archivePath);
       await extractArchive(archivePath, workspace);
     }
     await rm(installPath, { recursive: true, force: true });
     await rename(extractedPath, installPath);
+    logManagedNodeRuntime("install", `installed Node.js runtime at ${installPath}`);
+  } catch (error) {
+    logManagedNodeRuntime(
+      "install",
+      `failed to install Node.js runtime at ${installPath}: ${JSON.stringify(errorToLogDetails(error))}`
+    );
+    throw error;
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -102,20 +183,31 @@ async function installManagedNodeRuntime(options?: ManagedNodeInstallOptions): P
 export async function resolveManagedNodeNpmInvocation(): Promise<ManagedNodeInvocation | undefined> {
   const npmPath = getManagedNodeNpmBinPath();
 
-  if (!(await probeManagedNpm(npmPath))) {
-    return undefined;
+  if (await probeManagedNpm(npmPath)) {
+    return {
+      command: npmPath,
+      argsPrefix: [],
+      display: npmPath
+    };
   }
 
-  return {
-    command: npmPath,
-    argsPrefix: [],
-    display: npmPath
-  };
+  const nodePath = getManagedNodeBinPath();
+  const npmCliPath = getManagedNodeNpmCliPath();
+  if (await probeManagedNodeCommand("npm cli via node", nodePath, [npmCliPath, "--version"])) {
+    return {
+      command: nodePath,
+      argsPrefix: [npmCliPath],
+      display: `${nodePath} ${npmCliPath}`
+    };
+  }
+
+  return undefined;
 }
 
 export async function ensureManagedNodeNpmInvocation(options?: ManagedNodeInstallOptions): Promise<ManagedNodeInvocation> {
   const existing = await resolveManagedNodeNpmInvocation();
   if (existing) {
+    logManagedNodeRuntime("resolve", `using existing managed Node/npm invocation: ${existing.display}`);
     return existing;
   }
 
@@ -129,11 +221,22 @@ export async function ensureManagedNodeNpmInvocation(options?: ManagedNodeInstal
 
   const installPath = getManagedNodeInstallDir();
 
+  logManagedNodeRuntime(
+    "install",
+    `no runnable managed npm found; installing Node.js runtime dist=${getManagedNodeDistName()} platform=${process.platform} arch=${process.arch}`
+  );
   await installManagedNodeRuntime(options);
   let invocation = await resolveManagedNodeNpmInvocation();
 
   if (!invocation && options?.runtimeDir) {
-    await installManagedNodeRuntime({ archiveUrl: options.archiveUrl });
+    const archiveUrl = managedNodeArchiveUrl(options);
+    if (!archiveUrl) {
+      throw new Error(
+        "ChillClaw's bundled Node.js runtime is not runnable. Rebuild the installer after running npm run prepare:runtime-artifacts."
+      );
+    }
+    logManagedNodeRuntime("install", "bundled Node.js runtime was not runnable; trying configured archive fallback");
+    await installManagedNodeRuntime({ archiveUrl });
     invocation = await resolveManagedNodeNpmInvocation();
   }
 
@@ -145,5 +248,6 @@ export async function ensureManagedNodeNpmInvocation(options?: ManagedNodeInstal
     throw new Error(`ChillClaw installed Node.js into ${installPath}, but node is not executable.`);
   }
 
+  logManagedNodeRuntime("resolve", `resolved managed Node/npm invocation: ${invocation.display}`);
   return invocation;
 }

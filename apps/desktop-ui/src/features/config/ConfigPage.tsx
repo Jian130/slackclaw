@@ -1904,7 +1904,7 @@ export default function ConfigPage() {
               ) : (
                 <EmptyState
                   title="No channels are configured yet"
-                  description="Add Telegram, WhatsApp, Feishu, or WeChat through the dialog to start managing communication channels in ChillClaw."
+                  description="Add personal WeChat through the dialog to start managing communication in ChillClaw."
                 />
               )}
 

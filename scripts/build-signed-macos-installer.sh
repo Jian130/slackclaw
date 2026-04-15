@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 
 APP_PATH="dist/.macos-staging/ChillClaw.app"
 DAEMON_ENTITLEMENTS="scripts/macos-daemon-entitlements.plist"
+NODE_RUNTIME_ENTITLEMENTS="scripts/macos-node-runtime-entitlements.plist"
 INSTALLER_PATH="dist/macos/ChillClaw-macOS.dmg"
 CHECKSUM_PATH="dist/macos/ChillClaw-macOS.dmg.sha256.txt"
 
@@ -20,6 +21,8 @@ Build, sign, notarize, staple, and assess the ChillClaw macOS DMG for testing on
 
 Required environment:
   APP_IDENTITY              Developer ID Application identity name or SHA
+
+Required unless --skip-notarize is used:
   APPLE_NOTARY_KEY_PATH     Path to the App Store Connect API key .p8 file
   APPLE_NOTARY_KEY_ID       App Store Connect API key id
   APPLE_NOTARY_ISSUER_ID    App Store Connect issuer id
@@ -47,6 +50,14 @@ fail() {
   exit 1
 }
 
+error_trap() {
+  local line="$1"
+  local command="$2"
+  log "Command failed at line $line: $command"
+}
+
+trap 'error_trap $LINENO "$BASH_COMMAND"' ERR
+
 require_env() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
@@ -66,6 +77,54 @@ notary_key_path() {
     "~/"*) printf '%s/%s\n' "$HOME" "${APPLE_NOTARY_KEY_PATH#"~/"}" ;;
     *) printf '%s\n' "$APPLE_NOTARY_KEY_PATH" ;;
   esac
+}
+
+is_node_runtime_executable() {
+  case "$1" in
+    "$APP_PATH"/Contents/Resources/app/runtime-artifacts/node/node-v*/bin/node) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+log_environment_summary() {
+  local machine_arch
+  local npm_version
+  local node_version
+  machine_arch="$(uname -m)"
+  npm_version="$(npm --version 2>/dev/null || printf 'unavailable')"
+  node_version="$(node --version 2>/dev/null || printf 'unavailable')"
+
+  log "Environment: macOS arch=$machine_arch node=$node_version npm=$npm_version skip_build=$SKIP_BUILD skip_runtime_artifacts=$SKIP_RUNTIME_ARTIFACTS skip_notarize=$SKIP_NOTARIZE"
+  log "Paths: app=$APP_PATH installer=$INSTALLER_PATH checksum=$CHECKSUM_PATH"
+}
+
+log_artifact_summary() {
+  local runtime_dir="$APP_PATH/Contents/Resources/app/runtime-artifacts"
+  local daemon_bin="$APP_PATH/Contents/Resources/runtime/chillclaw-daemon"
+  local native_bin="$APP_PATH/Contents/MacOS/ChillClaw"
+  local executable_count
+
+  if [[ ! -d "$APP_PATH" ]]; then
+    fail "Staged app bundle is missing: $APP_PATH"
+  fi
+
+  if [[ ! -d "$runtime_dir" ]]; then
+    fail "Staged runtime artifact directory is missing: $runtime_dir"
+  fi
+
+  executable_count="$(find "$runtime_dir" -type f -perm -111 | wc -l | tr -d '[:space:]')"
+  log "Staged app bundle: $APP_PATH"
+  log "Runtime artifact executable count: $executable_count"
+  if [[ -x "$daemon_bin" ]]; then
+    log "Daemon binary: $(file "$daemon_bin")"
+  fi
+  if [[ -x "$native_bin" ]]; then
+    log "Native app binary: $(file "$native_bin")"
+  fi
+  while IFS= read -r -d '' NODE_BIN; do
+    log "Packaged Node binary: $(file "$NODE_BIN")"
+    log "Packaged Node version: $("$NODE_BIN" --version 2>/dev/null || printf 'unavailable')"
+  done < <(find "$runtime_dir/node" -path '*/bin/node' -type f -perm -111 -print0 2>/dev/null || true)
 }
 
 while [[ $# -gt 0 ]]; do
@@ -94,29 +153,38 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   fail "This script must run on macOS."
 fi
 
-require_env APP_IDENTITY
-require_env APPLE_NOTARY_KEY_PATH
-require_env APPLE_NOTARY_KEY_ID
-require_env APPLE_NOTARY_ISSUER_ID
-require_env APPLE_TEAM_ID
-
 require_command codesign
 require_command file
 require_command find
 require_command npm
 require_command security
 require_command shasum
-require_command spctl
-require_command xcrun
 
-NOTARY_KEY_PATH="$(notary_key_path)"
-if [[ ! -f "$NOTARY_KEY_PATH" ]]; then
-  fail "APPLE_NOTARY_KEY_PATH does not point to a readable file: $NOTARY_KEY_PATH"
+require_env APP_IDENTITY
+
+if [[ "$SKIP_NOTARIZE" == "0" ]]; then
+  require_env APPLE_NOTARY_KEY_PATH
+  require_env APPLE_NOTARY_KEY_ID
+  require_env APPLE_NOTARY_ISSUER_ID
+  require_env APPLE_TEAM_ID
+  require_command spctl
+  require_command xcrun
+
+  NOTARY_KEY_PATH="$(notary_key_path)"
+  if [[ ! -f "$NOTARY_KEY_PATH" ]]; then
+    fail "APPLE_NOTARY_KEY_PATH does not point to a readable file: $NOTARY_KEY_PATH"
+  fi
 fi
 
 if ! security find-identity -v -p codesigning | grep -F -- "$APP_IDENTITY" >/dev/null; then
   fail "APP_IDENTITY was not found in the current keychain: $APP_IDENTITY"
 fi
+
+if [[ ! -f "$NODE_RUNTIME_ENTITLEMENTS" ]]; then
+  fail "Node runtime entitlements file is missing: $NODE_RUNTIME_ENTITLEMENTS"
+fi
+
+log_environment_summary
 
 if [[ "$SKIP_RUNTIME_ARTIFACTS" == "0" ]]; then
   log "Preparing bundled CLI runtime artifacts"
@@ -127,17 +195,27 @@ fi
 
 log "Staging ChillClaw.app"
 if [[ "$SKIP_BUILD" == "1" ]]; then
-  CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS=1 npm run build:mac-installer -- --skip-build --stage-only
+  npm run build:mac-installer -- --skip-build --stage-only
 else
-  CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS=1 npm run build:mac-installer -- --stage-only
+  npm run build:mac-installer -- --stage-only
 fi
 
+log_artifact_summary
+
 log "Signing packaged runtime executables"
+SIGNED_RUNTIME_COUNT=0
 while IFS= read -r -d '' RUNTIME_EXECUTABLE; do
   if file "$RUNTIME_EXECUTABLE" | grep -q 'Mach-O'; then
-    codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$RUNTIME_EXECUTABLE"
+    log "Signing runtime executable: $RUNTIME_EXECUTABLE ($(file "$RUNTIME_EXECUTABLE"))"
+    if is_node_runtime_executable "$RUNTIME_EXECUTABLE"; then
+      codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp --entitlements "$NODE_RUNTIME_ENTITLEMENTS" "$RUNTIME_EXECUTABLE"
+    else
+      codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$RUNTIME_EXECUTABLE"
+    fi
+    SIGNED_RUNTIME_COUNT=$((SIGNED_RUNTIME_COUNT + 1))
   fi
 done < <(find "$APP_PATH/Contents/Resources/app/runtime-artifacts" -type f -perm -111 -print0)
+log "Signed $SIGNED_RUNTIME_COUNT packaged runtime executable(s)"
 
 log "Signing daemon, native executable, and app bundle"
 codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp --entitlements "$DAEMON_ENTITLEMENTS" "$APP_PATH/Contents/Resources/runtime/chillclaw-daemon"
@@ -171,6 +249,7 @@ log "Writing checksum"
 shasum -a 256 "$INSTALLER_PATH" > "$CHECKSUM_PATH"
 test -s "$INSTALLER_PATH"
 test -s "$CHECKSUM_PATH"
+log "Installer size: $(stat -f%z "$INSTALLER_PATH") bytes"
 
 log "Built $INSTALLER_PATH"
 log "Checksum written to $CHECKSUM_PATH"

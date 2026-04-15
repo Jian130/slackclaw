@@ -67,16 +67,33 @@ test("local signed macOS installer script mirrors release signing and notarizati
   assert.match(packageJson, /"build:mac-signed-installer": "bash \.\/scripts\/build-signed-macos-installer\.sh"/);
   assert.match(signScript, /require_env APP_IDENTITY/);
   assert.match(signScript, /require_env APPLE_NOTARY_KEY_PATH/);
+  assert.match(signScript, /Required unless --skip-notarize is used:/);
+  assert.match(
+    signScript,
+    /if \[\[ "\$SKIP_NOTARIZE" == "0" \]\]; then[\s\S]*require_env APPLE_NOTARY_KEY_PATH[\s\S]*require_env APPLE_NOTARY_KEY_ID[\s\S]*require_env APPLE_NOTARY_ISSUER_ID[\s\S]*require_env APPLE_TEAM_ID[\s\S]*require_command spctl[\s\S]*require_command xcrun[\s\S]*NOTARY_KEY_PATH="\$\(notary_key_path\)"[\s\S]*fi/
+  );
   assert.match(signScript, /npm run prepare:runtime-artifacts/);
-  assert.match(signScript, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS=1 npm run build:mac-installer -- --stage-only/);
+  assert.match(signScript, /npm run build:mac-installer -- --stage-only/);
+  assert.match(signScript, /trap 'error_trap \$LINENO "\$BASH_COMMAND"' ERR/);
+  assert.match(signScript, /log_environment_summary/);
+  assert.match(signScript, /log_artifact_summary/);
+  assert.match(signScript, /SIGNED_RUNTIME_COUNT=\$\(\(SIGNED_RUNTIME_COUNT \+ 1\)\)/);
+  assert.match(signScript, /Signed \$SIGNED_RUNTIME_COUNT packaged runtime executable/);
+  assert.match(signScript, /shasum -a 256 "\$INSTALLER_PATH" > "\$CHECKSUM_PATH"/);
+  assert.match(signScript, /Installer size:/);
+  assert.doesNotMatch(signScript, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS/);
+  assert.match(signScript, /NODE_RUNTIME_ENTITLEMENTS="scripts\/macos-node-runtime-entitlements\.plist"/);
   assert.match(signScript, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -perm -111 -print0/);
+  assert.match(
+    signScript,
+    /codesign --force --sign "\$APP_IDENTITY" --options runtime --timestamp --entitlements "\$NODE_RUNTIME_ENTITLEMENTS" "\$RUNTIME_EXECUTABLE"/
+  );
   assert.match(signScript, /codesign --force --sign "\$APP_IDENTITY" --options runtime --timestamp --entitlements "\$DAEMON_ENTITLEMENTS"/);
   assert.match(signScript, /npm run build:mac-installer -- --skip-build --dmg-only/);
   assert.match(signScript, /codesign --force --sign "\$APP_IDENTITY" --timestamp "\$INSTALLER_PATH"/);
   assert.match(signScript, /xcrun notarytool submit "\$INSTALLER_PATH"/);
   assert.match(signScript, /xcrun stapler staple "\$INSTALLER_PATH"/);
   assert.match(signScript, /spctl --assess --type open --context context:primary-signature --verbose=2 "\$INSTALLER_PATH"/);
-  assert.match(signScript, /shasum -a 256 "\$INSTALLER_PATH" > "\$CHECKSUM_PATH"/);
 });
 
 test("macOS release workflow preserves Node runtime entitlements on the packaged daemon", async () => {
@@ -97,6 +114,22 @@ test("macOS release workflow preserves Node runtime entitlements on the packaged
     /codesign --force --deep --sign "\$APP_IDENTITY" --options runtime --timestamp "\$APP_PATH"/
   );
   assert.match(workflow, /codesign --force --sign "\$APP_IDENTITY" --options runtime --timestamp "\$APP_PATH"/);
+});
+
+test("macOS release workflow signs the packaged Node runtime with V8 entitlements", async () => {
+  const [workflow, entitlements] = await Promise.all([
+    readRepoFile(".github/workflows/macos-release.yml"),
+    readRepoFile("scripts/macos-node-runtime-entitlements.plist")
+  ]);
+
+  assert.match(entitlements, /com\.apple\.security\.cs\.allow-jit/);
+  assert.match(entitlements, /com\.apple\.security\.cs\.allow-unsigned-executable-memory/);
+  assert.match(workflow, /NODE_RUNTIME_ENTITLEMENTS:\s*scripts\/macos-node-runtime-entitlements\.plist/);
+  assert.match(workflow, /is_node_runtime_executable/);
+  assert.match(
+    workflow,
+    /codesign --force --sign "\$APP_IDENTITY" --options runtime --timestamp --entitlements "\$NODE_RUNTIME_ENTITLEMENTS" "\$RUNTIME_EXECUTABLE"/
+  );
 });
 
 test("macOS installer builder exposes staging-only and DMG-only release modes", async () => {
@@ -123,7 +156,8 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
     buildScript,
     /cp\(APP_BUNDLE, resolve\(DMG_STAGING_DIR, `\$\{APP_NAME\}\.app`\), \{ recursive: true, verbatimSymlinks: true \}\)/
   );
-  assert.match(buildScript, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS/);
+  assert.doesNotMatch(buildScript, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS/);
+  assert.match(buildScript, /await assertPackagedCliRuntimeArtifacts\(\);/);
   assert.match(buildScript, /Packaged Node\.js runtime npm is not executable/);
   assert.match(buildScript, /Packaged Ollama runtime is missing the runnable ollama CLI binary/);
   assert.match(buildScript, /Runtime artifacts must be runnable CLI payloads/);
@@ -132,10 +166,16 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(buildScript, /CHILLCLAW_RUNTIME_UPDATE_FEED_URL/);
   assert.match(packageJson, /prepare:runtime-artifacts/);
   assert.match(workflow, /npm run prepare:runtime-artifacts/);
-  assert.match(workflow, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS:\s*"1"/);
+  assert.doesNotMatch(workflow, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS/);
   assert.match(workflow, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -perm -111 -print0/);
   assert.match(prepareScript, /Downloaded Node\.js archive npm is not executable/);
   assert.match(prepareScript, /nodejs\.org\/dist/);
+  assert.match(prepareScript, /currentNodeDistName/);
+  assert.match(prepareScript, /process\.arch === "x64" \? "x64" : "arm64"/);
+  assert.match(buildScript, /currentNodeDistName/);
+  assert.match(buildScript, /resolve\(nodeDir, "bin", "npm"\),\s*\["--version"\]/);
+  assert.match(buildScript, /packagedRuntimeEnv\(nodeDir\)/);
+  assert.match(buildScript, /npm-cli\.js/);
   assert.match(prepareScript, /ollama CLI binary/);
   assert.match(runtimeManifest, /node-npm-runtime/);
   assert.match(runtimeManifest, /ollama-runtime/);

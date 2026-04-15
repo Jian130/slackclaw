@@ -1201,8 +1201,8 @@ struct OnboardingTests {
         )
         viewModel.onboardingState = makeOnboardingStateResponse(step: .channel)
 
-        #expect(viewModel.curatedChannels.map(\.id) == [.wechatWork, .wechat, .feishu, .telegram])
-        #expect(viewModel.curatedChannels.map(\.label) == ["WeChat Work (WeCom)", "WeChat", "Feishu", "Telegram"])
+        #expect(viewModel.curatedChannels.map(\.id) == [.wechat])
+        #expect(viewModel.curatedChannels.map(\.label) == ["WeChat"])
     }
 
     @Test
@@ -2321,51 +2321,11 @@ struct OnboardingTests {
     }
 
     @Test
-    func savingWechatWorkChannelAdvancesWithoutFreshChannelRead() async throws {
+    func savingHiddenWechatWorkChannelDoesNotMutateOnboarding() async throws {
         let recorder = NativeRequestRecorder()
-        let savedEntry = ConfiguredChannelEntry(
-            id: "wechat-work:default",
-            channelId: .wechatWork,
-            label: "WeChat Work (WeCom)",
-            status: "completed",
-            summary: "WeChat Work is configured.",
-            detail: "Bot credentials are saved.",
-            maskedConfigSummary: [
-                .init(label: "Bot ID", value: "aiby...")
-            ],
-            editableValues: ["botId": "aiby..."],
-            pairingRequired: false,
-            lastUpdatedAt: "2026-03-28T00:00:00.000Z"
-        )
-        let savedConfig = ChannelConfigOverview(
-            baseOnboardingCompleted: true,
-            capabilities: [],
-            entries: [savedEntry],
-            activeSession: nil,
-            gatewaySummary: "Saved and ready to apply."
-        )
-
         let session = await recorder.session { request in
-            let url = try #require(request.url)
-            switch (request.httpMethod ?? "GET", url.path) {
-            case ("POST", "/api/onboarding/channel/entries"):
-                var nextState = makeOnboardingStateResponse(step: .employee)
-                nextState.draft.channel = .init(channelId: .wechatWork, entryId: savedEntry.id)
-                nextState.draft.channelProgress = .init(status: .staged, sessionId: nil, message: "Saved", requiresGatewayApply: true)
-                let body = try JSONEncoder.chillClaw.encode(
-                    ChannelConfigActionResponse(
-                        status: "completed",
-                        message: "Saved",
-                        channelConfig: savedConfig,
-                        session: nil,
-                        requiresGatewayApply: true,
-                        onboarding: nextState
-                    )
-                )
-                return (jsonResponse(url: url), body)
-            default:
-                throw URLError(.badServerResponse)
-            }
+            Issue.record("Hidden WeChat Work onboarding should not call \(request.url?.path ?? "<missing url>")")
+            throw URLError(.badServerResponse)
         }
 
         let configuration = ChillClawClientConfiguration(
@@ -2405,10 +2365,10 @@ struct OnboardingTests {
         await viewModel.saveChannel()
 
         let urls = await recorder.recordedURLs()
-        #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/channel/entries"))
-        #expect(urls.filter { $0.contains("/api/channels/config") }.isEmpty)
-        #expect(viewModel.currentStep == OnboardingStep.employee)
-        #expect(viewModel.currentDraft.channel?.entryId == savedEntry.id)
+        #expect(urls.isEmpty)
+        #expect(viewModel.currentStep == OnboardingStep.channel)
+        #expect(viewModel.currentDraft.channel == nil)
+        #expect(viewModel.pageError == "Choose a channel first")
         #expect(viewModel.channelBusy == false)
     }
 
@@ -4832,15 +4792,6 @@ private func makeOnboardingStateResponse(
             ],
             channels: [
                 .init(
-                    id: .wechatWork,
-                    label: "WeChat Work (WeCom)",
-                    secondaryLabel: "企业微信",
-                    description: "Configure WeChat Work.",
-                    theme: .wechatWork,
-                    setupKind: .wechatWorkGuided,
-                    docsUrl: "https://work.weixin.qq.com/"
-                ),
-                .init(
                     id: .wechat,
                     label: "WeChat",
                     secondaryLabel: "微信",
@@ -4848,25 +4799,6 @@ private func makeOnboardingStateResponse(
                     theme: .wechat,
                     setupKind: .wechatGuided,
                     docsUrl: nil
-                ),
-                .init(
-                    id: .feishu,
-                    label: "Feishu",
-                    secondaryLabel: "飞书",
-                    description: "Configure Feishu.",
-                    theme: .feishu,
-                    setupKind: .feishuGuided,
-                    platformUrl: "https://open.feishu.cn/app",
-                    tutorialVideoUrl: "https://video.example/feishu"
-                ),
-                .init(
-                    id: .telegram,
-                    label: "Telegram",
-                    secondaryLabel: "Telegram",
-                    description: "Configure Telegram.",
-                    theme: .telegram,
-                    setupKind: .telegramGuided,
-                    docsUrl: "https://core.telegram.org/bots/tutorial"
                 )
             ],
             employeePresets: [

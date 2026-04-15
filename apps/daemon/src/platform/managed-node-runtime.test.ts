@@ -12,6 +12,22 @@ import { ensureManagedNodeNpmInvocation, resolveManagedNodeNpmInvocation } from 
 
 const execFile = promisify(execFileCallback);
 
+async function captureConsoleOutput(callback: () => Promise<void>): Promise<string[]> {
+  const originalConsoleLog = console.log;
+  const lines: string[] = [];
+  console.log = (message?: unknown, ...rest: unknown[]) => {
+    lines.push([message, ...rest].map((value) => String(value)).join(" "));
+  };
+
+  try {
+    await callback();
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  return lines;
+}
+
 function mockProcessPlatform(platform: NodeJS.Platform): () => void {
   const originalDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
   Object.defineProperty(process, "platform", {
@@ -63,7 +79,11 @@ echo "$@" > "${root}/npm-args.txt"
   return archivePath;
 }
 
-async function createFakeNodeRuntimeDir(root: string, version: string, options?: { npmExecutable?: boolean }): Promise<string> {
+async function createFakeNodeRuntimeDir(
+  root: string,
+  version: string,
+  options?: { npmExecutable?: boolean; writeNpmCli?: boolean }
+): Promise<string> {
   const distName = `node-v${version}-darwin-${process.arch === "x64" ? "x64" : "arm64"}`;
   const distRoot = join(root, distName);
   const binDir = join(distRoot, "bin");
@@ -83,18 +103,20 @@ shift
 exec /bin/sh "$script" "$@"
 `
   );
-  await writeFile(
-    join(npmCliDir, "npm-cli.js"),
-    `#!/bin/sh
+  if (options?.writeNpmCli !== false) {
+    await writeFile(
+      join(npmCliDir, "npm-cli.js"),
+      `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "10.9.0"
   exit 0
 fi
 echo "$@" > "${root}/npm-runtime-dir-args.txt"
 `
-  );
+    );
+    await chmod(join(npmCliDir, "npm-cli.js"), options?.npmExecutable === false ? 0o644 : 0o755);
+  }
   await chmod(join(binDir, "node"), 0o755);
-  await chmod(join(npmCliDir, "npm-cli.js"), options?.npmExecutable === false ? 0o644 : 0o755);
   await symlink("../lib/node_modules/npm/bin/npm-cli.js", join(binDir, "npm"));
 
   return distRoot;
@@ -123,7 +145,7 @@ test("ensureManagedNodeNpmInvocation installs npm under the ChillClaw runtime", 
     assert.equal(invocation.argsPrefix.length, 0);
     assert.equal(invocation.display, getManagedNodeNpmBinPath());
 
-    await execFile(invocation.command, ["install", "--prefix", join(tempDir, "openclaw-runtime"), "openclaw@latest"]);
+    await execFile(invocation.command, [...invocation.argsPrefix, "install", "--prefix", join(tempDir, "openclaw-runtime"), "openclaw@latest"]);
     assert.equal(await readFile(join(tempDir, "npm-args.txt"), "utf8"), "install --prefix " + join(tempDir, "openclaw-runtime") + " openclaw@latest\n");
   } finally {
     restorePlatform();
@@ -185,7 +207,10 @@ test("ensureManagedNodeNpmInvocation falls back to download when bundled npm can
   const bundledRoot = join(tempDir, "bundled");
   const downloadRoot = join(tempDir, "download");
   const version = "99.0.2";
-  const runtimeDir = await createFakeNodeRuntimeDir(bundledRoot, version, { npmExecutable: false });
+  const runtimeDir = await createFakeNodeRuntimeDir(bundledRoot, version, {
+    npmExecutable: false,
+    writeNpmCli: false
+  });
   const archivePath = await createFakeNodeArchive(downloadRoot, version);
   const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
   const originalNodeVersion = process.env.CHILLCLAW_MANAGED_NODE_VERSION;
@@ -200,7 +225,7 @@ test("ensureManagedNodeNpmInvocation falls back to download when bundled npm can
       archiveUrl: pathToFileURL(archivePath).href
     });
 
-    await execFile(invocation.command, ["install", "--prefix", join(tempDir, "openclaw-runtime"), "openclaw@latest"]);
+    await execFile(invocation.command, [...invocation.argsPrefix, "install", "--prefix", join(tempDir, "openclaw-runtime"), "openclaw@latest"]);
 
     assert.equal(await readFile(join(downloadRoot, "npm-args.txt"), "utf8"), "install --prefix " + join(tempDir, "openclaw-runtime") + " openclaw@latest\n");
   } finally {
@@ -214,6 +239,137 @@ test("ensureManagedNodeNpmInvocation falls back to download when bundled npm can
       delete process.env.CHILLCLAW_MANAGED_NODE_VERSION;
     } else {
       process.env.CHILLCLAW_MANAGED_NODE_VERSION = originalNodeVersion;
+    }
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ensureManagedNodeNpmInvocation uses bundled node to run npm cli when the npm shim cannot run", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-managed-node-runtime-npm-cli-test-"));
+  const dataDir = join(tempDir, "data");
+  const bundledRoot = join(tempDir, "bundled");
+  const version = "99.0.3";
+  const runtimeDir = await createFakeNodeRuntimeDir(bundledRoot, version, { npmExecutable: false });
+  const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
+  const originalNodeVersion = process.env.CHILLCLAW_MANAGED_NODE_VERSION;
+  const restorePlatform = mockProcessPlatform("darwin");
+
+  process.env.CHILLCLAW_DATA_DIR = dataDir;
+  process.env.CHILLCLAW_MANAGED_NODE_VERSION = version;
+
+  try {
+    const invocation = await ensureManagedNodeNpmInvocation({ runtimeDir });
+
+    assert.match(invocation.command, /\/bin\/node$/);
+    assert.deepEqual(invocation.argsPrefix, [
+      join(dataDir, "node-runtime", `node-v${version}-darwin-${process.arch === "x64" ? "x64" : "arm64"}`, "lib/node_modules/npm/bin/npm-cli.js")
+    ]);
+
+    await execFile(invocation.command, [...invocation.argsPrefix, "install", "--prefix", join(tempDir, "openclaw-runtime"), "openclaw@latest"]);
+
+    assert.equal(await readFile(join(bundledRoot, "npm-runtime-dir-args.txt"), "utf8"), "install --prefix " + join(tempDir, "openclaw-runtime") + " openclaw@latest\n");
+  } finally {
+    restorePlatform();
+    if (originalDataDir === undefined) {
+      delete process.env.CHILLCLAW_DATA_DIR;
+    } else {
+      process.env.CHILLCLAW_DATA_DIR = originalDataDir;
+    }
+    if (originalNodeVersion === undefined) {
+      delete process.env.CHILLCLAW_MANAGED_NODE_VERSION;
+    } else {
+      process.env.CHILLCLAW_MANAGED_NODE_VERSION = originalNodeVersion;
+    }
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ensureManagedNodeNpmInvocation logs npm probe diagnostics for packaged runtime failures", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-managed-node-runtime-log-test-"));
+  const dataDir = join(tempDir, "data");
+  const bundledRoot = join(tempDir, "bundled");
+  const version = "99.0.5";
+  const runtimeDir = await createFakeNodeRuntimeDir(bundledRoot, version, { npmExecutable: false });
+  const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
+  const originalNodeVersion = process.env.CHILLCLAW_MANAGED_NODE_VERSION;
+  const originalRuntimeDiagnostics = process.env.CHILLCLAW_LOG_RUNTIME_DIAGNOSTICS;
+  const restorePlatform = mockProcessPlatform("darwin");
+
+  process.env.CHILLCLAW_DATA_DIR = dataDir;
+  process.env.CHILLCLAW_MANAGED_NODE_VERSION = version;
+  process.env.CHILLCLAW_LOG_RUNTIME_DIAGNOSTICS = "1";
+
+  try {
+    const lines = await captureConsoleOutput(async () => {
+      await ensureManagedNodeNpmInvocation({ runtimeDir });
+    });
+    const output = lines.join("\n");
+
+    assert.match(output, /managedNodeRuntime\.install/);
+    assert.match(output, /copying bundled Node\.js runtime/);
+    assert.match(output, /managedNodeRuntime\.probe/);
+    assert.match(output, /npm shim failed/);
+    assert.match(output, /npm cli via node succeeded/);
+  } finally {
+    restorePlatform();
+    if (originalDataDir === undefined) {
+      delete process.env.CHILLCLAW_DATA_DIR;
+    } else {
+      process.env.CHILLCLAW_DATA_DIR = originalDataDir;
+    }
+    if (originalNodeVersion === undefined) {
+      delete process.env.CHILLCLAW_MANAGED_NODE_VERSION;
+    } else {
+      process.env.CHILLCLAW_MANAGED_NODE_VERSION = originalNodeVersion;
+    }
+    if (originalRuntimeDiagnostics === undefined) {
+      delete process.env.CHILLCLAW_LOG_RUNTIME_DIAGNOSTICS;
+    } else {
+      process.env.CHILLCLAW_LOG_RUNTIME_DIAGNOSTICS = originalRuntimeDiagnostics;
+    }
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ensureManagedNodeNpmInvocation reports a broken bundled runtime instead of defaulting to a network download", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-managed-node-runtime-broken-bundle-test-"));
+  const dataDir = join(tempDir, "data");
+  const bundledRoot = join(tempDir, "bundled");
+  const version = "99.0.4";
+  const runtimeDir = await createFakeNodeRuntimeDir(bundledRoot, version, {
+    npmExecutable: false,
+    writeNpmCli: false
+  });
+  const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
+  const originalNodeVersion = process.env.CHILLCLAW_MANAGED_NODE_VERSION;
+  const originalNodeUrl = process.env.CHILLCLAW_MANAGED_NODE_DIST_URL;
+  const restorePlatform = mockProcessPlatform("darwin");
+
+  process.env.CHILLCLAW_DATA_DIR = dataDir;
+  process.env.CHILLCLAW_MANAGED_NODE_VERSION = version;
+  delete process.env.CHILLCLAW_MANAGED_NODE_DIST_URL;
+
+  try {
+    await assert.rejects(
+      () => ensureManagedNodeNpmInvocation({ runtimeDir }),
+      /bundled Node\.js runtime is not runnable/
+    );
+  } finally {
+    restorePlatform();
+    if (originalDataDir === undefined) {
+      delete process.env.CHILLCLAW_DATA_DIR;
+    } else {
+      process.env.CHILLCLAW_DATA_DIR = originalDataDir;
+    }
+    if (originalNodeVersion === undefined) {
+      delete process.env.CHILLCLAW_MANAGED_NODE_VERSION;
+    } else {
+      process.env.CHILLCLAW_MANAGED_NODE_VERSION = originalNodeVersion;
+    }
+    if (originalNodeUrl === undefined) {
+      delete process.env.CHILLCLAW_MANAGED_NODE_DIST_URL;
+    } else {
+      process.env.CHILLCLAW_MANAGED_NODE_DIST_URL = originalNodeUrl;
     }
     await rm(tempDir, { recursive: true, force: true });
   }

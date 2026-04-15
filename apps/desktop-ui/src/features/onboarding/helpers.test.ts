@@ -550,52 +550,19 @@ describe("onboarding helpers", () => {
         modelProviders: [],
         channels: [
           {
-            id: "wechat-work",
-            label: "WeChat Work (WeCom)",
-            secondaryLabel: "企业微信",
-            description: "Configure WeChat Work.",
-            theme: "wechat-work",
-            setupKind: "wechat-work-guided",
-            docsUrl: "https://work.weixin.qq.com/"
-          },
-          {
             id: "wechat",
             label: "WeChat",
             secondaryLabel: "微信",
             description: "Configure personal WeChat.",
             theme: "wechat",
             setupKind: "wechat-guided",
-          },
-          {
-            id: "feishu",
-            label: "Feishu",
-            secondaryLabel: "飞书",
-            description: "Configure Feishu.",
-            theme: "feishu",
-            setupKind: "feishu-guided",
-            platformUrl: "https://open.feishu.cn/app",
-            tutorialVideoUrl: "https://video.example/feishu"
-          },
-          {
-            id: "telegram",
-            label: "Telegram",
-            secondaryLabel: "Telegram",
-            description: "Configure Telegram.",
-            theme: "telegram",
-            setupKind: "telegram-guided",
-            docsUrl: "https://core.telegram.org/bots/tutorial"
           }
         ]
       }
     } as never);
 
-    expect(channels.map((channel) => channel.id)).toEqual(["wechat-work", "wechat", "feishu", "telegram"]);
-    expect(channels.map((channel) => channel.setupKind)).toEqual([
-      "wechat-work-guided",
-      "wechat-guided",
-      "feishu-guided",
-      "telegram-guided"
-    ]);
+    expect(channels.map((channel) => channel.id)).toEqual(["wechat"]);
+    expect(channels.map((channel) => channel.setupKind)).toEqual(["wechat-guided"]);
   });
 
   it("uses the daemon-curated onboarding employee presets instead of runtime skill options", () => {

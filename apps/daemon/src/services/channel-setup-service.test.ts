@@ -306,6 +306,7 @@ test("channel config overview exposes personal WeChat pairing as a live follow-u
   const overview = await service.getConfigOverview();
   const capability = overview.capabilities.find((entry) => entry.id === "wechat");
 
+  assert.deepEqual(overview.capabilities.map((entry) => entry.id), ["wechat"]);
   assert.equal(capability?.supportsPairing, true);
   assert.equal(capability?.supportsEdit, true);
   assert.equal(capability?.supportsRemove, true);

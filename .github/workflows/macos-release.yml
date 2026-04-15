@@ -20,6 +20,7 @@ jobs:
     env:
       APP_PATH: dist/.macos-staging/ChillClaw.app
       DAEMON_ENTITLEMENTS: scripts/macos-daemon-entitlements.plist
+      NODE_RUNTIME_ENTITLEMENTS: scripts/macos-node-runtime-entitlements.plist
       INSTALLER_PATH: dist/macos/ChillClaw-macOS.dmg
       CHECKSUM_PATH: dist/macos/ChillClaw-macOS.dmg.sha256.txt
     steps:
@@ -78,8 +79,6 @@ jobs:
         run: npm run prepare:runtime-artifacts
 
       - name: Stage macOS app bundle
-        env:
-          CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS: "1"
         run: npm run build:mac-installer -- --skip-build --stage-only
 
       - name: Install Apple signing certificates
@@ -106,9 +105,20 @@ jobs:
         env:
           APP_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APP_IDENTITY }}
         run: |
+          is_node_runtime_executable() {
+            case "$1" in
+              "$APP_PATH"/Contents/Resources/app/runtime-artifacts/node/node-v*/bin/node) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
           while IFS= read -r -d '' RUNTIME_EXECUTABLE; do
             if file "$RUNTIME_EXECUTABLE" | grep -q 'Mach-O'; then
-              codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$RUNTIME_EXECUTABLE"
+              if is_node_runtime_executable "$RUNTIME_EXECUTABLE"; then
+                codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp --entitlements "$NODE_RUNTIME_ENTITLEMENTS" "$RUNTIME_EXECUTABLE"
+              else
+                codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$RUNTIME_EXECUTABLE"
+              fi
             fi
           done < <(find "$APP_PATH/Contents/Resources/app/runtime-artifacts" -type f -perm -111 -print0)
           codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp --entitlements "$DAEMON_ENTITLEMENTS" "$APP_PATH/Contents/Resources/runtime/chillclaw-daemon"

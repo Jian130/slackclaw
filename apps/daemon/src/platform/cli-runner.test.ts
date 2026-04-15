@@ -31,6 +31,28 @@ exit 7
   }
 });
 
+test("runCommand reports a signal when a command is terminated by macOS", async () => {
+  const tempDir = await mkdtemp(resolve(tmpdir(), "chillclaw-cli-runner-signal-test-"));
+  const scriptPath = join(tempDir, "command.sh");
+
+  await writeFile(
+    scriptPath,
+    `#!/bin/sh
+kill -TERM $$
+`
+  );
+  await chmod(scriptPath, 0o755);
+
+  try {
+    const result = await runCommand(scriptPath, [], { allowFailure: true, env: process.env });
+
+    assert.equal(result.code, 1);
+    assert.equal(result.signal, "SIGTERM");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("resolveCommandFromPath respects the provided PATH", async () => {
   const tempDir = await mkdtemp(resolve(tmpdir(), "chillclaw-cli-runner-path-test-"));
   const commandPath = join(tempDir, "fake-command");

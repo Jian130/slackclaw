@@ -55,40 +55,12 @@ const onboardingModelProviders: OnboardingModelProviderSelection[] = [
 
 const onboardingChannels: OnboardingChannelPresentation[] = [
   {
-    id: "wechat-work",
-    label: "WeChat Work (WeCom)",
-    secondaryLabel: "企业微信",
-    description: "Set up WeChat Work credentials for your digital employees.",
-    theme: "wechat-work",
-    setupKind: "wechat-work-guided",
-    docsUrl: "https://work.weixin.qq.com/"
-  },
-  {
     id: "wechat",
     label: "WeChat",
     secondaryLabel: "微信",
     description: "Set up personal WeChat with a QR-first login flow.",
     theme: "wechat",
     setupKind: "wechat-guided"
-  },
-  {
-    id: "feishu",
-    label: "Feishu",
-    secondaryLabel: "飞书",
-    description: "Configure Feishu app credentials for your digital employees.",
-    theme: "feishu",
-    setupKind: "feishu-guided",
-    platformUrl: "https://open.feishu.cn/app",
-    tutorialVideoUrl: "https://open.feishu.cn/"
-  },
-  {
-    id: "telegram",
-    label: "Telegram",
-    secondaryLabel: "Telegram",
-    description: "Connect a Telegram bot token for your digital employees.",
-    theme: "telegram",
-    setupKind: "telegram-guided",
-    docsUrl: "https://core.telegram.org/bots/tutorial"
   }
 ];
 

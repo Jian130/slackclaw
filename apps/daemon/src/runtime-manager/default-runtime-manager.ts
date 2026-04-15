@@ -131,7 +131,7 @@ async function loadPackagedRuntimeManifest(): Promise<RuntimeManifestDocument> {
   }
 
   try {
-    return resolveManifestArtifactPaths(
+    return resolvePackagedRuntimeManifestForCurrentPlatform(
       JSON.parse(await readFile(manifestPath, "utf8")) as RuntimeManifestDocument,
       dirname(manifestPath)
     );
@@ -143,17 +143,56 @@ async function loadPackagedRuntimeManifest(): Promise<RuntimeManifestDocument> {
   }
 }
 
-function resolveManifestArtifactPaths(document: RuntimeManifestDocument, baseDir: string): RuntimeManifestDocument {
+export function resolvePackagedRuntimeManifestForCurrentPlatform(
+  document: RuntimeManifestDocument,
+  baseDir: string,
+  platform: { platform: NodeJS.Platform; arch: NodeJS.Architecture } = {
+    platform: process.platform,
+    arch: process.arch
+  }
+): RuntimeManifestDocument {
   return {
     ...document,
-    resources: document.resources.map((resource) => ({
-      ...resource,
-      artifacts: resource.artifacts.map((artifact) => ({
-        ...artifact,
-        path: artifact.path && !isAbsolute(artifact.path) ? resolve(baseDir, artifact.path) : artifact.path
-      }))
-    }))
+    resources: document.resources.map((resource) => {
+      if (resource.id === "node-npm-runtime" && platform.platform === "darwin") {
+        const distName = managedNodeDistNameFor(resource.version, platform.arch);
+        return {
+          ...resource,
+          platforms: [
+            {
+              os: "darwin" as const,
+              arch: managedNodeArch(platform.arch)
+            }
+          ],
+          activePath: `node-runtime/${distName}/bin/npm`,
+          artifacts: resource.artifacts.map((artifact) => ({
+            ...artifact,
+            path: artifact.source === "bundled" && artifact.format === "directory"
+              ? resolve(baseDir, "node", distName)
+              : artifact.path && !isAbsolute(artifact.path)
+                ? resolve(baseDir, artifact.path)
+                : artifact.path
+          }))
+        };
+      }
+
+      return {
+        ...resource,
+        artifacts: resource.artifacts.map((artifact) => ({
+          ...artifact,
+          path: artifact.path && !isAbsolute(artifact.path) ? resolve(baseDir, artifact.path) : artifact.path
+        }))
+      };
+    })
   };
+}
+
+function managedNodeDistNameFor(version: string, arch: NodeJS.Architecture): string {
+  return `node-v${version}-darwin-${managedNodeArch(arch)}`;
+}
+
+function managedNodeArch(arch: NodeJS.Architecture): "arm64" | "x64" {
+  return arch === "x64" ? "x64" : "arm64";
 }
 
 async function loadRuntimeUpdateManifest(): Promise<RuntimeManifestDocument> {
@@ -358,7 +397,11 @@ function createNodeRuntimeProvider(): RuntimeResourceProvider {
         runtimeDir
       });
       const nodeVersion = await probeVersion(getManagedNodeBinPath(), ["--version"]);
-      const npmVersion = await probeVersion(invocation.command, ["--version"]);
+      const npmVersion = await probeVersion(
+        invocation.command,
+        [...invocation.argsPrefix, "--version"],
+        managedNodeEnv(invocation.command)
+      );
       return {
         version: nodeVersion?.replace(/^v/, "") ?? context.manifest.version,
         activePath: invocation.command,
@@ -422,7 +465,7 @@ function createOpenClawRuntimeProvider(): RuntimeResourceProvider {
       await mkdir(getManagedOpenClawDir(), { recursive: true });
       const invocation = await ensureManagedNodeNpmInvocation();
       const packageSpec = context.artifact?.path ?? `openclaw@${context.manifest.version}`;
-      await runCommand(invocation.command, ["install", "--prefix", getManagedOpenClawDir(), packageSpec], {
+      await runCommand(invocation.command, [...invocation.argsPrefix, "install", "--prefix", getManagedOpenClawDir(), packageSpec], {
         env: managedNodeEnv(invocation.command),
         beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.openclaw.install", command, args)
       });
@@ -452,10 +495,14 @@ function createOpenClawRuntimeProvider(): RuntimeResourceProvider {
         };
       }
       const invocation = await ensureManagedNodeNpmInvocation();
-      await runCommand(invocation.command, ["install", "--prefix", getManagedOpenClawDir(), `openclaw@${context.previousVersion}`], {
-        env: managedNodeEnv(invocation.command),
-        beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.openclaw.rollback", command, args)
-      });
+      await runCommand(
+        invocation.command,
+        [...invocation.argsPrefix, "install", "--prefix", getManagedOpenClawDir(), `openclaw@${context.previousVersion}`],
+        {
+          env: managedNodeEnv(invocation.command),
+          beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.openclaw.rollback", command, args)
+        }
+      );
       return {
         version: context.previousVersion,
         activePath: getManagedOpenClawBinPath(),

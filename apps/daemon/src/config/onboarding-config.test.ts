@@ -25,3 +25,16 @@ test("onboarding config sources provider auth methods from the shared model prov
   assert.deepEqual(openAI.authMethods, openAICatalog.authMethods.map(toPublicAuthMethod));
   assert.deepEqual(miniMax.authMethods, miniMaxCatalog.authMethods.map(toPublicAuthMethod));
 });
+
+test("onboarding config offers only personal WeChat in the channel picker", () => {
+  const config = resolveOnboardingUiConfig();
+
+  assert.deepEqual(
+    config.channels.map((channel) => channel.id),
+    ["wechat"]
+  );
+  assert.deepEqual(
+    config.channels.map((channel) => channel.setupKind),
+    ["wechat-guided"]
+  );
+});
