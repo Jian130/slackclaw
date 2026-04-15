@@ -12,15 +12,17 @@ vi.mock("../../app/providers/LocaleProvider.js", () => ({
 import { SidebarNav } from "./SidebarNav.js";
 
 describe("SidebarNav", () => {
-  it("hides the AI Team entry while keeping the rest of the shell navigation", () => {
+  it("orders the shell navigation for daily user workflows", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <SidebarNav />
       </MemoryRouter>
     );
+    const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
 
-    expect(html).not.toContain("/team");
-    expect(html).toContain("/chat");
-    expect(html).toContain("/members");
+    expect(hrefs).toEqual(["/chat", "/", "/deploy", "/config", "/skills", "/plugins", "/settings"]);
+    expect(html).toContain("Claws");
+    expect(html).toContain("Tools (plugins)");
+    expect(html).not.toContain("/members");
   });
 });

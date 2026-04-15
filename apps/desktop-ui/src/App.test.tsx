@@ -37,7 +37,7 @@ describe("desktop-ui localization", () => {
   });
 
   it("falls back to translated shell labels while preserving page copy", () => {
-    expect(t("zh").shell.deploy).toBe("部署");
+    expect(t("zh").shell.deploy).toBe("Claws");
     expect(t("ja").shell.dashboard).toBe("ダッシュボード");
     expect(t("es").deploy.title).toBe("Deploy OpenClaw");
   });

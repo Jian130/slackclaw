@@ -155,13 +155,12 @@ enum NativeSection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     static let navigationSections: [NativeSection] = [
-        .deploy,
-        .configuration,
-        .plugins,
-        .skills,
-        .members,
         .chat,
         .dashboard,
+        .deploy,
+        .configuration,
+        .skills,
+        .plugins,
         .settings
     ]
 }

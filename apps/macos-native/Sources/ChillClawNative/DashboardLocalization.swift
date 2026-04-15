@@ -322,9 +322,9 @@ func nativeSectionTitle(
     case "zh":
         switch section {
         case .dashboard: return "仪表盘"
-        case .deploy: return "部署"
+        case .deploy: return "Claws"
         case .configuration: return "配置"
-        case .plugins: return "插件"
+        case .plugins: return "工具（插件）"
         case .skills: return "技能管理"
         case .members: return "AI 员工"
         case .chat: return "聊天"
@@ -334,9 +334,9 @@ func nativeSectionTitle(
     case "ja":
         switch section {
         case .dashboard: return "ダッシュボード"
-        case .deploy: return "配備"
+        case .deploy: return "Claws"
         case .configuration: return "設定"
-        case .plugins: return "プラグイン"
+        case .plugins: return "ツール（プラグイン）"
         case .skills: return "スキル管理"
         case .members: return "AI メンバー"
         case .chat: return "チャット"
@@ -346,9 +346,9 @@ func nativeSectionTitle(
     case "ko":
         switch section {
         case .dashboard: return "대시보드"
-        case .deploy: return "배포"
+        case .deploy: return "Claws"
         case .configuration: return "구성"
-        case .plugins: return "플러그인"
+        case .plugins: return "도구(플러그인)"
         case .skills: return "스킬 관리"
         case .members: return "AI 멤버"
         case .chat: return "채팅"
@@ -358,9 +358,9 @@ func nativeSectionTitle(
     case "es":
         switch section {
         case .dashboard: return "Panel"
-        case .deploy: return "Despliegue"
+        case .deploy: return "Claws"
         case .configuration: return "Configuración"
-        case .plugins: return "Plugins"
+        case .plugins: return "Herramientas (plugins)"
         case .skills: return "Gestión de habilidades"
         case .members: return "Miembros de IA"
         case .chat: return "Chat"
@@ -368,7 +368,11 @@ func nativeSectionTitle(
         case .settings: return "Ajustes"
         }
     default:
-        return section.rawValue
+        switch section {
+        case .deploy: return "Claws"
+        case .plugins: return "Tools (plugins)"
+        default: return section.rawValue
+        }
     }
 }
 

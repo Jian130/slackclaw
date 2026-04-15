@@ -73,9 +73,15 @@ struct UIContractTests {
     }
 
     @Test
-    func nativeSidebarHidesAITeamFromNavigationOnly() {
+    func nativeSidebarUsesDailyWorkflowNavigationOrder() {
+        #expect(NativeSection.navigationSections == [.chat, .dashboard, .deploy, .configuration, .skills, .plugins, .settings])
+        #expect(nativeSectionTitle(.deploy, localeIdentifier: "en") == "Claws")
+        #expect(nativeSectionTitle(.plugins, localeIdentifier: "en") == "Tools (plugins)")
         #expect(NativeSection.navigationSections.contains(.team) == false)
+        #expect(NativeSection.navigationSections.contains(.members) == false)
         #expect(NativeSection.allCases.contains(.team))
+        #expect(NativeSection.allCases.contains(.deploy))
+        #expect(NativeSection.allCases.contains(.members))
     }
 
     @Test

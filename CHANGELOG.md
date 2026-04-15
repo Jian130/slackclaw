@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-04-15 20:03 CST
+
+- reordered the React and native macOS sidebars around the daily workflow path, adding the deployment screen back as `Claws` in the third slot and renaming the plugins entry to `Tools (plugins)` while keeping hidden AI member and team screens reachable through internal flows
+
 ## 0.1.8 - 2026-04-15
 
 ### 2026-04-15 17:09 CST
