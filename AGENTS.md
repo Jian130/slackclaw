@@ -121,6 +121,7 @@ This file defines the operating rules for agents working in this repository.
   - system healthy enough for user work
 - Do not report the system as healthy just because the `openclaw` binary exists.
 - Installed apps must not assume they are running from a repo checkout. Use runtime path helpers instead of `process.cwd()` assumptions.
+- macOS release signing must preserve runtime-specific entitlements. The packaged Node.js binary under `runtime-artifacts/node/node-v*/bin/node` must be signed with the Node runtime entitlements file (`scripts/macos-node-runtime-entitlements.plist`) so V8 can use JIT/executable memory on Apple Silicon; do not sign it with hardened-runtime defaults only.
 - Bootstrap and install logic, update logic, health logic, and recovery logic should each have one canonical implementation path.
 
 ## UX and onboarding rules
@@ -172,6 +173,7 @@ This file defines the operating rules for agents working in this repository.
 - Run the repository’s build and test commands after substantial changes.
 - For JS or TS changes, run `npm run build` and `npm test` unless the repo defines a different canonical command.
 - If changing installer, packaging, startup, or runtime-management behavior, run the relevant packaging or smoke path too.
+- If changing macOS runtime signing, verify the signed packaging path or release workflow tests specifically cover packaged Node.js runtime entitlements, because unsigned same-machine installer smoke tests do not catch hardened-runtime entitlement failures on clean Apple Silicon Macs.
 - If changing native macOS or Windows code, run the native build or test target and smoke the changed user flow.
 - If changing local startup behavior, verify the dev start and stop flow still manages the daemon cleanly and emits clear step-by-step output.
 - Prefer validating real OpenClaw status and health behavior through the adapter when practical.

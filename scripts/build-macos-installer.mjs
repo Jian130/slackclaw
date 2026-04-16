@@ -423,10 +423,13 @@ async function copyRuntimeArtifacts() {
 async function assertPackagedCliRuntimeArtifacts() {
   const manifest = JSON.parse(await readFile(resolve(APP_RUNTIME_ARTIFACTS, "runtime-manifest.lock.json"), "utf8"));
   const node = runtimeResourceFor(manifest, "node-npm-runtime");
+  const openclaw = runtimeResourceFor(manifest, "openclaw-runtime");
   const ollama = runtimeResourceFor(manifest, "ollama-runtime");
   const ollamaArtifact = bundledArtifactFor(ollama, "file");
+  const openclawArtifact = bundledArtifactFor(openclaw, "directory");
   bundledArtifactFor(node, "directory");
   const nodeDir = resolve(APP_RUNTIME_ARTIFACTS, "node", currentNodeDistName(node.version));
+  const openclawBin = resolve(APP_RUNTIME_ARTIFACTS, openclawArtifact.path, "node_modules", ".bin", "openclaw");
   const ollamaPath = resolve(APP_RUNTIME_ARTIFACTS, ollamaArtifact.path);
 
   await requireExecutablePath(resolve(nodeDir, "bin/node"), "Packaged Node.js runtime node is not executable.");
@@ -449,7 +452,20 @@ async function assertPackagedCliRuntimeArtifacts() {
     "Packaged Node.js runtime npm CLI cannot run through node.",
     packagedRuntimeEnv(nodeDir)
   );
+  await requireExecutablePath(openclawBin, "Packaged OpenClaw runtime CLI is not executable.");
+  await runPackagedRuntimeCommand(
+    openclawBin,
+    ["--version"],
+    "Packaged OpenClaw runtime CLI cannot run.",
+    packagedRuntimeEnv(nodeDir)
+  );
   await requireExecutablePath(ollamaPath, "Packaged Ollama runtime is missing the runnable ollama CLI binary.");
+  await runPackagedRuntimeCommand(
+    ollamaPath,
+    ["--version"],
+    "Packaged Ollama runtime CLI cannot run.",
+    packagedRuntimeEnv(nodeDir)
+  );
 }
 
 function currentNodeDistName(version) {

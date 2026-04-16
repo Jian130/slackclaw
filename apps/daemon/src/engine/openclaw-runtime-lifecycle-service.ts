@@ -862,7 +862,7 @@ export class OpenClawRuntimeLifecycleService {
       summary: this.access.openClawVersionSummary(data.cliVersion),
       detail: this.access.versionOverride
         ? "ChillClaw is running with an explicit OpenClaw version override."
-        : "ChillClaw uses the latest available OpenClaw release for new installs.",
+        : `ChillClaw uses OpenClaw ${this.access.installTarget} for new installs.`,
       remediationActionIds: this.access.versionOverride && !this.access.isOpenClawVersionCompatible(data.cliVersion)
         ? ["rollback-update"]
         : []

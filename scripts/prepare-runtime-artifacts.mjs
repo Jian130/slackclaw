@@ -21,6 +21,7 @@ async function main() {
   const manifest = JSON.parse(await readFile(MANIFEST_PATH, "utf8"));
 
   await prepareNodeRuntime(resourceFor(manifest, "node-npm-runtime"));
+  await prepareOpenClawRuntime(resourceFor(manifest, "openclaw-runtime"));
   await prepareOllamaRuntime(resourceFor(manifest, "ollama-runtime"));
   await assertNoInstallerPayloads(ARTIFACT_ROOT);
 }
@@ -90,6 +91,28 @@ async function prepareNodeRuntime(resource) {
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+async function prepareOpenClawRuntime(resource) {
+  const artifact = bundledArtifact(resource, "directory");
+  const targetDir = resolve(ARTIFACT_ROOT, artifact.path);
+  const openclawBin = resolve(targetDir, "node_modules", ".bin", "openclaw");
+  const packageSpec = pinnedOpenClawPackageSpec(resource);
+
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  await run("npm", ["install", "--prefix", targetDir, packageSpec]);
+  await requireExecutablePath(openclawBin, "OpenClaw runtime package did not produce node_modules/.bin/openclaw.");
+  await run(openclawBin, ["--version"]);
+  log(`Prepared OpenClaw ${resource.version} runtime package at ${targetDir}.`);
+}
+
+function pinnedOpenClawPackageSpec(resource) {
+  const version = resource.version?.trim();
+  if (!version || version === "latest") {
+    throw new Error("openclaw-runtime must pin a concrete version before preparing bundled artifacts.");
+  }
+  return `openclaw@${version}`;
 }
 
 function currentNodeDistName(version) {

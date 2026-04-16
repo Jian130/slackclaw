@@ -85,6 +85,8 @@ import {
   getManagedNodeBinPath,
   getManagedOpenClawBinPath,
   getManagedOpenClawDir,
+  getManagedOpenClawHomeDir,
+  getManagedOpenClawStateDir,
   getManagedWechatInstallerDir
 } from "../runtime-paths.js";
 import { errorToLogDetails, formatConsoleLine, logDevelopmentCommand, writeErrorLog, writeInfoLog } from "../services/logger.js";
@@ -429,8 +431,9 @@ function getOpenClawStatePath(): string {
   return resolve(getDataDir(), "openclaw-state.json");
 }
 const OPENCLAW_VERSION_OVERRIDE = process.env.CHILLCLAW_OPENCLAW_VERSION?.trim() || undefined;
-const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
-const OPENCLAW_PACKAGE_SPEC = OPENCLAW_VERSION_OVERRIDE ? `openclaw@${OPENCLAW_VERSION_OVERRIDE}` : "openclaw@latest";
+const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "2026.3.11";
+const OPENCLAW_PACKAGE_SPEC = `openclaw@${OPENCLAW_INSTALL_TARGET}`;
+const OPENCLAW_RUNTIME_PREFERENCE_ENV = "CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE";
 const WECHAT_INSTALLER_PACKAGE_SPEC = "@tencent-weixin/openclaw-weixin-cli@latest";
 const PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY = "openclaw-weixin";
 const FEISHU_BUNDLED_SINCE = "2026.3.7";
@@ -467,6 +470,8 @@ interface CommandInvocation {
   argsPrefix: string[];
   display: string;
 }
+
+type OpenClawRuntimePreference = "auto" | "managed-local" | "environment";
 
 interface RuntimeModelAuthSession extends ModelAuthSession {
   child?: ReturnType<typeof spawn>;
@@ -759,9 +764,10 @@ async function resolveStickyCommand(
 }
 
 function buildCommandEnv(command?: string, envOverrides?: Record<string, string | undefined>): NodeJS.ProcessEnv {
+  const includeManagedNodeBin = readOpenClawRuntimePreference() !== "environment";
   const pathEntries = [
     command && command.startsWith("/") ? dirname(command) : undefined,
-    getManagedNodeBinDir(),
+    includeManagedNodeBin ? getManagedNodeBinDir() : undefined,
     ...(process.env.PATH ? process.env.PATH.split(delimiter) : []),
     "/opt/homebrew/bin",
     "/usr/local/bin",
@@ -776,6 +782,10 @@ function buildCommandEnv(command?: string, envOverrides?: Record<string, string 
     PATH: [...new Set(pathEntries)].join(delimiter),
     NO_COLOR: "1"
   };
+  if (shouldUseManagedOpenClawHome(command)) {
+    env.HOME = getManagedOpenClawHomeDir();
+    env.OPENCLAW_STATE_DIR = getManagedOpenClawStateDir();
+  }
 
   for (const [key, value] of Object.entries(envOverrides ?? {})) {
     if (value === undefined) {
@@ -1086,7 +1096,71 @@ async function probeCommand(command: string, args: string[] = ["--version"]): Pr
   });
 }
 
+function readOpenClawRuntimePreference(): OpenClawRuntimePreference {
+  const normalized = process.env[OPENCLAW_RUNTIME_PREFERENCE_ENV]?.trim().toLowerCase();
+
+  if (!normalized || normalized === "auto") {
+    return "auto";
+  }
+
+  if (normalized === "managed" || normalized === "managed-local") {
+    return "managed-local";
+  }
+
+  if (normalized === "environment" || normalized === "system") {
+    return "environment";
+  }
+
+  throw new Error(
+    `${OPENCLAW_RUNTIME_PREFERENCE_ENV} must be one of: auto, managed, managed-local, environment, system.`
+  );
+}
+
+function usesManagedOpenClawHomeByDefault(): boolean {
+  const preference = readOpenClawRuntimePreference();
+
+  if (preference === "managed-local") {
+    return true;
+  }
+
+  if (preference === "environment") {
+    return false;
+  }
+
+  return Boolean(getAppRootDir());
+}
+
+function commandUsesManagedOpenClaw(command: string | undefined): boolean {
+  if (!command || !command.startsWith("/")) {
+    return false;
+  }
+
+  return resolve(command) === resolve(getManagedOpenClawBinPath());
+}
+
+function shouldUseManagedOpenClawHome(command?: string): boolean {
+  return usesManagedOpenClawHomeByDefault() || commandUsesManagedOpenClaw(command);
+}
+
+function defaultOpenClawStateDir(command?: string): string {
+  if (shouldUseManagedOpenClawHome(command)) {
+    return getManagedOpenClawStateDir();
+  }
+
+  return process.env.OPENCLAW_STATE_DIR?.trim() || resolve(process.env.HOME ?? "", ".openclaw");
+}
+
 async function resolveOpenClawCommand(options?: { fresh?: boolean }): Promise<string | undefined> {
+  const preference = readOpenClawRuntimePreference();
+
+  if (preference === "managed-local") {
+    return resolveManagedOpenClawCommand(options);
+  }
+
+  if (preference === "environment") {
+    return resolveSystemOpenClawCommand(options);
+  }
+
   return (await resolveManagedOpenClawCommand(options)) ?? (await resolveSystemOpenClawCommand(options));
 }
 
@@ -1377,7 +1451,7 @@ function isOpenClawVersionCompatible(version: string | undefined): boolean {
 }
 
 function openClawInstallTargetSummary(): string {
-  return OPENCLAW_VERSION_OVERRIDE ?? "the latest available version";
+  return OPENCLAW_INSTALL_TARGET;
 }
 
 function openClawVersionSummary(version: string | undefined): string {
@@ -1386,7 +1460,7 @@ function openClawVersionSummary(version: string | undefined): string {
   }
 
   if (!OPENCLAW_VERSION_OVERRIDE) {
-    return `OpenClaw ${version} is installed. ChillClaw uses the latest available version for new installs.`;
+    return `OpenClaw ${version} is installed. ChillClaw uses OpenClaw ${OPENCLAW_INSTALL_TARGET} for new installs.`;
   }
 
   return isOpenClawVersionCompatible(version)
@@ -2210,12 +2284,12 @@ function normalizeOpenClawGatewayConfigForChillClaw(config: OpenClawConfigFileJs
   };
 }
 
-function defaultOpenClawConfigPath(): string {
-  return resolve(process.env.HOME ?? "", ".openclaw", "openclaw.json");
+function defaultOpenClawConfigPath(command?: string): string {
+  return resolve(defaultOpenClawStateDir(command), "openclaw.json");
 }
 
 function getMainOpenClawAgentDir(): string {
-  return resolve(process.env.HOME ?? "", ".openclaw", "agents", OPENCLAW_MAIN_AGENT_ID, "agent");
+  return resolve(defaultOpenClawStateDir(), "agents", OPENCLAW_MAIN_AGENT_ID, "agent");
 }
 
 function getManagedMemberAgentPaths(memberId: string): { rootDir: string; agentDir: string; workspaceDir: string } {
@@ -3152,7 +3226,7 @@ export class OpenClawAdapter implements EngineAdapter {
       "macOS",
       "ChillClaw-managed Node.js and npm runtime",
       "pnpm only if you build OpenClaw from source",
-      "Permission to install or reuse the latest available OpenClaw CLI"
+      `Permission to install or reuse OpenClaw ${OPENCLAW_INSTALL_TARGET}`
     ],
     installPath: getManagedOpenClawDir()
   };
@@ -3642,7 +3716,7 @@ export class OpenClawAdapter implements EngineAdapter {
       safeJsonPayloadParse<OpenClawModelStatusJson>(result.stdout) ??
       safeJsonPayloadParse<OpenClawModelStatusJson>(result.stderr);
 
-    return status?.configPath ?? defaultOpenClawConfigPath();
+    return status?.configPath ?? defaultOpenClawConfigPath(command);
   }
 
   private async ensureChillClawGatewayConfigBaseline(command: string | undefined): Promise<boolean> {

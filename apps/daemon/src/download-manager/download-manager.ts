@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { copyFile, mkdir, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -14,6 +14,7 @@ import type {
   DownloadRequest,
   DownloadSource
 } from "@chillclaw/contracts";
+import { getAvailableDiskBytes } from "../platform/disk-space.js";
 
 const ACTIVE_DOWNLOAD_STATUSES = new Set<DownloadJobStatus>([
   "queued",
@@ -424,9 +425,7 @@ export class DownloadManager {
     if (!requiredBytes) {
       return;
     }
-    const probe = await resolveDiskProbePath(dirname(job.destinationPath));
-    const stats = await statfs(probe);
-    const freeBytes = stats.bavail * stats.bsize;
+    const freeBytes = await getAvailableDiskBytes(dirname(job.destinationPath));
     if (freeBytes < requiredBytes) {
       throw toRetryableError("ChillClaw needs more free disk space before starting this download.", false, "disk-space");
     }
@@ -700,25 +699,6 @@ async function fileSize(path: string): Promise<number> {
       return 0;
     }
     throw error;
-  }
-}
-
-async function resolveDiskProbePath(targetPath: string): Promise<string> {
-  let candidate = targetPath;
-  for (;;) {
-    try {
-      await stat(candidate);
-      return candidate;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
-      const parent = dirname(candidate);
-      if (parent === candidate) {
-        return candidate;
-      }
-      candidate = parent;
-    }
   }
 }
 

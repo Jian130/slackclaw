@@ -132,11 +132,11 @@ This reference maps the current ChillClaw workflow surface to the code paths tha
 
 - Runtime progress and completion events come from `EventPublisher.publishRuntimeProgress()`, `publishRuntimeCompleted()`, and `publishRuntimeUpdateStaged()`.
 - Web and native event decoders handle `runtime.progress`, `runtime.completed`, and `runtime.update-staged`.
-- macOS release packaging prepares runnable CLI artifacts, then stages them with runtime manifests under `Contents/Resources/app/runtime-artifacts`.
+- macOS release packaging prepares runnable CLI artifacts, including the pinned installed OpenClaw runtime prefix, then stages them with runtime manifests under `Contents/Resources/app/runtime-artifacts`.
 
-### Notable gap
+### Packaged OpenClaw runtime
 
-- The managed OpenClaw manifest supports a bundled artifact path, but release packaging still needs to produce a concrete pinned OpenClaw artifact before npm fallback becomes only a recovery path.
+- The managed OpenClaw manifest points at a concrete pinned runtime artifact. Release packaging prepares that installed prefix before staging the app, so the daemon can copy the bundled runtime into app data and keep npm as a development or recovery fallback.
 
 ## 4. Deploy, install, update, uninstall, and service lifecycle
 

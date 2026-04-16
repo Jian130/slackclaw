@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 2026-04-16 13:22 CST
+
+- pinned ChillClaw-managed OpenClaw installs and packaged runtime artifacts to OpenClaw 2026.3.11, preparing a bundled installed prefix during release artifact staging and copying directory artifacts into app data before gateway setup
+- isolated managed OpenClaw command state under ChillClaw data, including personal WeChat helper commands and the default `npm start` managed-runtime path, while keeping `CHILLCLAW_DEV_RUNTIME=environment` available for debugging against a shell-provided OpenClaw instance
+- hardened macOS runtime packaging and signing by validating packaged OpenClaw and Ollama CLIs, signing all Mach-O runtime payloads with the correct Node.js entitlements, and fetching Apple notary logs before refusing to staple rejected DMGs
+- moved disk-space checks behind a shared POSIX `df` probe so download, overview, and local-model runtime checks stay compatible with packaged Node.js builds
+
 ### 2026-04-15 20:03 CST
 
 - reordered the React and native macOS sidebars around the daily workflow path, adding the deployment screen back as `Claws` in the third slot and renaming the plugins entry to `Tools (plugins)` while keeping hidden AI member and team screens reachable through internal flows

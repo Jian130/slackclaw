@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { existsSync } from "node:fs";
 import net from "node:net";
 import { resolve } from "node:path";
 import process from "node:process";
@@ -14,12 +14,12 @@ import {
   writeDevProcessState
 } from "./dev-process-control.mjs";
 import { writeScriptLogLine } from "./logging.mjs";
+import { createDevRuntimeConfig, prepareDevRuntime } from "./start-dev-runtime.mjs";
 
 const rootDir = process.cwd();
 const daemonPort = Number(process.env.CHILLCLAW_PORT ?? "4545");
 const uiPort = Number(process.env.CHILLCLAW_UI_PORT ?? "4173");
 const viteBinPath = resolve(rootDir, "node_modules", "vite", "bin", "vite.js");
-const devLogDir = resolve(rootDir, "apps/daemon/.data/logs");
 const SCRIPT_LABEL = "ChillClaw start";
 
 let daemonProcess = null;
@@ -42,28 +42,6 @@ function shellQuote(value) {
   }
 
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
-}
-
-function slugForLabel(label) {
-  return (
-    label
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/gu, "-")
-      .replace(/^-|-$/gu, "") || "process"
-  );
-}
-
-function openBackgroundLogs(label) {
-  mkdirSync(devLogDir, { recursive: true });
-  const slug = slugForLabel(label);
-  const stdoutPath = resolve(devLogDir, `${slug}.out.log`);
-  const stderrPath = resolve(devLogDir, `${slug}.err.log`);
-
-  return {
-    stdoutPath,
-    stderrPath,
-    stdio: ["ignore", openSync(stdoutPath, "a"), openSync(stderrPath, "a")]
-  };
 }
 
 function fail(message) {
@@ -150,12 +128,10 @@ function runBackgroundStep(label, command, args, options = {}) {
   const { cwd = rootDir, extraEnv = {} } = options;
   logStep(label, { step: true });
   logStep(`Launching: ${command} ${args.map((arg) => shellQuote(arg)).join(" ")}`);
-  const logs = openBackgroundLogs(label);
-  logStep(`${label} logs: ${logs.stdoutPath} and ${logs.stderrPath}`);
 
   const child = spawn(command, args, {
     cwd,
-    stdio: logs.stdio,
+    stdio: "inherit",
     detached: true,
     env: {
       ...process.env,
@@ -191,7 +167,6 @@ function runBackgroundStep(label, command, args, options = {}) {
     void shutdown(code ?? 1);
   });
 
-  child.unref();
   return child;
 }
 
@@ -329,6 +304,13 @@ process.on("unhandledRejection", (error) => {
 
 async function main() {
   logStep("Starting ChillClaw local development environment");
+  let devRuntimeConfig;
+  try {
+    devRuntimeConfig = createDevRuntimeConfig({ rootDir, env: process.env });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "Invalid ChillClaw dev runtime configuration.");
+  }
+
   ensureLocalDependencies();
   logStep("Checking for an existing managed ChillClaw dev session", { step: true });
   const orphanedProcesses = await findRecoverableDevProcesses({
@@ -347,13 +329,15 @@ async function main() {
   await assertNoManagedProcessesRunning();
   logStep("No managed ChillClaw dev processes are already running.");
 
-  logStep("Skipping OpenClaw bootstrap during npm start. Use the ChillClaw install flow or run `npm run bootstrap:openclaw` manually if needed.");
   await runBlockingStep("Building shared contracts", "npm", ["run", "build", "--workspace", "@chillclaw/contracts"]);
   await runBlockingStep("Building daemon", "npm", ["run", "build", "--workspace", "@chillclaw/daemon"]);
+  await prepareDevRuntime({ config: devRuntimeConfig, runBlockingStep, logStep });
   await ensurePortIsFree("Daemon", "127.0.0.1", daemonPort);
   await ensurePortIsFree("UI", "127.0.0.1", uiPort);
 
-  daemonProcess = runBackgroundStep("Starting daemon", "node", ["./apps/daemon/dist/index.js"]);
+  daemonProcess = runBackgroundStep("Starting daemon", "node", ["./apps/daemon/dist/index.js"], {
+    extraEnv: devRuntimeConfig.extraEnv
+  });
   await writeDevProcessState({
     startedAt: new Date().toISOString(),
     rootDir,

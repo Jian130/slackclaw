@@ -120,7 +120,7 @@ jobs:
                 codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$RUNTIME_EXECUTABLE"
               fi
             fi
-          done < <(find "$APP_PATH/Contents/Resources/app/runtime-artifacts" -type f -perm -111 -print0)
+          done < <(find "$APP_PATH/Contents/Resources/app/runtime-artifacts" -type f -print0)
           codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp --entitlements "$DAEMON_ENTITLEMENTS" "$APP_PATH/Contents/Resources/runtime/chillclaw-daemon"
           codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$APP_PATH/Contents/MacOS/ChillClaw"
           codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp "$APP_PATH"
@@ -142,15 +142,50 @@ jobs:
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          parse_notary_field() {
+            local field="$1"
+            node -e '
+const field = process.argv[1];
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+});
+process.stdin.on("end", () => {
+  const payload = JSON.parse(input);
+  const value = payload[field];
+  if (value) {
+    process.stdout.write(String(value));
+  }
+});
+' "$field"
+          }
+
           NOTARY_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
           node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from(process.env.APPLE_NOTARY_API_KEY_BASE64, "base64"));' "$NOTARY_KEY_PATH"
 
-          xcrun notarytool submit "$INSTALLER_PATH" \
+          NOTARY_RESULT="$(xcrun notarytool submit "$INSTALLER_PATH" \
             --key "$NOTARY_KEY_PATH" \
             --key-id "$APPLE_NOTARY_KEY_ID" \
             --issuer "$APPLE_NOTARY_ISSUER_ID" \
             --team-id "$APPLE_TEAM_ID" \
-            --wait
+            --wait \
+            --output-format json)"
+          printf '%s\n' "$NOTARY_RESULT"
+
+          NOTARY_STATUS="$(printf '%s\n' "$NOTARY_RESULT" | parse_notary_field status)"
+          NOTARY_SUBMISSION_ID="$(printf '%s\n' "$NOTARY_RESULT" | parse_notary_field id)"
+          if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
+            if [[ -n "$NOTARY_SUBMISSION_ID" ]]; then
+              xcrun notarytool log "$NOTARY_SUBMISSION_ID" \
+                --key "$NOTARY_KEY_PATH" \
+                --key-id "$APPLE_NOTARY_KEY_ID" \
+                --issuer "$APPLE_NOTARY_ISSUER_ID" \
+                --team-id "$APPLE_TEAM_ID" || true
+            fi
+            echo "Apple notarization finished with status ${NOTARY_STATUS:-unknown}; not stapling invalid DMG." >&2
+            exit 1
+          fi
 
           xcrun stapler staple "$INSTALLER_PATH"
           spctl --assess --type open --context context:primary-signature --verbose=2 "$INSTALLER_PATH"

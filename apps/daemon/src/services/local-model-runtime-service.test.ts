@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   GatewayActionResponse,
@@ -21,6 +22,8 @@ import {
 import { getManagedOllamaCliPath } from "../runtime-paths.js";
 
 type LocalModelRuntimeAccess = ConstructorParameters<typeof LocalModelRuntimeService>[0];
+
+const sourceDir = dirname(fileURLToPath(import.meta.url));
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -458,4 +461,14 @@ test("resolveDiskProbePath falls back to the nearest existing parent for first-r
   const resolvedPath = await resolveDiskProbePath(missingTarget);
 
   assert.equal(resolvedPath, existingParent);
+});
+
+test("packaged local runtime host inspection avoids pkg-incompatible disk imports", async () => {
+  const source = await readFile(resolve(sourceDir, "local-model-runtime-service.ts"), "utf8");
+
+  assert.match(source, /getAvailableDiskBytes/);
+  assert.match(source, /import \{ homedir, totalmem \} from "node:os";/);
+  assert.doesNotMatch(source, /await import\("node:fs\/promises"\)/);
+  assert.doesNotMatch(source, /await import\("node:os"\)/);
+  assert.doesNotMatch(source, /statfs/);
 });

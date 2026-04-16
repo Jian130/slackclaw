@@ -145,7 +145,8 @@ flowchart LR
 - `ChillClaw-macOS.dmg` lets users drag `ChillClaw.app` into `/Applications`.
 - The app bundle contains the native macOS client, the built fallback React UI, the daemon, LaunchAgent helper scripts, and OpenClaw bootstrap/install logic.
 - OpenClaw itself is reused when an existing install is already available, or deployed into ChillClaw-managed local app data when setup needs to install it. Clean Macs do not need Homebrew or a user-installed npm for the managed install path.
-- Runtime manifests and packaged CLI runtime artifacts are staged under `Contents/Resources/app/runtime-artifacts`; the LaunchAgent passes `CHILLCLAW_RUNTIME_BUNDLE_DIR`, `CHILLCLAW_RUNTIME_MANIFEST_PATH`, and optional `CHILLCLAW_RUNTIME_UPDATE_FEED_URL` to the daemon.
+- Runtime manifests and packaged CLI runtime artifacts are staged under `Contents/Resources/app/runtime-artifacts`; the packaged OpenClaw runtime is a pinned installed prefix that the daemon copies into app data before normal gateway setup. The LaunchAgent passes `CHILLCLAW_RUNTIME_BUNDLE_DIR`, `CHILLCLAW_RUNTIME_MANIFEST_PATH`, and optional `CHILLCLAW_RUNTIME_UPDATE_FEED_URL` to the daemon.
+- The packaged Node.js runtime is signing-sensitive: release signing must apply `scripts/macos-node-runtime-entitlements.plist` to `runtime-artifacts/node/node-v*/bin/node` so V8 can run on Apple Silicon under hardened runtime. Missing this entitlement causes clean Mac onboarding to fail with "bundled Node.js runtime is not runnable."
 - Stable macOS releases are published from protected GitHub tags in the form `vX.Y.Z`. The packaged app update check and the public website download button both resolve through GitHub Releases rather than hard-coded release pages.
 - The tag-driven macOS release workflow signs the staged `ChillClaw.app`, builds the drag-to-Applications DMG from that signed app, signs and notarizes the DMG, then publishes `ChillClaw-macOS.dmg` and `ChillClaw-macOS.dmg.sha256.txt`.
 - The website always points at `releases/latest/download/ChillClaw-macOS.dmg`, so the public macOS download stays current when a new stable release is published.
@@ -200,14 +201,17 @@ The daemon defaults to `http://127.0.0.1:4545`.
 ### What `npm start` does
 
 - checks that local Node dependencies already exist
-- skips OpenClaw bootstrap so local dev startup does not install or modify the engine automatically
 - builds the shared contracts and daemon before launching them
+- prepares the ChillClaw-managed OpenClaw runtime by default, using repo-local dev data under `apps/daemon/.data`
+- uses a repo-local OpenClaw home at `.data/openclaw-home` in the default managed mode, so local debug startup does not touch your normal `~/.openclaw` config
 - starts the daemon and waits for port `4545` to open
 - starts the UI and waits for port `4173` to open
 - fails early if either expected port is already occupied
 - records the managed daemon and UI process IDs in `.data/dev-processes.json`
 - prints numbered, step-by-step console output so local development startup progress is visible
 - keeps both processes attached to the same terminal session so `Ctrl+C` shuts them down together
+
+Set `CHILLCLAW_DEV_RUNTIME=environment` when you want `npm start` to debug against the OpenClaw instance from your shell environment instead of ChillClaw's managed runtime. `CHILLCLAW_DEV_RUNTIME=system` is accepted as an alias. Managed mode is also explicit with `CHILLCLAW_DEV_RUNTIME=managed` or `CHILLCLAW_DEV_RUNTIME=managed-local`.
 
 ### What `npm stop` does
 
@@ -225,7 +229,7 @@ If you still want to run pieces separately for debugging:
 
 1. `npm run dev:daemon`
 2. `npm run dev:ui`
-3. optionally run `npm run bootstrap:openclaw` if you want to prepare OpenClaw ahead of time instead of using the in-product install flow
+3. optionally run `npm run bootstrap:openclaw` if you want to prepare an environment OpenClaw instance ahead of time instead of using the managed `npm start` path
 
 For the upstream OpenClaw CLI surface, config tree, and the exact commands ChillClaw uses today for install, models, channels, agents, and chat, see [docs/reference/openclaw-commands.md](docs/reference/openclaw-commands.md).
 
@@ -363,7 +367,8 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 ### Local OpenClaw deployment
 
 - Packaged ChillClaw prefers an existing `openclaw` install if one is already available.
-- If no install is found, ChillClaw deploys the ChillClaw-managed OpenClaw runtime into `~/Library/Application Support/ChillClaw/data/openclaw-runtime`. Packaged releases should prefer a pinned manifest artifact when available; the npm install path remains the development and recovery fallback.
+- If no install is found, ChillClaw deploys the ChillClaw-managed OpenClaw runtime into `~/Library/Application Support/ChillClaw/data/openclaw-runtime`. Packaged releases include a pinned OpenClaw runtime artifact and copy it into place; the npm install path remains the development and recovery fallback.
+- Managed OpenClaw commands run with an isolated OpenClaw home under ChillClaw data, so helper tools such as the personal WeChat installer do not read or mutate the user's normal `~/.openclaw` config.
 - Existing OpenClaw installs are reused when they are compatible, but ChillClaw now still normalizes the OpenClaw gateway baseline before treating that runtime as ready.
 - During install or reuse, ChillClaw forces the OpenClaw gateway config back to ChillClaw's safe local baseline: `gateway.mode=local`, `gateway.bind=loopback`, token auth enabled, existing token preserved when present, and inherited `gateway.remote` overrides removed.
 - Once that managed runtime exists, ChillClaw prefers it over an incompatible system-level OpenClaw.
@@ -380,7 +385,9 @@ Prepare the bundled CLI runtimes, then build a local smoke testing macOS app bun
 
 `npm run build:mac-installer`
 
-The prepare step downloads and stages the extracted Node.js runtime directory for the current Mac architecture plus the standalone `ollama` CLI binary under `runtime-artifacts`. The installer builder requires those runnable CLI payloads and executes the packaged Node/npm binaries during staging so a DMG cannot ship with a manifest that points at missing or wrong-architecture runtime files. It deliberately does not stage `Ollama.app`, `Ollama.dmg`, or other runtime installer/UI payloads.
+The prepare step downloads and stages the extracted Node.js runtime directory for the current Mac architecture, installs the pinned OpenClaw runtime prefix, and stages the standalone `ollama` CLI binary under `runtime-artifacts`. The installer builder requires those runnable CLI payloads and executes the packaged Node/npm/OpenClaw binaries during staging so a DMG cannot ship with a manifest that points at missing or wrong-architecture runtime files. It deliberately does not stage `Ollama.app`, `Ollama.dmg`, or other runtime installer/UI payloads.
+
+For signed macOS releases, packaged `node` is signed with `scripts/macos-node-runtime-entitlements.plist`; other runtime executables keep standard hardened-runtime signing. The unsigned local installer smoke build proves staged payload layout and runnability on the build Mac, but it does not prove Developer ID hardened-runtime entitlement behavior on another Mac.
 
 This installer build compiles the packaged app prerequisites:
 
@@ -425,6 +432,8 @@ For a local Developer ID signed and notarized DMG that can be tested on another 
 `npm run build:mac-signed-installer`
 
 This command prepares the bundled CLI runtimes, stages `ChillClaw.app`, signs the packaged runtime executables, daemon, native executable, app bundle, and DMG, submits the DMG to Apple notary, staples the ticket, runs Gatekeeper assessment, and writes `dist/macos/ChillClaw-macOS.dmg.sha256.txt`.
+
+When testing on a clean Apple Silicon Mac, use the signed/notarized path or release CI output to catch Node runtime entitlement regressions before onboarding reaches step 2.
 
 Release CI uses the same installer builder in two phases: `--stage-only` creates the app bundle for signing, and `--dmg-only` creates the final DMG from that signed staged app.
 Use the signed and notarized GitHub release DMG for other computers.

@@ -9,6 +9,14 @@ export function getManagedOpenClawDir(): string {
   return resolve(getDataDir(), "openclaw-runtime");
 }
 
+export function getManagedOpenClawHomeDir(): string {
+  return resolve(getDataDir(), "openclaw-home");
+}
+
+export function getManagedOpenClawStateDir(): string {
+  return resolve(getManagedOpenClawHomeDir(), ".openclaw");
+}
+
 export function getManagedOpenClawBinPath(): string {
   return resolve(getManagedOpenClawDir(), "node_modules", ".bin", "openclaw");
 }

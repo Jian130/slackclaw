@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-04-13T00:00:00.000Z",
+  "generatedAt": "2026-04-15T00:00:00.000Z",
   "resources": [
     {
       "id": "node-npm-runtime",
@@ -30,7 +30,7 @@
       "id": "openclaw-runtime",
       "kind": "engine",
       "label": "OpenClaw runtime",
-      "version": "latest",
+      "version": "2026.3.11",
       "platforms": [
         {
           "os": "darwin",
@@ -44,8 +44,8 @@
       "artifacts": [
         {
           "source": "bundled",
-          "format": "tgz",
-          "path": "openclaw/openclaw-runtime.tgz"
+          "format": "directory",
+          "path": "openclaw/openclaw-runtime"
         }
       ],
       "dependencies": ["node-npm-runtime"]

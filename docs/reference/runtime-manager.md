@@ -82,7 +82,9 @@ Release packaging prepares those payloads with:
 
 `npm run prepare:runtime-artifacts`
 
-That script fills `runtime-artifacts/node/...` with the runnable Node.js distribution and `runtime-artifacts/ollama/ollama` with the runnable Ollama CLI. It rejects installer/UI payloads such as `.app`, `.dmg`, and `.pkg` files.
+That script fills `runtime-artifacts/node/...` with the runnable Node.js distribution, `runtime-artifacts/openclaw/openclaw-runtime` with the pinned installed OpenClaw prefix, and `runtime-artifacts/ollama/ollama` with the runnable Ollama CLI. It rejects installer/UI payloads such as `.app`, `.dmg`, and `.pkg` files.
+
+On macOS, release signing has one special case: `runtime-artifacts/node/node-v*/bin/node` must be signed with `scripts/macos-node-runtime-entitlements.plist`, which grants V8 JIT/executable-memory entitlements. Signing packaged Node.js with hardened-runtime defaults only can pass local staging but fail first-run onboarding on clean Apple Silicon Macs after the daemon copies the runtime into app data.
 
 ## Lifecycle
 
@@ -147,6 +149,7 @@ Shared contracts:
 ### OpenClaw
 
 Managed-local OpenClaw install asks the Runtime Manager to prepare `openclaw-runtime`.
+Managed OpenClaw commands also receive ChillClaw's isolated OpenClaw home/state directory in their environment, so plugin helpers and nested `openclaw` invocations stay inside the managed runtime boundary.
 
 The Runtime Manager provides the executable/runtime. `OpenClawAdapter` still owns:
 
@@ -195,7 +198,9 @@ The LaunchAgent installer writes runtime environment entries for:
 - `CHILLCLAW_RUNTIME_MANIFEST_PATH`
 - `CHILLCLAW_RUNTIME_UPDATE_FEED_URL`
 
-Stable release packaging runs `npm run prepare:runtime-artifacts` before staging the app, then requires the packaged Node.js directory and Ollama CLI binary to be present. Local smoke builds may still run without prefilled artifacts when testing only installer structure.
+Stable release packaging runs `npm run prepare:runtime-artifacts` before staging the app, then requires the packaged Node.js directory, pinned OpenClaw runtime directory, and Ollama CLI binary to be present. Local smoke builds may still run without prefilled artifacts when testing only installer structure.
+
+Runtime preparation and provider verification should log the probed command, exit code, signal, and stdout/stderr snippets when packaged Node.js or npm fails. A silent `node` or `npm` failure after copying a bundled runtime is a release-blocking packaging/signing signal, not a reason to fall back to user PATH state.
 
 ## Testing expectations
 
@@ -220,4 +225,6 @@ Packaging tests should cover:
 
 - staged app includes `runtime-artifacts/runtime-manifest.lock.json`
 - LaunchAgent installer includes runtime env vars
+- packaged OpenClaw artifacts are pinned and installable without consulting upstream `latest`
 - packaged executable runtime artifacts keep required executable permissions and entitlements
+- macOS signed packaging applies the Node.js runtime entitlements file to packaged `node`, especially for Apple Silicon clean-machine smoke tests

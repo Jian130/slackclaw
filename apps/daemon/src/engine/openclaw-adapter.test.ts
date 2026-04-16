@@ -531,6 +531,7 @@ async function withFakeOpenClaw(
     minimaxCatalog?: boolean;
     staleManagedMemberAgent?: boolean;
     bindConflictWithStaleOwner?: boolean;
+    systemOpenClawVersion?: string;
   }
 ): Promise<void> {
   const previousLock = fakeOpenClawLock;
@@ -588,6 +589,7 @@ async function withFakeOpenClaw(
   const minimaxCatalog = options?.minimaxCatalog === true;
   const staleManagedMemberAgent = options?.staleManagedMemberAgent === true;
   const bindConflictWithStaleOwner = options?.bindConflictWithStaleOwner === true;
+  const systemOpenClawVersion = options?.systemOpenClawVersion;
   const chatHistoryPayload =
     options?.chatHistoryPayload ??
     '{"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
@@ -674,6 +676,8 @@ EOF
   cat > "$prefix/node_modules/.bin/weixin-installer" <<'EOF'
 #!/bin/sh
 echo "$0 $*" >> "$OPENCLAW_TEST_LOG"
+echo "WEIXIN_HOME=$HOME" >> "$OPENCLAW_TEST_LOG"
+echo "WEIXIN_STATE_DIR=$OPENCLAW_STATE_DIR" >> "$OPENCLAW_TEST_LOG"
 if [ "$1" = "install" ]; then
   echo 'Installing WeChat runtime helper'
   echo 'Scan the QR code from WeChat on your phone to continue.'
@@ -694,6 +698,26 @@ exit 1
 `
   );
   await chmod(npmPath, 0o755);
+  if (systemOpenClawVersion) {
+    await writeFile(
+      join(binDir, "openclaw"),
+      `#!/bin/sh
+echo "system $*" >> "$OPENCLAW_TEST_LOG"
+if [ "$1" = "--version" ]; then
+  echo ${JSON.stringify(systemOpenClawVersion)}
+elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
+  echo '{"setup":{"required":false},"gateway":{"reachable":true},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"rpc":{"ok":true},"service":{"installed":true,"loaded":true}}'
+elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"configPath":${JSON.stringify(configPath)},"agentDir":${JSON.stringify(agentDirPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
+else
+  echo '{}'
+fi
+`
+    );
+    await chmod(join(binDir, "openclaw"), 0o755);
+  }
   await writeFile(
     binaryPath,
     `#!/bin/sh
@@ -1698,6 +1722,27 @@ test("personal WeChat runs the installer command and starts a channel session lo
   });
 });
 
+test("personal WeChat installer uses ChillClaw's managed OpenClaw home", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath, dataDir }) => {
+    const result = await adapter.config.saveChannelEntry({
+      channelId: "wechat",
+      action: "save",
+      values: {}
+    });
+    assert.ok(result.session);
+
+    const commands = await waitForTestValue(
+      () => readCommands(logPath),
+      (loggedCommands) => loggedCommands.some((command) => /weixin-installer install$/.test(command)),
+      (loggedCommands) => `Timed out waiting for personal WeChat installer command:\n${loggedCommands?.join("\n") ?? "(none)"}`
+    );
+    const managedHome = join(dataDir, "openclaw-home");
+
+    assert.equal(commands.includes(`WEIXIN_HOME=${managedHome}`), true, commands.join("\n"));
+    assert.equal(commands.includes(`WEIXIN_STATE_DIR=${join(managedHome, ".openclaw")}`), true, commands.join("\n"));
+  });
+});
+
 test("personal WeChat captures installer output that only appears on an interactive TTY", async () => {
   await withFakeOpenClaw(async ({ adapter }) => {
     const result = await adapter.config.saveChannelEntry({
@@ -2257,23 +2302,51 @@ test("engine status and health checks share one version, status, and gateway rea
   });
 });
 
-test("installSpec reports latest by default", () => {
+test("installSpec reports the pinned OpenClaw version by default", () => {
   const adapter = new OpenClawAdapter();
 
-  assert.equal(adapter.installSpec.desiredVersion, "latest");
+  assert.equal(adapter.installSpec.desiredVersion, "2026.3.11");
   assert.equal(
-    adapter.installSpec.prerequisites.includes("Permission to install or reuse the latest available OpenClaw CLI"),
+    adapter.installSpec.prerequisites.includes("Permission to install or reuse OpenClaw 2026.3.11"),
     true
   );
 });
 
-test("deployment targets report latest as the desired install version by default", async () => {
+test("deployment targets report the pinned OpenClaw version by default", async () => {
   await withFakeOpenClaw(async ({ adapter }) => {
     const overview = await adapter.getDeploymentTargets();
 
-    assert.equal(overview.targets[0]?.desiredVersion, "latest");
-    assert.equal(overview.targets[1]?.desiredVersion, "latest");
+    assert.equal(overview.targets[0]?.desiredVersion, "2026.3.11");
+    assert.equal(overview.targets[1]?.desiredVersion, "2026.3.11");
   });
+});
+
+test("environment runtime preference ignores a managed OpenClaw command", async () => {
+  const originalPreference = process.env.CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE;
+  process.env.CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE = "environment";
+
+  try {
+    await withFakeOpenClaw(
+      async ({ adapter, logPath }) => {
+        const status = await adapter.status();
+        const commands = await readCommands(logPath);
+
+        assert.equal(status.installed, true);
+        assert.equal(status.version, "2026.3.21");
+        assert.equal(commands.includes("system --version"), true);
+        assert.equal(commands.includes("--version"), false);
+      },
+      {
+        systemOpenClawVersion: "2026.3.21"
+      }
+    );
+  } finally {
+    if (originalPreference === undefined) {
+      delete process.env.CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE;
+    } else {
+      process.env.CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE = originalPreference;
+    }
+  }
 });
 
 test("install refreshes managed-local command resolution after npm creates the runtime", async () => {
@@ -2440,6 +2513,8 @@ if [ "$1" = "--version" ]; then
   echo "2026.3.13"
 elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
   echo '{"configPath":${JSON.stringify(configPath)},"setup":{"required":false},"gateway":{"reachable":false},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"configPath":${JSON.stringify(configPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
 elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   echo '{"rpc":{"ok":false,"error":"gateway url override requires explicit credentials"},"service":{"installed":true,"loaded":true}}'
 elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then

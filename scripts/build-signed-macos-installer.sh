@@ -72,6 +72,25 @@ require_command() {
   fi
 }
 
+parse_notary_field() {
+  local field="$1"
+  node -e '
+const field = process.argv[1];
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+});
+process.stdin.on("end", () => {
+  const payload = JSON.parse(input);
+  const value = payload[field];
+  if (value) {
+    process.stdout.write(String(value));
+  }
+});
+' "$field"
+}
+
 notary_key_path() {
   case "$APPLE_NOTARY_KEY_PATH" in
     "~/"*) printf '%s/%s\n' "$HOME" "${APPLE_NOTARY_KEY_PATH#"~/"}" ;;
@@ -156,6 +175,7 @@ fi
 require_command codesign
 require_command file
 require_command find
+require_command node
 require_command npm
 require_command security
 require_command shasum
@@ -202,11 +222,11 @@ fi
 
 log_artifact_summary
 
-log "Signing packaged runtime executables"
+log "Signing packaged runtime Mach-O files"
 SIGNED_RUNTIME_COUNT=0
 while IFS= read -r -d '' RUNTIME_EXECUTABLE; do
   if file "$RUNTIME_EXECUTABLE" | grep -q 'Mach-O'; then
-    log "Signing runtime executable: $RUNTIME_EXECUTABLE ($(file "$RUNTIME_EXECUTABLE"))"
+    log "Signing runtime Mach-O file: $RUNTIME_EXECUTABLE ($(file "$RUNTIME_EXECUTABLE"))"
     if is_node_runtime_executable "$RUNTIME_EXECUTABLE"; then
       codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp --entitlements "$NODE_RUNTIME_ENTITLEMENTS" "$RUNTIME_EXECUTABLE"
     else
@@ -214,8 +234,8 @@ while IFS= read -r -d '' RUNTIME_EXECUTABLE; do
     fi
     SIGNED_RUNTIME_COUNT=$((SIGNED_RUNTIME_COUNT + 1))
   fi
-done < <(find "$APP_PATH/Contents/Resources/app/runtime-artifacts" -type f -perm -111 -print0)
-log "Signed $SIGNED_RUNTIME_COUNT packaged runtime executable(s)"
+done < <(find "$APP_PATH/Contents/Resources/app/runtime-artifacts" -type f -print0)
+log "Signed $SIGNED_RUNTIME_COUNT packaged runtime Mach-O file(s)"
 
 log "Signing daemon, native executable, and app bundle"
 codesign --force --sign "$APP_IDENTITY" --options runtime --timestamp --entitlements "$DAEMON_ENTITLEMENTS" "$APP_PATH/Contents/Resources/runtime/chillclaw-daemon"
@@ -231,12 +251,28 @@ codesign --verify --verbose=2 "$INSTALLER_PATH"
 
 if [[ "$SKIP_NOTARIZE" == "0" ]]; then
   log "Submitting DMG to Apple notary service"
-  xcrun notarytool submit "$INSTALLER_PATH" \
+  NOTARY_RESULT="$(xcrun notarytool submit "$INSTALLER_PATH" \
     --key "$NOTARY_KEY_PATH" \
     --key-id "$APPLE_NOTARY_KEY_ID" \
     --issuer "$APPLE_NOTARY_ISSUER_ID" \
     --team-id "$APPLE_TEAM_ID" \
-    --wait
+    --wait \
+    --output-format json)"
+  printf '%s\n' "$NOTARY_RESULT"
+
+  NOTARY_STATUS="$(printf '%s\n' "$NOTARY_RESULT" | parse_notary_field status)"
+  NOTARY_SUBMISSION_ID="$(printf '%s\n' "$NOTARY_RESULT" | parse_notary_field id)"
+  if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
+    if [[ -n "$NOTARY_SUBMISSION_ID" ]]; then
+      log "Fetching Apple notary log for rejected submission $NOTARY_SUBMISSION_ID"
+      xcrun notarytool log "$NOTARY_SUBMISSION_ID" \
+        --key "$NOTARY_KEY_PATH" \
+        --key-id "$APPLE_NOTARY_KEY_ID" \
+        --issuer "$APPLE_NOTARY_ISSUER_ID" \
+        --team-id "$APPLE_TEAM_ID" || true
+    fi
+    fail "Apple notarization finished with status ${NOTARY_STATUS:-unknown}; not stapling invalid DMG."
+  fi
 
   log "Stapling notary ticket and assessing Gatekeeper"
   xcrun stapler staple "$INSTALLER_PATH"

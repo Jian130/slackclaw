@@ -47,6 +47,10 @@ test("macOS release workflow waits for notarization before Gatekeeper assessment
   const workflow = await readRepoFile(".github/workflows/macos-release.yml");
 
   assert.doesNotMatch(workflow, /spctl --assess .*"\$APP_PATH"/);
+  assert.match(workflow, /xcrun notarytool submit "\$INSTALLER_PATH"[\s\S]*--output-format json/);
+  assert.match(workflow, /parse_notary_field status/);
+  assert.match(workflow, /xcrun notarytool log "\$NOTARY_SUBMISSION_ID"/);
+  assert.match(workflow, /not stapling invalid DMG/);
 
   const stapleIndex = workflow.indexOf('xcrun stapler staple "$INSTALLER_PATH"');
   const installerAssessIndex = workflow.indexOf(
@@ -78,12 +82,13 @@ test("local signed macOS installer script mirrors release signing and notarizati
   assert.match(signScript, /log_environment_summary/);
   assert.match(signScript, /log_artifact_summary/);
   assert.match(signScript, /SIGNED_RUNTIME_COUNT=\$\(\(SIGNED_RUNTIME_COUNT \+ 1\)\)/);
-  assert.match(signScript, /Signed \$SIGNED_RUNTIME_COUNT packaged runtime executable/);
+  assert.match(signScript, /Signed \$SIGNED_RUNTIME_COUNT packaged runtime Mach-O file/);
   assert.match(signScript, /shasum -a 256 "\$INSTALLER_PATH" > "\$CHECKSUM_PATH"/);
   assert.match(signScript, /Installer size:/);
   assert.doesNotMatch(signScript, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS/);
   assert.match(signScript, /NODE_RUNTIME_ENTITLEMENTS="scripts\/macos-node-runtime-entitlements\.plist"/);
-  assert.match(signScript, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -perm -111 -print0/);
+  assert.match(signScript, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -print0/);
+  assert.doesNotMatch(signScript, /runtime-artifacts" -type f -perm -111 -print0/);
   assert.match(
     signScript,
     /codesign --force --sign "\$APP_IDENTITY" --options runtime --timestamp --entitlements "\$NODE_RUNTIME_ENTITLEMENTS" "\$RUNTIME_EXECUTABLE"/
@@ -91,7 +96,10 @@ test("local signed macOS installer script mirrors release signing and notarizati
   assert.match(signScript, /codesign --force --sign "\$APP_IDENTITY" --options runtime --timestamp --entitlements "\$DAEMON_ENTITLEMENTS"/);
   assert.match(signScript, /npm run build:mac-installer -- --skip-build --dmg-only/);
   assert.match(signScript, /codesign --force --sign "\$APP_IDENTITY" --timestamp "\$INSTALLER_PATH"/);
-  assert.match(signScript, /xcrun notarytool submit "\$INSTALLER_PATH"/);
+  assert.match(signScript, /xcrun notarytool submit "\$INSTALLER_PATH"[\s\S]*--output-format json/);
+  assert.match(signScript, /parse_notary_field status/);
+  assert.match(signScript, /xcrun notarytool log "\$NOTARY_SUBMISSION_ID"/);
+  assert.match(signScript, /not stapling invalid DMG/);
   assert.match(signScript, /xcrun stapler staple "\$INSTALLER_PATH"/);
   assert.match(signScript, /spctl --assess --type open --context context:primary-signature --verbose=2 "\$INSTALLER_PATH"/);
 });
@@ -126,6 +134,8 @@ test("macOS release workflow signs the packaged Node runtime with V8 entitlement
   assert.match(entitlements, /com\.apple\.security\.cs\.allow-unsigned-executable-memory/);
   assert.match(workflow, /NODE_RUNTIME_ENTITLEMENTS:\s*scripts\/macos-node-runtime-entitlements\.plist/);
   assert.match(workflow, /is_node_runtime_executable/);
+  assert.match(workflow, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -print0/);
+  assert.doesNotMatch(workflow, /runtime-artifacts" -type f -perm -111 -print0/);
   assert.match(
     workflow,
     /codesign --force --sign "\$APP_IDENTITY" --options runtime --timestamp --entitlements "\$NODE_RUNTIME_ENTITLEMENTS" "\$RUNTIME_EXECUTABLE"/
@@ -159,7 +169,9 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.doesNotMatch(buildScript, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS/);
   assert.match(buildScript, /await assertPackagedCliRuntimeArtifacts\(\);/);
   assert.match(buildScript, /Packaged Node\.js runtime npm is not executable/);
+  assert.match(buildScript, /Packaged OpenClaw runtime CLI is not executable/);
   assert.match(buildScript, /Packaged Ollama runtime is missing the runnable ollama CLI binary/);
+  assert.match(buildScript, /Packaged Ollama runtime CLI cannot run/);
   assert.match(buildScript, /Runtime artifacts must be runnable CLI payloads/);
   assert.match(buildScript, /CHILLCLAW_RUNTIME_BUNDLE_DIR/);
   assert.match(buildScript, /CHILLCLAW_RUNTIME_MANIFEST_PATH/);
@@ -167,23 +179,51 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(packageJson, /prepare:runtime-artifacts/);
   assert.match(workflow, /npm run prepare:runtime-artifacts/);
   assert.doesNotMatch(workflow, /CHILLCLAW_REQUIRE_CLI_RUNTIME_ARTIFACTS/);
-  assert.match(workflow, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -perm -111 -print0/);
+  assert.match(workflow, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -print0/);
+  assert.doesNotMatch(workflow, /runtime-artifacts" -type f -perm -111 -print0/);
   assert.match(prepareScript, /Downloaded Node\.js archive npm is not executable/);
   assert.match(prepareScript, /nodejs\.org\/dist/);
   assert.match(prepareScript, /currentNodeDistName/);
+  assert.match(prepareScript, /prepareOpenClawRuntime/);
+  assert.match(prepareScript, /openclaw-runtime must pin a concrete version/);
+  assert.match(prepareScript, /OpenClaw runtime package did not produce node_modules/);
+  assert.match(prepareScript, /Prepared OpenClaw/);
   assert.match(prepareScript, /process\.arch === "x64" \? "x64" : "arm64"/);
   assert.match(buildScript, /currentNodeDistName/);
   assert.match(buildScript, /resolve\(nodeDir, "bin", "npm"\),\s*\["--version"\]/);
   assert.match(buildScript, /packagedRuntimeEnv\(nodeDir\)/);
   assert.match(buildScript, /npm-cli\.js/);
+  assert.match(buildScript, /runPackagedRuntimeCommand\(\s*ollamaPath,\s*\["--version"\]/);
   assert.match(prepareScript, /ollama CLI binary/);
   assert.match(runtimeManifest, /node-npm-runtime/);
+  assert.match(runtimeManifest, /openclaw-runtime/);
   assert.match(runtimeManifest, /ollama-runtime/);
+  assert.match(runtimeManifest, /"version": "2026\.3\.11"/);
+  assert.match(runtimeManifest, /"path": "openclaw\/openclaw-runtime"/);
+  assert.doesNotMatch(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"version": "latest"/);
   assert.match(runtimeManifest, /"format": "directory"/);
+  assert.match(runtimeManifest, /"format": "tgz"/);
   assert.match(runtimeManifest, /"format": "file"/);
   assert.match(runtimeManifest, /ollama-runtime\/bin\/ollama/);
   assert.doesNotMatch(runtimeManifest, /Ollama\.app/);
   assert.doesNotMatch(runtimeManifest, /Ollama\.dmg/);
+});
+
+test("OpenClaw install fallbacks stay pinned instead of using upstream latest", async () => {
+  const [runtimeManifest, runtimeManager, openClawAdapter, bootstrapScript] = await Promise.all([
+    readRepoFile("runtime-manifest.lock.json"),
+    readRepoFile("apps/daemon/src/runtime-manager/default-runtime-manager.ts"),
+    readRepoFile("apps/daemon/src/engine/openclaw-adapter.ts"),
+    readRepoFile("scripts/bootstrap-openclaw.mjs")
+  ]);
+
+  assert.match(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"version": "2026\.3\.11"/);
+  assert.match(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "2026\.3\.11"/);
+  assert.match(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "2026\.3\.11"/);
+  assert.match(bootstrapScript, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "2026\.3\.11"/);
+  assert.doesNotMatch(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "latest"/);
+  assert.doesNotMatch(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "latest"/);
+  assert.doesNotMatch(bootstrapScript, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "latest"/);
 });
 
 test("local macOS installer builds warn before users share unsigned DMGs", async () => {

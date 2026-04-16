@@ -1,4 +1,3 @@
-import { statfs } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import {
@@ -16,6 +15,7 @@ import { getDefaultAppSupportDir } from "../runtime-paths.js";
 import { StateStore } from "./state-store.js";
 import { getProductVersion } from "../product-version.js";
 import type { LocalModelRuntimeService } from "./local-model-runtime-service.js";
+import { getAvailableDiskBytes } from "../platform/disk-space.js";
 
 export type OverviewReadOptions = {
   includeLocalRuntime?: boolean;
@@ -156,8 +156,7 @@ export class OverviewService {
 
     try {
       const targetPath = process.env.CHILLCLAW_DATA_DIR ?? getDefaultAppSupportDir() ?? homedir();
-      const stats = await statfs(targetPath);
-      const availableBytes = stats.bavail * stats.bsize;
+      const availableBytes = await getAvailableDiskBytes(targetPath);
       const availableGb = availableBytes / 1024 / 1024 / 1024;
       const roundedGb = availableGb >= 10 ? Math.round(availableGb) : Number(availableGb.toFixed(1));
       checks[1] = {

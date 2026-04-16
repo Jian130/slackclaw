@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { homedir } from "node:os";
+import { homedir, totalmem } from "node:os";
 import { stat } from "node:fs/promises";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 import type {
   GatewayActionResponse,
@@ -16,6 +16,7 @@ import type {
 import { chooseLocalModelTier, type LocalModelHostSnapshot } from "../config/local-model-runtime-catalog.js";
 import type { ManagedLocalModelEntryRequest } from "../engine/adapter.js";
 import { getManagedOllamaCliPath, getManagedOllamaDir, getManagedOllamaModelsDir } from "../runtime-paths.js";
+import { getAvailableDiskBytes } from "../platform/disk-space.js";
 import { logDevelopmentCommand } from "./logger.js";
 import { StateStore } from "./state-store.js";
 import type { EventPublisher } from "./event-publisher.js";
@@ -100,6 +101,8 @@ const OLLAMA_HOST = "127.0.0.1";
 const OLLAMA_PORT = 11_434;
 const OLLAMA_BASE_URL = `http://${OLLAMA_HOST}:${OLLAMA_PORT}`;
 
+export { resolveDiskProbePath } from "../platform/disk-space.js";
+
 function modelTagFromKey(modelKey: string): string {
   return modelKey.replace(/^ollama\//, "");
 }
@@ -145,27 +148,6 @@ function progressPercentForPull(progress: PullModelProgress): number | undefined
   }
 
   return undefined;
-}
-
-export async function resolveDiskProbePath(targetPath: string): Promise<string> {
-  let candidate = targetPath;
-
-  for (;;) {
-    try {
-      await stat(candidate);
-      return candidate;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
-
-      const parent = dirname(candidate);
-      if (parent === candidate) {
-        return candidate;
-      }
-      candidate = parent;
-    }
-  }
 }
 
 function activeLocalEntry(modelSelection: Pick<ModelConfigOverview, "savedEntries" | "defaultEntryId" | "defaultModel">) {
@@ -864,14 +846,12 @@ export function createLocalModelRuntimeService(
 ): LocalModelRuntimeService {
   return new LocalModelRuntimeService({
     inspectHost: async () => {
-      const { statfs } = await import("node:fs/promises");
-      const { totalmem } = await import("node:os");
-      const stats = await statfs(await resolveDiskProbePath(getManagedOllamaDir()));
+      const availableDiskBytes = await getAvailableDiskBytes(getManagedOllamaDir());
       return {
         platform: process.platform,
         architecture: process.arch,
         totalMemoryGb: Number((totalmem() / 1024 / 1024 / 1024).toFixed(1)),
-        freeDiskGb: Number(((stats.bavail * stats.bsize) / 1024 / 1024 / 1024).toFixed(1))
+        freeDiskGb: Number((availableDiskBytes / 1024 / 1024 / 1024).toFixed(1))
       };
     },
     readPersistedState: async () => (await store.read()).localModelRuntime,

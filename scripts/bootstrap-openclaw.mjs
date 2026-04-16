@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 import { writeScriptLogLine } from "./logging.mjs";
 
 const OPENCLAW_VERSION_OVERRIDE = process.env.CHILLCLAW_OPENCLAW_VERSION?.trim() || undefined;
-const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "latest";
+const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "2026.3.11";
 const OPENCLAW_PACKAGE = `openclaw@${OPENCLAW_INSTALL_TARGET}`;
 const LOCAL_INSTALL_PREFIX = process.env.CHILLCLAW_OPENCLAW_INSTALL_PREFIX;
 const SCRIPT_LABEL = "ChillClaw bootstrap";
@@ -64,7 +64,7 @@ function isCompatibleOpenClawVersion(version) {
 }
 
 function installTargetSummary() {
-  return OPENCLAW_VERSION_OVERRIDE ?? "the latest available version";
+  return OPENCLAW_INSTALL_TARGET;
 }
 
 function managedOpenClawBinPath() {
