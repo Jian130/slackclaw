@@ -189,6 +189,11 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(prepareScript, /nodejs\.org\/dist/);
   assert.match(prepareScript, /currentNodeDistName/);
   assert.match(prepareScript, /prepareOpenClawRuntime/);
+  assert.match(prepareScript, /const nodeRuntime = await prepareNodeRuntime\(resourceFor\(manifest, "node-npm-runtime"\)\)/);
+  assert.match(prepareScript, /prepareOpenClawRuntime\(resourceFor\(manifest, "openclaw-runtime"\), nodeRuntime\)/);
+  assert.match(prepareScript, /run\(nodeRuntime\.npmBin,\s*\["install", "--prefix", targetDir, packageSpec\]/);
+  assert.match(prepareScript, /run\(openclawBin,\s*\["--version"\],\s*\{\s*pathPrefix: nodeRuntime\.binDir\s*\}\)/);
+  assert.match(prepareScript, /PATH: \[options\.pathPrefix, process\.env\.PATH\]\.filter\(Boolean\)\.join\(delimiter\)/);
   assert.match(prepareScript, /prepareLocalModelCatalog/);
   assert.match(prepareScript, /openclaw-runtime must pin a concrete version/);
   assert.match(prepareScript, /OpenClaw runtime package did not produce node_modules/);

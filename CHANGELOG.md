@@ -4,6 +4,10 @@
 
 ## 0.1.9 - 2026-04-16
 
+### 2026-04-16 22:31 CST
+
+- fixed the 0.1.9 macOS release artifact preparation path by installing and verifying the bundled OpenClaw runtime through ChillClaw's packaged Node.js 22 runtime instead of the GitHub runner's older Node.js 20 runtime
+
 ### 2026-04-16 22:08 CST
 
 - fixed clean macOS local-model onboarding crashes by throttling noisy Ollama pull progress events to the same cadence as persisted download snapshots, preventing repeated daemon overview probes from exhausting process creation during model download

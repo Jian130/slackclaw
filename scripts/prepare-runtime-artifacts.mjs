@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
 import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
@@ -21,8 +21,8 @@ const SCRIPT_LABEL = "ChillClaw runtime artifacts";
 async function main() {
   const manifest = JSON.parse(await readFile(MANIFEST_PATH, "utf8"));
 
-  await prepareNodeRuntime(resourceFor(manifest, "node-npm-runtime"));
-  await prepareOpenClawRuntime(resourceFor(manifest, "openclaw-runtime"));
+  const nodeRuntime = await prepareNodeRuntime(resourceFor(manifest, "node-npm-runtime"));
+  await prepareOpenClawRuntime(resourceFor(manifest, "openclaw-runtime"), nodeRuntime);
   await prepareOllamaRuntime(resourceFor(manifest, "ollama-runtime"));
   await prepareLocalModelCatalog(resourceFor(manifest, "local-model-catalog"));
   await assertNoInstallerPayloads(ARTIFACT_ROOT);
@@ -60,16 +60,13 @@ function downloadArtifact(resource) {
 
 async function prepareNodeRuntime(resource) {
   bundledArtifact(resource, "directory");
-  const distName = currentNodeDistName(resource.version);
-  const targetDir = resolve(ARTIFACT_ROOT, "node", distName);
-  const nodeBin = join(targetDir, "bin", "node");
-  const npmBin = join(targetDir, "bin", "npm");
-  if (await executable(nodeBin) && await executable(npmBin)) {
-    log(`Node.js runtime already prepared at ${targetDir}.`);
-    return;
+  const runtime = nodeRuntimePaths(resource);
+  if (await executable(runtime.nodeBin) && await executable(runtime.npmBin)) {
+    log(`Node.js runtime already prepared at ${runtime.targetDir}.`);
+    return runtime;
   }
 
-  const archiveName = `${distName}.tar.gz`;
+  const archiveName = `${runtime.distName}.tar.gz`;
   const baseUrl = `https://nodejs.org/dist/v${resource.version}`;
   const archiveUrl = `${baseUrl}/${archiveName}`;
   const shasumsUrl = `${baseUrl}/SHASUMS256.txt`;
@@ -83,19 +80,34 @@ async function prepareNodeRuntime(resource) {
   const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-node-runtime-"));
   try {
     await run("tar", ["-xzf", archivePath, "-C", tempDir]);
-    const extractedDir = join(tempDir, distName);
+    const extractedDir = join(tempDir, runtime.distName);
     await requireExecutablePath(join(extractedDir, "bin", "node"), "Downloaded Node.js archive node is not executable.");
     await requireExecutablePath(join(extractedDir, "bin", "npm"), "Downloaded Node.js archive npm is not executable.");
-    await rm(targetDir, { recursive: true, force: true });
-    await mkdir(dirname(targetDir), { recursive: true });
-    await rename(extractedDir, targetDir);
-    log(`Prepared runnable Node.js runtime at ${targetDir}.`);
+    await rm(runtime.targetDir, { recursive: true, force: true });
+    await mkdir(dirname(runtime.targetDir), { recursive: true });
+    await rename(extractedDir, runtime.targetDir);
+    log(`Prepared runnable Node.js runtime at ${runtime.targetDir}.`);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+
+  return runtime;
 }
 
-async function prepareOpenClawRuntime(resource) {
+function nodeRuntimePaths(resource) {
+  const distName = currentNodeDistName(resource.version);
+  const targetDir = resolve(ARTIFACT_ROOT, "node", distName);
+  const binDir = join(targetDir, "bin");
+  return {
+    distName,
+    targetDir,
+    binDir,
+    nodeBin: join(binDir, "node"),
+    npmBin: join(binDir, "npm")
+  };
+}
+
+async function prepareOpenClawRuntime(resource, nodeRuntime) {
   const artifact = bundledArtifact(resource, "directory");
   const targetDir = resolve(ARTIFACT_ROOT, artifact.path);
   const openclawBin = resolve(targetDir, "node_modules", ".bin", "openclaw");
@@ -103,9 +115,13 @@ async function prepareOpenClawRuntime(resource) {
 
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
-  await run("npm", ["install", "--prefix", targetDir, packageSpec]);
+  await run(nodeRuntime.npmBin, ["install", "--prefix", targetDir, packageSpec], {
+    pathPrefix: nodeRuntime.binDir
+  });
   await requireExecutablePath(openclawBin, "OpenClaw runtime package did not produce node_modules/.bin/openclaw.");
-  await run(openclawBin, ["--version"]);
+  await run(openclawBin, ["--version"], {
+    pathPrefix: nodeRuntime.binDir
+  });
   log(`Prepared OpenClaw ${resource.version} runtime package at ${targetDir}.`);
 }
 
@@ -296,10 +312,17 @@ async function executable(path) {
   }
 }
 
-function run(command, args) {
+function run(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
+    const env = options.pathPrefix
+      ? {
+          ...process.env,
+          PATH: [options.pathPrefix, process.env.PATH].filter(Boolean).join(delimiter)
+        }
+      : process.env;
     const child = spawn(command, args, {
       cwd: ROOT,
+      env,
       stdio: "inherit"
     });
     child.on("error", reject);
