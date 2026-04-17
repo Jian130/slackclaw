@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 2026-04-17 11:13 CST
+
+- fixed the macOS installer smoke workflow by preparing bundled runtime artifacts before packaging the app on fresh GitHub Actions checkouts
+
 ### 2026-04-17 10:59 CST
 
 - fixed Ubuntu daemon CI flakes by waiting for spawned command stdio to close before reading OpenClaw CLI output, so version/status probes no longer miss fast child-process output on GitHub Actions

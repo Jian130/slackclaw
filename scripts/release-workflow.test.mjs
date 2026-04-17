@@ -43,6 +43,19 @@ test("macOS release workflow signs the staged app before building and notarizing
   assert.ok(dmgIndex < notarizeIndex);
 });
 
+test("CI macOS installer smoke prepares runtime artifacts before packaging", async () => {
+  const workflow = await readRepoFile(".github/workflows/ci.yml");
+
+  const smokeIndex = workflow.indexOf("smoke-macos-installer:");
+  const prepareRuntimeIndex = workflow.indexOf("npm run prepare:runtime-artifacts", smokeIndex);
+  const buildIndex = workflow.indexOf("npm run build:mac-installer", smokeIndex);
+
+  assert.notEqual(smokeIndex, -1);
+  assert.notEqual(prepareRuntimeIndex, -1);
+  assert.notEqual(buildIndex, -1);
+  assert.ok(prepareRuntimeIndex < buildIndex);
+});
+
 test("macOS release workflow waits for notarization before Gatekeeper assessment", async () => {
   const workflow = await readRepoFile(".github/workflows/macos-release.yml");
 
