@@ -15,6 +15,7 @@ import type {
   DownloadSource
 } from "@chillclaw/contracts";
 import { getAvailableDiskBytes } from "../platform/disk-space.js";
+import { DaemonTimeoutError, isDaemonTimeoutError } from "../platform/timeout-errors.js";
 
 const ACTIVE_DOWNLOAD_STATUSES = new Set<DownloadJobStatus>([
   "queued",
@@ -27,6 +28,8 @@ const ACTIVE_DOWNLOAD_STATUSES = new Set<DownloadJobStatus>([
 const TERMINAL_DOWNLOAD_STATUSES = new Set<DownloadJobStatus>(["completed", "failed", "cancelled"]);
 const DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434/api/pull";
 const PROGRESS_PERSIST_INTERVAL_MS = 250;
+const DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000;
+const DEFAULT_DOWNLOAD_OVERALL_TIMEOUT_MS = 86_400_000;
 
 export interface DownloadManagerState {
   checkedAt?: string;
@@ -41,6 +44,8 @@ export interface DownloadManagerOptions {
   runtimeDir?: string;
   modelsDir?: string;
   assetsDir?: string;
+  downloadIdleTimeoutMs?: number;
+  downloadOverallTimeoutMs?: number;
   now?: () => number;
   publishEvent?: (event: ChillClawEvent) => void;
 }
@@ -51,6 +56,12 @@ type ActiveRun = {
   lastPersistAt: number;
   startedAt: number;
   startedBytes: number;
+};
+
+type DownloadDeadline = {
+  signal: AbortSignal;
+  markActivity: () => void;
+  clear: () => void;
 };
 
 export class DownloadManager {
@@ -281,20 +292,29 @@ export class DownloadManager {
     const urls = [source.url, ...(source.fallbackUrls ?? [])];
     let lastError: unknown;
     for (const url of urls) {
+      const deadline = this.createDownloadDeadline(job, signal);
       try {
-        await this.downloadHttpUrl(job, url, signal, run);
+        await this.downloadHttpUrl(job, url, deadline.signal, run, deadline.markActivity);
         return;
       } catch (error) {
         if (signal.aborted) {
           throw error;
         }
         lastError = error;
+      } finally {
+        deadline.clear();
       }
     }
     throw lastError ?? new Error("Download failed.");
   }
 
-  private async downloadHttpUrl(job: DownloadJob, url: string, signal: AbortSignal, run: ActiveRun): Promise<void> {
+  private async downloadHttpUrl(
+    job: DownloadJob,
+    url: string,
+    signal: AbortSignal,
+    run: ActiveRun,
+    markActivity: () => void
+  ): Promise<void> {
     await mkdir(dirname(job.tempPath), { recursive: true });
     let partialBytes = await fileSize(job.tempPath);
     const headers: Record<string, string> = {};
@@ -305,7 +325,10 @@ export class DownloadManager {
     const response = await fetch(url, {
       headers,
       signal
+    }).catch((error) => {
+      throw signal.aborted && signal.reason ? signal.reason : error;
     });
+    markActivity();
 
     if (!response.ok || !response.body) {
       throw new Error(`Download failed with HTTP ${response.status}.`);
@@ -329,6 +352,7 @@ export class DownloadManager {
       async function* (source) {
         for await (const chunk of source) {
           assertNotAborted(signal);
+          markActivity();
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
           downloadedBytes += buffer.length;
           await thisManagerRecordProgress(downloadedBytes, totalBytes);
@@ -336,7 +360,9 @@ export class DownloadManager {
         }
       },
       writer
-    );
+    ).catch((error) => {
+      throw signal.aborted && signal.reason ? signal.reason : error;
+    });
 
     await this.recordProgress(job.id, downloadedBytes, totalBytes, run, true);
 
@@ -346,78 +372,89 @@ export class DownloadManager {
   }
 
   private async downloadOllamaModel(job: DownloadJob, signal: AbortSignal, run: ActiveRun): Promise<void> {
+    const deadline = this.createDownloadDeadline(job, signal);
     const source = job.source as Extract<DownloadSource, { kind: "ollama-pull" }>;
     const endpoint = source.endpoint ?? DEFAULT_OLLAMA_ENDPOINT;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: source.modelTag
-      }),
-      signal
-    }).catch((error) => {
-      throw toRetryableError(error, true);
-    });
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: source.modelTag
+        }),
+        signal: deadline.signal
+      }).catch((error) => {
+        throw deadline.signal.aborted && deadline.signal.reason
+          ? deadline.signal.reason
+          : toRetryableError(error, true);
+      });
+      deadline.markActivity();
 
-    if (!response.ok) {
-      throw toRetryableError(await readResponseError(response), response.status >= 500);
-    }
-    if (!response.body) {
-      throw toRetryableError("Ollama did not return a download progress stream.", true);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let sawSuccess = false;
-    let lastCompleted = 0;
-    let lastTotal = job.expectedBytes;
-
-    const publishParsedLine = async (line: string) => {
-      if (!line.trim()) {
-        return;
+      if (!response.ok) {
+        throw toRetryableError(await readResponseError(response), response.status >= 500);
       }
-      const parsed = parseOllamaProgress(line);
-      if ("error" in parsed) {
-        throw toRetryableError(parsed.error, false);
-      }
-      if (parsed.status === "success") {
-        sawSuccess = true;
-        await this.recordProgress(job.id, lastTotal ?? lastCompleted, lastTotal ?? lastCompleted, run, true);
-        return;
-      }
-      lastCompleted = parsed.completed ?? lastCompleted;
-      lastTotal = parsed.total ?? lastTotal;
-      await this.recordProgress(job.id, lastCompleted, lastTotal, run);
-    };
-
-    for (;;) {
-      assertNotAborted(signal);
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
+      if (!response.body) {
+        throw toRetryableError("Ollama did not return a download progress stream.", true);
       }
 
-      buffer += decoder.decode(value, { stream: true });
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex >= 0) {
-        const line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
-        await publishParsedLine(line);
-        newlineIndex = buffer.indexOf("\n");
-      }
-    }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let sawSuccess = false;
+      let lastCompleted = 0;
+      let lastTotal = job.expectedBytes;
 
-    const trailing = `${buffer}${decoder.decode()}`.trim();
-    if (trailing) {
-      await publishParsedLine(trailing);
+      const publishParsedLine = async (line: string) => {
+        if (!line.trim()) {
+          return;
+        }
+        const parsed = parseOllamaProgress(line);
+        if ("error" in parsed) {
+          throw toRetryableError(parsed.error, false);
+        }
+        if (parsed.status === "success") {
+          sawSuccess = true;
+          await this.recordProgress(job.id, lastTotal ?? lastCompleted, lastTotal ?? lastCompleted, run, true);
+          return;
+        }
+        lastCompleted = parsed.completed ?? lastCompleted;
+        lastTotal = parsed.total ?? lastTotal;
+        await this.recordProgress(job.id, lastCompleted, lastTotal, run);
+      };
+
+      for (;;) {
+        assertNotAborted(deadline.signal);
+        const { done, value } = await reader.read().catch((error) => {
+          throw deadline.signal.aborted && deadline.signal.reason ? deadline.signal.reason : error;
+        });
+        if (done) {
+          break;
+        }
+
+        deadline.markActivity();
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex >= 0) {
+          const line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+          await publishParsedLine(line);
+          newlineIndex = buffer.indexOf("\n");
+        }
+      }
+
+      const trailing = `${buffer}${decoder.decode()}`.trim();
+      if (trailing) {
+        await publishParsedLine(trailing);
+      }
+      if (!sawSuccess) {
+        throw toRetryableError("Ollama ended the pull stream before reporting success.", true);
+      }
+      await writeFile(job.tempPath, JSON.stringify({ modelTag: source.modelTag, completedAt: new Date(this.now()).toISOString() }));
+    } finally {
+      deadline.clear();
     }
-    if (!sawSuccess) {
-      throw toRetryableError("Ollama ended the pull stream before reporting success.", true);
-    }
-    await writeFile(job.tempPath, JSON.stringify({ modelTag: source.modelTag, completedAt: new Date(this.now()).toISOString() }));
   }
 
   private async checkDisk(job: DownloadJob): Promise<void> {
@@ -641,6 +678,74 @@ export class DownloadManager {
   private now(): number {
     return this.options.now?.() ?? Date.now();
   }
+
+  private createDownloadDeadline(job: DownloadJob, sourceSignal: AbortSignal): DownloadDeadline {
+    const controller = new AbortController();
+    const idleTimeoutMs = this.options.downloadIdleTimeoutMs ?? DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS;
+    const overallTimeoutMs = this.options.downloadOverallTimeoutMs ?? DEFAULT_DOWNLOAD_OVERALL_TIMEOUT_MS;
+    let idleTimer: NodeJS.Timeout | undefined;
+    let overallTimer: NodeJS.Timeout | undefined;
+
+    const abortWithTimeout = (kind: "idle" | "overall", timeoutMs: number) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      controller.abort(new DaemonTimeoutError(
+        "DOWNLOAD_TIMEOUT",
+        `${job.displayName} download timed out after ${Math.round(timeoutMs / 1000)} seconds without ${kind === "idle" ? "progress" : "finishing"}.`,
+        timeoutMs,
+        {
+          jobId: job.id,
+          artifactId: job.artifactId,
+          kind
+        }
+      ));
+    };
+
+    const clearIdleTimer = () => {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = undefined;
+      }
+    };
+
+    const markActivity = () => {
+      clearIdleTimer();
+      if (idleTimeoutMs > 0 && !controller.signal.aborted) {
+        idleTimer = setTimeout(() => abortWithTimeout("idle", idleTimeoutMs), idleTimeoutMs);
+      }
+    };
+
+    const abortFromSource = () => {
+      if (!controller.signal.aborted) {
+        controller.abort(sourceSignal.reason);
+      }
+    };
+
+    if (sourceSignal.aborted) {
+      abortFromSource();
+    } else {
+      sourceSignal.addEventListener("abort", abortFromSource, { once: true });
+    }
+
+    if (overallTimeoutMs > 0) {
+      overallTimer = setTimeout(() => abortWithTimeout("overall", overallTimeoutMs), overallTimeoutMs);
+    }
+    markActivity();
+
+    return {
+      signal: controller.signal,
+      markActivity,
+      clear: () => {
+        sourceSignal.removeEventListener("abort", abortFromSource);
+        clearIdleTimer();
+        if (overallTimer) {
+          clearTimeout(overallTimer);
+          overallTimer = undefined;
+        }
+      }
+    };
+  }
 }
 
 function sortedJobs(state: DownloadManagerState): DownloadJob[] {
@@ -718,11 +823,21 @@ function totalBytesFromResponse(response: Response, partialBytes: number): numbe
 
 function assertNotAborted(signal: AbortSignal): void {
   if (signal.aborted) {
+    if (signal.reason) {
+      throw signal.reason;
+    }
     throw toRetryableError("Download was paused.", true, "aborted");
   }
 }
 
 function normalizeDownloadError(error: unknown): DownloadError {
+  if (isDaemonTimeoutError(error)) {
+    return {
+      code: error.code,
+      message: error.message,
+      retriable: true
+    };
+  }
   const candidate = error as Partial<DownloadError>;
   if (candidate.code && candidate.message) {
     return {

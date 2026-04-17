@@ -18,8 +18,7 @@ import {
   parseClawHubSearchOutput,
   removeRuntimeDerivedModelFromConfig,
   reconcileSavedEntriesWithRuntime,
-  resolveCatalogModelKey,
-  summarizeTargetUpdateStatus
+  resolveCatalogModelKey
 } from "./openclaw-adapter.js";
 import { InMemorySecretsAdapter, modelAuthSecretName } from "../platform/secrets-adapter.js";
 
@@ -476,31 +475,6 @@ test("parseClawHubExploreOutput parses latest skill rows", () => {
   assert.equal(parsed[1]?.summary, "Query weather data.");
 });
 
-test("summarizeTargetUpdateStatus prefers registry latest version when update lookup is partially available", () => {
-  const status = summarizeTargetUpdateStatus(
-    {
-      update: {
-        registry: {
-          latestVersion: "2026.3.12",
-          error: "AbortError: This operation was aborted"
-        }
-      },
-      channel: {
-        label: "stable (default)"
-      },
-      availability: {
-        available: false,
-        latestVersion: null
-      }
-    },
-    "ChillClaw could not check for updates."
-  );
-
-  assert.equal(status.updateAvailable, false);
-  assert.equal(status.latestVersion, "2026.3.12");
-  assert.match(status.summary, /2026\.3\.12/);
-});
-
 let fakeOpenClawLock: Promise<void> = Promise.resolve();
 
 async function withFakeOpenClaw(
@@ -532,6 +506,7 @@ async function withFakeOpenClaw(
     staleManagedMemberAgent?: boolean;
     bindConflictWithStaleOwner?: boolean;
     systemOpenClawVersion?: string;
+    managedOpenClawVersion?: string;
   }
 ): Promise<void> {
   const previousLock = fakeOpenClawLock;
@@ -590,6 +565,7 @@ async function withFakeOpenClaw(
   const staleManagedMemberAgent = options?.staleManagedMemberAgent === true;
   const bindConflictWithStaleOwner = options?.bindConflictWithStaleOwner === true;
   const systemOpenClawVersion = options?.systemOpenClawVersion;
+  const managedOpenClawVersion = options?.managedOpenClawVersion ?? "2026.3.7";
   const chatHistoryPayload =
     options?.chatHistoryPayload ??
     '{"sessionKey":"agent:existing-agent:chillclaw-chat:thread-1","messages":[{"role":"assistant","content":[{"type":"text","text":"Hello from OpenClaw"}],"timestamp":1773000000000}]}';
@@ -613,7 +589,7 @@ async function withFakeOpenClaw(
         : {}
     )
   );
-  await writeFile(versionPath, "2026.3.7\n");
+  await writeFile(versionPath, `${managedOpenClawVersion}\n`);
   await mkdir(agentDirPath, { recursive: true });
   await writeFile(
     join(agentDirPath, "auth-profiles.json"),
@@ -2307,7 +2283,9 @@ test("installSpec reports the pinned OpenClaw version by default", () => {
 
   assert.equal(adapter.installSpec.desiredVersion, "2026.3.11");
   assert.equal(
-    adapter.installSpec.prerequisites.includes("Permission to install or reuse OpenClaw 2026.3.11"),
+    adapter.installSpec.prerequisites.includes(
+      "Permission to install or refresh the managed bundled OpenClaw 2026.3.11 runtime"
+    ),
     true
   );
 });
@@ -2319,6 +2297,21 @@ test("deployment targets report the pinned OpenClaw version by default", async (
     assert.equal(overview.targets[0]?.desiredVersion, "2026.3.11");
     assert.equal(overview.targets[1]?.desiredVersion, "2026.3.11");
   });
+});
+
+test("install accepts OpenClaw --version output with label and build metadata", async () => {
+  await withFakeOpenClaw(
+    async ({ adapter }) => {
+      const result = await adapter.install(false, { forceLocal: true });
+
+      assert.equal(result.status, "installed");
+      assert.equal(result.actualVersion, "2026.3.11");
+      assert.match(result.message, /OpenClaw 2026\.3\.11 is already available/);
+    },
+    {
+      managedOpenClawVersion: "OpenClaw 2026.3.11 (29dc654)"
+    }
+  );
 });
 
 test("environment runtime preference ignores a managed OpenClaw command", async () => {
@@ -2349,7 +2342,7 @@ test("environment runtime preference ignores a managed OpenClaw command", async 
   }
 });
 
-test("install refreshes managed-local command resolution after npm creates the runtime", async () => {
+test("install requires Runtime Manager for managed-local runtime instead of npm fallback", async () => {
   const previousLock = fakeOpenClawLock;
   let releaseLock = () => {};
   fakeOpenClawLock = new Promise<void>((resolve) => {
@@ -2404,13 +2397,13 @@ if [ "$1" = "install" ] && [ "$2" = "--prefix" ]; then
   cat > "$prefix/node_modules/.bin/openclaw" <<'EOF'
 #!/usr/bin/env node
 if [ "$1" = "--version" ]; then
-  echo "2026.3.13"
+  echo "2026.3.11"
 elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
   echo '{"setup":{"required":false},"gateway":{"reachable":true},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
 elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   echo '{"rpc":{"ok":true},"service":{"installed":true,"loaded":true}}'
 elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
-  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.13"}},"channel":{"label":"stable"}}'
+  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.11"}},"channel":{"label":"stable"}}'
 else
   echo '{}'
 fi
@@ -2433,11 +2426,10 @@ exit 1
   adapter.invalidateReadCaches();
 
   try {
-    const result = await adapter.install(false, { forceLocal: true });
-
-    assert.equal(result.status, "installed");
-    assert.match(result.actualVersion ?? "", /20\d{2}\.\d+\.\d+/);
-    assert.match(result.message, /OpenClaw 20\d{2}\.\d+\.\d+/);
+    await assert.rejects(
+      () => adapter.install(false, { forceLocal: true }),
+      /managed runtime manager is unavailable/i
+    );
   } finally {
     restorePlatform();
     adapter.invalidateReadCaches();
@@ -2510,7 +2502,7 @@ test("install normalizes reused OpenClaw gateway config to ChillClaw's local bas
     managedBinary,
     `#!/bin/sh
 if [ "$1" = "--version" ]; then
-  echo "2026.3.13"
+  echo "2026.3.11"
 elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
   echo '{"configPath":${JSON.stringify(configPath)},"setup":{"required":false},"gateway":{"reachable":false},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
 elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
@@ -2518,7 +2510,7 @@ elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
 elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   echo '{"rpc":{"ok":false,"error":"gateway url override requires explicit credentials"},"service":{"installed":true,"loaded":true}}'
 elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
-  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.13"}},"channel":{"label":"stable"}}'
+  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.11"}},"channel":{"label":"stable"}}'
 else
   echo '{}'
 fi
@@ -2568,33 +2560,15 @@ fi
   }
 });
 
-test("updateDeploymentTarget fails when the command succeeds but the active version does not advance", async () => {
-  await withFakeOpenClaw(async ({ adapter }) => {
+test("updateDeploymentTarget does not run the upstream OpenClaw updater without Runtime Manager", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
     const result = await adapter.updateDeploymentTarget("managed-local");
+    const commands = await readCommands(logPath);
 
     assert.equal(result.status, "failed");
-    assert.match(result.message, /still .*2026\.3\.7.*2026\.3\.12/i);
-  }, { updateNoChange: true });
-});
-
-test("updateDeploymentTarget still attempts the updater when status reports pnpm", async () => {
-  await withFakeOpenClaw(async ({ adapter, logPath }) => {
-    const result = await adapter.updateDeploymentTarget("managed-local");
-    const commands = await readCommands(logPath);
-
-    assert.equal(result.status, "completed");
-    assert.equal(countCommands(commands, "update --json --yes --no-restart --tag latest"), 1);
-  }, { updatePackageManager: "pnpm" });
-});
-
-test("updateDeploymentTarget restarts the gateway after a successful update", async () => {
-  await withFakeOpenClaw(async ({ adapter, logPath }) => {
-    const result = await adapter.updateDeploymentTarget("managed-local");
-    const commands = await readCommands(logPath);
-
-    assert.equal(result.status, "completed");
-    assert.match(result.message, /gateway restarted and is reachable/i);
-    assert.equal(countCommands(commands, "gateway restart"), 1);
+    assert.match(result.message, /managed runtime manager is unavailable/i);
+    assert.equal(countCommands(commands, "update --json --yes --no-restart --tag latest"), 0);
+    assert.equal(countCommands(commands, "gateway restart"), 0);
   });
 });
 

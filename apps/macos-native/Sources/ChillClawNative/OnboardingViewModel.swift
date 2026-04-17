@@ -2102,7 +2102,8 @@ final class NativeOnboardingViewModel {
                     config: currentOnboardingState.config,
                     summary: currentOnboardingState.summary,
                     localRuntime: currentOnboardingState.localRuntime,
-                    presetSkillSync: snapshot.data
+                    presetSkillSync: snapshot.data,
+                    operations: currentOnboardingState.operations
                 )
             }
         case let .taskProgress(taskID, status, message):
@@ -2120,6 +2121,8 @@ final class NativeOnboardingViewModel {
             appState.applyRuntimeManagerOverview(runtimeManager)
         case .skillCatalogUpdated, .pluginConfigUpdated, .deployProgress, .deployCompleted, .gatewayStatus, .chatStream, .configApplied,
              .downloadsUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+            break
+        case .daemonHeartbeat:
             break
         }
 

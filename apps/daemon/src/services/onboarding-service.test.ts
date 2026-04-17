@@ -102,15 +102,20 @@ test("onboarding service persists draft progress and uses full completion as the
   assert.equal(persisted.setupCompletedAt, undefined);
 });
 
-test("installRuntime advances onboarding to model when the managed runtime is ready", async () => {
-  const { service } = createService("onboarding-service-install-runtime-advances");
+test("installRuntime advances onboarding to model and records resumable operation metadata", async () => {
+  const { service, store } = createService("onboarding-service-install-runtime-advances");
 
   const result = await service.installRuntime();
+  const persisted = await store.read();
 
   assert.equal(result.status, "completed");
   assert.equal(result.onboarding?.draft.currentStep, "model");
   assert.equal(result.onboarding?.draft.install?.installed, true);
   assert.equal(result.onboarding?.summary.install?.installed, true);
+  assert.equal(result.operation?.operationId, "onboarding:install");
+  assert.equal(result.operation?.status, "completed");
+  assert.equal(result.onboarding?.operations?.install?.operationId, "onboarding:install");
+  assert.equal(persisted.onboardingOperations?.install?.status, "completed");
 });
 
 test("installRuntime defaults onboarding installs to the managed local runtime", async () => {
@@ -885,6 +890,8 @@ test("completed personal WeChat login advances onboarding once the installer sav
   assert.equal(onboarding.draft.currentStep, "employee");
   assert.equal(onboarding.draft.channelProgress?.status, "staged");
   assert.equal(onboarding.draft.activeChannelSessionId, undefined);
+  assert.equal(onboarding.operations?.channel?.status, "completed");
+  assert.equal(onboarding.operations?.channel?.operationId, "onboarding:channel");
 });
 
 test("saving a model entry after install keeps the normalized live model key in the onboarding draft", async () => {
@@ -2054,6 +2061,7 @@ test("onboarding completion runs the dedicated runtime finalization step before 
   class FinalizingAdapter extends MockAdapter {
     gatewayFinalizeCalls = 0;
     setupCompletedAtByFinalizeCall: Array<string | undefined> = [];
+    completionPhaseByFinalizeCall: Array<string | undefined> = [];
 
     constructor(private readonly stateStore: StateStore) {
       super();
@@ -2061,7 +2069,9 @@ test("onboarding completion runs the dedicated runtime finalization step before 
 
     override async finalizeOnboardingSetup() {
       this.gatewayFinalizeCalls += 1;
-      this.setupCompletedAtByFinalizeCall.push((await this.stateStore.read()).setupCompletedAt);
+      const state = await this.stateStore.read();
+      this.setupCompletedAtByFinalizeCall.push(state.setupCompletedAt);
+      this.completionPhaseByFinalizeCall.push(state.onboardingOperations?.completion?.phase);
       return super.finalizeOnboardingSetup();
     }
   }
@@ -2108,11 +2118,14 @@ test("onboarding completion runs the dedicated runtime finalization step before 
 
   assert.ok(adapter.gatewayFinalizeCalls >= 1);
   assert.equal(adapter.setupCompletedAtByFinalizeCall[0], undefined);
+  assert.equal(adapter.completionPhaseByFinalizeCall[0], "applying-gateway");
+  assert.equal(result.operation?.operationId, "onboarding:completion");
+  assert.equal(result.operation?.status, "completed");
   assert.equal(result.overview.engine.pendingGatewayApply, false);
   assert.equal(result.overview.engine.running, true);
 });
 
-test("onboarding completion leaves the draft intact when runtime finalization fails", async () => {
+test("onboarding completion leaves the draft intact and records retryable operation state when runtime finalization fails", async () => {
   class FailingFinalizationAdapter extends MockAdapter {
     override async finalizeOnboardingSetup() {
       return Promise.reject(new Error("Gateway finalization failed."));
@@ -2162,6 +2175,9 @@ test("onboarding completion leaves the draft intact when runtime finalization fa
   const state = await store.read();
   assert.equal(state.setupCompletedAt, undefined);
   assert.equal(state.onboarding?.draft.currentStep, "employee");
+  assert.equal(state.onboardingOperations?.completion?.status, "failed");
+  assert.equal(state.onboardingOperations?.completion?.phase, "finalizing");
+  assert.equal(state.onboardingOperations?.completion?.retryable, true);
 });
 
 test("onboarding completion creates the staged AI employee before clearing onboarding", async () => {

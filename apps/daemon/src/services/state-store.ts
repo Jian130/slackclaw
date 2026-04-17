@@ -10,6 +10,7 @@ import type {
   LocalModelRuntimePhase,
   LocalModelRuntimeStatus,
   OnboardingDraftState,
+  OnboardingOperationsState,
   PresetSkillSyncOverview,
   PresetSkillTargetMode,
   TeamDetail,
@@ -125,6 +126,7 @@ export interface AppState {
   introCompletedAt?: string;
   setupCompletedAt?: string;
   onboarding?: OnboardingState;
+  onboardingOperations?: OnboardingOperationsState;
   onboardingWarmups?: Record<string, OnboardingWarmupState>;
   channelOnboarding?: ChannelOnboardingState;
   aiTeam?: AITeamState;

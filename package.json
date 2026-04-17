@@ -26,7 +26,6 @@
     "dev:ui": "npm run build --workspace @chillclaw/contracts && npm run dev --workspace @chillclaw/desktop-ui",
     "dev:website": "npm run dev --workspace @chillclaw/website",
     "lint": "npm run lint --workspace @chillclaw/contracts && npm run lint --workspace @chillclaw/daemon && npm run lint --workspace @chillclaw/desktop-ui && npm run lint --workspace @chillclaw/website",
-    "bootstrap:openclaw": "node ./scripts/bootstrap-openclaw.mjs --json",
     "prepare:runtime-artifacts": "node ./scripts/prepare-runtime-artifacts.mjs",
     "generate:brand-icons": "node ./scripts/generate-brand-icons.mjs",
     "build:mac-installer": "node ./scripts/build-macos-installer.mjs",

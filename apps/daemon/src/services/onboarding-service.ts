@@ -8,6 +8,7 @@ import type {
   ChannelSessionResponse,
   CompleteOnboardingRequest,
   CompleteOnboardingResponse,
+  LongRunningOperationSummary,
   LocalModelRuntimeOverview,
   ModelAuthSessionInputRequest,
   ModelAuthSessionResponse,
@@ -16,6 +17,7 @@ import type {
   OnboardingCompletionSummary,
   OnboardingEmployeeState,
   OnboardingInstallState,
+  OnboardingOperationsState,
   OnboardingStateResponse,
   OnboardingStep,
   OnboardingStepNavigationRequest,
@@ -50,6 +52,9 @@ import { StateStore, defaultOnboardingDraftState, type OnboardingWarmupState } f
 const onboardingUiConfig = resolveOnboardingUiConfig();
 const ONBOARDING_STEP_ORDER: OnboardingStep[] = ["welcome", "install", "model", "channel", "employee"];
 const ONBOARDING_WARMUP_TASK_PREFIX = "onboarding-warmup";
+const ONBOARDING_OPERATION_DEADLINE_MS = 1_200_000;
+
+type OnboardingOperationSlot = "install" | "localRuntime" | "channel" | "completion";
 
 const AVATAR_PRESET_DETAILS: Record<string, { accent: string; emoji: string; theme: string }> = {
   operator: { accent: "var(--avatar-1)", emoji: "🦊", theme: "sunrise" },
@@ -77,6 +82,22 @@ function stepIsAtOrAfter(currentStep: OnboardingStep, target: OnboardingStep): b
 
 function normalizeOnboardingStep(step: OnboardingStep): OnboardingStep {
   return step === "permissions" ? "model" : step;
+}
+
+function onboardingOperationId(slot: OnboardingOperationSlot): string {
+  return `onboarding:${slot}`;
+}
+
+function operationDeadlineFrom(startedAt: string): string {
+  return new Date(new Date(startedAt).getTime() + ONBOARDING_OPERATION_DEADLINE_MS).toISOString();
+}
+
+function operationErrorCode(error: unknown): string | undefined {
+  return (error as { code?: string } | undefined)?.code;
+}
+
+function operationErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : (typeof error === "string" && error.trim() ? error : fallback);
 }
 
 function isCompletedInstall(draft: ReturnType<typeof defaultOnboardingDraftState>): boolean {
@@ -270,6 +291,77 @@ export class OnboardingService {
     return traceOnboardingOperation(`onboarding.${operation}`, details, action, summarizeOnboardingOperationResult);
   }
 
+  private async setOperation(
+    slot: OnboardingOperationSlot,
+    patch: {
+      action: string;
+      status: LongRunningOperationSummary["status"];
+      phase?: string;
+      message: string;
+      errorCode?: string;
+      retryable?: boolean;
+    }
+  ): Promise<LongRunningOperationSummary> {
+    const now = new Date().toISOString();
+    let nextOperation: LongRunningOperationSummary | undefined;
+    await this.store.update((current) => {
+      const existing = current.onboardingOperations?.[slot];
+      const startedAt = existing?.startedAt ?? now;
+      nextOperation = {
+        operationId: onboardingOperationId(slot),
+        action: patch.action,
+        status: patch.status,
+        phase: patch.phase,
+        message: patch.message,
+        startedAt,
+        updatedAt: now,
+        deadlineAt: patch.status === "running" || patch.status === "pending" ? operationDeadlineFrom(startedAt) : existing?.deadlineAt,
+        errorCode: patch.errorCode,
+        retryable: patch.retryable
+      };
+      return {
+        ...current,
+        onboardingOperations: {
+          ...(current.onboardingOperations ?? {}),
+          [slot]: nextOperation
+        }
+      };
+    });
+
+    return nextOperation as LongRunningOperationSummary;
+  }
+
+  private async startOperation(slot: OnboardingOperationSlot, action: string, phase: string, message: string) {
+    return this.setOperation(slot, {
+      action,
+      status: "running",
+      phase,
+      message,
+      retryable: true
+    });
+  }
+
+  private async completeOperation(slot: OnboardingOperationSlot, action: string, phase: string, message: string) {
+    return this.setOperation(slot, {
+      action,
+      status: "completed",
+      phase,
+      message,
+      retryable: false
+    });
+  }
+
+  private async failOperation(slot: OnboardingOperationSlot, action: string, phase: string, error: unknown, fallback: string) {
+    return this.setOperation(slot, {
+      action,
+      status: operationErrorCode(error)?.includes("TIMEOUT") ? "timed-out" : "failed",
+      phase,
+      message: operationErrorMessage(error, fallback),
+      errorCode: operationErrorCode(error),
+      retryable: true
+    });
+  }
+
   async getState(): Promise<OnboardingStateResponse> {
     return this.traceOperation("getState", {}, async () => {
       const t0 = performance.now();
@@ -351,7 +443,8 @@ export class OnboardingService {
         draft,
         config: onboardingUiConfig,
         summary,
-        presetSkillSync
+        presetSkillSync,
+        operations: this.operationsForState(nextState, undefined)
       };
     });
   }
@@ -409,18 +502,27 @@ export class OnboardingService {
 
   async installRuntime(options?: { forceLocal?: boolean }) {
     return this.traceOperation("installRuntime", { forceLocal: options?.forceLocal ?? true }, async () => {
-      const setupService = new SetupService(this.adapter, this.store, this.overviewService, this.eventPublisher);
-      const result = await setupService.runFirstRunSetup({ forceLocal: options?.forceLocal ?? true });
-      const install = await this.detectInstallStateFromRuntime(result.install, (await this.store.read()).onboarding?.draft.install);
-      const onboarding = await this.updateState({
-        currentStep: install.installed ? "model" : "install",
-        install
-      });
+      const action = "onboarding-runtime-install";
+      await this.startOperation("install", action, "installing", "Installing OpenClaw locally.");
+      try {
+        const setupService = new SetupService(this.adapter, this.store, this.overviewService, this.eventPublisher);
+        const result = await setupService.runFirstRunSetup({ forceLocal: options?.forceLocal ?? true });
+        const install = await this.detectInstallStateFromRuntime(result.install, (await this.store.read()).onboarding?.draft.install);
+        const operation = await this.completeOperation("install", action, "completed", result.message);
+        const onboarding = await this.updateState({
+          currentStep: install.installed ? "model" : "install",
+          install
+        });
 
-      return {
-        ...result,
-        onboarding
-      };
+        return {
+          ...result,
+          operation,
+          onboarding
+        };
+      } catch (error) {
+        await this.failOperation("install", action, "installing", error, "ChillClaw could not finish OpenClaw installation.");
+        throw error;
+      }
     });
   }
 
@@ -624,19 +726,36 @@ export class OnboardingService {
       channelId: request.channelId,
       valueKeys: Object.keys(request.values ?? {})
     }, async () => {
-      const { draft } = await this.readResolvedDraftState();
-      const summary = await this.buildSummary(draft);
-      if (!summary.model?.entryId) {
-        throw new Error("Save the first model before configuring a channel.");
+      const action = "onboarding-channel-save";
+      await this.startOperation("channel", action, "saving-channel", "Saving the first channel.");
+      try {
+        const { draft } = await this.readResolvedDraftState();
+        const summary = await this.buildSummary(draft);
+        if (!summary.model?.entryId) {
+          throw new Error("Save the first model before configuring a channel.");
+        }
+
+        const result = await this.channelSetupService.saveEntry(entryId, request);
+        const operation = result.status === "interactive"
+          ? await this.setOperation("channel", {
+              action,
+              status: "running",
+              phase: "awaiting-pairing",
+              message: result.message,
+              retryable: true
+            })
+          : await this.completeOperation("channel", action, "completed", result.message);
+        const onboarding = await this.updateState(this.channelDraftPatchFromMutation(request.channelId, entryId, result));
+
+        return {
+          ...result,
+          operation,
+          onboarding
+        };
+      } catch (error) {
+        await this.failOperation("channel", action, "saving-channel", error, "ChillClaw could not save this channel.");
+        throw error;
       }
-
-      const result = await this.channelSetupService.saveEntry(entryId, request);
-      const onboarding = await this.updateState(this.channelDraftPatchFromMutation(request.channelId, entryId, result));
-
-      return {
-        ...result,
-        onboarding
-      };
     });
   }
 
@@ -647,6 +766,18 @@ export class OnboardingService {
         response = await this.channelSetupService.getSession(sessionId);
       } catch (error) {
         throw await this.recoverMissingChannelSession(sessionId, error);
+      }
+      if (response.session.status === "completed") {
+        await this.completeOperation("channel", "onboarding-channel-save", "completed", response.session.message);
+      } else if (response.session.status === "failed") {
+        await this.setOperation("channel", {
+          action: "onboarding-channel-save",
+          status: "failed",
+          phase: "awaiting-pairing",
+          message: response.session.message,
+          errorCode: "CHANNEL_SESSION_FAILED",
+          retryable: true
+        });
       }
       const onboarding = await this.updateState(this.channelDraftPatchFromSession(response));
 
@@ -670,6 +801,18 @@ export class OnboardingService {
         response = await this.channelSetupService.submitSessionInput(sessionId, request);
       } catch (error) {
         throw await this.recoverMissingChannelSession(sessionId, error);
+      }
+      if (response.session.status === "completed") {
+        await this.completeOperation("channel", "onboarding-channel-save", "completed", response.session.message);
+      } else if (response.session.status === "failed") {
+        await this.setOperation("channel", {
+          action: "onboarding-channel-save",
+          status: "failed",
+          phase: "awaiting-pairing",
+          message: response.session.message,
+          errorCode: "CHANNEL_SESSION_FAILED",
+          retryable: true
+        });
       }
       const onboarding = await this.updateState(this.channelDraftPatchFromSession(response));
 
@@ -756,6 +899,21 @@ export class OnboardingService {
       destination: request.destination,
       employee: request.employee ? summarizeOnboardingDraft({ currentStep: "employee", employee: request.employee })?.employee : undefined
     }, async () => {
+      const existing = await this.store.read();
+      const existingCompletion = existing.onboardingOperations?.completion;
+      if (existing.setupCompletedAt && existingCompletion?.status === "completed") {
+        return {
+          status: "completed",
+          destination: request.destination,
+          summary: {},
+          overview: await this.overviewService.getOverview(),
+          operation: existingCompletion
+        };
+      }
+
+      const action = "onboarding-completion";
+      await this.startOperation("completion", action, "preparing", "Preparing to finish onboarding.");
+      try {
       const { draft } = await this.readResolvedDraftState();
       const completionDraft = {
         ...draft,
@@ -818,6 +976,13 @@ export class OnboardingService {
         const presetSkillIds = resolvePresetSkillIds(employee);
         const warmupTargetMode = onboardingTargetMode(completionDraft.install);
         warmupTaskId = this.createWarmupTaskId();
+        await this.setOperation("completion", {
+          action,
+          status: "running",
+          phase: "creating-employee",
+          message: "Creating your AI employee.",
+          retryable: true
+        });
         this.publishWarmupProgress(warmupTaskId, "running", "Creating your AI employee");
 
         const memberResult = await this.aiTeamService.saveMemberForOnboarding(
@@ -859,6 +1024,13 @@ export class OnboardingService {
           await this.aiTeamService.bindMemberChannelForOnboarding(createdMember.id, { binding: channelBinding });
         }
         await this.adapter.aiEmployees.setPrimaryAIMemberAgent(createdMember.agentId);
+        await this.setOperation("completion", {
+          action,
+          status: "running",
+          phase: "applying-gateway",
+          message: "Applying gateway changes.",
+          retryable: true
+        });
         this.publishWarmupProgress(warmupTaskId, "running", "Applying gateway changes");
 
         finalSummary = {
@@ -900,13 +1072,20 @@ export class OnboardingService {
         this.startOnboardingWarmup(warmupTaskId);
       }
 
+      const operation = await this.completeOperation("completion", action, "completed", "Onboarding complete.");
+
       return {
         status: "completed",
         destination: request.destination,
         summary: finalSummary,
         overview: await this.overviewService.getOverview(),
-        warmupTaskId
+        warmupTaskId,
+        operation
       };
+      } catch (error) {
+        await this.failOperation("completion", action, "finalizing", error, "ChillClaw could not finish onboarding.");
+        throw error;
+      }
     });
   }
 
@@ -1172,6 +1351,7 @@ export class OnboardingService {
       const nextState = await this.store.update((current) => ({
         ...current,
         setupCompletedAt: undefined,
+        onboardingOperations: undefined,
         onboarding: {
           draft: defaultOnboardingDraftState()
         }
@@ -1599,6 +1779,34 @@ export class OnboardingService {
     return result;
   }
 
+  private operationsForState(
+    state: Awaited<ReturnType<StateStore["read"]>>,
+    localRuntime: LocalModelRuntimeOverview | undefined
+  ): OnboardingOperationsState | undefined {
+    const operations: OnboardingOperationsState = {
+      ...(state.onboardingOperations ?? {})
+    };
+    const runtimeAction = localRuntime?.activeAction;
+    const runtimePhase = localRuntime?.activePhase;
+    if (runtimeAction && runtimePhase && localRuntime.status !== "ready" && localRuntime.status !== "idle") {
+      const updatedAt = localRuntime.lastProgressAt ?? new Date().toISOString();
+      operations.localRuntime = {
+        operationId: onboardingOperationId("localRuntime"),
+        action: `local-runtime-${runtimeAction}`,
+        status: localRuntime.status === "failed" ? "failed" : "running",
+        phase: runtimePhase,
+        message: localRuntime.progressMessage ?? localRuntime.detail,
+        startedAt: updatedAt,
+        updatedAt,
+        deadlineAt: operationDeadlineFrom(updatedAt),
+        errorCode: localRuntime.status === "failed" ? "LOCAL_RUNTIME_FAILED" : undefined,
+        retryable: true
+      };
+    }
+
+    return Object.keys(operations).length > 0 ? operations : undefined;
+  }
+
   private async buildStateResponse(state: Awaited<ReturnType<StateStore["read"]>>): Promise<OnboardingStateResponse> {
     const draft = {
       ...(state.onboarding?.draft ?? defaultOnboardingDraftState()),
@@ -1636,7 +1844,8 @@ export class OnboardingService {
       config: onboardingUiConfig,
       summary,
       localRuntime,
-      presetSkillSync
+      presetSkillSync,
+      operations: this.operationsForState(state, localRuntime)
     };
     logOnboardingEvent("onboarding.buildStateResponse", "Built onboarding state response.", summarizeOnboardingOperationResult(response));
     return response;

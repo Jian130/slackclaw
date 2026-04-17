@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createAIMember,
+  completeOnboarding,
   fetchAITeamOverview,
   fetchPluginConfig,
   fetchOverview,
@@ -139,5 +140,27 @@ describe("API client GET dedupe", () => {
 
     expect(String(fetchMock.mock.calls[0]?.[0] ?? "")).toContain("/plugins/wecom/update");
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+  });
+
+  it("aborts long onboarding mutations when the browser request deadline expires", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<never>>((_input, init) => {
+      const signal = init?.signal as AbortSignal | undefined;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = completeOnboarding({ destination: "dashboard" });
+    const assertion = expect(request).rejects.toMatchObject({
+      code: "REQUEST_TIMEOUT"
+    });
+    await vi.advanceTimersByTimeAsync(1_200_000);
+
+    await assertion;
+    expect((fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal | undefined)?.aborted).toBe(true);
   });
 });

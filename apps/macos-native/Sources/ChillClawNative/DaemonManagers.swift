@@ -114,7 +114,6 @@ actor LaunchAgentManager: LaunchAgentControlling {
         let supportPaths = try NativeDaemonSupport.ensureDirectories()
         let runScript = ((appRoot as NSString).appendingPathComponent("app/scripts/run-daemon.sh"))
         let staticDir = ((appRoot as NSString).appendingPathComponent("app/ui"))
-        let bootstrap = ((appRoot as NSString).appendingPathComponent("app/scripts/bootstrap-openclaw.mjs"))
         let runtimeBundleDir = ((appRoot as NSString).appendingPathComponent("app/runtime-artifacts"))
         let runtimeManifestPath = ((runtimeBundleDir as NSString).appendingPathComponent("runtime-manifest.lock.json"))
         let runtimeUpdateFeedURL = ProcessInfo.processInfo.environment["CHILLCLAW_RUNTIME_UPDATE_FEED_URL"] ?? ""
@@ -147,8 +146,6 @@ actor LaunchAgentManager: LaunchAgentControlling {
             <string>\(supportPaths.logDir)</string>
             <key>CHILLCLAW_STATIC_DIR</key>
             <string>\(staticDir)</string>
-            <key>CHILLCLAW_OPENCLAW_BOOTSTRAP_SCRIPT</key>
-            <string>\(bootstrap)</string>
             <key>CHILLCLAW_RUNTIME_BUNDLE_DIR</key>
             <string>\(runtimeBundleDir)</string>
             <key>CHILLCLAW_RUNTIME_MANIFEST_PATH</key>

@@ -712,7 +712,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: ChillCla
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return nil
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated,
-             .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+             .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return nil
         }
     case .permissions:
@@ -726,7 +726,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: ChillCla
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return nil
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated,
-             .chatStream, .channelSessionUpdated, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+             .chatStream, .channelSessionUpdated, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return nil
         }
     case .channel:
@@ -738,7 +738,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: ChillCla
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return nil
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated,
-             .chatStream, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+             .chatStream, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return nil
         }
     case .employee:
@@ -750,7 +750,7 @@ func onboardingRefreshResourceForEvent(_ step: OnboardingStep, _ event: ChillCla
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return nil
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated, .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .downloadsUpdated,
-             .chatStream, .channelSessionUpdated, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+             .chatStream, .channelSessionUpdated, .configApplied, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return nil
         }
     }

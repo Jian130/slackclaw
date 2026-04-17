@@ -152,6 +152,7 @@ export interface OnboardingCopy {
   personalityTitle: string;
   skillsTitle: string;
   pendingApplyTitle: string;
+  operationStillRunning: string;
 }
 
 const en: OnboardingCopy = {
@@ -318,7 +319,8 @@ const en: OnboardingCopy = {
   chooseAvatar: "Choose avatar",
   personalityTitle: "Personality",
   skillsTitle: "Preset skill sets",
-  pendingApplyTitle: "Gateway apply pending"
+  pendingApplyTitle: "Gateway apply pending",
+  operationStillRunning: "ChillClaw is still working. Progress was refreshed from the daemon, and you can continue when the current step settles."
 };
 
 const zh: OnboardingCopy = {
@@ -485,7 +487,8 @@ const zh: OnboardingCopy = {
   chooseAvatar: "选择头像",
   personalityTitle: "人格特征",
   skillsTitle: "预设技能组合",
-  pendingApplyTitle: "待应用网关变更"
+  pendingApplyTitle: "待应用网关变更",
+  operationStillRunning: "ChillClaw 仍在处理。进度已从守护进程刷新，当前步骤完成后即可继续。"
 };
 
 const ja: OnboardingCopy = {
@@ -652,7 +655,8 @@ const ja: OnboardingCopy = {
   chooseAvatar: "アバターを選択",
   personalityTitle: "性格",
   skillsTitle: "プリセットスキルセット",
-  pendingApplyTitle: "ゲートウェイ適用待ち"
+  pendingApplyTitle: "ゲートウェイ適用待ち",
+  operationStillRunning: "ChillClaw はまだ処理中です。デーモンから進行状況を更新しました。現在のステップが落ち着いたら続行できます。"
 };
 
 const ko: OnboardingCopy = {
@@ -819,7 +823,8 @@ const ko: OnboardingCopy = {
   chooseAvatar: "아바타 선택",
   personalityTitle: "성격",
   skillsTitle: "프리셋 스킬 세트",
-  pendingApplyTitle: "게이트웨이 적용 대기"
+  pendingApplyTitle: "게이트웨이 적용 대기",
+  operationStillRunning: "ChillClaw가 아직 작업 중입니다. 데몬에서 진행 상황을 새로 고쳤으며 현재 단계가 안정되면 계속할 수 있습니다."
 };
 
 const es: OnboardingCopy = {
@@ -986,7 +991,8 @@ const es: OnboardingCopy = {
   chooseAvatar: "Elegir avatar",
   personalityTitle: "Personalidad",
   skillsTitle: "Conjuntos de habilidades predefinidos",
-  pendingApplyTitle: "Aplicación del gateway pendiente"
+  pendingApplyTitle: "Aplicación del gateway pendiente",
+  operationStillRunning: "ChillClaw sigue trabajando. Se actualizó el progreso desde el daemon y podrás continuar cuando este paso termine."
 };
 
 const onboardingCopyByLocale: Record<Locale, OnboardingCopy> = { en, zh, ja, ko, es };

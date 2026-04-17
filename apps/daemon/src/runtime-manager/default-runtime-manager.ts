@@ -125,6 +125,15 @@ function safeRuntimeFileName(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "artifact";
 }
 
+async function pathExists(pathname: string): Promise<boolean> {
+  try {
+    await access(pathname);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadPackagedRuntimeManifest(): Promise<RuntimeManifestDocument> {
   const manifestPath = getRuntimeManifestPath();
   if (!manifestPath) {
@@ -491,21 +500,12 @@ function createOpenClawRuntimeProvider(): RuntimeResourceProvider {
           detail: "ChillClaw did not find a previous managed OpenClaw runtime to restore."
         };
       }
-      const invocation = await ensureManagedNodeNpmInvocation();
-      await runCommand(
-        invocation.command,
-        [...invocation.argsPrefix, "install", "--prefix", getManagedOpenClawDir(), `openclaw@${context.previousVersion}`],
-        {
-          env: managedNodeEnv(invocation.command),
-          beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.openclaw.rollback", command, args)
-        }
-      );
       return {
         version: context.previousVersion,
         activePath: getManagedOpenClawBinPath(),
-        changed: true,
-        summary: "OpenClaw rollback completed.",
-        detail: "ChillClaw restored the previous managed OpenClaw runtime."
+        changed: false,
+        summary: "OpenClaw rollback recorded.",
+        detail: "Bundled OpenClaw runtime replacement restores the previous runtime during failed installs before recording rollback state."
       };
     },
     async remove() {
@@ -524,9 +524,9 @@ async function installOpenClawFromArtifact(
   artifact: RuntimeArtifactManifest | undefined
 ): Promise<void> {
   if (artifact?.path && artifact.format === "directory") {
-    await installOpenClawFromDirectory(artifact.path);
+    await installOpenClawFromDirectory(manifest, artifact.path);
   } else {
-    await installOpenClawWithNpm(artifact?.path ?? `openclaw@${manifest.version}`);
+    throw new Error(`${manifest.label} requires a bundled OpenClaw runtime artifact.`);
   }
 
   if (!(await probeCommand(getManagedOpenClawBinPath(), ["--version"], { env: managedNodeEnv(getManagedOpenClawBinPath()) }))) {
@@ -534,12 +534,14 @@ async function installOpenClawFromArtifact(
   }
 }
 
-async function installOpenClawFromDirectory(sourceDir: string): Promise<void> {
+async function installOpenClawFromDirectory(manifest: RuntimeResourceManifest, sourceDir: string): Promise<void> {
   const sourceBin = resolve(sourceDir, "node_modules", ".bin", "openclaw");
   await access(sourceBin, constants.X_OK);
 
   const workspace = await mkdtemp(resolve(tmpdir(), "chillclaw-openclaw-runtime-"));
   const nextDir = resolve(workspace, "openclaw-runtime");
+  const backupDir = resolve(workspace, "previous-openclaw-runtime");
+  let backedUpCurrentRuntime = false;
   try {
     await writeInfoLog("Installing OpenClaw runtime from bundled installer artifact.", {
       sourceDir,
@@ -548,33 +550,29 @@ async function installOpenClawFromDirectory(sourceDir: string): Promise<void> {
       scope: "runtimeManager.openclaw.installBundle"
     });
     await cp(sourceDir, nextDir, { recursive: true, force: true, verbatimSymlinks: true });
-    await rm(getManagedOpenClawDir(), { recursive: true, force: true });
+    if (await pathExists(getManagedOpenClawDir())) {
+      await rename(getManagedOpenClawDir(), backupDir);
+      backedUpCurrentRuntime = true;
+    }
     await mkdir(dirname(getManagedOpenClawDir()), { recursive: true });
     await rename(nextDir, getManagedOpenClawDir());
+    if (!(await probeCommand(getManagedOpenClawBinPath(), ["--version"], { env: managedNodeEnv(getManagedOpenClawBinPath()) }))) {
+      throw new Error(`${manifest.label} installed, but the managed OpenClaw command is not executable.`);
+    }
     await writeInfoLog("Installed bundled OpenClaw runtime.", {
       installDir: getManagedOpenClawDir()
     }, {
       scope: "runtimeManager.openclaw.installBundle"
     });
+  } catch (error) {
+    if (backedUpCurrentRuntime) {
+      await rm(getManagedOpenClawDir(), { recursive: true, force: true });
+      await rename(backupDir, getManagedOpenClawDir()).catch(() => undefined);
+    }
+    throw error;
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
-}
-
-async function installOpenClawWithNpm(packageSpec: string): Promise<void> {
-  await mkdir(getManagedOpenClawDir(), { recursive: true });
-  const invocation = await ensureManagedNodeNpmInvocation();
-  await writeInfoLog("OpenClaw runtime fell back to npm installation.", {
-    packageSpec,
-    installDir: getManagedOpenClawDir(),
-    npm: invocation.display
-  }, {
-    scope: "runtimeManager.openclaw.installNpm"
-  });
-  await runCommand(invocation.command, [...invocation.argsPrefix, "install", "--prefix", getManagedOpenClawDir(), packageSpec], {
-    env: managedNodeEnv(invocation.command),
-    beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.openclaw.install", command, args)
-  });
 }
 
 function createOllamaRuntimeProvider(): RuntimeResourceProvider {

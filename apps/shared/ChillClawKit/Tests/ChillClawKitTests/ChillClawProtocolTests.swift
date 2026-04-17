@@ -566,6 +566,19 @@ struct ChillClawProtocolTests {
             "activeInOpenClaw": false,
             "summary": "Local AI is available on this Mac.",
             "detail": "ChillClaw recommends a starter Ollama tier for this Apple Silicon Mac."
+          },
+          "operations": {
+            "install": {
+              "operationId": "onboarding:install",
+              "action": "onboarding-runtime-install",
+              "status": "running",
+              "phase": "installing",
+              "message": "Installing OpenClaw locally.",
+              "startedAt": "2026-04-17T09:00:00.000Z",
+              "updatedAt": "2026-04-17T09:01:00.000Z",
+              "deadlineAt": "2026-04-17T09:20:00.000Z",
+              "retryable": true
+            }
           }
         }
         """.data(using: .utf8)!
@@ -598,6 +611,8 @@ struct ChillClawProtocolTests {
         #expect(response.summary.model?.entryId == "entry-1")
         #expect(response.localRuntime?.recommendation == "local")
         #expect(response.localRuntime?.status == "installing-runtime")
+        #expect(response.operations?.install?.operationId == "onboarding:install")
+        #expect(response.operations?.install?.status == "running")
     }
 
     @Test
@@ -607,6 +622,16 @@ struct ChillClawProtocolTests {
           "status": "completed",
           "destination": "dashboard",
           "warmupTaskId": "onboarding-warmup-task-1",
+          "operation": {
+            "operationId": "onboarding:completion",
+            "action": "onboarding-completion",
+            "status": "completed",
+            "phase": "completed",
+            "message": "Onboarding complete.",
+            "startedAt": "2026-04-17T09:00:00.000Z",
+            "updatedAt": "2026-04-17T09:01:00.000Z",
+            "retryable": false
+          },
           "summary": {},
           "overview": {
             "appName": "ChillClaw",
@@ -669,6 +694,7 @@ struct ChillClawProtocolTests {
 
         #expect(response.destination == .dashboard)
         #expect(response.warmupTaskId == "onboarding-warmup-task-1")
+        #expect(response.operation?.operationId == "onboarding:completion")
     }
 
     @Test
@@ -1029,6 +1055,19 @@ struct ChillClawProtocolTests {
         #expect(snapshot.epoch == "epoch-1")
         #expect(snapshot.revision == 3)
         #expect(snapshot.data.entries.first?.presetSkillId == "research-brief")
+
+        let heartbeatData = """
+        {
+          "type": "daemon.heartbeat",
+          "sentAt": "2026-04-17T09:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+        let heartbeatEvent = try JSONDecoder.chillClaw.decode(ChillClawEvent.self, from: heartbeatData)
+        guard case let .daemonHeartbeat(sentAt) = heartbeatEvent else {
+            Issue.record("Expected daemonHeartbeat event")
+            return
+        }
+        #expect(sentAt == "2026-04-17T09:00:00.000Z")
     }
 
     @Test

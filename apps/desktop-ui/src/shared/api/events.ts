@@ -20,6 +20,7 @@ export interface DaemonEventTransportState {
 type StateListener = (state: DaemonEventTransportState) => void;
 
 const DEFAULT_RECONNECT_DELAY_MS = 1_000;
+const EVENT_STREAM_STALE_MS = 45_000;
 
 const eventListeners = new Set<EventListener>();
 const errorListeners = new Set<ErrorListener>();
@@ -27,6 +28,7 @@ const stateListeners = new Set<StateListener>();
 
 let activeSocket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let staleTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldReconnect = false;
 let connectionState: DaemonSocketConnectionState = "closed";
 let lastError: string | undefined;
@@ -53,7 +55,9 @@ function emitState() {
 
 function setConnectionState(next: DaemonSocketConnectionState, error?: string) {
   connectionState = next;
-  lastError = error;
+  if (error !== undefined || next === "connected" || next === "closed") {
+    lastError = error;
+  }
   emitState();
 }
 
@@ -97,6 +101,31 @@ function clearReconnectTimer() {
   }
 }
 
+function clearStaleTimer() {
+  if (staleTimer) {
+    clearTimeout(staleTimer);
+    staleTimer = null;
+  }
+}
+
+function markStreamActivity(socket: WebSocket) {
+  if (activeSocket !== socket) {
+    return;
+  }
+
+  clearStaleTimer();
+  staleTimer = setTimeout(() => {
+    if (activeSocket !== socket) {
+      return;
+    }
+
+    activeSocket = null;
+    setConnectionState("reconnecting", "The event stream stopped responding.");
+    socket.close();
+    scheduleReconnect();
+  }, EVENT_STREAM_STALE_MS);
+}
+
 function scheduleReconnect() {
   if (!shouldReconnect || eventListeners.size === 0 || reconnectTimer) {
     return;
@@ -121,12 +150,17 @@ function ensureSocket() {
   socket.onopen = () => {
     if (activeSocket === socket) {
       setConnectionState("connected");
+      markStreamActivity(socket);
     }
   };
 
   socket.onmessage = (event) => {
+    markStreamActivity(socket);
     try {
       const payload = JSON.parse(event.data) as ChillClawEvent;
+      if (payload.type === "daemon.heartbeat") {
+        return;
+      }
       updateResourceRevision(payload);
       for (const listener of [...eventListeners]) {
         listener(payload);
@@ -147,6 +181,7 @@ function ensureSocket() {
     if (activeSocket === socket) {
       activeSocket = null;
     }
+    clearStaleTimer();
 
     if (shouldReconnect && eventListeners.size > 0) {
       scheduleReconnect();
@@ -164,6 +199,7 @@ function closeSocket() {
 
   const socket = activeSocket;
   activeSocket = null;
+  clearStaleTimer();
   socket.close();
 }
 
@@ -214,6 +250,7 @@ export function resetDaemonEventStateForTests() {
   errorListeners.clear();
   stateListeners.clear();
   clearReconnectTimer();
+  clearStaleTimer();
   closeSocket();
   lastSeenByResource.clear();
   connectionState = "closed";

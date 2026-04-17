@@ -224,7 +224,6 @@ LABEL="${LAUNCH_AGENT_LABEL}"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$LABEL.plist"
 DAEMON_BIN="$APP_ROOT/runtime/chillclaw-daemon"
 STATIC_DIR="$APP_ROOT/app/ui"
-BOOTSTRAP_SCRIPT="$APP_ROOT/app/scripts/bootstrap-openclaw.mjs"
 RUNTIME_BUNDLE_DIR="$APP_ROOT/app/runtime-artifacts"
 RUNTIME_MANIFEST_PATH="$RUNTIME_BUNDLE_DIR/runtime-manifest.lock.json"
 RUNTIME_UPDATE_FEED_URL="\${CHILLCLAW_RUNTIME_UPDATE_FEED_URL:-}"
@@ -257,8 +256,6 @@ cat >"$PLIST_PATH" <<EOF
       <string>$DATA_DIR</string>
       <key>CHILLCLAW_STATIC_DIR</key>
       <string>$STATIC_DIR</string>
-      <key>CHILLCLAW_OPENCLAW_BOOTSTRAP_SCRIPT</key>
-      <string>$BOOTSTRAP_SCRIPT</string>
       <key>CHILLCLAW_RUNTIME_BUNDLE_DIR</key>
       <string>$RUNTIME_BUNDLE_DIR</string>
       <key>CHILLCLAW_RUNTIME_MANIFEST_PATH</key>
@@ -391,7 +388,6 @@ async function stageBundle() {
   await copyFile(APP_ICON_PNG_SOURCE, resolve(APP_RESOURCES, APP_ICON_PNG_FILENAME));
   await copyFile(APP_BRAND_LOGO_SOURCE, resolve(APP_RESOURCES, APP_BRAND_LOGO_FILENAME));
   await cp(resolve(ROOT, "apps/desktop-ui/dist"), APP_UI, { recursive: true });
-  await copyFile(resolve(ROOT, "scripts/bootstrap-openclaw.mjs"), resolve(APP_SCRIPTS, "bootstrap-openclaw.mjs"));
   await copyRuntimeArtifacts();
 
   await writeFile(resolve(APP_SCRIPTS, "install-launchagent.sh"), installLaunchAgentScript());

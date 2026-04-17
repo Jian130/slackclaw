@@ -362,6 +362,26 @@ public struct OnboardingUIConfig: Codable, Sendable {
     }
 }
 
+public struct LongRunningOperationSummary: Codable, Sendable {
+    public var operationId: String
+    public var action: String
+    public var status: String
+    public var phase: String?
+    public var message: String
+    public var startedAt: String
+    public var updatedAt: String
+    public var deadlineAt: String?
+    public var errorCode: String?
+    public var retryable: Bool?
+}
+
+public struct OnboardingOperationsState: Codable, Sendable {
+    public var install: LongRunningOperationSummary?
+    public var localRuntime: LongRunningOperationSummary?
+    public var channel: LongRunningOperationSummary?
+    public var completion: LongRunningOperationSummary?
+}
+
 public struct OnboardingStateResponse: Codable, Sendable {
     public var firstRun: FirstRunState
     public var draft: OnboardingDraftState
@@ -369,6 +389,7 @@ public struct OnboardingStateResponse: Codable, Sendable {
     public var summary: OnboardingCompletionSummary
     public var localRuntime: LocalModelRuntimeOverview?
     public var presetSkillSync: PresetSkillSyncOverview?
+    public var operations: OnboardingOperationsState?
 
     public init(
         firstRun: FirstRunState,
@@ -376,7 +397,8 @@ public struct OnboardingStateResponse: Codable, Sendable {
         config: OnboardingUIConfig,
         summary: OnboardingCompletionSummary,
         localRuntime: LocalModelRuntimeOverview? = nil,
-        presetSkillSync: PresetSkillSyncOverview? = nil
+        presetSkillSync: PresetSkillSyncOverview? = nil,
+        operations: OnboardingOperationsState? = nil
     ) {
         self.firstRun = firstRun
         self.draft = draft
@@ -384,6 +406,7 @@ public struct OnboardingStateResponse: Codable, Sendable {
         self.summary = summary
         self.localRuntime = localRuntime
         self.presetSkillSync = presetSkillSync
+        self.operations = operations
     }
 }
 
@@ -393,19 +416,22 @@ public struct CompleteOnboardingResponse: Codable, Sendable {
     public var summary: OnboardingCompletionSummary
     public var overview: ProductOverview
     public var warmupTaskId: String?
+    public var operation: LongRunningOperationSummary?
 
     public init(
         status: String,
         destination: OnboardingDestination? = nil,
         summary: OnboardingCompletionSummary,
         overview: ProductOverview,
-        warmupTaskId: String? = nil
+        warmupTaskId: String? = nil,
+        operation: LongRunningOperationSummary? = nil
     ) {
         self.status = status
         self.destination = destination
         self.summary = summary
         self.overview = overview
         self.warmupTaskId = warmupTaskId
+        self.operation = operation
     }
 }
 
@@ -1073,6 +1099,7 @@ public struct SetupRunResponse: Codable, Sendable {
     public var overview: ProductOverview
     public var install: InstallResponse?
     public var onboarding: OnboardingStateResponse?
+    public var operation: LongRunningOperationSummary?
 
     public init(
         status: String,
@@ -1080,7 +1107,8 @@ public struct SetupRunResponse: Codable, Sendable {
         steps: [SetupStepResult],
         overview: ProductOverview,
         install: InstallResponse? = nil,
-        onboarding: OnboardingStateResponse? = nil
+        onboarding: OnboardingStateResponse? = nil,
+        operation: LongRunningOperationSummary? = nil
     ) {
         self.status = status
         self.message = message
@@ -1088,6 +1116,7 @@ public struct SetupRunResponse: Codable, Sendable {
         self.overview = overview
         self.install = install
         self.onboarding = onboarding
+        self.operation = operation
     }
 }
 
@@ -1228,6 +1257,7 @@ public struct ModelConfigActionResponse: Codable, Sendable {
     public var authSession: ModelAuthSession?
     public var requiresGatewayApply: Bool?
     public var onboarding: OnboardingStateResponse?
+    public var operation: LongRunningOperationSummary? = nil
 }
 
 public struct LocalModelRuntimeActionResponse: Codable, Sendable {
@@ -1241,6 +1271,7 @@ public struct LocalModelRuntimeActionResponse: Codable, Sendable {
     public var modelConfig: ModelConfigOverview
     public var overview: ProductOverview
     public var onboarding: OnboardingStateResponse? = nil
+    public var operation: LongRunningOperationSummary? = nil
 }
 
 public struct RuntimeActionResponse: Codable, Sendable {
@@ -1253,6 +1284,7 @@ public struct RuntimeActionResponse: Codable, Sendable {
     public var resource: RuntimeResourceOverview
     public var runtimeManager: RuntimeManagerOverview
     public var overview: ProductOverview?
+    public var operation: LongRunningOperationSummary? = nil
 }
 
 public struct ModelAuthSessionResponse: Codable, Sendable {
@@ -1366,6 +1398,7 @@ public struct ChannelConfigActionResponse: Codable, Sendable {
     public var session: ChannelSession?
     public var requiresGatewayApply: Bool?
     public var onboarding: OnboardingStateResponse?
+    public var operation: LongRunningOperationSummary? = nil
 }
 
 public struct ChannelSessionResponse: Codable, Sendable {

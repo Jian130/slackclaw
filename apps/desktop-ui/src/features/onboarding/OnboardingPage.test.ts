@@ -108,6 +108,15 @@ describe("OnboardingPage CTA styling", () => {
     expect(source).toContain("copy.localModelDownloadResumeNote");
   });
 
+  it("recovers timed-out onboarding mutations by refreshing daemon-owned operation state", () => {
+    const source = readFileSync(fileURLToPath(new URL("./OnboardingPage.tsx", import.meta.url)), "utf8");
+
+    expect(source).toContain("recoverOnboardingTimeout");
+    expect(source).toContain('code?: string; timedOut?: boolean');
+    expect(source).toContain("const next = await refreshOnboardingState();");
+    expect(source).toContain("copy.operationStillRunning");
+  });
+
   it("shows the shared busy button animation while advancing from the model step", () => {
     const source = readFileSync(fileURLToPath(new URL("./OnboardingPage.tsx", import.meta.url)), "utf8");
 

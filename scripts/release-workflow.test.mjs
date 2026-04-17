@@ -236,21 +236,26 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.doesNotMatch(runtimeManifest, /Ollama\.dmg/);
 });
 
-test("OpenClaw install fallbacks stay pinned instead of using upstream latest", async () => {
-  const [runtimeManifest, runtimeManager, openClawAdapter, bootstrapScript] = await Promise.all([
+test("managed OpenClaw runtime packaging stays pinned and bundled-only", async () => {
+  const [runtimeManifest, runtimeManager, openClawAdapter, packageJson, buildScript, nativeDaemonManager] = await Promise.all([
     readRepoFile("runtime-manifest.lock.json"),
     readRepoFile("apps/daemon/src/runtime-manager/default-runtime-manager.ts"),
     readRepoFile("apps/daemon/src/engine/openclaw-adapter.ts"),
-    readRepoFile("scripts/bootstrap-openclaw.mjs")
+    readRepoFile("package.json"),
+    readRepoFile("scripts/build-macos-installer.mjs"),
+    readRepoFile("apps/macos-native/Sources/ChillClawNative/DaemonManagers.swift")
   ]);
 
   assert.match(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"version": "2026\.3\.11"/);
   assert.match(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "2026\.3\.11"/);
   assert.match(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "2026\.3\.11"/);
-  assert.match(bootstrapScript, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "2026\.3\.11"/);
   assert.doesNotMatch(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "latest"/);
   assert.doesNotMatch(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "latest"/);
-  assert.doesNotMatch(bootstrapScript, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "latest"/);
+  assert.doesNotMatch(packageJson, /bootstrap:openclaw/);
+  assert.doesNotMatch(buildScript, /bootstrap-openclaw\.mjs/);
+  assert.doesNotMatch(buildScript, /CHILLCLAW_OPENCLAW_BOOTSTRAP_SCRIPT/);
+  assert.doesNotMatch(nativeDaemonManager, /bootstrap-openclaw\.mjs/);
+  assert.doesNotMatch(nativeDaemonManager, /CHILLCLAW_OPENCLAW_BOOTSTRAP_SCRIPT/);
 });
 
 test("local macOS installer builds warn before users share unsigned DMGs", async () => {

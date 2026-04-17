@@ -5,6 +5,17 @@ import type { EngineStatus } from "@chillclaw/contracts";
 
 import { OpenClawRuntimeLifecycleService } from "./openclaw-runtime-lifecycle-service.js";
 
+function recoveryAction(id: "rollback-update" | "reinstall-engine" | "restart-engine" | "repair-config") {
+  return {
+    id,
+    type: id,
+    title: id,
+    description: id,
+    safetyLevel: "safe" as const,
+    expectedImpact: id
+  };
+}
+
 function engineStatus(overrides: Partial<EngineStatus> = {}): EngineStatus {
   return {
     engine: "openclaw",
@@ -72,7 +83,23 @@ function createService(overrides: Partial<ConstructorParameters<typeof OpenClawR
     resolveSystemOpenClawCommand: async () => undefined,
     resolveOpenClawCommand: async () => undefined,
     readVersionFromCommand: async () => undefined,
-    readUpdateStatusFromCommand: async () => undefined,
+    prepareManagedOpenClawRuntime: async () => ({
+      status: "completed",
+      message: "OpenClaw runtime is ready."
+    }),
+    checkManagedOpenClawRuntimeUpdate: async () => ({
+      status: "completed",
+      message: "Managed OpenClaw runtime is on the bundled version."
+    }),
+    stageManagedOpenClawRuntimeUpdate: async () => ({
+      status: "completed",
+      message: "Managed OpenClaw runtime has no approved update to stage."
+    }),
+    applyManagedOpenClawRuntimeUpdate: async () => ({
+      status: "failed",
+      message: "Managed OpenClaw runtime has no staged update to apply."
+    }),
+    getManagedOpenClawRuntimeResource: async () => undefined,
     isOpenClawVersionCompatible: () => true,
     openClawVersionSummary: () => "compatible",
     compareOpenClawVersions: () => undefined,
@@ -173,4 +200,165 @@ test("standard target uninstall falls back to npm global uninstall when OpenClaw
   assert.equal(result.status, "completed");
   assert.equal(result.engineStatus.installed, false);
   assert.match(result.message, /npm global uninstall/i);
+});
+
+test("standard target install is unsupported because ChillClaw only installs its managed runtime", async () => {
+  let installed = false;
+  const service = createService({
+    ensurePinnedOpenClaw: async () => {
+      installed = true;
+      return {
+        status: "installed",
+        changed: true,
+        hadExisting: false,
+        message: "installed"
+      };
+    }
+  });
+
+  const result = await service.installDeploymentTarget("standard");
+
+  assert.equal(installed, false);
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /managed OpenClaw runtime/i);
+});
+
+test("managed-local target status reflects Runtime Manager approved updates", async () => {
+  const service = createService({
+    resolveManagedOpenClawCommand: async () => "/tmp/chillclaw/openclaw-runtime/node_modules/.bin/openclaw",
+    resolveOpenClawCommand: async () => "/tmp/chillclaw/openclaw-runtime/node_modules/.bin/openclaw",
+    readVersionFromCommand: async () => "2026.3.11",
+    getManagedOpenClawRuntimeResource: async () => ({
+      id: "openclaw-runtime",
+      kind: "node-npm",
+      label: "OpenClaw",
+      status: "ready",
+      sourcePolicy: ["bundled", "download"],
+      updatePolicy: "stage-silently-apply-safely",
+      installedVersion: "2026.3.11",
+      desiredVersion: "2026.3.11",
+      latestApprovedVersion: "2026.4.13",
+      updateAvailable: true,
+      summary: "OpenClaw has an approved update.",
+      detail: "ChillClaw can update OpenClaw."
+    })
+  });
+
+  const result = await service.getDeploymentTargets();
+  const managedTarget = result.targets.find((target) => target.id === "managed-local");
+
+  assert.equal(managedTarget?.updateAvailable, true);
+  assert.equal(managedTarget?.latestVersion, "2026.4.13");
+  assert.match(managedTarget?.updateSummary ?? "", /approved OpenClaw 2026\.4\.13/i);
+});
+
+test("managed-local target update stages and applies the Runtime Manager update", async () => {
+  const commands: Array<{ command: string; args: string[] }> = [];
+  const runtimeActions: string[] = [];
+  const managedCommand = "/tmp/chillclaw/openclaw-runtime/node_modules/.bin/openclaw";
+  const service = createService({
+    resolveManagedOpenClawCommand: async () => managedCommand,
+    readVersionFromCommand: async () => "2026.4.13",
+    runCommand: async (command, args) => {
+      commands.push({ command, args });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    waitForGatewayReachable: async () => engineStatus({ version: "2026.4.13" }),
+    checkManagedOpenClawRuntimeUpdate: async () => {
+      runtimeActions.push("check");
+      return {
+        status: "completed",
+        message: "OpenClaw has an approved update.",
+        resource: {
+          installedVersion: "2026.3.11",
+          latestApprovedVersion: "2026.4.13",
+          updateAvailable: true
+        }
+      };
+    },
+    stageManagedOpenClawRuntimeUpdate: async () => {
+      runtimeActions.push("stage");
+      return {
+        status: "completed",
+        message: "OpenClaw update is staged.",
+        resource: {
+          installedVersion: "2026.3.11",
+          latestApprovedVersion: "2026.4.13",
+          stagedVersion: "2026.4.13",
+          updateAvailable: true
+        }
+      };
+    },
+    applyManagedOpenClawRuntimeUpdate: async () => {
+      runtimeActions.push("apply");
+      return {
+        status: "completed",
+        message: "OpenClaw update is ready.",
+        resource: {
+          installedVersion: "2026.4.13",
+          latestApprovedVersion: "2026.4.13",
+          updateAvailable: false
+        }
+      };
+    },
+    prepareManagedOpenClawRuntime: async () => {
+      throw new Error("managed-local updates must use Runtime Manager stage/apply");
+    }
+  } as Partial<ConstructorParameters<typeof OpenClawRuntimeLifecycleService>[0]>);
+
+  const result = await service.updateDeploymentTarget("managed-local");
+
+  assert.deepEqual(runtimeActions, ["check", "stage", "apply"]);
+  assert.equal(result.status, "completed");
+  assert.equal(result.engineStatus.version, "2026.4.13");
+  assert.match(result.message, /update is ready/i);
+  assert.deepEqual(commands, [
+    {
+      command: managedCommand,
+      args: ["gateway", "restart"]
+    }
+  ]);
+});
+
+test("rollback update restores the managed bundled runtime without calling OpenClaw update status", async () => {
+  const commands: Array<{ command: string; args: string[] }> = [];
+  let prepared = false;
+  const service = createService({
+    resolveOpenClawCommand: async () => undefined,
+    runOpenClaw: async (args) => {
+      commands.push({ command: "openclaw", args });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    prepareManagedOpenClawRuntime: async () => {
+      prepared = true;
+      return {
+        status: "completed",
+        message: "OpenClaw runtime restored from bundle."
+      };
+    }
+  });
+
+  const result = await service.repair(recoveryAction("rollback-update"));
+
+  assert.equal(prepared, true);
+  assert.equal(result.status, "completed");
+  assert.match(result.message, /managed OpenClaw runtime/i);
+  assert.deepEqual(commands, []);
+});
+
+test("standard target update is unsupported because ChillClaw only updates its managed runtime", async () => {
+  const commands: Array<{ command: string; args: string[] }> = [];
+  const service = createService({
+    resolveSystemOpenClawCommand: async () => "/usr/local/bin/openclaw",
+    runCommand: async (command, args) => {
+      commands.push({ command, args });
+      return { code: 0, stdout: "", stderr: "" };
+    }
+  });
+
+  const result = await service.updateDeploymentTarget("standard");
+
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /managed OpenClaw runtime/i);
+  assert.deepEqual(commands, []);
 });

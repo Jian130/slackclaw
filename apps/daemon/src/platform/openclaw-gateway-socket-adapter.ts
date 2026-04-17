@@ -10,6 +10,7 @@ import {
   signOpenClawGatewayDevicePayload,
   type OpenClawGatewayDeviceIdentity
 } from "./openclaw-gateway-device-auth.js";
+import { DaemonTimeoutError } from "./timeout-errors.js";
 
 interface OpenClawGatewaySocketEnvelope {
   type?: string;
@@ -52,7 +53,7 @@ type GatewaySocketConstructor = new (url: string) => GatewaySocketLike;
 
 type GatewaySocketState = {
   listeners: Set<(event: EngineChatLiveEvent) => void>;
-  pendingRequests: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>;
+  pendingRequests: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout }>;
   socket?: GatewaySocketLike;
   connectPromise?: Promise<void>;
   reconnectTimer?: NodeJS.Timeout;
@@ -133,6 +134,8 @@ const GATEWAY_REASONING_TAG_QUICK_RE = /<\s*\/?\s*(?:think(?:ing)?|thought|antth
 const GATEWAY_FINAL_TAG_RE = /<\s*\/?\s*final\b[^<>]*>/gi;
 const GATEWAY_THINKING_TAG_RE = /<\s*(\/?)\s*(?:think(?:ing)?|thought|antthinking)\b[^<>]*>/gi;
 const GATEWAY_MEMORY_TAG_RE = /<\s*(\/?)\s*relevant[-_]memories\b[^<>]*>/gi;
+const DEFAULT_GATEWAY_CONNECT_TIMEOUT_MS = 15_000;
+const DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS = 30_000;
 
 function findGatewayCodeRegions(text: string): GatewayCodeRegion[] {
   const regions: GatewayCodeRegion[] = [];
@@ -339,6 +342,8 @@ export class OpenClawGatewaySocketAdapter {
       readConnectionInfo: () => Promise<{ url: string; token: string; deviceIdentity?: OpenClawGatewayDeviceIdentity } | undefined>;
       onReconnectError?: (error: unknown) => void | Promise<void>;
       websocketFactory?: GatewaySocketConstructor;
+      connectTimeoutMs?: number;
+      requestTimeoutMs?: number;
     }
   ) {}
 
@@ -378,15 +383,34 @@ export class OpenClawGatewaySocketAdapter {
     });
 
     return await new Promise<T>((resolve, reject) => {
+      const timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS;
+      const timer = timeoutMs > 0
+        ? setTimeout(() => {
+            const pending = this.state.pendingRequests.get(requestId);
+            pending?.reject(new DaemonTimeoutError(
+              "GATEWAY_TIMEOUT",
+              `OpenClaw gateway request ${method} timed out after ${timeoutMs}ms.`,
+              timeoutMs,
+              { method, requestId }
+            ));
+          }, timeoutMs)
+        : undefined;
       this.state.pendingRequests.set(requestId, {
         resolve: (value) => {
+          if (timer) {
+            clearTimeout(timer);
+          }
           this.state.pendingRequests.delete(requestId);
           resolve(value as T);
         },
         reject: (error) => {
+          if (timer) {
+            clearTimeout(timer);
+          }
           this.state.pendingRequests.delete(requestId);
           reject(error);
-        }
+        },
+        timer
       });
 
       try {
@@ -435,6 +459,9 @@ export class OpenClawGatewaySocketAdapter {
     }
 
     for (const pending of this.state.pendingRequests.values()) {
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
       pending.reject(error);
     }
     this.state.pendingRequests.clear();
@@ -494,6 +521,28 @@ export class OpenClawGatewaySocketAdapter {
       await new Promise<void>((resolve, reject) => {
         let authenticated = false;
         let settled = false;
+        const timeoutMs = this.options.connectTimeoutMs ?? DEFAULT_GATEWAY_CONNECT_TIMEOUT_MS;
+        const connectTimer = timeoutMs > 0
+          ? setTimeout(() => {
+              fail(new DaemonTimeoutError(
+                "GATEWAY_TIMEOUT",
+                `OpenClaw gateway connect timed out after ${timeoutMs}ms.`,
+                timeoutMs,
+                { url: connection.url }
+              ));
+              try {
+                socket.close();
+              } catch {
+                // Best-effort shutdown.
+              }
+            }, timeoutMs)
+          : undefined;
+
+        const clearConnectTimer = () => {
+          if (connectTimer) {
+            clearTimeout(connectTimer);
+          }
+        };
 
         const fail = (error: Error) => {
           if (settled) {
@@ -501,6 +550,7 @@ export class OpenClawGatewaySocketAdapter {
           }
 
           settled = true;
+          clearConnectTimer();
           this.state.socket = undefined;
           this.state.connected = false;
           reject(error);
@@ -512,6 +562,7 @@ export class OpenClawGatewaySocketAdapter {
           }
 
           settled = true;
+          clearConnectTimer();
           this.state.connected = true;
           this.emit({ type: "connected" });
           resolve();

@@ -52,7 +52,7 @@ import { type CommandResult, probeCommand as probeExternalCommand, resolveComman
 import { createDefaultSecretsAdapter } from "../platform/macos-keychain-secrets-adapter.js";
 import { OpenClawGatewaySocketAdapter, normalizeGatewaySocketUrl } from "../platform/openclaw-gateway-socket-adapter.js";
 import { loadOrCreateOpenClawGatewayDeviceIdentity } from "../platform/openclaw-gateway-device-auth.js";
-import { ensureManagedNodeNpmInvocation, resolveManagedNodeNpmInvocation } from "../platform/managed-node-runtime.js";
+import { resolveManagedNodeNpmInvocation } from "../platform/managed-node-runtime.js";
 import { modelAuthSecretName, type SecretsAdapter } from "../platform/secrets-adapter.js";
 import {
   listModelProviderDefinitions,
@@ -159,31 +159,6 @@ interface OpenClawGatewayStatusJson {
     error?: string;
     url?: string;
   };
-}
-
-interface OpenClawUpdateStatusJson {
-  update?: {
-    root?: string;
-    installKind?: string;
-    packageManager?: string;
-    registry?: {
-      latestVersion?: string | null;
-      error?: string | null;
-    };
-  };
-  channel?: {
-    label?: string;
-  };
-  availability?: {
-    available?: boolean;
-    latestVersion?: string | null;
-  };
-}
-
-interface OpenClawTargetUpdateStatus {
-  updateAvailable: boolean;
-  latestVersion?: string;
-  summary: string;
 }
 
 interface OpenClawModelListJson {
@@ -432,7 +407,6 @@ function getOpenClawStatePath(): string {
 }
 const OPENCLAW_VERSION_OVERRIDE = process.env.CHILLCLAW_OPENCLAW_VERSION?.trim() || undefined;
 const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "2026.3.11";
-const OPENCLAW_PACKAGE_SPEC = `openclaw@${OPENCLAW_INSTALL_TARGET}`;
 const OPENCLAW_RUNTIME_PREFERENCE_ENV = "CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE";
 const WECHAT_INSTALLER_PACKAGE_SPEC = "@tencent-weixin/openclaw-weixin-cli@latest";
 const PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY = "openclaw-weixin";
@@ -533,7 +507,6 @@ type EngineReadSnapshot = {
   cliVersion?: string;
   statusJson?: OpenClawStatusJson;
   gatewayJson?: OpenClawGatewayStatusJson;
-  updateJson?: OpenClawUpdateStatusJson;
 };
 
 export { buildGatewaySocketConnectParams } from "../platform/openclaw-gateway-socket-adapter.js";
@@ -1127,7 +1100,7 @@ function usesManagedOpenClawHomeByDefault(): boolean {
     return false;
   }
 
-  return Boolean(getAppRootDir());
+  return true;
 }
 
 function commandUsesManagedOpenClaw(command: string | undefined): boolean {
@@ -1161,7 +1134,7 @@ async function resolveOpenClawCommand(options?: { fresh?: boolean }): Promise<st
     return resolveSystemOpenClawCommand(options);
   }
 
-  return (await resolveManagedOpenClawCommand(options)) ?? (await resolveSystemOpenClawCommand(options));
+  return resolveManagedOpenClawCommand(options);
 }
 
 async function resolveClawHubCommand(options?: { fresh?: boolean }): Promise<string | undefined> {
@@ -1366,6 +1339,11 @@ async function readInstalledOpenClawVersion(): Promise<string | undefined> {
   return readEngineSnapshot().then((snapshot) => snapshot.cliVersion);
 }
 
+function parseOpenClawVersionOutput(output: string): string | undefined {
+  const trimmed = output.trim();
+  return trimmed.match(/\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b/u)?.[1];
+}
+
 async function readVersionFromCommand(command: string | undefined, options?: { fresh?: boolean }): Promise<string | undefined> {
   if (!command) {
     return undefined;
@@ -1385,7 +1363,7 @@ async function readVersionFromCommand(command: string | undefined, options?: { f
         return undefined;
       }
 
-      return result.stdout;
+      return parseOpenClawVersionOutput(result.stdout) ?? result.stdout;
     },
     options
   );
@@ -1393,10 +1371,6 @@ async function readVersionFromCommand(command: string | undefined, options?: { f
 
 async function readManagedOpenClawVersion(options?: { fresh?: boolean }): Promise<string | undefined> {
   return readVersionFromCommand(await resolveManagedOpenClawCommand(options), options);
-}
-
-async function readSystemOpenClawVersion(options?: { fresh?: boolean }): Promise<string | undefined> {
-  return readVersionFromCommand(await resolveSystemOpenClawCommand(options), options);
 }
 
 function compareOpenClawVersions(left: string | undefined, right: string | undefined): number | undefined {
@@ -1466,91 +1440,6 @@ function openClawVersionSummary(version: string | undefined): string {
   return isOpenClawVersionCompatible(version)
     ? `OpenClaw ${version} meets ChillClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`
     : `OpenClaw ${version} is older than ChillClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.`;
-}
-
-export function summarizeTargetUpdateStatus(
-  parsed: OpenClawUpdateStatusJson | undefined,
-  fallbackMessage: string
-): OpenClawTargetUpdateStatus {
-  const latestVersion =
-    parsed?.availability?.latestVersion?.trim() ||
-    parsed?.update?.registry?.latestVersion?.trim() ||
-    undefined;
-
-  if (parsed?.availability?.available) {
-    return {
-      updateAvailable: true,
-      latestVersion,
-      summary: `Version ${latestVersion ?? "unknown"} is available on ${parsed.channel?.label ?? "the current channel"}.`
-    };
-  }
-
-  if (parsed?.update?.registry?.error) {
-    return {
-      updateAvailable: false,
-      latestVersion,
-      summary: latestVersion
-        ? `ChillClaw could not fully confirm update availability, but the latest registry version appears to be ${latestVersion}.`
-        : `ChillClaw could not check for updates: ${parsed.update.registry.error}.`
-    };
-  }
-
-  if (latestVersion) {
-    return {
-      updateAvailable: false,
-      latestVersion,
-      summary: "No newer version detected."
-    };
-  }
-
-  return {
-    updateAvailable: false,
-    summary: fallbackMessage
-  };
-}
-
-async function readUpdateStatusFromCommand(
-  command: string | undefined,
-  options?: { fresh?: boolean }
-): Promise<OpenClawTargetUpdateStatus | undefined> {
-  if (!command) {
-    return undefined;
-  }
-
-  return readThroughCache(
-    `command:update:${command}`,
-    READ_CACHE_TTL_MS.engine,
-    async () => {
-      for (const attempt of [0, 1]) {
-        const result = await runCommand(command, ["update", "status", "--json"], { allowFailure: true }).catch(() => ({
-          code: 1,
-          stdout: "",
-          stderr: ""
-        }));
-
-        const parsed =
-          safeJsonPayloadParse<OpenClawUpdateStatusJson>(result.stdout) ??
-          safeJsonPayloadParse<OpenClawUpdateStatusJson>(result.stderr);
-        const hasTransientRegistryAbort =
-          Boolean(parsed?.update?.registry?.error?.includes("AbortError")) &&
-          !parsed?.update?.registry?.latestVersion &&
-          !parsed?.availability?.latestVersion;
-
-        if (hasTransientRegistryAbort && attempt === 0) {
-          await wait(200);
-          continue;
-        }
-
-        return summarizeTargetUpdateStatus(parsed, result.stderr || result.stdout || "ChillClaw could not check for updates.");
-      }
-
-      return {
-        updateAvailable: false,
-        summary: "ChillClaw could not check for updates."
-      };
-    },
-    options
-  );
 }
 
 function safeJsonParse<T>(value: string | undefined): T | undefined {
@@ -2099,9 +1988,9 @@ function deriveConfiguredModels(
   });
 }
 
-async function readEngineSnapshot(options?: { fresh?: boolean; includeUpdate?: boolean }): Promise<EngineReadSnapshot> {
+async function readEngineSnapshot(options?: { fresh?: boolean }): Promise<EngineReadSnapshot> {
   return readThroughCache(
-    `engine:snapshot:${options?.includeUpdate ? "with-update" : "base"}`,
+    "engine:snapshot:base",
     READ_CACHE_TTL_MS.engine,
     async () => {
       const command = await resolveOpenClawCommand({ fresh: options?.fresh });
@@ -2112,21 +2001,14 @@ async function readEngineSnapshot(options?: { fresh?: boolean; includeUpdate?: b
         };
       }
 
-      const [cliVersion, statusResult, gatewayResult, updateResult] = await Promise.all([
+      const [cliVersion, statusResult, gatewayResult] = await Promise.all([
         readVersionFromCommand(command, options),
         runCommand(command, ["status", "--json"], { allowFailure: true }).catch(() => ({ code: 1, stdout: "", stderr: "" })),
         runCommand(command, ["gateway", "status", "--json"], { allowFailure: true }).catch(() => ({
           code: 1,
           stdout: "",
           stderr: ""
-        })),
-        options?.includeUpdate
-          ? runCommand(command, ["update", "status", "--json"], { allowFailure: true }).catch(() => ({
-              code: 1,
-              stdout: "",
-              stderr: ""
-            }))
-          : Promise.resolve(undefined)
+        }))
       ]);
 
       return {
@@ -2138,11 +2020,7 @@ async function readEngineSnapshot(options?: { fresh?: boolean; includeUpdate?: b
           safeJsonPayloadParse<OpenClawStatusJson>(statusResult.stderr),
         gatewayJson:
           safeJsonPayloadParse<OpenClawGatewayStatusJson>(gatewayResult.stdout) ??
-          safeJsonPayloadParse<OpenClawGatewayStatusJson>(gatewayResult.stderr),
-        updateJson: updateResult
-          ? safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateResult.stdout) ??
-            safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateResult.stderr)
-          : undefined
+          safeJsonPayloadParse<OpenClawGatewayStatusJson>(gatewayResult.stderr)
       };
     },
     options
@@ -3221,12 +3099,11 @@ export class OpenClawAdapter implements EngineAdapter {
   readonly installSpec: EngineInstallSpec = {
     engine: "openclaw",
     desiredVersion: OPENCLAW_INSTALL_TARGET,
-    installSource: "npm-local",
+    installSource: "bundle",
     prerequisites: [
       "macOS",
-      "ChillClaw-managed Node.js and npm runtime",
-      "pnpm only if you build OpenClaw from source",
-      `Permission to install or reuse OpenClaw ${OPENCLAW_INSTALL_TARGET}`
+      "ChillClaw bundled OpenClaw runtime artifact",
+      `Permission to install or refresh the managed bundled OpenClaw ${OPENCLAW_INSTALL_TARGET} runtime`
     ],
     installPath: getManagedOpenClawDir()
   };
@@ -3541,7 +3418,49 @@ export class OpenClawAdapter implements EngineAdapter {
       resolveSystemOpenClawCommand,
       resolveOpenClawCommand,
       readVersionFromCommand,
-      readUpdateStatusFromCommand,
+      getManagedOpenClawRuntimeResource: async () => {
+        if (!this.runtimeManager) {
+          return undefined;
+        }
+        const overview = await this.runtimeManager.getOverview();
+        return overview.resources.find((resource) => resource.id === "openclaw-runtime");
+      },
+      prepareManagedOpenClawRuntime: async () => {
+        if (!this.runtimeManager) {
+          return {
+            status: "failed" as const,
+            message: "ChillClaw's managed runtime manager is unavailable."
+          };
+        }
+        return this.runtimeManager.prepare("openclaw-runtime");
+      },
+      checkManagedOpenClawRuntimeUpdate: async () => {
+        if (!this.runtimeManager) {
+          return {
+            status: "failed" as const,
+            message: "ChillClaw's managed runtime manager is unavailable."
+          };
+        }
+        return this.runtimeManager.checkUpdate("openclaw-runtime");
+      },
+      stageManagedOpenClawRuntimeUpdate: async () => {
+        if (!this.runtimeManager) {
+          return {
+            status: "failed" as const,
+            message: "ChillClaw's managed runtime manager is unavailable."
+          };
+        }
+        return this.runtimeManager.stageUpdate("openclaw-runtime");
+      },
+      applyManagedOpenClawRuntimeUpdate: async () => {
+        if (!this.runtimeManager) {
+          return {
+            status: "failed" as const,
+            message: "ChillClaw's managed runtime manager is unavailable."
+          };
+        }
+        return this.runtimeManager.applyUpdate("openclaw-runtime");
+      },
       isOpenClawVersionCompatible,
       openClawVersionSummary,
       compareOpenClawVersions,
@@ -4513,16 +4432,15 @@ export class OpenClawAdapter implements EngineAdapter {
   }
 
   private async ensurePinnedOpenClaw(targetMode: "auto" | "system" | "managed-local"): Promise<BootstrapResult> {
-    const usesManagedLocalRuntime = targetMode === "managed-local" || (targetMode === "auto" && Boolean(getAppRootDir()));
-    const existingVersion = usesManagedLocalRuntime ? await readManagedOpenClawVersion() : await readSystemOpenClawVersion();
-    const systemVersion = usesManagedLocalRuntime ? await readSystemOpenClawVersion() : existingVersion;
-    const installPath = getManagedOpenClawDir();
-    const brewCommand = await resolveBrewCommand();
+    if (targetMode === "system") {
+      throw new Error("ChillClaw no longer installs external OpenClaw runtimes. Use the managed bundled runtime instead.");
+    }
 
-    if (isOpenClawVersionCompatible(existingVersion)) {
-      const reusedCommand = usesManagedLocalRuntime
-        ? await resolveManagedOpenClawCommand({ fresh: true })
-        : await resolveSystemOpenClawCommand({ fresh: true });
+    const existingVersion = await readManagedOpenClawVersion();
+    const installPath = getManagedOpenClawDir();
+
+    if (existingVersion === OPENCLAW_INSTALL_TARGET) {
+      const reusedCommand = await resolveManagedOpenClawCommand({ fresh: true });
       const configChanged = await this.ensureChillClawGatewayConfigBaseline(reusedCommand);
       const gatewayNormalizationSuffix = configChanged
         ? " ChillClaw also reset the OpenClaw gateway to its local baseline on this Mac."
@@ -4534,117 +4452,39 @@ export class OpenClawAdapter implements EngineAdapter {
         hadExisting: true,
         existingVersion,
         version: existingVersion,
-        message: usesManagedLocalRuntime
-          ? `OpenClaw ${existingVersion} is already available in ChillClaw's managed local runtime.${gatewayNormalizationSuffix}`
-          : OPENCLAW_VERSION_OVERRIDE
-            ? `OpenClaw ${existingVersion} is already installed and meets ChillClaw's requested version floor ${OPENCLAW_VERSION_OVERRIDE}.${gatewayNormalizationSuffix}`
-            : `OpenClaw ${existingVersion} is already installed and ready for ChillClaw.${gatewayNormalizationSuffix}`
+        message: `OpenClaw ${existingVersion} is already available in ChillClaw's managed bundled runtime.${gatewayNormalizationSuffix}`
       };
     }
 
-    if (usesManagedLocalRuntime && this.runtimeManager) {
-      const runtimeResult = await this.runtimeManager.prepare("openclaw-runtime");
-      if (runtimeResult.status !== "completed") {
-        throw new Error(runtimeResult.message);
-      }
-      const nextVersion = await readManagedOpenClawVersion({ fresh: true });
-      if (!nextVersion || (OPENCLAW_VERSION_OVERRIDE && nextVersion !== OPENCLAW_VERSION_OVERRIDE)) {
-        throw new Error(`ChillClaw prepared ${runtimeResult.resource.label}, but could not verify the managed OpenClaw CLI.`);
-      }
-      const installedCommand = await resolveManagedOpenClawCommand({ fresh: true });
-      const configChanged = await this.ensureChillClawGatewayConfigBaseline(installedCommand);
-      const gatewayNormalizationSuffix = configChanged
-        ? " ChillClaw also reset the OpenClaw gateway to its local baseline on this Mac."
-        : "";
-
-      return {
-        status: existingVersion || systemVersion ? "reinstalled" : "installed",
-        changed: true,
-        hadExisting: Boolean(existingVersion || systemVersion),
-        existingVersion: existingVersion ?? systemVersion,
-        version: nextVersion,
-        message: existingVersion
-          ? `ChillClaw refreshed its managed local OpenClaw ${nextVersion} runtime in ${installPath}.${gatewayNormalizationSuffix}`
-          : systemVersion
-            ? `ChillClaw deployed a managed local OpenClaw ${nextVersion} runtime into ${installPath} instead of depending on the system OpenClaw ${systemVersion}.${gatewayNormalizationSuffix}`
-            : `ChillClaw deployed OpenClaw ${nextVersion} locally into ${installPath}.${gatewayNormalizationSuffix}`
-      };
+    if (!this.runtimeManager) {
+      throw new Error("ChillClaw's managed runtime manager is unavailable.");
     }
 
-    const ensuredNpmInvocation = usesManagedLocalRuntime
-      ? await ensureManagedNodeNpmInvocation()
-      : (await resolveSystemNpmInvocation()) ?? (await this.ensureSystemDependencies());
+    const runtimeResult = await this.runtimeManager.prepare("openclaw-runtime");
+    if (runtimeResult.status !== "completed") {
+      throw new Error(runtimeResult.message);
+    }
+    const nextVersion = await readManagedOpenClawVersion({ fresh: true });
 
-    if (!ensuredNpmInvocation) {
-      throw new Error(
-        brewCommand
-          ? "ChillClaw asked Homebrew to prepare the required toolchain, but still could not find a working npm executable afterward."
-          : existingVersion || systemVersion
-            ? `ChillClaw found OpenClaw ${existingVersion ?? systemVersion}, but cannot deploy a managed local copy because neither npm nor Homebrew is available on this Mac.`
-            : "ChillClaw cannot deploy OpenClaw locally because neither npm nor Homebrew is available on this Mac."
-      );
+    if (!nextVersion || nextVersion !== OPENCLAW_INSTALL_TARGET) {
+      throw new Error(`ChillClaw prepared ${runtimeResult.resource.label}, but could not verify the managed OpenClaw CLI.`);
     }
 
-    if (usesManagedLocalRuntime) {
-      await mkdir(installPath, { recursive: true });
-    }
-
-    const installArgs = usesManagedLocalRuntime
-      ? ["install", "--prefix", installPath, OPENCLAW_PACKAGE_SPEC]
-      : ["install", "--global", OPENCLAW_PACKAGE_SPEC];
-
-    const installResult = await runCommand(
-      ensuredNpmInvocation.command,
-      [...ensuredNpmInvocation.argsPrefix, ...installArgs],
-      { allowFailure: true }
-    );
-
-    if (installResult.code !== 0) {
-      await writeErrorLog("OpenClaw install command failed.", {
-        command: ensuredNpmInvocation.display,
-        args: installArgs,
-        result: installResult
-      }, {
-        scope: "OpenClawAdapter.ensurePinnedOpenClaw.install"
-      });
-      throw new Error(installResult.stderr || installResult.stdout || "OpenClaw installation failed.");
-    }
-
-    const nextVersion = usesManagedLocalRuntime
-      ? await readManagedOpenClawVersion({ fresh: true })
-      : await readSystemOpenClawVersion({ fresh: true });
-
-    if (!nextVersion || (OPENCLAW_VERSION_OVERRIDE && nextVersion !== OPENCLAW_VERSION_OVERRIDE)) {
-      throw new Error(
-        usesManagedLocalRuntime
-          ? `ChillClaw downloaded OpenClaw into ${installPath}, but could not verify that the managed runtime can execute on this Mac.`
-          : "ChillClaw installed OpenClaw, but could not verify the installed CLI."
-      );
-    }
-
-    const installedCommand = usesManagedLocalRuntime
-      ? await resolveManagedOpenClawCommand({ fresh: true })
-      : await resolveSystemOpenClawCommand({ fresh: true });
+    const installedCommand = await resolveManagedOpenClawCommand({ fresh: true });
     const configChanged = await this.ensureChillClawGatewayConfigBaseline(installedCommand);
     const gatewayNormalizationSuffix = configChanged
       ? " ChillClaw also reset the OpenClaw gateway to its local baseline on this Mac."
       : "";
 
     return {
-      status: existingVersion || systemVersion ? "reinstalled" : "installed",
+      status: existingVersion ? "reinstalled" : "installed",
       changed: true,
-      hadExisting: Boolean(existingVersion || systemVersion),
-      existingVersion: existingVersion ?? systemVersion,
+      hadExisting: Boolean(existingVersion),
+      existingVersion,
       version: nextVersion,
-      message: usesManagedLocalRuntime
-        ? existingVersion
-          ? `ChillClaw refreshed its managed local OpenClaw ${nextVersion} runtime in ${installPath}.${gatewayNormalizationSuffix}`
-          : systemVersion
-            ? `ChillClaw deployed a managed local OpenClaw ${nextVersion} runtime into ${installPath} instead of depending on the system OpenClaw ${systemVersion}.${gatewayNormalizationSuffix}`
-            : `ChillClaw deployed OpenClaw ${nextVersion} locally into ${installPath}.${gatewayNormalizationSuffix}`
-        : existingVersion
-          ? `Replaced existing OpenClaw ${existingVersion} with ${nextVersion}.${gatewayNormalizationSuffix}`
-          : `Installed OpenClaw ${nextVersion}.${gatewayNormalizationSuffix}`
+      message: existingVersion
+        ? `ChillClaw refreshed its managed bundled OpenClaw ${nextVersion} runtime in ${installPath}.${gatewayNormalizationSuffix}`
+        : `ChillClaw deployed OpenClaw ${nextVersion} from the bundled runtime into ${installPath}.${gatewayNormalizationSuffix}`
     };
   }
 

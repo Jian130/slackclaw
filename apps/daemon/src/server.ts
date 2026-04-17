@@ -113,23 +113,42 @@ export function startServer(port = 4545) {
   });
   scheduleRuntimeUpdateStaging(context);
   const eventSocketServer = new WebSocketServer({ noServer: true });
+  const EVENT_SOCKET_HEARTBEAT_INTERVAL_MS = 15_000;
 
   eventSocketServer.on("connection", (socket: WebSocket) => {
-    for (const event of context.eventBus.getRetainedEvents()) {
+    const sendEvent = (event: unknown) => {
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify(event));
       }
+    };
+
+    for (const event of context.eventBus.getRetainedEvents()) {
+      sendEvent(event);
     }
 
     const unsubscribe = context.eventBus.subscribe((event) => {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify(event));
-      }
+      sendEvent(event);
     });
+    const heartbeatTimer = setInterval(() => {
+      sendEvent({
+        type: "daemon.heartbeat",
+        sentAt: new Date().toISOString()
+      });
+    }, EVENT_SOCKET_HEARTBEAT_INTERVAL_MS);
 
-    socket.on("close", unsubscribe);
-    socket.on("error", () => {
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) {
+        return;
+      }
+      cleanedUp = true;
+      clearInterval(heartbeatTimer);
       unsubscribe();
+    };
+
+    socket.on("close", cleanup);
+    socket.on("error", () => {
+      cleanup();
     });
   });
 

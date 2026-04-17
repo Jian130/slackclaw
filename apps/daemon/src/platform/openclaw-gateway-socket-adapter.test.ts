@@ -299,3 +299,71 @@ test("gateway socket adapter can send authenticated request-response calls over 
     messages: [{ role: "assistant", text: "History response" }]
   });
 });
+
+test("gateway socket adapter rejects connect attempts that miss the deadline", async () => {
+  FakeWebSocket.reset();
+  const adapter = new OpenClawGatewaySocketAdapter({
+    websocketFactory: FakeWebSocket as never,
+    connectTimeoutMs: 25,
+    readConnectionInfo: async () => ({
+      url: "ws://127.0.0.1:4545/rpc/ws",
+      token: "gateway-token"
+    })
+  });
+
+  await assert.rejects(
+    () => adapter.subscribe(() => undefined),
+    (error) => {
+      const timeout = error as { code?: string; message?: string };
+      assert.equal(timeout.code, "GATEWAY_TIMEOUT");
+      assert.match(timeout.message ?? "", /connect/i);
+      return true;
+    }
+  );
+  assert.equal(FakeWebSocket.instances[0]?.closed, true);
+});
+
+test("gateway socket adapter rejects request calls that miss the deadline", async () => {
+  FakeWebSocket.reset();
+  const adapter = new OpenClawGatewaySocketAdapter({
+    websocketFactory: FakeWebSocket as never,
+    requestTimeoutMs: 25,
+    readConnectionInfo: async () => ({
+      url: "ws://127.0.0.1:4545/rpc/ws",
+      token: "gateway-token"
+    })
+  });
+
+  const historyPromise = adapter.request<{ messages: Array<{ role: string; text: string }> }>("chat.history", {
+    sessionKey: "session-1",
+    limit: 50
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  const socket = FakeWebSocket.instances[0];
+  assert.ok(socket);
+
+  socket?.emitMessage({
+    type: "event",
+    event: "connect.challenge",
+    payload: {
+      nonce: "nonce-2"
+    }
+  });
+
+  const connectRequest = JSON.parse(socket?.sent[0] ?? "{}") as { id?: string };
+  socket?.emitMessage({
+    id: connectRequest.id,
+    ok: true
+  });
+
+  await assert.rejects(
+    historyPromise,
+    (error) => {
+      const timeout = error as { code?: string; message?: string };
+      assert.equal(timeout.code, "GATEWAY_TIMEOUT");
+      assert.match(timeout.message ?? "", /chat\.history/i);
+      return true;
+    }
+  );
+});

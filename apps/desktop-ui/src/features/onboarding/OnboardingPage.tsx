@@ -508,6 +508,41 @@ export default function OnboardingPage() {
     return next;
   }
 
+  function isRequestTimeoutError(error: unknown) {
+    return Boolean((error as { code?: string; timedOut?: boolean } | undefined)?.timedOut) ||
+      (error as { code?: string } | undefined)?.code === "REQUEST_TIMEOUT";
+  }
+
+  async function recoverOnboardingTimeout(
+    error: unknown,
+    operationSlot: keyof NonNullable<OnboardingStateResponse["operations"]>
+  ) {
+    if (!isRequestTimeoutError(error)) {
+      return false;
+    }
+
+    const next = await refreshOnboardingState();
+    const operation = next.operations?.[operationSlot];
+    setPageError(operation?.message ?? copy.operationStillRunning);
+
+    if (operationSlot === "install" && operation?.message) {
+      setInstallProgress((current) => mergeOnboardingInstallProgress(current, {
+        phase: "verifying",
+        message: operation.message
+      }));
+    }
+
+    if (operationSlot === "localRuntime") {
+      void readFreshModelConfig().catch(() => undefined);
+    }
+
+    if (operationSlot === "channel") {
+      void readFreshChannelConfig().catch(() => undefined);
+    }
+
+    return true;
+  }
+
   async function applyOnboardingState(next: OnboardingStateResponse) {
     setOnboardingState(next);
     return next;
@@ -1142,6 +1177,9 @@ export default function OnboardingPage() {
         await applyOnboardingState(result.onboarding);
       }
     } catch (actionError) {
+      if (await recoverOnboardingTimeout(actionError, "install")) {
+        return;
+      }
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not finish installation.");
     } finally {
       setInstallBusy(false);
@@ -1172,6 +1210,9 @@ export default function OnboardingPage() {
         await goToStep("channel");
       }
     } catch (actionError) {
+      if (await recoverOnboardingTimeout(actionError, "localRuntime")) {
+        return;
+      }
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not prepare local AI on this Mac.");
     } finally {
       setLocalRuntimeBusy("");
@@ -1258,6 +1299,9 @@ export default function OnboardingPage() {
         await applyOnboardingState(result.onboarding);
       }
     } catch (actionError) {
+      if (await recoverOnboardingTimeout(actionError, "channel")) {
+        return;
+      }
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not save this channel.");
     } finally {
       setChannelBusy(false);
@@ -1346,6 +1390,9 @@ export default function OnboardingPage() {
       setCompletionWarmupStatus(result.warmupTaskId ? "running" : "");
       setCompletionWarmupMessage(result.warmupTaskId ? "Finishing workspace setup in the background." : "");
     } catch (actionError) {
+      if (await recoverOnboardingTimeout(actionError, "completion")) {
+        return;
+      }
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not finish onboarding.");
     } finally {
       setEmployeeBusy(false);
@@ -1365,6 +1412,9 @@ export default function OnboardingPage() {
       setOverview(result.overview);
       navigate(onboardingDestinationPath(destination, result.summary.employee?.memberId), { replace: true });
     } catch (actionError) {
+      if (await recoverOnboardingTimeout(actionError, "completion")) {
+        return;
+      }
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not complete onboarding.");
     } finally {
       setCompletionBusy("");

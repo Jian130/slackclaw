@@ -95,7 +95,13 @@ export class RuntimeManager {
     await this.assertSupported(resource);
     const state = await this.readState();
     const nextResourceState = this.resourceState(state, id);
-    const latestApprovedVersion = update?.version;
+    const provider = this.providerFor(resource);
+    const inspection = await provider.inspect({
+      manifest: resource,
+      state: nextResourceState
+    });
+    const installedVersion = nextResourceState.installedVersion ?? inspection.version;
+    const latestApprovedVersion = update?.version ?? packagedDesiredUpdateVersion(resource, installedVersion);
     nextResourceState.lastCheckedAt = new Date().toISOString();
     nextResourceState.latestApprovedVersion = latestApprovedVersion;
     nextResourceState.status = nextResourceState.status ?? "missing";
@@ -401,7 +407,7 @@ export class RuntimeManager {
       manifest: resource,
       state: currentState
     });
-    if (inspection.ready && (!currentState.stagedVersion || currentState.status === "ready")) {
+    if (inspection.ready && inspectionMatchesDesiredVersion(inspection.version, currentState, resource) && (!currentState.stagedVersion || currentState.status === "ready")) {
       await this.writeResourceState(state, id, {
         ...currentState,
         status: "ready",
@@ -495,7 +501,9 @@ export class RuntimeManager {
             ? "bundled-available"
             : "missing");
     const latestApprovedVersion =
-      resourceState.latestApprovedVersion ?? (update?.version !== installedVersion ? update?.version : undefined);
+      resourceState.latestApprovedVersion ??
+      (update?.version !== installedVersion ? update?.version : undefined) ??
+      packagedDesiredUpdateVersion(resource, installedVersion);
 
     return {
       id: resource.id as RuntimeResourceId,
@@ -695,6 +703,21 @@ export class RuntimeManager {
       runtimeManager
     };
   }
+}
+
+function packagedDesiredUpdateVersion(
+  resource: RuntimeResourceManifest,
+  installedVersion: string | undefined
+): string | undefined {
+  return installedVersion && installedVersion !== resource.version ? resource.version : undefined;
+}
+
+function inspectionMatchesDesiredVersion(
+  inspectionVersion: string | undefined,
+  state: RuntimeResourceStoredState,
+  resource: RuntimeResourceManifest
+): boolean {
+  return (inspectionVersion ?? state.installedVersion) === resource.version;
 }
 
 async function artifactUsable(artifact: RuntimeArtifactManifest): Promise<boolean> {

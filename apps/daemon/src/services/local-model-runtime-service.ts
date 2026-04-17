@@ -21,6 +21,7 @@ import {
 import type { ManagedLocalModelEntryRequest } from "../engine/adapter.js";
 import { getManagedOllamaCliPath, getManagedOllamaDir, getManagedOllamaModelsDir } from "../runtime-paths.js";
 import { getAvailableDiskBytes } from "../platform/disk-space.js";
+import { runCommand } from "../platform/cli-runner.js";
 import { logDevelopmentCommand, writeInfoLog } from "./logger.js";
 import { StateStore } from "./state-store.js";
 import type { EventPublisher } from "./event-publisher.js";
@@ -101,6 +102,7 @@ type ActiveLocalModelRuntimeJob = {
 type RetryableError = Error & { retryable?: boolean };
 
 const LOCAL_MODEL_PULL_MAX_ATTEMPTS = 3;
+const LOCAL_MODEL_COMMAND_TIMEOUT_MS = 30_000;
 const OLLAMA_HOST = "127.0.0.1";
 const OLLAMA_PORT = 11_434;
 const OLLAMA_BASE_URL = `http://${OLLAMA_HOST}:${OLLAMA_PORT}`;
@@ -638,40 +640,16 @@ async function runLoggedCommand(
   scope: string,
   command: string,
   args: string[],
-  options?: { envOverrides?: Record<string, string | undefined>; allowFailure?: boolean }
+  options?: { envOverrides?: Record<string, string | undefined>; allowFailure?: boolean; timeoutMs?: number }
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   logDevelopmentCommand(scope, command, args);
-
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, args, {
-      env: {
-        ...process.env,
-        ...(options?.envOverrides ?? {})
-      }
-    });
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", rejectPromise);
-    child.on("close", (code) => {
-      const result = {
-        code: code ?? 1,
-        stdout,
-        stderr
-      };
-      if (!options?.allowFailure && result.code !== 0) {
-        rejectPromise(new Error(result.stderr || result.stdout || `${command} ${args.join(" ")} failed.`));
-        return;
-      }
-
-      resolvePromise(result);
-    });
+  return runCommand(command, args, {
+    allowFailure: options?.allowFailure,
+    env: {
+      ...process.env,
+      ...(options?.envOverrides ?? {})
+    },
+    timeoutMs: options?.timeoutMs ?? LOCAL_MODEL_COMMAND_TIMEOUT_MS
   });
 }
 

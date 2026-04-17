@@ -72,6 +72,13 @@ test("npm start prepares the managed runtime before launching the daemon", async
   assert.ok(prepareIndex < daemonIndex);
 });
 
+test("prepare-dev-runtime wires the Runtime Manager into the OpenClaw adapter", async () => {
+  const source = await readFile(new URL("./prepare-dev-runtime.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /createRuntimeManager/u);
+  assert.match(source, /new OpenClawAdapter\([^)]*runtimeManager/u);
+});
+
 test("npm start keeps daemon and UI output visible in the terminal", async () => {
   const source = await readFile(new URL("./start-dev.mjs", import.meta.url), "utf8");
   const start = source.indexOf("function runBackgroundStep(");

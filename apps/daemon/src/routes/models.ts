@@ -1,5 +1,6 @@
 import type {
   LocalModelRuntimeActionResponse,
+  LongRunningOperationSummary,
   ModelAuthRequest,
   ModelAuthSessionInputRequest,
   ReplaceFallbackModelEntriesRequest,
@@ -15,6 +16,26 @@ import type { RouteDefinition } from "./types.js";
 const matchModelEntry = createPathMatcher("/api/models/entries/:entryId");
 const matchModelAuthSession = createPathMatcher("/api/models/auth/session/:sessionId");
 const matchModelAuthSessionInput = createPathMatcher("/api/models/auth/session/:sessionId/input");
+
+function localRuntimeOperation(
+  action: "install" | "repair",
+  status: "completed" | "failed",
+  message: string,
+  errorCode?: string
+): LongRunningOperationSummary {
+  const now = new Date().toISOString();
+  return {
+    operationId: "onboarding:localRuntime",
+    action: `local-runtime-${action}`,
+    status,
+    phase: status === "completed" ? "completed" : "configuring-openclaw",
+    message,
+    startedAt: now,
+    updatedAt: now,
+    errorCode,
+    retryable: status === "failed"
+  };
+}
 
 async function decoratedModelConfig(context: ServerContext) {
   return context.localModelRuntimeService.decorateModelConfig(await context.adapter.config.getModelConfig());
@@ -207,6 +228,7 @@ export const modelsRoutes: RouteDefinition[] = [
         modelConfig,
         overview,
         onboarding,
+        operation: localRuntimeOperation("install", result.status, result.message, result.status === "failed" ? "LOCAL_RUNTIME_FAILED" : undefined),
         ...sync
       };
 
@@ -231,6 +253,7 @@ export const modelsRoutes: RouteDefinition[] = [
         modelConfig,
         overview,
         onboarding,
+        operation: localRuntimeOperation("repair", result.status, result.message, result.status === "failed" ? "LOCAL_RUNTIME_FAILED" : undefined),
         ...sync
       };
 

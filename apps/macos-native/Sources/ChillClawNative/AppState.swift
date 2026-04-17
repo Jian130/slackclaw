@@ -41,7 +41,7 @@ func shouldRefreshNativeOverviewForEvent(_ event: ChillClawEvent) -> Bool {
         return true
     case let .taskProgress(_, status, _):
         return status != .running
-    case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+    case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
         return false
     }
 }
@@ -62,7 +62,7 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return true
         case let .taskProgress(_, status, _):
             return status != .running
-        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return false
         }
     case .deploy:
@@ -75,7 +75,7 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .deployCompleted, .gatewayStatus:
             return true
-        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return false
         }
     case .configuration:
@@ -90,7 +90,7 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .channelSessionUpdated:
             return true
-        case .configApplied, .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+        case .configApplied, .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return false
         }
     case .plugins:
@@ -103,7 +103,7 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return false
-        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .configApplied, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .configApplied, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return false
         }
     case .skills:
@@ -118,7 +118,7 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return false
-        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return false
         }
     case .members, .team, .chat:
@@ -133,7 +133,7 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return false
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
             return false
-        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+        case .chatStream, .deployCompleted, .deployProgress, .gatewayStatus, .taskProgress, .channelSessionUpdated, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return false
         }
     case .settings:
@@ -412,7 +412,7 @@ final class ChillClawAppState {
             let .runtimeCompleted(_, _, _, _, runtimeManager),
             let .runtimeUpdateStaged(_, _, _, runtimeManager):
             applyRuntimeManagerOverview(runtimeManager)
-        case .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .channelSessionUpdated, .configApplied, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed:
+        case .deployProgress, .deployCompleted, .gatewayStatus, .taskProgress, .chatStream, .channelSessionUpdated, .configApplied, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             break
         }
 

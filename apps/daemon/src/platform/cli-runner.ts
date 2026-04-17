@@ -1,10 +1,41 @@
 import { spawn } from "node:child_process";
 
+import { DaemonTimeoutError } from "./timeout-errors.js";
+
 export interface CommandResult {
   code: number;
   signal?: NodeJS.Signals;
   stdout: string;
   stderr: string;
+}
+
+export class CommandTimeoutError extends DaemonTimeoutError {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly signal?: NodeJS.Signals;
+
+  constructor(params: {
+    command: string;
+    args: string[];
+    timeoutMs: number;
+    stdout: string;
+    stderr: string;
+    signal?: NodeJS.Signals;
+  }) {
+    super(
+      "COMMAND_TIMEOUT",
+      `${params.command} ${params.args.join(" ")} timed out after ${params.timeoutMs}ms.`,
+      params.timeoutMs,
+      {
+        command: params.command,
+        args: params.args,
+        signal: params.signal
+      }
+    );
+    this.stdout = params.stdout.trim();
+    this.stderr = params.stderr.trim();
+    this.signal = params.signal;
+  }
 }
 
 export async function runCommand(
@@ -16,6 +47,8 @@ export async function runCommand(
     input?: string;
     beforeSpawn?: (command: string, args: string[]) => void;
     onSpawnError?: (error: unknown) => void | Promise<void>;
+    timeoutMs?: number;
+    killTimeoutMs?: number;
   }
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
@@ -26,6 +59,20 @@ export async function runCommand(
 
     let stdout = "";
     let stderr = "";
+    let timeout: NodeJS.Timeout | undefined;
+    let forceKillTimeout: NodeJS.Timeout | undefined;
+    let timedOut = false;
+
+    const clearTimers = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = undefined;
+      }
+      if (forceKillTimeout) {
+        clearTimeout(forceKillTimeout);
+        forceKillTimeout = undefined;
+      }
+    };
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -37,18 +84,53 @@ export async function runCommand(
 
     child.stdin.end(options?.input);
 
+    if (options?.timeoutMs && options.timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // Best-effort termination. The close/error handler below settles the promise.
+        }
+
+        forceKillTimeout = setTimeout(() => {
+          if (child.exitCode === null) {
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // Best-effort forced termination.
+            }
+          }
+        }, options.killTimeoutMs ?? 5_000);
+      }, options.timeoutMs);
+    }
+
     child.on("error", (error) => {
+      clearTimers();
       void options?.onSpawnError?.(error);
       reject(error);
     });
 
     child.on("close", (code, signal) => {
+      clearTimers();
       const result: CommandResult = {
         code: code ?? 1,
         signal: signal ?? undefined,
         stdout: stdout.trim(),
         stderr: stderr.trim()
       };
+
+      if (timedOut && options?.timeoutMs) {
+        reject(new CommandTimeoutError({
+          command,
+          args,
+          timeoutMs: options.timeoutMs,
+          stdout,
+          stderr,
+          signal: signal ?? undefined
+        }));
+        return;
+      }
 
       if (!options?.allowFailure && result.code !== 0) {
         reject(new Error(result.stderr || result.stdout || `${command} ${args.join(" ")} failed`));

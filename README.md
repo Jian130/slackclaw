@@ -50,9 +50,9 @@ The root `npm run build` and `npm test` commands now include the website workspa
 ## What Works Today
 
 - Deploy page:
-  - detects installed OpenClaw runtimes on the current Mac
-  - separates installed targets from installable targets
-  - supports install, update, and uninstall flows for the current OpenClaw targets
+  - detects ChillClaw's managed OpenClaw runtime and external installs used for migration context
+  - separates the installable managed target from detected external targets
+  - supports install, update, and uninstall flows for ChillClaw's managed OpenClaw runtime
   - shows current and latest version information
 - Configuration page:
   - shows the live OpenClaw runtime model chain and ChillClaw-managed configured model records
@@ -135,7 +135,7 @@ flowchart LR
   - `gateway`: live gateway lifecycle, health, tasks, chat, login, and pairing flows
   - `plugins`: managed plugin lifecycle and feature prerequisite enforcement
 - Config and AI employee saves are staged changes. They write correct engine and workspace state first, then the gateway manager is responsible for applying them live.
-- `OpenClawAdapter` checks for an existing OpenClaw install, reuses it when available, and otherwise deploys a ChillClaw-managed local OpenClaw runtime under the user's ChillClaw data directory with a managed Node.js/npm toolchain.
+- `OpenClawAdapter` deploys and updates the ChillClaw-managed bundled OpenClaw runtime under the user's ChillClaw data directory. External OpenClaw installs are detected for migration context, but ChillClaw does not install or update them.
 - The adapter seam is intentionally future-facing: it should later support local-LLM runtimes and model families such as Qwen, MiniMax-exposed local runtimes, Llama, Mistral, and other OpenAI-compatible local gateways.
 - The current local-runtime slice uses Ollama as the managed daemon-owned local engine and writes an explicit OpenClaw native-Ollama provider config for the selected local `ollama/...` model instead of exposing raw local-model wiring directly to clients.
 - User state, diagnostics, and ChillClaw metadata live in `~/Library/Application Support/ChillClaw` when packaged.
@@ -143,8 +143,8 @@ flowchart LR
 ### Packaging breakdown
 
 - `ChillClaw-macOS.dmg` lets users drag `ChillClaw.app` into `/Applications`.
-- The app bundle contains the native macOS client, the built fallback React UI, the daemon, LaunchAgent helper scripts, and OpenClaw bootstrap/install logic.
-- OpenClaw itself is reused when an existing install is already available, or deployed into ChillClaw-managed local app data when setup needs to install it. Clean Macs do not need Homebrew or a user-installed npm for the managed install path.
+- The app bundle contains the native macOS client, the built fallback React UI, the daemon, LaunchAgent helper scripts, and bundled OpenClaw runtime bootstrap logic.
+- OpenClaw is deployed into ChillClaw-managed local app data from the bundled runtime artifact. Clean Macs do not need Homebrew, a user-installed npm, or an existing OpenClaw install for the managed path.
 - Runtime manifests, packaged CLI runtime artifacts, and the local model catalog are staged under `Contents/Resources/app/runtime-artifacts`; the packaged OpenClaw runtime is a pinned installed prefix that the daemon copies into app data before normal gateway setup. The LaunchAgent passes `CHILLCLAW_RUNTIME_BUNDLE_DIR`, `CHILLCLAW_RUNTIME_MANIFEST_PATH`, and optional `CHILLCLAW_RUNTIME_UPDATE_FEED_URL` to the daemon.
 - The packaged Node.js runtime is signing-sensitive: release signing must apply `scripts/macos-node-runtime-entitlements.plist` to `runtime-artifacts/node/node-v*/bin/node` so V8 can run on Apple Silicon under hardened runtime. Missing this entitlement causes clean Mac onboarding to fail with "bundled Node.js runtime is not runnable."
 - Stable macOS releases are published from protected GitHub tags in the form `vX.Y.Z`. The packaged app update check and the public website download button both resolve through GitHub Releases rather than hard-coded release pages.
@@ -229,7 +229,7 @@ If you still want to run pieces separately for debugging:
 
 1. `npm run dev:daemon`
 2. `npm run dev:ui`
-3. optionally run `npm run bootstrap:openclaw` if you want to prepare an environment OpenClaw instance ahead of time instead of using the managed `npm start` path
+3. optionally set `CHILLCLAW_DEV_RUNTIME=environment` when you intentionally want to debug against an environment OpenClaw instance instead of the managed `npm start` path
 
 For the upstream OpenClaw CLI surface, config tree, and the exact commands ChillClaw uses today for install, models, channels, agents, and chat, see [docs/reference/openclaw-commands.md](docs/reference/openclaw-commands.md).
 
@@ -248,16 +248,14 @@ ChillClaw now includes a developer-only engine compatibility runner for evaluati
 What the compatibility runner does:
 
 - creates isolated temporary `HOME` and ChillClaw data directories so it does not reuse your normal config by default
-- checks both runtime modes ChillClaw supports today:
-  - an existing system OpenClaw install
-  - a ChillClaw-managed self-contained runtime
+- checks ChillClaw's managed self-contained runtime path by default
 - uses the same bootstrap script ChillClaw uses for managed installs
 - writes a machine-readable JSON report and a Markdown summary under `.data/engine-compatibility/...`
 - records capability-by-capability pass/fail/not-supported status plus the likely ChillClaw source files to update when something breaks
 
 Notes:
 
-- The system-runtime lane only runs against whatever `openclaw` version is already installed on your machine. If you pass `--candidate-version` and the system install is on a different version, that lane is skipped and reported clearly.
+- The system-runtime lane is for explicit developer compatibility investigation only and runs against whatever `openclaw` version is already installed on your machine.
 - The managed-runtime lane can bootstrap a candidate version into an isolated ChillClaw data directory by using `--candidate-version`.
 - Task execution is skipped unless you set `CHILLCLAW_COMPAT_RUN_TASK=1` and provide real credentials the candidate runtime can use.
 - Compatibility fixtures for parser drift live under `apps/daemon/src/engine/__fixtures__/openclaw/`.
@@ -268,7 +266,7 @@ When a user installs and opens ChillClaw for the first time today:
 
 1. ChillClaw opens a six-step onboarding flow at `/onboarding`.
 2. `Welcome` initializes the guided setup and stores onboarding draft progress in the daemon-backed state store.
-3. `Install OpenClaw` detects compatible runtime state, lets the user reuse or update an existing runtime when possible, and installs the managed runtime when needed. On clean Macs, ChillClaw prepares its own Node.js/npm toolchain in app data through the Runtime Manager and Download Manager before running the managed OpenClaw install.
+3. `Install OpenClaw` prepares ChillClaw's managed bundled runtime and offers update when the bundled or curated managed artifact is newer. On clean Macs, ChillClaw copies the packaged OpenClaw runtime into app data through the Runtime Manager before gateway setup.
 4. `Permissions` records the onboarding permissions acknowledgement and unlocks the model step.
 5. `Configure Model` saves the first real model entry and handles any interactive provider auth through the daemon-owned onboarding route family.
 6. `Configure Channel` saves one launch channel configuration for Telegram, WhatsApp, Feishu, WeChat Work, or personal WeChat without requiring the gateway to be running yet.
@@ -323,8 +321,8 @@ When the OpenClaw CLI drifts in known ways for config-backed mutations, ChillCla
 - WeChat Work config save and removal
 - default-model config writes
 
-ChillClaw now also exposes an explicit `Deploy OpenClaw locally` action in the first-run setup page and the install panel. That path forces deployment into ChillClaw's managed local runtime instead of merely reusing a compatible system OpenClaw.
-Onboarding and first-run setup now also default to that managed local runtime path unless a caller explicitly opts into another deployment target.
+ChillClaw now exposes `Deploy OpenClaw locally` as the managed bundled runtime action in the first-run setup page and the install panel. System OpenClaw installs are no longer install or update targets.
+Onboarding and first-run setup use that managed local runtime path.
 The service panel also now exposes app-level controls to stop the local ChillClaw daemon and uninstall the packaged app's managed service/data.
 
 ## Model management
@@ -366,14 +364,12 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 
 ### Local OpenClaw deployment
 
-- Packaged ChillClaw prefers an existing `openclaw` install if one is already available.
-- If no install is found, ChillClaw deploys the ChillClaw-managed OpenClaw runtime into `~/Library/Application Support/ChillClaw/data/openclaw-runtime`. Packaged releases include a pinned OpenClaw runtime artifact and copy it into place; packaged clean-Mac onboarding does not depend on npm installation from the target machine.
+- Packaged ChillClaw uses its managed `openclaw-runtime` under `~/Library/Application Support/ChillClaw/data/openclaw-runtime`.
+- Packaged releases include a pinned OpenClaw runtime artifact and copy it into place; packaged clean-Mac onboarding does not depend on npm installation from the target machine or any `openclaw` binary on `PATH`.
 - Managed OpenClaw commands run with an isolated OpenClaw home under ChillClaw data, so helper tools such as the personal WeChat installer do not read or mutate the user's normal `~/.openclaw` config.
-- Existing OpenClaw installs are reused when they are compatible, but ChillClaw now still normalizes the OpenClaw gateway baseline before treating that runtime as ready.
-- During install or reuse, ChillClaw forces the OpenClaw gateway config back to ChillClaw's safe local baseline: `gateway.mode=local`, `gateway.bind=loopback`, token auth enabled, existing token preserved when present, and inherited `gateway.remote` overrides removed.
-- Once that managed runtime exists, ChillClaw prefers it over an incompatible system-level OpenClaw.
-- If the user clicks `Deploy OpenClaw locally`, ChillClaw deploys the managed local runtime even when a compatible system OpenClaw already exists.
-- Runtime prerequisites are prepared through the daemon Runtime Manager. Packaged builds satisfy Node/npm, OpenClaw, Ollama, and local model catalog metadata from bundled artifacts; development paths delegate approved artifact transfers to the daemon Download Manager before install/unpack logic runs. Local model weights are downloaded during onboarding instead of being bundled in the app.
+- ChillClaw detects external OpenClaw installs only for migration/debug context; product install and update flows do not reuse or mutate them.
+- During managed install, update, repair, or recovery, ChillClaw forces the OpenClaw gateway config back to ChillClaw's safe local baseline: `gateway.mode=local`, `gateway.bind=loopback`, token auth enabled, existing token preserved when present, and inherited `gateway.remote` overrides removed.
+- Runtime prerequisites are prepared through the daemon Runtime Manager. Packaged builds satisfy Node/npm, OpenClaw, Ollama, and local model catalog metadata from bundled artifacts; development paths delegate approved artifact transfers to the daemon Download Manager before install/unpack logic runs. Managed OpenClaw updates are applied through Runtime Manager and verified before the gateway is restarted. Local model weights are downloaded during onboarding instead of being bundled in the app.
 - If required managed prerequisites cannot be prepared, setup fails with a direct prerequisite message instead of pretending installation succeeded.
 - UI install/setup errors now surface the daemon's real error message instead of only showing a generic HTTP status.
 
@@ -441,7 +437,7 @@ Use the signed and notarized GitHub release DMG for other computers.
 The packaged app also includes LaunchAgent helper scripts so ChillClaw can run as a login-time background service on macOS.
 The native client first tries to attach to an already-running daemon, then installs or refreshes the LaunchAgent if needed, and falls back to the bundled web UI only as an explicit recovery path.
 On cold start, the native client loads the daemon overview first and then lazily hydrates the active section instead of fan-out loading every major page endpoint in parallel.
-Managed-local OpenClaw installs now refresh runtime-command detection after npm deploys the CLI, and the native client uses an extended timeout for long-running first-run setup and deploy/install requests so real installs are less likely to fail as client-side timeouts.
+Managed OpenClaw installs and updates now refresh runtime-command detection after Runtime Manager applies the bundled CLI artifact, and the native client uses an extended timeout for long-running first-run setup and deploy/install requests so real installs are less likely to fail as client-side timeouts.
 
 Packaged app logs live under:
 

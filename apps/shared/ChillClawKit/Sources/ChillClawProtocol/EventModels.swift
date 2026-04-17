@@ -27,6 +27,7 @@ public enum ChillClawConfigResource: String, Codable, Sendable {
 }
 
 public enum ChillClawEvent: Codable, Sendable {
+    case daemonHeartbeat(sentAt: String)
     case overviewUpdated(snapshot: RevisionedSnapshot<ProductOverview>)
     case aiTeamUpdated(snapshot: RevisionedSnapshot<AITeamOverview>)
     case modelConfigUpdated(snapshot: RevisionedSnapshot<ModelConfigOverview>)
@@ -84,6 +85,7 @@ public enum ChillClawEvent: Codable, Sendable {
         case speedBps
         case job
         case error
+        case sentAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -91,6 +93,8 @@ public enum ChillClawEvent: Codable, Sendable {
         let type = try container.decode(String.self, forKey: .type)
 
         switch type {
+        case "daemon.heartbeat":
+            self = .daemonHeartbeat(sentAt: try container.decode(String.self, forKey: .sentAt))
         case "overview.updated":
             self = .overviewUpdated(snapshot: try container.decode(RevisionedSnapshot<ProductOverview>.self, forKey: .snapshot))
         case "ai-team.updated":
@@ -223,6 +227,9 @@ public enum ChillClawEvent: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch self {
+        case let .daemonHeartbeat(sentAt):
+            try container.encode("daemon.heartbeat", forKey: .type)
+            try container.encode(sentAt, forKey: .sentAt)
         case let .overviewUpdated(snapshot):
             try container.encode("overview.updated", forKey: .type)
             try container.encode(snapshot, forKey: .snapshot)

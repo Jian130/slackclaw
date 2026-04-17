@@ -625,6 +625,28 @@ export interface OnboardingUiConfig {
   employeePresets: OnboardingEmployeePresetPresentation[];
 }
 
+export type LongRunningOperationStatus = "pending" | "running" | "completed" | "failed" | "timed-out";
+
+export interface LongRunningOperationSummary {
+  operationId: string;
+  action: string;
+  status: LongRunningOperationStatus;
+  phase?: string;
+  message: string;
+  startedAt: string;
+  updatedAt: string;
+  deadlineAt?: string;
+  errorCode?: string;
+  retryable?: boolean;
+}
+
+export interface OnboardingOperationsState {
+  install?: LongRunningOperationSummary;
+  localRuntime?: LongRunningOperationSummary;
+  channel?: LongRunningOperationSummary;
+  completion?: LongRunningOperationSummary;
+}
+
 export interface OnboardingStateResponse {
   firstRun: FirstRunState;
   draft: OnboardingDraftState;
@@ -632,6 +654,7 @@ export interface OnboardingStateResponse {
   summary: OnboardingCompletionSummary;
   localRuntime?: LocalModelRuntimeOverview;
   presetSkillSync?: PresetSkillSyncOverview;
+  operations?: OnboardingOperationsState;
 }
 
 export interface UpdateOnboardingStateRequest {
@@ -657,6 +680,7 @@ export interface CompleteOnboardingResponse {
   summary: OnboardingCompletionSummary;
   overview: ProductOverview;
   warmupTaskId?: string;
+  operation?: LongRunningOperationSummary;
 }
 
 export interface OnboardingStepNavigationRequest {
@@ -1192,6 +1216,10 @@ export type ChillClawConfigResource = "models" | "channels" | "skills" | "ai-emp
 
 export type ChillClawEvent =
   | {
+      type: "daemon.heartbeat";
+      sentAt: string;
+    }
+  | {
       type: "overview.updated";
       snapshot: RevisionedSnapshot<ProductOverview>;
     }
@@ -1430,6 +1458,7 @@ export interface ModelConfigActionResponse extends MutationSyncMeta {
   authSession?: ModelAuthSession;
   requiresGatewayApply?: boolean;
   onboarding?: OnboardingStateResponse;
+  operation?: LongRunningOperationSummary;
 }
 
 export interface RecoveryRunResponse {
@@ -1446,6 +1475,7 @@ export interface LocalModelRuntimeActionResponse extends MutationSyncMeta {
   modelConfig: ModelConfigOverview;
   overview: ProductOverview;
   onboarding?: OnboardingStateResponse;
+  operation?: LongRunningOperationSummary;
 }
 
 export interface RuntimeActionResponse extends MutationSyncMeta {
@@ -1455,6 +1485,7 @@ export interface RuntimeActionResponse extends MutationSyncMeta {
   resource: RuntimeResourceOverview;
   runtimeManager: RuntimeManagerOverview;
   overview?: ProductOverview;
+  operation?: LongRunningOperationSummary;
 }
 
 export interface SetupRunResponse {
@@ -1464,6 +1495,7 @@ export interface SetupRunResponse {
   overview: ProductOverview;
   install?: InstallResponse;
   onboarding?: OnboardingStateResponse;
+  operation?: LongRunningOperationSummary;
 }
 
 export interface AppServiceActionResponse {
@@ -1540,6 +1572,7 @@ export interface ChannelConfigActionResponse extends MutationSyncMeta {
   session?: ChannelSession;
   requiresGatewayApply?: boolean;
   onboarding?: OnboardingStateResponse;
+  operation?: LongRunningOperationSummary;
 }
 
 export interface ChannelSessionResponse {
@@ -1850,12 +1883,11 @@ export function createDefaultProductOverview(options?: {
     installSpec: {
       engine: "openclaw",
       desiredVersion: "latest",
-      installSource: "npm-local",
+      installSource: "bundle",
       prerequisites: [
         "macOS",
-        "ChillClaw-managed Node.js and npm runtime",
-        "pnpm only if you build OpenClaw from source",
-        "Ability to install or reuse the latest available OpenClaw CLI"
+        "ChillClaw bundled OpenClaw runtime artifact",
+        "Permission to install or refresh ChillClaw's managed bundled OpenClaw runtime"
       ]
     },
     capabilities: {
@@ -1979,10 +2011,10 @@ export function createDefaultProductOverview(options?: {
       {
         id: "rollback-update",
         type: "rollback-update",
-        title: "Rollback last update",
-        description: "Return to the last known compatible engine release.",
+        title: "Restore bundled runtime",
+        description: "Restore the managed OpenClaw runtime packaged with ChillClaw.",
         safetyLevel: "review",
-        expectedImpact: "May remove the newest engine update if it caused instability."
+        expectedImpact: "Replaces the managed engine runtime without removing your task history."
       },
       {
         id: "reinstall-engine",

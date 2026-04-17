@@ -18,8 +18,7 @@ import {
 } from "@chillclaw/contracts";
 
 import {
-  openClawCompatibilitySources,
-  parseJsonCommandOutput
+  openClawCompatibilitySources
 } from "../apps/daemon/src/engine/openclaw-compatibility.js";
 import { writeScriptLogLine } from "./logging.mjs";
 
@@ -52,7 +51,6 @@ type RuntimeContext = {
   daemon?: ReturnType<typeof spawn>;
   command?: string;
   detectedVersion?: string;
-  managedInstall?: CommandResult;
 };
 
 const DEFAULT_REPORT_ROOT = resolve(process.cwd(), ".data", "engine-compatibility");
@@ -223,7 +221,7 @@ async function requestJson(port: number, path: string, init?: RequestInit) {
       headers: {
         "Content-Type": "application/json"
       },
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(120_000),
       ...init
     });
 
@@ -252,40 +250,30 @@ async function requestJson(port: number, path: string, init?: RequestInit) {
   }
 }
 
-async function bootstrapManagedRuntime(context: RuntimeContext, candidateVersion?: string) {
-  const installPrefix = resolve(context.dataDir, "openclaw-runtime");
-  const env = {
-    ...context.env,
-    CHILLCLAW_OPENCLAW_INSTALL_PREFIX: installPrefix,
-    ...(candidateVersion ? { CHILLCLAW_OPENCLAW_VERSION: candidateVersion } : {})
-  };
-
-  const result = await runCommand(process.execPath, ["scripts/bootstrap-openclaw.mjs", "--json"], {
-    cwd: process.cwd(),
-    env
+async function installManagedRuntime(context: RuntimeContext, candidateVersion?: string) {
+  const installResponse = await requestJson(context.port, "/api/deploy/targets/managed-local/install", {
+    method: "POST"
   });
-
-  context.managedInstall = result;
-  const managedCommand = resolve(installPrefix, "node_modules", ".bin", "openclaw");
-  const detectedVersion = await readVersion(managedCommand, env);
+  const managedCommand = resolve(context.dataDir, "openclaw-runtime", "node_modules", ".bin", "openclaw");
+  const detectedVersion = await readVersion(managedCommand, context.env);
   context.command = detectedVersion ? managedCommand : undefined;
   context.detectedVersion = detectedVersion;
   const logPath = await writeLog(
     context.reportDir,
     context.runtimeMode,
     "install-managed-runtime",
-    [`$ node scripts/bootstrap-openclaw.mjs --json`, result.stdout, result.stderr].filter(Boolean).join("\n\n")
+    [`POST /api/deploy/targets/managed-local/install`, installResponse.text].filter(Boolean).join("\n\n")
   );
 
-  if (result.code !== 0) {
+  if (!installResponse.ok || (installResponse.json as { status?: string } | undefined)?.status !== "completed") {
     return createResult(
       context.runtimeMode,
       "install-managed-runtime",
       "failed",
-      result.stderr || result.stdout || "Managed runtime bootstrap failed.",
+      installResponse.text || `Managed runtime install failed with HTTP ${installResponse.status}.`,
       {
         engineVersion: context.detectedVersion,
-        command: "node scripts/bootstrap-openclaw.mjs --json",
+        command: "POST /api/deploy/targets/managed-local/install",
         logPath
       }
     );
@@ -296,11 +284,11 @@ async function bootstrapManagedRuntime(context: RuntimeContext, candidateVersion
     "install-managed-runtime",
     "passed",
     candidateVersion
-      ? `Managed OpenClaw ${context.detectedVersion ?? candidateVersion} bootstrapped into an isolated ChillClaw data dir.`
-      : `Managed OpenClaw ${context.detectedVersion ?? "unknown"} bootstrapped into an isolated ChillClaw data dir.`,
+      ? `Managed OpenClaw ${context.detectedVersion ?? candidateVersion} installed into an isolated ChillClaw data dir.`
+      : `Managed OpenClaw ${context.detectedVersion ?? "unknown"} installed into an isolated ChillClaw data dir.`,
     {
       engineVersion: context.detectedVersion,
-      command: "node scripts/bootstrap-openclaw.mjs --json",
+      command: "POST /api/deploy/targets/managed-local/install",
       logPath
     }
   );
@@ -438,29 +426,40 @@ async function runRuntimeChecks(context: RuntimeContext, args: Args) {
     )
   );
 
-  if (context.command) {
-    const updateDryRun = await runCommand(context.command, ["update", "--dry-run", "--json", "--yes"], { env: context.env });
-    const updateJson = parseJsonCommandOutput<{ targetVersion?: string; currentVersion?: string }>(updateDryRun.stdout);
+  if (context.runtimeMode === "managed") {
+    const updateResponse = await requestJson(context.port, "/api/deploy/targets/managed-local/update", {
+      method: "POST"
+    });
+    const updateJson = updateResponse.json as { status?: string; message?: string } | undefined;
     checks.push(
       createResult(
         context.runtimeMode,
         "update-runtime",
-        updateDryRun.code === 0 && Boolean(updateJson)
+        updateResponse.ok && updateJson?.status === "completed"
           ? "passed"
           : "failed",
-        updateDryRun.code === 0 && updateJson
-          ? `OpenClaw dry-run update parsed successfully (${updateJson.currentVersion ?? "current"} -> ${updateJson.targetVersion ?? "latest"}).`
-          : updateDryRun.stderr || updateDryRun.stdout || "OpenClaw dry-run update failed.",
+        updateResponse.ok && updateJson?.status === "completed"
+          ? updateJson.message ?? "ChillClaw managed runtime update completed."
+          : updateResponse.text || `Managed runtime update failed with HTTP ${updateResponse.status}.`,
         {
           engineVersion: context.detectedVersion,
-          command: `${context.command} update --dry-run --json --yes`,
+          command: "POST /api/deploy/targets/managed-local/update",
           logPath: await writeLog(
             context.reportDir,
             context.runtimeMode,
             "update-runtime",
-            [`$ ${context.command} update --dry-run --json --yes`, updateDryRun.stdout, updateDryRun.stderr].filter(Boolean).join("\n\n")
+            [`POST /api/deploy/targets/managed-local/update`, updateResponse.text].filter(Boolean).join("\n\n")
           )
         }
+      )
+    );
+  } else {
+    checks.push(
+      createResult(
+        context.runtimeMode,
+        "update-runtime",
+        "skipped",
+        "System OpenClaw runtimes are not ChillClaw update targets; managed bundled runtime updates are verified through Runtime Manager."
       )
     );
   }
@@ -1021,7 +1020,10 @@ async function createRuntimeContext(runtimeMode: EngineCompatibilityRuntimeMode,
       ...process.env,
       HOME: homeDir,
       CHILLCLAW_DATA_DIR: dataDir,
-      CHILLCLAW_PORT: String(port)
+      CHILLCLAW_PORT: String(port),
+      CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE: runtimeMode === "managed" ? "managed-local" : "environment",
+      CHILLCLAW_RUNTIME_BUNDLE_DIR: resolve(process.cwd(), "runtime-artifacts"),
+      CHILLCLAW_RUNTIME_MANIFEST_PATH: resolve(process.cwd(), "runtime-manifest.lock.json")
     }
   };
 }
@@ -1049,7 +1051,16 @@ async function main() {
         context.command = await resolveSystemOpenClawCommand();
         context.detectedVersion = context.command ? await readVersion(context.command, context.env) : undefined;
       } else {
-        const installCheck = await bootstrapManagedRuntime(context, args.candidateVersion);
+        if (args.candidateVersion) {
+          context.env.CHILLCLAW_OPENCLAW_VERSION = args.candidateVersion;
+          context.env.CHILLCLAW_MANAGED_OPENCLAW_VERSION = args.candidateVersion;
+        }
+      }
+
+      await startDaemon(context);
+
+      if (runtimeMode === "managed") {
+        const installCheck = await installManagedRuntime(context, args.candidateVersion);
         report.runtimes.push({
           runtimeMode,
           detectedVersion: context.detectedVersion,
@@ -1081,7 +1092,6 @@ async function main() {
         continue;
       }
 
-      await startDaemon(context);
       const checks = await runRuntimeChecks(context, args);
 
       if (runtimeMode === "managed") {

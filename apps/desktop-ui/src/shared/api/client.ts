@@ -83,10 +83,25 @@ const API_BASE = resolveApiBase();
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 const responseGetCache = new Map<string, { expiresAt: number; value: unknown }>();
 const DEFAULT_GET_CACHE_MS = 2000;
+const REQUEST_TIMEOUT_MS = {
+  longRunning: 1_200_000,
+  runtimeInstall: 86_400_000
+};
 
 type JsonRequestInit = RequestInit & {
   fresh?: boolean;
+  timeoutMs?: number;
 };
+
+export class ApiRequestTimeoutError extends Error {
+  readonly code = "REQUEST_TIMEOUT";
+  readonly timedOut = true;
+
+  constructor(readonly timeoutMs: number) {
+    super(`ChillClaw did not respond within ${Math.round(timeoutMs / 1000)} seconds. The operation may still be running.`);
+    this.name = "ApiRequestTimeoutError";
+  }
+}
 
 function getGetCacheMs(path: string): number | undefined {
   if (
@@ -126,12 +141,56 @@ function buildApiPath(path: string, fresh?: boolean): string {
 }
 
 async function performJsonRequest<T>(path: string, init?: JsonRequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json"
-    },
-    ...init
-  });
+  const timeoutMs = init?.timeoutMs;
+  const timeoutBudgetMs = timeoutMs && timeoutMs > 0 ? timeoutMs : undefined;
+  const controller = timeoutBudgetMs ? new AbortController() : undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  let abortFromCaller: (() => void) | undefined;
+  const requestInit = { ...init };
+  delete requestInit.fresh;
+  delete requestInit.timeoutMs;
+
+  if (controller && timeoutBudgetMs) {
+    const activeTimeoutMs = timeoutBudgetMs;
+    abortFromCaller = () => {
+      if (!controller.signal.aborted) {
+        controller.abort(init?.signal?.reason);
+      }
+    };
+    if (init?.signal?.aborted) {
+      abortFromCaller();
+    } else {
+      init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    }
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new ApiRequestTimeoutError(activeTimeoutMs));
+    }, activeTimeoutMs);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        "Content-Type": "application/json"
+      },
+      ...requestInit,
+      signal: controller?.signal ?? requestInit.signal
+    });
+  } catch (error) {
+    if (timedOut && timeoutBudgetMs) {
+      throw new ApiRequestTimeoutError(timeoutBudgetMs);
+    }
+    throw error;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (abortFromCaller) {
+      init?.signal?.removeEventListener("abort", abortFromCaller);
+    }
+  }
 
   if (!response.ok) {
     let message = `Request failed with status ${response.status}`;
@@ -156,9 +215,10 @@ async function readJson<T>(path: string, init?: JsonRequestInit): Promise<T> {
   const requestPath = buildApiPath(path, init?.fresh);
   const nextInit = { ...init };
   delete nextInit.fresh;
+  delete nextInit.timeoutMs;
 
   if (method !== "GET") {
-    const result = await performJsonRequest<T>(requestPath, nextInit);
+    const result = await performJsonRequest<T>(requestPath, init);
     invalidateGetCache();
     return result;
   }
@@ -334,7 +394,8 @@ export function detectOnboardingRuntime(): Promise<OnboardingStateResponse> {
 export function installOnboardingRuntime(forceLocal = true): Promise<SetupRunResponse> {
   return readJson<SetupRunResponse>("/onboarding/runtime/install", {
     method: "POST",
-    body: JSON.stringify({ autoConfigure: true, forceLocal })
+    body: JSON.stringify({ autoConfigure: true, forceLocal }),
+    timeoutMs: REQUEST_TIMEOUT_MS.runtimeInstall
   });
 }
 
@@ -346,7 +407,8 @@ export function reuseOnboardingRuntime(): Promise<OnboardingStateResponse> {
 
 export function updateOnboardingRuntime(): Promise<SetupRunResponse> {
   return readJson<SetupRunResponse>("/onboarding/runtime/update", {
-    method: "POST"
+    method: "POST",
+    timeoutMs: REQUEST_TIMEOUT_MS.runtimeInstall
   });
 }
 
@@ -359,7 +421,8 @@ export function confirmOnboardingPermissions(): Promise<OnboardingStateResponse>
 export function saveOnboardingModelEntry(request: SaveModelEntryRequest): Promise<ModelConfigActionResponse> {
   return readJson<ModelConfigActionResponse>("/onboarding/model/entries", {
     method: "POST",
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
+    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
   });
 }
 
@@ -386,14 +449,16 @@ export function resetOnboardingModelDraft(): Promise<OnboardingStateResponse> {
 export function saveOnboardingChannelEntry(request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
   return readJson<ChannelConfigActionResponse>("/onboarding/channel/entries", {
     method: "POST",
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
+    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
   });
 }
 
 export function updateOnboardingChannelEntry(entryId: string, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
   return readJson<ChannelConfigActionResponse>(`/onboarding/channel/entries/${entryId}`, {
     method: "PATCH",
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
+    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
   });
 }
 
@@ -427,7 +492,8 @@ export function saveOnboardingEmployeeDraft(request: OnboardingEmployeeState): P
 export function completeOnboarding(request: CompleteOnboardingRequest): Promise<CompleteOnboardingResponse> {
   return readJson<CompleteOnboardingResponse>("/onboarding/complete", {
     method: "POST",
-    body: JSON.stringify(request)
+    body: JSON.stringify(request),
+    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
   });
 }
 
@@ -505,13 +571,15 @@ export function setDefaultModel(request: SetDefaultModelRequest): Promise<ModelC
 
 export function installLocalModelRuntime(): Promise<LocalModelRuntimeActionResponse> {
   return readJson<LocalModelRuntimeActionResponse>("/models/local-runtime/install", {
-    method: "POST"
+    method: "POST",
+    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
   });
 }
 
 export function repairLocalModelRuntime(): Promise<LocalModelRuntimeActionResponse> {
   return readJson<LocalModelRuntimeActionResponse>("/models/local-runtime/repair", {
-    method: "POST"
+    method: "POST",
+    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
   });
 }
 

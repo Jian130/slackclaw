@@ -13,7 +13,8 @@ import type {
   HealthCheckResult,
   InstallResponse,
   RecoveryAction,
-  RecoveryRunResponse
+  RecoveryRunResponse,
+  RuntimeResourceOverview
 } from "@chillclaw/contracts";
 
 type BootstrapResult = {
@@ -54,25 +55,15 @@ type RuntimeStatusData = {
   securityFindings: SecurityFinding[];
 };
 
-type OpenClawUpdateStatusJson = {
-  update?: {
-    registry?: {
-      error?: string | null;
-    };
-  };
-  channel?: {
-    label?: string;
-  };
-  availability?: {
-    available?: boolean;
-    latestVersion?: string | null;
-  };
-};
-
-type OpenClawTargetUpdateStatus = {
-  updateAvailable: boolean;
-  latestVersion?: string;
-  summary: string;
+type ManagedRuntimeActionResult = {
+  status: "completed" | "failed";
+  message: string;
+  resource?: Partial<
+    Pick<
+      RuntimeResourceOverview,
+      "installedVersion" | "desiredVersion" | "latestApprovedVersion" | "stagedVersion" | "updateAvailable"
+    >
+  >;
 };
 
 type OpenClawRuntimeLifecycleAccess = {
@@ -92,18 +83,18 @@ type OpenClawRuntimeLifecycleAccess = {
   configure: (profileId: string) => Promise<void>;
   invalidateReadCaches: (resources?: Array<"engine" | "models" | "channels" | "plugins" | "skills" | "ai-members">) => void;
   collectStatusData: () => Promise<RuntimeStatusData>;
-  readEngineSnapshot: (options?: { fresh?: boolean; includeUpdate?: boolean }) => Promise<{
+  readEngineSnapshot: (options?: { fresh?: boolean }) => Promise<{
     gatewayJson?: unknown;
-    updateJson?: unknown;
   }>;
   resolveManagedOpenClawCommand: (options?: { fresh?: boolean }) => Promise<string | undefined>;
   resolveSystemOpenClawCommand: (options?: { fresh?: boolean }) => Promise<string | undefined>;
   resolveOpenClawCommand: () => Promise<string | undefined>;
   readVersionFromCommand: (command: string | undefined, options?: { fresh?: boolean }) => Promise<string | undefined>;
-  readUpdateStatusFromCommand: (
-    command: string | undefined,
-    options?: { fresh?: boolean }
-  ) => Promise<OpenClawTargetUpdateStatus | undefined>;
+  getManagedOpenClawRuntimeResource: () => Promise<RuntimeResourceOverview | undefined>;
+  prepareManagedOpenClawRuntime: () => Promise<ManagedRuntimeActionResult>;
+  checkManagedOpenClawRuntimeUpdate: () => Promise<ManagedRuntimeActionResult>;
+  stageManagedOpenClawRuntimeUpdate: () => Promise<ManagedRuntimeActionResult>;
+  applyManagedOpenClawRuntimeUpdate: () => Promise<ManagedRuntimeActionResult>;
   isOpenClawVersionCompatible: (version: string | undefined) => boolean;
   openClawVersionSummary: (version: string | undefined) => string;
   compareOpenClawVersions: (left: string | undefined, right: string | undefined) => number | undefined;
@@ -251,60 +242,85 @@ export class OpenClawRuntimeLifecycleService {
   }
 
   async getDeploymentTargets(): Promise<DeploymentTargetsResponse> {
-    const [managedCommand, systemCommand] = await Promise.all([
+    const [managedCommand, systemCommand, managedRuntimeResource] = await Promise.all([
       this.access.resolveManagedOpenClawCommand(),
-      this.access.resolveSystemOpenClawCommand()
+      this.access.resolveSystemOpenClawCommand(),
+      this.access.getManagedOpenClawRuntimeResource().catch(async (error) => {
+        await this.access.logSoftFailure("ChillClaw could not read the managed OpenClaw runtime manager status.", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return undefined;
+      })
     ]);
     const activeCommand = await this.access.resolveOpenClawCommand();
-    const [managedVersion, systemVersion, managedUpdate, systemUpdate] = await Promise.all([
+    const [managedVersion, systemVersion] = await Promise.all([
       this.access.readVersionFromCommand(managedCommand),
-      this.access.readVersionFromCommand(systemCommand),
-      this.access.readUpdateStatusFromCommand(managedCommand),
-      this.access.readUpdateStatusFromCommand(systemCommand)
+      this.access.readVersionFromCommand(systemCommand)
     ]);
     const systemCompatible = this.access.isOpenClawVersionCompatible(systemVersion);
     const managedCompatible = this.access.isOpenClawVersionCompatible(managedVersion);
+    const bundledManagedUpdateAvailable =
+      managedVersion !== undefined &&
+      (this.access.compareOpenClawVersions(managedVersion, this.access.installTarget) ?? 0) < 0;
+    const managedRuntimeUpdateAvailable = Boolean(
+      managedRuntimeResource?.updateAvailable || managedRuntimeResource?.stagedVersion
+    );
+    const managedUpdateAvailable = managedRuntimeUpdateAvailable || bundledManagedUpdateAvailable;
+    const managedLatestVersion =
+      managedRuntimeResource?.stagedVersion ??
+      managedRuntimeResource?.latestApprovedVersion ??
+      (bundledManagedUpdateAvailable ? this.access.installTarget : managedVersion);
+    const managedDesiredVersion = managedRuntimeResource?.desiredVersion ?? this.access.installTarget;
+    const managedUpdateSummary = managedRuntimeResource?.stagedVersion
+      ? `ChillClaw staged approved OpenClaw ${managedRuntimeResource.stagedVersion} and can apply it to the managed runtime.`
+      : managedRuntimeUpdateAvailable && managedLatestVersion
+        ? `ChillClaw can update the managed runtime to approved OpenClaw ${managedLatestVersion}.`
+        : bundledManagedUpdateAvailable
+          ? `ChillClaw can refresh the managed runtime from the bundled OpenClaw ${this.access.installTarget} artifact.`
+          : managedVersion
+            ? "Managed OpenClaw is on ChillClaw's bundled runtime version."
+            : undefined;
 
     const targets: DeploymentTargetStatus[] = [
       {
         id: "standard",
         title: "OpenClaw Standard",
-        description: "Reuse an existing OpenClaw install when available.",
+        description: "External OpenClaw installs are detected for migration only. ChillClaw updates its managed bundled runtime.",
         installMode: "system",
         installed: Boolean(systemVersion),
-        installable: true,
+        installable: false,
         planned: false,
-        recommended: true,
+        recommended: false,
         active: Boolean(systemCommand && activeCommand === systemCommand),
         version: systemVersion,
         desiredVersion: this.access.installTarget,
-        latestVersion: systemUpdate?.latestVersion ?? systemVersion,
-        updateAvailable: systemUpdate?.updateAvailable ?? false,
+        latestVersion: systemVersion,
+        updateAvailable: false,
         requirements: this.access.standardRequirements,
         requirementsSourceUrl: this.access.macDocsUrl,
         summary: systemVersion
           ? this.access.versionOverride
             ? systemCompatible
-              ? `System OpenClaw ${systemVersion} meets ChillClaw's requested version floor ${this.access.versionOverride}.`
-              : `System OpenClaw ${systemVersion} is installed, but ChillClaw expects at least ${this.access.versionOverride}.`
-            : `System OpenClaw ${systemVersion} is installed and can be reused.`
+              ? `System OpenClaw ${systemVersion} is installed, but ChillClaw now uses its managed bundled runtime instead.`
+              : `System OpenClaw ${systemVersion} is installed, but ChillClaw now uses its managed bundled runtime.`
+            : `System OpenClaw ${systemVersion} is installed, but ChillClaw now uses its managed bundled runtime.`
           : "No system OpenClaw install was detected.",
-        updateSummary: systemVersion ? systemUpdate?.summary : undefined
+        updateSummary: systemVersion ? "System OpenClaw updates are not managed by ChillClaw." : undefined
       },
       {
         id: "managed-local",
         title: "OpenClaw Managed Local",
-        description: "Deploy a ChillClaw-managed local runtime under the app data directory.",
+        description: "Deploy the bundled OpenClaw runtime selected and verified by ChillClaw.",
         installMode: "managed-local",
         installed: Boolean(managedVersion),
         installable: true,
         planned: false,
-        recommended: false,
+        recommended: true,
         active: Boolean(managedCommand && activeCommand === managedCommand),
         version: managedVersion,
-        desiredVersion: this.access.installTarget,
-        latestVersion: managedUpdate?.latestVersion ?? managedVersion,
-        updateAvailable: managedUpdate?.updateAvailable ?? false,
+        desiredVersion: managedDesiredVersion,
+        latestVersion: managedLatestVersion,
+        updateAvailable: managedUpdateAvailable,
         requirements: this.access.managedRequirements,
         requirementsSourceUrl: this.access.installDocsUrl,
         summary: managedVersion
@@ -314,7 +330,7 @@ export class OpenClawRuntimeLifecycleService {
               : `Managed local OpenClaw ${managedVersion} is installed, but ChillClaw expects at least ${this.access.versionOverride}.`
             : `Managed local OpenClaw ${managedVersion} is installed.`
           : "ChillClaw's managed local OpenClaw runtime is not installed yet.",
-        updateSummary: managedVersion ? managedUpdate?.summary : undefined
+        updateSummary: managedUpdateSummary
       },
       {
         id: "zeroclaw",
@@ -424,107 +440,100 @@ export class OpenClawRuntimeLifecycleService {
 
   async updateDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
     const targetLabel = targetId === "standard" ? "System OpenClaw" : "Managed local OpenClaw";
-    const command =
-      targetId === "standard"
-        ? await this.access.resolveSystemOpenClawCommand()
-        : await this.access.resolveManagedOpenClawCommand();
 
-    if (!command) {
-      await this.access.logSoftFailure("ChillClaw could not update an OpenClaw deployment target because the runtime is missing.", {
+    if (targetId !== "managed-local") {
+      await this.access.logSoftFailure("ChillClaw skipped a system OpenClaw update because runtime updates are managed from the bundled runtime.", {
         targetId,
         targetLabel
       });
       return {
         targetId,
         status: "failed",
-        message: `${targetLabel} is not installed on this Mac.`,
+        message: "ChillClaw only updates its managed OpenClaw runtime. Install or update the managed runtime instead.",
         engineStatus: await this.status()
       };
     }
 
-    const beforeVersion = await this.access.readVersionFromCommand(command);
-    const beforeStatus = await this.access.readUpdateStatusFromCommand(command);
-    const updateResult = await this.access.runCommand(command, ["update", "--json", "--yes", "--no-restart", "--tag", "latest"], {
-      allowFailure: true
-    });
+    let runtimeResult = await this.access.checkManagedOpenClawRuntimeUpdate();
+    if (runtimeResult.status !== "completed") {
+      await this.access.logSoftFailure("ChillClaw could not check the managed OpenClaw runtime update.", {
+        targetId,
+        targetLabel,
+        message: runtimeResult.message
+      });
+      return {
+        targetId,
+        status: "failed",
+        message: runtimeResult.message,
+        engineStatus: await this.status()
+      };
+    }
+
+    const shouldStageManagedUpdate = Boolean(runtimeResult.resource?.updateAvailable || runtimeResult.resource?.stagedVersion);
+    if (shouldStageManagedUpdate) {
+      const hadStagedUpdate = Boolean(runtimeResult.resource?.stagedVersion);
+      const stageResult = await this.access.stageManagedOpenClawRuntimeUpdate();
+      if (stageResult.status !== "completed") {
+        await this.access.logSoftFailure("ChillClaw could not stage the managed OpenClaw runtime update.", {
+          targetId,
+          targetLabel,
+          message: stageResult.message
+        });
+        return {
+          targetId,
+          status: "failed",
+          message: stageResult.message,
+          engineStatus: await this.status()
+        };
+      }
+
+      runtimeResult = stageResult;
+
+      if (hadStagedUpdate || stageResult.resource?.stagedVersion) {
+        const applyResult = await this.access.applyManagedOpenClawRuntimeUpdate();
+        if (applyResult.status !== "completed") {
+          await this.access.logSoftFailure("ChillClaw could not apply the managed OpenClaw runtime update.", {
+            targetId,
+            targetLabel,
+            message: applyResult.message
+          });
+          return {
+            targetId,
+            status: "failed",
+            message: applyResult.message,
+            engineStatus: await this.status()
+          };
+        }
+        runtimeResult = applyResult;
+      }
+    } else {
+      runtimeResult = await this.access.prepareManagedOpenClawRuntime();
+      if (runtimeResult.status !== "completed") {
+        await this.access.logSoftFailure("ChillClaw could not prepare the managed OpenClaw runtime.", {
+          targetId,
+          targetLabel,
+          message: runtimeResult.message
+        });
+        return {
+          targetId,
+          status: "failed",
+          message: runtimeResult.message,
+          engineStatus: await this.status()
+        };
+      }
+    }
+
     this.access.invalidateReadCaches(["engine"]);
-    const refreshedCommand =
-      targetId === "standard"
-        ? await this.access.resolveSystemOpenClawCommand({ fresh: true })
-        : await this.access.resolveManagedOpenClawCommand({ fresh: true });
-    const effectiveCommand = refreshedCommand ?? command;
-    const afterVersion = await this.access.readVersionFromCommand(effectiveCommand, { fresh: true });
-    const afterStatus = await this.access.readUpdateStatusFromCommand(effectiveCommand, { fresh: true });
-    const parsedUpdateResult =
-      safeJsonPayloadParse<{ targetVersion?: string; currentVersion?: string }>(updateResult.stdout) ??
-      safeJsonPayloadParse<{ targetVersion?: string; currentVersion?: string }>(updateResult.stderr);
-    const expectedVersion = parsedUpdateResult?.targetVersion?.trim() || beforeStatus?.latestVersion?.trim();
-    const versionAdvanced =
-      this.access.compareOpenClawVersions(afterVersion, beforeVersion) ??
-      (afterVersion && beforeVersion ? (afterVersion === beforeVersion ? 0 : 1) : undefined);
-    const stillBehindExpectedVersion =
-      this.access.compareOpenClawVersions(afterVersion, expectedVersion) ??
-      (afterVersion && expectedVersion ? (afterVersion === expectedVersion ? 0 : -1) : undefined);
-
-    if (updateResult.code !== 0) {
-      await this.access.logSoftFailure("ChillClaw failed to update an installed OpenClaw deployment target.", {
+    const effectiveCommand = await this.access.resolveManagedOpenClawCommand({ fresh: true });
+    if (!effectiveCommand) {
+      await this.access.logSoftFailure("ChillClaw prepared the managed runtime, but the OpenClaw command is still missing.", {
         targetId,
-        targetLabel,
-        command: effectiveCommand,
-        beforeVersion,
-        stderr: updateResult.stderr,
-        stdout: updateResult.stdout
+        targetLabel
       });
       return {
         targetId,
         status: "failed",
-        message: updateResult.stderr || updateResult.stdout || `${targetLabel} update failed.`,
-        engineStatus: await this.status()
-      };
-    }
-
-    if (beforeStatus?.updateAvailable && beforeVersion && (!afterVersion || (versionAdvanced ?? 0) <= 0)) {
-      await this.access.logSoftFailure("ChillClaw attempted an OpenClaw update but the installed version did not change.", {
-        targetId,
-        targetLabel,
-        command: effectiveCommand,
-        beforeVersion,
-        afterVersion,
-        expectedVersion,
-        stdout: updateResult.stdout,
-        stderr: updateResult.stderr
-      });
-      return {
-        targetId,
-        status: "failed",
-        message: expectedVersion
-          ? `${targetLabel} update finished, but the active version is still ${afterVersion ?? beforeVersion} instead of ${expectedVersion}.`
-          : `${targetLabel} update did not change the installed version. It is still ${afterVersion ?? beforeVersion}.`,
-        engineStatus: await this.status()
-      };
-    }
-
-    if (
-      beforeStatus?.updateAvailable &&
-      expectedVersion &&
-      afterVersion &&
-      afterStatus?.updateAvailable &&
-      (stillBehindExpectedVersion ?? -1) < 0
-    ) {
-      await this.access.logSoftFailure("ChillClaw attempted an OpenClaw update but the active binary is still behind the expected version.", {
-        targetId,
-        targetLabel,
-        command: effectiveCommand,
-        beforeVersion,
-        afterVersion,
-        expectedVersion,
-        stdout: updateResult.stdout,
-        stderr: updateResult.stderr
-      });
-      return {
-        targetId,
-        status: "failed",
-        message: `${targetLabel} update finished, but the active version is still ${afterVersion} and ChillClaw expected at least ${expectedVersion}.`,
+        message: "ChillClaw prepared the managed OpenClaw runtime, but could not find the managed command afterward.",
         engineStatus: await this.status()
       };
     }
@@ -536,8 +545,6 @@ export class OpenClawRuntimeLifecycleService {
         targetId,
         targetLabel,
         command: effectiveCommand,
-        beforeVersion,
-        afterVersion,
         stdout: restart.stdout,
         stderr: restart.stderr
       });
@@ -550,65 +557,6 @@ export class OpenClawRuntimeLifecycleService {
     }
 
     this.access.invalidateReadCaches(["engine"]);
-    const finalVersion = await this.access.readVersionFromCommand(effectiveCommand, { fresh: true });
-    const finalStatus = await this.access.readUpdateStatusFromCommand(effectiveCommand, { fresh: true });
-    const finalVersionAdvanced =
-      this.access.compareOpenClawVersions(finalVersion, beforeVersion) ??
-      (finalVersion && beforeVersion ? (finalVersion === beforeVersion ? 0 : 1) : undefined);
-    const finalStillBehindExpectedVersion =
-      this.access.compareOpenClawVersions(finalVersion, expectedVersion) ??
-      (finalVersion && expectedVersion ? (finalVersion === expectedVersion ? 0 : -1) : undefined);
-
-    if (beforeStatus?.updateAvailable && beforeVersion && (!finalVersion || (finalVersionAdvanced ?? 0) <= 0)) {
-      await this.access.logSoftFailure("ChillClaw updated and restarted OpenClaw, but the active version reverted afterward.", {
-        targetId,
-        targetLabel,
-        command: effectiveCommand,
-        beforeVersion,
-        afterVersion,
-        finalVersion,
-        expectedVersion
-      });
-      return {
-        targetId,
-        status: "failed",
-        message: expectedVersion
-          ? `${targetLabel} update ran, but after restart the active version is still ${finalVersion ?? beforeVersion} instead of ${expectedVersion}.`
-          : `${targetLabel} update ran, but after restart the active version is still ${finalVersion ?? beforeVersion}.`,
-        engineStatus: await this.status()
-      };
-    }
-
-    if (
-      beforeStatus?.updateAvailable &&
-      expectedVersion &&
-      finalVersion &&
-      finalStatus?.updateAvailable &&
-      (finalStillBehindExpectedVersion ?? -1) < 0
-    ) {
-      await this.access.logSoftFailure("ChillClaw updated and restarted OpenClaw, but the active version stayed behind the expected version.", {
-        targetId,
-        targetLabel,
-        command: effectiveCommand,
-        beforeVersion,
-        afterVersion,
-        finalVersion,
-        expectedVersion
-      });
-      return {
-        targetId,
-        status: "failed",
-        message: `${targetLabel} update ran, but after restart the active version is still ${finalVersion} and ChillClaw expected at least ${expectedVersion}.`,
-        engineStatus: await this.status()
-      };
-    }
-
-    const message =
-      afterVersion && beforeVersion && afterVersion !== beforeVersion
-        ? `${targetLabel} updated from ${beforeVersion} to ${finalVersion ?? afterVersion}.`
-        : finalVersion
-          ? `${targetLabel} update completed. Current version: ${finalVersion}.`
-          : `${targetLabel} update completed.`;
     let engineStatus: EngineStatus;
 
     try {
@@ -619,7 +567,6 @@ export class OpenClawRuntimeLifecycleService {
         targetId,
         targetLabel,
         command: effectiveCommand,
-        finalVersion,
         summary: error instanceof Error ? error.message : fallbackStatus.summary
       });
       return {
@@ -635,41 +582,27 @@ export class OpenClawRuntimeLifecycleService {
     return {
       targetId,
       status: "completed",
-      message: `${message} OpenClaw gateway restarted and is reachable. ChillClaw verified the version again after restart.`,
+      message: `${runtimeResult.message} OpenClaw gateway restarted and is reachable.`,
       engineStatus
     };
   }
 
   async update(): Promise<{ message: string; engineStatus: EngineStatus }> {
-    const snapshot = await this.access.readEngineSnapshot({ includeUpdate: true });
-    const parsed = snapshot.updateJson as OpenClawUpdateStatusJson | undefined;
+    const runtimeResult = await this.access.checkManagedOpenClawRuntimeUpdate();
     const engineStatus = await this.status();
 
-    if (parsed?.availability?.available) {
-      return {
-        message: `OpenClaw update available: ${parsed.availability.latestVersion ?? "new version detected"} on ${parsed.channel?.label ?? "current channel"}.`,
-        engineStatus
-      };
-    }
-
-    if (parsed?.update?.registry?.error) {
-      await this.access.logSoftFailure("ChillClaw update check failed during OpenClaw registry lookup.", {
-        registryError: parsed.update.registry.error
-      });
-      return {
-        message: `ChillClaw checked for updates, but registry lookup failed: ${parsed.update.registry.error}.`,
-        engineStatus
-      };
-    }
-
     return {
-      message: "ChillClaw verified that no newer OpenClaw version is currently visible.",
+      message: runtimeResult.message,
       engineStatus
     };
   }
 
   async repair(action: RecoveryAction): Promise<RecoveryRunResponse> {
-    if (!(await this.access.resolveOpenClawCommand())) {
+    const requireOpenClawCommand = async () => {
+      if (await this.access.resolveOpenClawCommand()) {
+        return undefined;
+      }
+
       await this.access.logSoftFailure("ChillClaw recovery failed because OpenClaw CLI is not installed.", {
         actionId: action.id
       });
@@ -677,11 +610,16 @@ export class OpenClawRuntimeLifecycleService {
         actionId: action.id,
         status: "failed",
         message: "OpenClaw CLI is not installed."
-      };
-    }
+      } satisfies RecoveryRunResponse;
+    };
 
     switch (action.id) {
       case "restart-engine": {
+        const missingCommand = await requireOpenClawCommand();
+        if (missingCommand) {
+          return missingCommand;
+        }
+
         const restart = await this.access.runOpenClaw(["gateway", "restart"], { allowFailure: true });
         if (restart.code !== 0) {
           await this.access.logSoftFailure("ChillClaw failed to restart the OpenClaw gateway during recovery.", {
@@ -699,6 +637,11 @@ export class OpenClawRuntimeLifecycleService {
         };
       }
       case "repair-config": {
+        const missingCommand = await requireOpenClawCommand();
+        if (missingCommand) {
+          return missingCommand;
+        }
+
         await this.access.configure("email-admin");
         const doctor = await this.access.runOpenClaw(["doctor", "--repair", "--non-interactive", "--yes"], {
           allowFailure: true
@@ -719,21 +662,38 @@ export class OpenClawRuntimeLifecycleService {
         };
       }
       case "rollback-update": {
-        const updateStatus = await this.access.runOpenClaw(["update", "status", "--json"], { allowFailure: true });
-        const parsed =
-          safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateStatus.stdout) ??
-          safeJsonPayloadParse<OpenClawUpdateStatusJson>(updateStatus.stderr);
+        const runtimeResult = await this.access.prepareManagedOpenClawRuntime();
+        if (runtimeResult.status !== "completed") {
+          await this.access.logSoftFailure("ChillClaw could not restore the managed OpenClaw runtime during recovery.", {
+            actionId: action.id,
+            message: runtimeResult.message
+          });
+        }
+        this.access.invalidateReadCaches(["engine"]);
         return {
           actionId: action.id,
-          status: "completed",
-          message: parsed?.availability?.available
-            ? `ChillClaw detected update drift. Manual reinstall of ${this.access.openClawInstallTargetSummary()} is recommended until automated rollback is added.`
-            : "OpenClaw update state looks consistent; no rollback was needed."
+          status: runtimeResult.status,
+          message:
+            runtimeResult.status === "completed"
+              ? `${runtimeResult.message} ChillClaw restored the managed OpenClaw runtime to the bundled baseline.`
+              : runtimeResult.message
         };
       }
       case "reinstall-engine": {
-        const bootstrap = await this.access.ensurePinnedOpenClaw("auto");
-        const reinstall = await this.access.runOpenClaw(["gateway", "install", "--force"], { allowFailure: true });
+        const bootstrap = await this.access.ensurePinnedOpenClaw("managed-local");
+        const managedCommand = await this.access.resolveManagedOpenClawCommand({ fresh: true });
+        if (!managedCommand) {
+          await this.access.logSoftFailure("ChillClaw prepared the managed runtime, but could not find the OpenClaw command for gateway reinstall.", {
+            actionId: action.id,
+            bootstrap
+          });
+          return {
+            actionId: action.id,
+            status: "failed",
+            message: "ChillClaw prepared the managed OpenClaw runtime, but could not find the managed command afterward."
+          };
+        }
+        const reinstall = await this.access.runCommand(managedCommand, ["gateway", "install", "--force"], { allowFailure: true });
         const installStatus = bootstrap.status !== "failed" && reinstall.code === 0 ? "completed" : "failed";
         if (installStatus === "failed") {
           await this.access.logSoftFailure("ChillClaw failed to reinstall the OpenClaw gateway during recovery.", {
@@ -772,10 +732,11 @@ export class OpenClawRuntimeLifecycleService {
   }
 
   async exportDiagnostics(): Promise<{ filename: string; content: string }> {
-    const [status, health, snapshot] = await Promise.all([
+    const [status, health, snapshot, managedRuntimeUpdate] = await Promise.all([
       this.status(),
       this.healthCheck(),
-      this.access.readEngineSnapshot({ includeUpdate: true })
+      this.access.readEngineSnapshot(),
+      this.access.checkManagedOpenClawRuntimeUpdate()
     ]);
 
     return {
@@ -788,7 +749,7 @@ export class OpenClawRuntimeLifecycleService {
           health,
           raw: {
             gatewayStatus: snapshot.gatewayJson,
-            updateStatus: snapshot.updateJson
+            managedRuntimeUpdate
           }
         },
         null,
@@ -1028,7 +989,19 @@ export class OpenClawRuntimeLifecycleService {
   }
 
   private async installDeploymentTargetInternal(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
-    const bootstrap = await this.access.ensurePinnedOpenClaw(targetId === "managed-local" ? "managed-local" : "system");
+    if (targetId !== "managed-local") {
+      await this.access.logSoftFailure("ChillClaw skipped a system OpenClaw install because installs are managed from the bundled runtime.", {
+        targetId
+      });
+      return {
+        targetId,
+        status: "failed",
+        message: "ChillClaw only installs its managed OpenClaw runtime. Use the managed runtime target instead.",
+        engineStatus: await this.status()
+      };
+    }
+
+    const bootstrap = await this.access.ensurePinnedOpenClaw("managed-local");
     const state = await this.access.readAdapterState();
 
     await this.access.writeAdapterState({

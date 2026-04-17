@@ -156,6 +156,72 @@ test("prepare installs dependencies first and prefers bundled source before down
   }
 });
 
+test("prepare refreshes a ready runtime when the bundled desired version is newer", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-runtime-manager-desired-"));
+  const bundlePath = join(tempDir, "openclaw-runtime");
+  const log: string[] = [];
+
+  try {
+    await writeFile(bundlePath, "bundle");
+    const { manager, getState } = createHarness({
+      manifests: [
+        manifest("openclaw-runtime", "2026.4.13", {
+          artifacts: [{ source: "bundled", path: bundlePath, format: "file" }]
+        })
+      ],
+      providers: [
+        createProvider("openclaw-runtime", log, {
+          async inspect() {
+            return {
+              installed: true,
+              ready: true,
+              version: "2026.3.11",
+              summary: "OpenClaw runtime ready.",
+              detail: "OpenClaw 2026.3.11 verified."
+            };
+          }
+        })
+      ]
+    });
+
+    const result = await manager.prepare("openclaw-runtime");
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.resource.installedVersion, "2026.4.13");
+    assert.equal(getState()?.resources["openclaw-runtime"]?.installedVersion, "2026.4.13");
+    assert.deepEqual(log, ["prepare:openclaw-runtime:bundled"]);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("overview reports a packaged desired-version update for installed managed runtime", async () => {
+  const { manager } = createHarness({
+    manifests: [manifest("openclaw-runtime", "2026.4.13")],
+    providers: [
+      createProvider("openclaw-runtime", [], {
+        async inspect() {
+          return {
+            installed: true,
+            ready: true,
+            version: "2026.3.11",
+            summary: "OpenClaw runtime ready.",
+            detail: "OpenClaw 2026.3.11 verified."
+          };
+        }
+      })
+    ]
+  });
+
+  const overview = await manager.getOverview();
+  const runtime = overview.resources.find((resource) => resource.id === "openclaw-runtime");
+
+  assert.equal(runtime?.installedVersion, "2026.3.11");
+  assert.equal(runtime?.desiredVersion, "2026.4.13");
+  assert.equal(runtime?.latestApprovedVersion, "2026.4.13");
+  assert.equal(runtime?.updateAvailable, true);
+});
+
 test("prepare delegates downloadable runtime artifacts before invoking the provider", async () => {
   const log: string[] = [];
   const runtime = manifest("node-npm-runtime", "22.22.2", {

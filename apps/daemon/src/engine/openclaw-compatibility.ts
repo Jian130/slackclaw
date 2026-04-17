@@ -44,7 +44,7 @@ export const openClawCompatibilitySources: Record<EngineCompatibilityCapabilityI
   "install-managed-runtime": {
     area: "Deploy",
     filePaths: [
-      "scripts/bootstrap-openclaw.mjs",
+      "apps/daemon/src/runtime-manager/default-runtime-manager.ts",
       "apps/daemon/src/engine/openclaw-adapter.ts"
     ],
     runtimeModes: ["managed"]

@@ -77,6 +77,40 @@ kill -TERM $$
   }
 });
 
+test("runCommand times out, terminates the child, and preserves partial output", async () => {
+  const tempDir = await mkdtemp(resolve(tmpdir(), "chillclaw-cli-runner-timeout-test-"));
+  const scriptPath = join(tempDir, "timeout.mjs");
+
+  await writeFile(
+    scriptPath,
+    `process.stdout.write("started");
+process.stderr.write("still working");
+setTimeout(() => {}, 60_000);
+`
+  );
+
+  try {
+    await assert.rejects(
+      () => runCommand(process.execPath, [scriptPath], {
+        allowFailure: true,
+        env: process.env,
+        timeoutMs: 200,
+        killTimeoutMs: 20
+      }),
+      (error) => {
+        const timeout = error as { code?: string; stdout?: string; stderr?: string; timedOut?: boolean };
+        assert.equal(timeout.code, "COMMAND_TIMEOUT");
+        assert.equal(timeout.timedOut, true);
+        assert.equal(timeout.stdout, "started");
+        assert.equal(timeout.stderr, "still working");
+        return true;
+      }
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("resolveCommandFromPath respects the provided PATH", async () => {
   const tempDir = await mkdtemp(resolve(tmpdir(), "chillclaw-cli-runner-path-test-"));
   const commandPath = join(tempDir, "fake-command");

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 2026-04-17 17:43 CST
+
+- switched ChillClaw's OpenClaw install, update, rollback, repair, diagnostics, dev-runtime, and compatibility paths to the managed bundled runtime only, removing the legacy bootstrap script, npm OpenClaw install fallback, system target updates, and upstream `openclaw update` flow
+- added managed OpenClaw runtime update detection and apply behavior through Runtime Manager, including bundled desired-version checks, staged directory replacement, CLI verification, backup restore on failure, gateway baseline normalization, and gateway restart verification
+- added daemon timeout metadata, command/download/gateway socket deadlines, onboarding operation summaries, WebSocket heartbeats, and React/native contract handling so long-running install, local runtime, channel, and completion flows can keep showing recoverable progress after client request timeouts
+- updated release workflow coverage, engine compatibility checks, OpenClaw command docs, README runtime guidance, shared TypeScript/Swift contracts, and native/web onboarding tests for the bundled-only managed runtime model
+
 ### 2026-04-17 14:37 CST
 
 - added ChillClaw version labels to the React and native macOS sidebar brand areas, using daemon overview metadata with a native bundle-version fallback and matching UI contract coverage

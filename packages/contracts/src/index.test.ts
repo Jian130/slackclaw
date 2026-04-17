@@ -14,11 +14,13 @@ import {
   type ChatOverview,
   type ChannelConfigOverview,
   type DownloadJob,
+  type LongRunningOperationSummary,
   type ModelConfigOverview,
   type MutationSyncMeta,
   type OnboardingStateResponse,
   type PresetSkillSyncOverview,
   type RevisionedSnapshot,
+  type SetupRunResponse,
   type SkillCatalogOverview,
   type SkillMarketplaceDetail
 } from "./index.js";
@@ -337,6 +339,53 @@ test("onboarding state response serializes the optional local runtime snapshot",
   assert.equal(parsed.draft.currentStep, "model");
   assert.equal(parsed.localRuntime?.recommendation, "local");
   assert.equal(parsed.localRuntime?.status, "installing-runtime");
+});
+
+test("onboarding responses serialize optional long-running operation metadata", () => {
+  const operation: LongRunningOperationSummary = {
+    operationId: "onboarding:runtime-install",
+    action: "onboarding-runtime-install",
+    status: "running",
+    phase: "installing",
+    message: "Installing OpenClaw locally.",
+    startedAt: "2026-04-17T09:00:00.000Z",
+    updatedAt: "2026-04-17T09:01:00.000Z",
+    deadlineAt: "2026-04-17T09:15:00.000Z",
+    retryable: true
+  };
+  const response: OnboardingStateResponse = {
+    firstRun: {
+      introCompleted: true,
+      setupCompleted: false
+    },
+    draft: {
+      currentStep: "install"
+    },
+    config: {
+      modelProviders: [],
+      channels: [],
+      employeePresets: []
+    },
+    summary: {},
+    operations: {
+      install: operation
+    }
+  };
+  const setup: SetupRunResponse = {
+    status: "completed",
+    message: "OpenClaw deployment is complete.",
+    steps: [],
+    overview: createDefaultProductOverview({ appVersion: "1.0.0" }),
+    onboarding: response,
+    operation
+  };
+
+  const parsedState = JSON.parse(JSON.stringify(response)) as OnboardingStateResponse;
+  const parsedSetup = JSON.parse(JSON.stringify(setup)) as SetupRunResponse;
+
+  assert.equal(parsedState.operations?.install?.operationId, "onboarding:runtime-install");
+  assert.equal(parsedState.operations?.install?.status, "running");
+  assert.equal(parsedSetup.operation?.action, "onboarding-runtime-install");
 });
 
 test("generic channel config shapes serialize with masked summaries and capabilities", () => {

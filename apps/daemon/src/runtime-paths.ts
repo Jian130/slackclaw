@@ -110,10 +110,6 @@ export function getStaticDir(): string | undefined {
   return process.env.CHILLCLAW_STATIC_DIR ?? (getAppRootDir() ? resolve(getAppRootDir()!, "app/ui") : undefined);
 }
 
-export function getBootstrapScriptPath(): string {
-  return process.env.CHILLCLAW_OPENCLAW_BOOTSTRAP_SCRIPT ?? (getAppRootDir() ? resolve(getAppRootDir()!, "app/scripts/bootstrap-openclaw.mjs") : resolve(process.cwd(), "scripts/bootstrap-openclaw.mjs"));
-}
-
 export function getDefaultAppSupportDir(): string {
   return resolve(homedir(), "Library/Application Support/ChillClaw");
 }

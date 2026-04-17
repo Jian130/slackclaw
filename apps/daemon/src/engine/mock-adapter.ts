@@ -490,15 +490,21 @@ export class MockAdapter implements EngineAdapter {
   }
 
   async installDeploymentTarget(targetId: "standard" | "managed-local"): Promise<DeploymentTargetActionResponse> {
+    if (targetId === "standard") {
+      return {
+        targetId,
+        status: "failed",
+        message: "Mock adapter only installs ChillClaw's managed OpenClaw runtime.",
+        engineStatus: await this.status()
+      };
+    }
+
     this.installed = true;
     this.clearGatewayApplyPending();
     return {
       targetId,
       status: "completed",
-      message:
-        targetId === "standard"
-          ? "Mock standard OpenClaw runtime is deployed."
-          : "Mock managed local OpenClaw runtime is deployed.",
+      message: "Mock managed local OpenClaw runtime is deployed.",
       engineStatus: await this.status()
     };
   }

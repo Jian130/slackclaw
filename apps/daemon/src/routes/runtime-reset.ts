@@ -106,6 +106,7 @@ export function resetStateAfterRuntimeUninstall(current: AppState): AppState {
     setupCompletedAt: undefined,
     selectedProfileId: undefined,
     onboarding: undefined,
+    onboardingOperations: undefined,
     onboardingWarmups: undefined,
     channelOnboarding: undefined,
     aiTeam: undefined,

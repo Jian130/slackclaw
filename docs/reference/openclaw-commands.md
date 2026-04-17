@@ -27,7 +27,7 @@ Primary upstream docs:
 Relevant ChillClaw integration files:
 
 - [apps/daemon/src/engine/openclaw-adapter.ts](../../apps/daemon/src/engine/openclaw-adapter.ts)
-- [scripts/bootstrap-openclaw.mjs](../../scripts/bootstrap-openclaw.mjs)
+- [apps/daemon/src/runtime-manager/default-runtime-manager.ts](../../apps/daemon/src/runtime-manager/default-runtime-manager.ts)
 
 ## Mental model
 
@@ -452,26 +452,9 @@ The sections below keep the original repo-specific reference intact. These are t
 
 ChillClaw-managed installs go through the daemon Runtime Manager. Runtime Manager updates come from ChillClaw-curated manifests, not upstream `latest` discovery.
 
-The npm commands below are still the development and recovery fallback when no packaged OpenClaw artifact is available. They should use the pinned version selected by ChillClaw release metadata or an explicit diagnostics override, not an unreviewed upstream latest version.
+OpenClaw runtime install and update are not npm/package-manager flows in the product. The daemon prepares `openclaw-runtime` from the bundled Runtime Manager artifact, copies it into ChillClaw app data, verifies the managed CLI, normalizes the gateway baseline, and only then marks the runtime ready.
 
-System install:
-
-```bash
-npm install --global openclaw@<pinnedVersion>
-```
-
-Managed-local install:
-
-```bash
-npm install --prefix <installDir> openclaw@<pinnedVersion>
-```
-
-Version override for diagnostics or compatibility testing:
-
-```bash
-npm install --global openclaw@<overrideVersion>
-npm install --prefix <installDir> openclaw@<overrideVersion>
-```
+External OpenClaw installs may still be detected for migration/debugging, but ChillClaw does not install or update them.
 
 ### Uninstall
 
@@ -494,15 +477,11 @@ Managed-local uninstall:
 openclaw --version
 openclaw status --json
 openclaw gateway status --json
-openclaw update status --json
 ```
 
 ### Update and restart
 
-```bash
-openclaw update --json --yes --no-restart --tag latest
-openclaw gateway restart
-```
+Use Runtime Manager update APIs for OpenClaw runtime updates. After Runtime Manager applies a verified bundled or curated artifact, restart the gateway with `<managed-openclaw-bin> gateway restart`.
 
 ### Repair and recovery
 

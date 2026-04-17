@@ -194,6 +194,65 @@ describe("daemon event client", () => {
     unsubscribe();
   });
 
+  it("reconnects when the event stream stops sending heartbeats", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const events = await loadEventsModule();
+    const states: unknown[] = [];
+
+    const unsubscribe = events.subscribeToDaemonEvents(() => undefined, undefined, (state) => {
+      states.push(state);
+    });
+
+    FakeWebSocket.instances[0]?.emitOpen();
+    await vi.advanceTimersByTimeAsync(45_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(FakeWebSocket.instances[0]?.closeCallCount).toBe(1);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(states.at(-1)).toMatchObject({
+      connectionState: "connecting",
+      lastError: "The event stream stopped responding."
+    });
+
+    unsubscribe();
+  });
+
+  it("keeps retained resource revisions available across reconnects for catch-up refreshes", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const events = await loadEventsModule();
+    const unsubscribe = events.subscribeToDaemonEvents(() => undefined);
+
+    FakeWebSocket.instances[0]?.emitMessage(
+      JSON.stringify({
+        type: "downloads.updated",
+        snapshot: {
+          epoch: "downloads-epoch",
+          revision: 8,
+          data: {
+            checkedAt: "2026-04-15T00:00:00.000Z",
+            jobs: [],
+            activeCount: 0,
+            queuedCount: 0,
+            failedCount: 0,
+            summary: "No downloads are running."
+          }
+        }
+      })
+    );
+    FakeWebSocket.instances[0]?.emitClose();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(events.getDaemonEventTransportState().lastSeenByResource.downloads).toEqual({
+      epoch: "downloads-epoch",
+      revision: 8
+    });
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    unsubscribe();
+  });
+
   it("shares one socket across subscribers and closes it after the last unsubscribe", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", FakeWebSocket);

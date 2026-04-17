@@ -120,6 +120,52 @@ async function serveOllamaPull() {
   };
 }
 
+async function serveStalledPayload() {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, {
+      "Content-Length": 6
+    });
+    response.write("abc");
+  });
+
+  await new Promise<void>((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
+  const address = server.address() as AddressInfo | null;
+  if (!address) {
+    throw new Error("Test server did not expose a bound address.");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}/artifact.bin`,
+    close: async () => {
+      await new Promise<void>((resolvePromise, reject) => {
+        server.close((error) => error ? reject(error) : resolvePromise());
+      });
+    }
+  };
+}
+
+async function serveStalledOllamaPull() {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, {
+      "Content-Type": "application/x-ndjson"
+    });
+    response.write(JSON.stringify({ status: "pulling manifest" }) + "\n");
+  });
+
+  await new Promise<void>((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
+  const address = server.address() as AddressInfo | null;
+  if (!address) {
+    throw new Error("Test server did not expose a bound address.");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}/api/pull`,
+    close: async () => {
+      await new Promise<void>((resolvePromise, reject) => {
+        server.close((error) => error ? reject(error) : resolvePromise());
+      });
+    }
+  };
+}
+
 async function serveNoisyOllamaPull(progressLines: number) {
   const requests: string[] = [];
   const server = createServer((request, response) => {
@@ -309,6 +355,61 @@ test("ollama pull progress events are throttled to persisted snapshots", async (
     const progressEvents = harness.published.filter((event) => event === "download.progress");
     assert.equal(completed.status, "completed");
     assert.equal(progressEvents.length, 2);
+  } finally {
+    await server.close();
+    await harness.cleanup();
+  }
+});
+
+test("http downloads fail with timeout metadata when the stream stalls", async () => {
+  const server = await serveStalledPayload();
+  const harness = await createHarness({
+    downloadIdleTimeoutMs: 25,
+    downloadOverallTimeoutMs: 1_000
+  });
+  try {
+    const job = await harness.manager.enqueue({
+      type: "runtime",
+      artifactId: "stalled-runtime",
+      displayName: "Stalled runtime",
+      source: { kind: "http", url: server.url },
+      destinationPolicy: { baseDir: "cache", fileName: "stalled-runtime.bin" },
+      expectedBytes: 6,
+      requester: "runtime-manager"
+    });
+    const completed = await harness.manager.waitForJob(job.id);
+
+    assert.equal(completed.status, "failed");
+    assert.equal(completed.error?.code, "DOWNLOAD_TIMEOUT");
+    assert.equal(completed.error?.retriable, true);
+    assert.match(completed.error?.message ?? "", /timed out/i);
+  } finally {
+    await server.close();
+    await harness.cleanup();
+  }
+});
+
+test("ollama pull jobs fail with timeout metadata when progress stops", async () => {
+  const server = await serveStalledOllamaPull();
+  const harness = await createHarness({
+    downloadIdleTimeoutMs: 25,
+    downloadOverallTimeoutMs: 1_000
+  });
+  try {
+    const job = await harness.manager.enqueue({
+      type: "model",
+      artifactId: "ollama-model:stalled",
+      displayName: "Local model stalled",
+      source: { kind: "ollama-pull", modelTag: "stalled", endpoint: server.url },
+      destinationPolicy: { baseDir: "cache", fileName: "stalled.json" },
+      requester: "model-manager"
+    });
+    const completed = await harness.manager.waitForJob(job.id);
+
+    assert.equal(completed.status, "failed");
+    assert.equal(completed.error?.code, "DOWNLOAD_TIMEOUT");
+    assert.equal(completed.error?.retriable, true);
+    assert.match(completed.error?.message ?? "", /timed out/i);
   } finally {
     await server.close();
     await harness.cleanup();
