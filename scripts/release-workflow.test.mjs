@@ -42,6 +42,19 @@ test("macOS release workflow publishes a GitHub-hosted runtime update feed", asy
   assert.match(buildScript, /CHILLCLAW_RUNTIME_UPDATE_FEED_URL:-\$\{DEFAULT_RUNTIME_UPDATE_FEED_URL\}/);
 });
 
+test("macOS release workflow accepts both v-prefixed and bare semver tags", async () => {
+  const workflow = await readRepoFile(".github/workflows/macos-release.yml");
+
+  assert.match(workflow, /- "v\*\.\*\.\*"/);
+  assert.match(workflow, /- "\[0-9\]\*\.\[0-9\]\*\.\[0-9\]\*"/);
+  assert.match(workflow, /EXPECTED_TAG_WITH_PREFIX="v\$\{PACKAGE_VERSION\}"/);
+  assert.match(workflow, /EXPECTED_TAG_BARE="\$\{PACKAGE_VERSION\}"/);
+  assert.match(
+    workflow,
+    /if \[ "\$\{GITHUB_REF_NAME\}" != "\$\{EXPECTED_TAG_WITH_PREFIX\}" \] && \[ "\$\{GITHUB_REF_NAME\}" != "\$\{EXPECTED_TAG_BARE\}" \]; then/
+  );
+});
+
 test("macOS release workflow signs the staged app before building and notarizing the DMG", async () => {
   const workflow = await readRepoFile(".github/workflows/macos-release.yml");
 

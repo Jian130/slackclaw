@@ -57,10 +57,11 @@ jobs:
         id: version
         run: |
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          EXPECTED_TAG="v${PACKAGE_VERSION}"
+          EXPECTED_TAG_WITH_PREFIX="v${PACKAGE_VERSION}"
+          EXPECTED_TAG_BARE="${PACKAGE_VERSION}"
 
-          if [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG}" ]; then
-            echo "Expected release tag ${EXPECTED_TAG}, got ${GITHUB_REF_NAME}." >&2
+          if [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG_WITH_PREFIX}" ] && [ "${GITHUB_REF_NAME}" != "${EXPECTED_TAG_BARE}" ]; then
+            echo "Expected release tag ${EXPECTED_TAG_WITH_PREFIX} or ${EXPECTED_TAG_BARE}, got ${GITHUB_REF_NAME}." >&2
             exit 1
           fi
 
