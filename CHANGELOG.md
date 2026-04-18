@@ -4,6 +4,10 @@
 
 ## 0.2.0 - 2026-04-17
 
+### 2026-04-18 15:09 CST
+
+- fixed local `npm start` managed-runtime startup by passing the repo `runtime-artifacts` bundle into the preflight install helper while leaving the packaged manifest override unset, so onboarding can deploy the bundled OpenClaw 2026.3.11 runtime in development
+
 ### 2026-04-17 18:38 CST
 
 - added a GitHub Release-backed managed runtime update feed, generated from ChillClaw's pinned runtime manifest and published as `runtime-update.json` so packaged apps can discover approved OpenClaw runtime updates without leaving the ChillClaw runtime boundary

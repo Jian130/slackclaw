@@ -29,6 +29,7 @@ export function createDevRuntimeConfig({ rootDir, env = process.env }) {
       label: "managed ChillClaw OpenClaw runtime",
       extraEnv: {
         CHILLCLAW_DATA_DIR: resolve(rootDir, "apps/daemon/.data"),
+        CHILLCLAW_RUNTIME_BUNDLE_DIR: resolve(rootDir, "runtime-artifacts"),
         HOME: resolve(rootDir, ".data/openclaw-home"),
         [OPENCLAW_RUNTIME_PREFERENCE_ENV]: "managed-local"
       }

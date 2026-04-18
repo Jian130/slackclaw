@@ -44,6 +44,8 @@ test("managed dev runtime uses repo-local data and OpenClaw home", () => {
   assert.equal(config.extraEnv.CHILLCLAW_DATA_DIR, resolve(rootDir, "apps/daemon/.data"));
   assert.equal(config.extraEnv.HOME, resolve(rootDir, ".data/openclaw-home"));
   assert.equal(config.extraEnv[OPENCLAW_RUNTIME_PREFERENCE_ENV], "managed-local");
+  assert.equal(config.extraEnv.CHILLCLAW_RUNTIME_BUNDLE_DIR, resolve(rootDir, "runtime-artifacts"));
+  assert.equal(config.extraEnv.CHILLCLAW_RUNTIME_MANIFEST_PATH, undefined);
 });
 
 test("environment dev runtime preserves caller home and data dir", () => {
