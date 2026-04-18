@@ -70,7 +70,7 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
         id: "openclaw-runtime",
         kind: "engine",
         label: "OpenClaw runtime",
-        version: "2026.3.11",
+        version: "2026.4.15",
         platforms: [{ os: process.platform, arch: process.arch }],
         sourcePolicy: ["bundled"],
         updatePolicy: "stage-silently-apply-safely",
@@ -92,7 +92,7 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
     updateFeedServer.listen(0, "127.0.0.1");
     await once(updateFeedServer, "listening");
     await mkdir(join(bundledRuntimeDir, "node_modules", ".bin"), { recursive: true });
-    await writeFile(bundledOpenClawBin, "#!/bin/sh\nprintf '2026.3.11\\n'\n");
+    await writeFile(bundledOpenClawBin, "#!/bin/sh\nprintf '2026.4.15\\n'\n");
     await chmod(bundledOpenClawBin, 0o755);
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
     process.env.CHILLCLAW_DATA_DIR = dataDir;
@@ -103,8 +103,8 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
     const result = await createRuntimeManager().prepare("openclaw-runtime");
 
     assert.equal(result.status, "completed");
-    assert.equal(result.resource.desiredVersion, "2026.3.11");
-    assert.equal(result.resource.installedVersion, "2026.3.11");
+    assert.equal(result.resource.desiredVersion, "2026.4.15");
+    assert.equal(result.resource.installedVersion, "2026.4.15");
     await access(join(dataDir, "openclaw-runtime", "node_modules", ".bin", "openclaw"), constants.X_OK);
   } finally {
     if (previousDataDir === undefined) {

@@ -40,7 +40,7 @@ import type {
   RuntimeResourceProvider
 } from "./types.js";
 
-const DEFAULT_OPENCLAW_VERSION = process.env.CHILLCLAW_MANAGED_OPENCLAW_VERSION?.trim() || "2026.3.11";
+const DEFAULT_OPENCLAW_VERSION = process.env.CHILLCLAW_MANAGED_OPENCLAW_VERSION?.trim() || "2026.4.15";
 const DEFAULT_OLLAMA_VERSION = process.env.CHILLCLAW_MANAGED_OLLAMA_VERSION?.trim() || "0.20.6";
 const DEFAULT_OLLAMA_CLI_ARCHIVE_NAME = "ollama-darwin.tgz";
 

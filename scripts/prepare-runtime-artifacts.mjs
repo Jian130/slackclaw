@@ -17,12 +17,14 @@ const ARTIFACT_ROOT = resolve(ROOT, "runtime-artifacts");
 const LOCAL_MODEL_CATALOG_SOURCE = resolve(ROOT, "apps/daemon/src/config/local-model-runtime-catalog.json");
 const CACHE_DIR = resolve(ROOT, "dist/runtime-artifact-downloads");
 const SCRIPT_LABEL = "ChillClaw runtime artifacts";
+const WECHAT_PLUGIN_PACKAGE = "@tencent-weixin/openclaw-weixin";
 
 async function main() {
   const manifest = JSON.parse(await readFile(MANIFEST_PATH, "utf8"));
 
   const nodeRuntime = await prepareNodeRuntime(resourceFor(manifest, "node-npm-runtime"));
   await prepareOpenClawRuntime(resourceFor(manifest, "openclaw-runtime"), nodeRuntime);
+  await preparePersonalWechatPlugin(resourceFor(manifest, "wechat-plugin-openclaw-weixin"), nodeRuntime);
   await prepareOllamaRuntime(resourceFor(manifest, "ollama-runtime"));
   await prepareLocalModelCatalog(resourceFor(manifest, "local-model-catalog"));
   await assertNoInstallerPayloads(ARTIFACT_ROOT);
@@ -131,6 +133,80 @@ function pinnedOpenClawPackageSpec(resource) {
     throw new Error("openclaw-runtime must pin a concrete version before preparing bundled artifacts.");
   }
   return `openclaw@${version}`;
+}
+
+async function preparePersonalWechatPlugin(resource, nodeRuntime) {
+  const artifact = bundledArtifact(resource, "directory");
+  const targetDir = resolve(ARTIFACT_ROOT, artifact.path);
+  const packageSpec = pinnedWechatPluginPackageSpec(resource, artifact);
+  const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-wechat-plugin-"));
+
+  try {
+    const packOutput = await capture(nodeRuntime.npmBin, ["pack", packageSpec, "--ignore-scripts", "--json"], {
+      cwd: tempDir,
+      pathPrefix: nodeRuntime.binDir
+    });
+    const archiveName = parseNpmPackArchiveName(packOutput);
+    await run("tar", ["-xzf", resolve(tempDir, archiveName), "-C", tempDir]);
+    const extractedDir = resolve(tempDir, "package");
+    await run(nodeRuntime.npmBin, ["install", "--omit=dev", "--ignore-scripts", "--package-lock=false"], {
+      cwd: extractedDir,
+      pathPrefix: nodeRuntime.binDir
+    });
+    await vendorPluginDependencies(extractedDir);
+    await rm(targetDir, { recursive: true, force: true });
+    await mkdir(dirname(targetDir), { recursive: true });
+    await rename(extractedDir, targetDir);
+    await requirePreparedWechatPlugin(targetDir, resource.version);
+    log(`Prepared ${WECHAT_PLUGIN_PACKAGE} ${resource.version} plugin artifact at ${targetDir}.`);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function pinnedWechatPluginPackageSpec(resource, artifact) {
+  const version = resource.version?.trim();
+  if (!version || version === "latest") {
+    throw new Error("wechat-plugin-openclaw-weixin must pin a concrete version before preparing bundled artifacts.");
+  }
+  const packageName = artifact.package?.trim() || WECHAT_PLUGIN_PACKAGE;
+  return `${packageName}@${version}`;
+}
+
+function parseNpmPackArchiveName(output) {
+  const parsed = JSON.parse(output);
+  const entries = Array.isArray(parsed) ? parsed : [parsed];
+  const filename = entries.find((entry) => typeof entry?.filename === "string")?.filename;
+  if (!filename) {
+    throw new Error("npm pack did not report a package archive filename for the WeChat plugin.");
+  }
+  return filename;
+}
+
+async function vendorPluginDependencies(pluginDir) {
+  const packageJsonPath = resolve(pluginDir, "package.json");
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  packageJson.chillclawBundledDependencies = Object.keys(packageJson.dependencies ?? {});
+  packageJson.dependencies = {};
+  delete packageJson.devDependencies;
+  delete packageJson.scripts;
+  await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+}
+
+async function requirePreparedWechatPlugin(pluginDir, expectedVersion) {
+  const packageJson = JSON.parse(await readFile(resolve(pluginDir, "package.json"), "utf8"));
+  if (packageJson.name !== WECHAT_PLUGIN_PACKAGE) {
+    throw new Error(`Prepared WeChat plugin has unexpected package name: ${packageJson.name}`);
+  }
+  if (packageJson.version !== expectedVersion) {
+    throw new Error(`Prepared WeChat plugin has version ${packageJson.version}, expected ${expectedVersion}.`);
+  }
+  if (Object.keys(packageJson.dependencies ?? {}).length > 0) {
+    throw new Error("Prepared WeChat plugin must vendor runtime dependencies for offline installer use.");
+  }
+  await access(resolve(pluginDir, "index.ts"), constants.R_OK);
+  await access(resolve(pluginDir, "node_modules", "zod"), constants.R_OK);
+  await access(resolve(pluginDir, "node_modules", "qrcode-terminal"), constants.R_OK);
 }
 
 function currentNodeDistName(version) {
@@ -314,14 +390,9 @@ async function executable(path) {
 
 function run(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
-    const env = options.pathPrefix
-      ? {
-          ...process.env,
-          PATH: [options.pathPrefix, process.env.PATH].filter(Boolean).join(delimiter)
-        }
-      : process.env;
+    const env = commandEnv(options);
     const child = spawn(command, args, {
-      cwd: ROOT,
+      cwd: options.cwd ?? ROOT,
       env,
       stdio: "inherit"
     });
@@ -334,6 +405,38 @@ function run(command, args, options = {}) {
       reject(new Error(`${command} ${args.join(" ")} failed with exit code ${code ?? 1}`));
     });
   });
+}
+
+function capture(command, args, options = {}) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd ?? ROOT,
+      env: commandEnv(options),
+      stdio: ["ignore", "pipe", "inherit"]
+    });
+
+    let stdout = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolvePromise(stdout.trim());
+        return;
+      }
+      reject(new Error(`${command} ${args.join(" ")} failed with exit code ${code ?? 1}`));
+    });
+  });
+}
+
+function commandEnv(options = {}) {
+  return options.pathPrefix
+    ? {
+        ...process.env,
+        PATH: [options.pathPrefix, process.env.PATH].filter(Boolean).join(delimiter)
+      }
+    : process.env;
 }
 
 function log(message) {

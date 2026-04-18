@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-04-15T00:00:00.000Z",
+  "generatedAt": "2026-04-19T00:00:00.000Z",
   "resources": [
     {
       "id": "node-npm-runtime",
@@ -30,7 +30,7 @@
       "id": "openclaw-runtime",
       "kind": "engine",
       "label": "OpenClaw runtime",
-      "version": "2026.3.11",
+      "version": "2026.4.15",
       "platforms": [
         {
           "os": "darwin",
@@ -49,6 +49,31 @@
         }
       ],
       "dependencies": ["node-npm-runtime"]
+    },
+    {
+      "id": "wechat-plugin-openclaw-weixin",
+      "kind": "channel-plugin",
+      "label": "Personal WeChat OpenClaw plugin",
+      "version": "2.1.8",
+      "platforms": [
+        {
+          "os": "*",
+          "arch": "*"
+        }
+      ],
+      "sourcePolicy": ["bundled"],
+      "updatePolicy": "stage-silently-apply-safely",
+      "installDir": "openclaw-plugins/openclaw-weixin",
+      "activePath": "openclaw-plugins/openclaw-weixin/index.ts",
+      "artifacts": [
+        {
+          "source": "bundled",
+          "format": "directory",
+          "path": "openclaw-plugins/openclaw-weixin",
+          "package": "@tencent-weixin/openclaw-weixin"
+        }
+      ],
+      "dependencies": ["node-npm-runtime", "openclaw-runtime"]
     },
     {
       "id": "ollama-runtime",

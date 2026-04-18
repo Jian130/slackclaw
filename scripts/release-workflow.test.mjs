@@ -269,8 +269,11 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(prepareScript, /run\(openclawBin,\s*\["--version"\],\s*\{\s*pathPrefix: nodeRuntime\.binDir\s*\}\)/);
   assert.match(prepareScript, /PATH: \[options\.pathPrefix, process\.env\.PATH\]\.filter\(Boolean\)\.join\(delimiter\)/);
   assert.match(prepareScript, /prepareLocalModelCatalog/);
+  assert.match(prepareScript, /preparePersonalWechatPlugin/);
   assert.match(prepareScript, /openclaw-runtime must pin a concrete version/);
+  assert.match(prepareScript, /wechat-plugin-openclaw-weixin must pin a concrete version/);
   assert.match(prepareScript, /OpenClaw runtime package did not produce node_modules/);
+  assert.match(prepareScript, /Prepared \$\{WECHAT_PLUGIN_PACKAGE\}/);
   assert.match(prepareScript, /Prepared OpenClaw/);
   assert.match(prepareScript, /Prepared local model catalog/);
   assert.match(prepareScript, /process\.arch === "x64" \? "x64" : "arm64"/);
@@ -282,11 +285,14 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(prepareScript, /ollama CLI binary/);
   assert.match(runtimeManifest, /node-npm-runtime/);
   assert.match(runtimeManifest, /openclaw-runtime/);
+  assert.match(runtimeManifest, /wechat-plugin-openclaw-weixin/);
   assert.match(runtimeManifest, /ollama-runtime/);
   assert.match(runtimeManifest, /local-model-catalog/);
-  assert.match(runtimeManifest, /"version": "2026\.3\.11"/);
+  assert.match(runtimeManifest, /"version": "2026\.4\.15"/);
+  assert.match(runtimeManifest, /"id": "wechat-plugin-openclaw-weixin"[\s\S]*?"version": "2\.1\.8"/);
   assert.match(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"sourcePolicy": \["bundled"\]/);
   assert.match(runtimeManifest, /"path": "openclaw\/openclaw-runtime"/);
+  assert.match(runtimeManifest, /"path": "openclaw-plugins\/openclaw-weixin"/);
   assert.match(runtimeManifest, /"path": "models\/local-model-catalog\.json"/);
   assert.doesNotMatch(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"version": "latest"/);
   assert.match(runtimeManifest, /"format": "directory"/);
@@ -307,9 +313,10 @@ test("managed OpenClaw runtime packaging stays pinned and bundled-only", async (
     readRepoFile("apps/macos-native/Sources/ChillClawNative/DaemonManagers.swift")
   ]);
 
-  assert.match(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"version": "2026\.3\.11"/);
-  assert.match(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "2026\.3\.11"/);
-  assert.match(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "2026\.3\.11"/);
+  assert.match(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"version": "2026\.4\.15"/);
+  assert.match(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "2026\.4\.15"/);
+  assert.match(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "2026\.4\.15"/);
+  assert.match(packageJson, /"version": "0\.2\.4"/);
   assert.doesNotMatch(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "latest"/);
   assert.doesNotMatch(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "latest"/);
   assert.doesNotMatch(packageJson, /bootstrap:openclaw/);

@@ -270,7 +270,57 @@ test("personal WeChat login does not complete from a stale saved runtime after Q
   child.emit("close", 1);
 });
 
-test("personal WeChat prepares the latest plugin directly before login", async () => {
+test("personal WeChat prepares the pinned compatible plugin directly before login", async () => {
+  const calls: Array<{
+    command: string;
+    options?: unknown;
+  }> = [];
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+
+  const coordinator = createCoordinator({
+    readInstalledOpenClawVersion: async () => "2026.4.15",
+    resolveOpenClawCommand: async () => "openclaw",
+    runOpenClaw: async (args, options) => {
+      calls.push({
+        command: `openclaw ${args.join(" ")}`,
+        options
+      });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    spawnInteractiveCommand: (command, args) => {
+      calls.push({ command: `spawn ${command} ${args.join(" ")}` });
+      setTimeout(() => {
+        child.stdout.emit("data", Buffer.from("QR code generated. Scan with WeChat.\n"));
+        child.emit("close", 0);
+      }, 0);
+      return child as unknown as ReturnType<typeof import("node:child_process").spawn>;
+    }
+  });
+
+  const result = await coordinator.saveChannelEntry({
+    channelId: "wechat",
+    action: "save",
+    values: {}
+  });
+
+  assert.ok(result.session);
+  assert.deepEqual(calls.map((call) => call.command), [
+    "openclaw plugins install @tencent-weixin/openclaw-weixin@2.1.8 --force",
+    "openclaw plugins enable openclaw-weixin",
+    "spawn openclaw channels login --channel openclaw-weixin"
+  ]);
+  const installOptions = calls[0]?.options as { envOverrides?: Record<string, string | undefined> } | undefined;
+  assert.equal(installOptions?.envOverrides?.npm_config_omit, "dev");
+  assert.equal(installOptions?.envOverrides?.npm_config_audit, "false");
+  assert.equal(installOptions?.envOverrides?.npm_config_fund, "false");
+});
+
+test("personal WeChat force-installs the pinned plugin even when an older plugin is already present", async () => {
   const calls: string[] = [];
   const child = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter;
@@ -280,8 +330,13 @@ test("personal WeChat prepares the latest plugin directly before login", async (
   child.stderr = new EventEmitter();
 
   const coordinator = createCoordinator({
-    readInstalledOpenClawVersion: async () => "2026.3.11",
+    readInstalledOpenClawVersion: async () => "2026.4.15",
     resolveOpenClawCommand: async () => "openclaw",
+    inspectPlugin: async () => ({
+      entries: [{ enabled: true, status: "ok" }],
+      diagnostics: [],
+      duplicate: false
+    }),
     runOpenClaw: async (args) => {
       calls.push(`openclaw ${args.join(" ")}`);
       return { code: 0, stdout: "", stderr: "" };
@@ -304,7 +359,51 @@ test("personal WeChat prepares the latest plugin directly before login", async (
 
   assert.ok(result.session);
   assert.deepEqual(calls, [
-    "openclaw plugins install @tencent-weixin/openclaw-weixin@latest",
+    "openclaw plugins install @tencent-weixin/openclaw-weixin@2.1.8 --force",
+    "openclaw plugins enable openclaw-weixin",
+    "spawn openclaw channels login --channel openclaw-weixin"
+  ]);
+});
+
+test("personal WeChat uses a bundled plugin artifact before falling back to npm", async () => {
+  const calls: string[] = [];
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+
+  const coordinator = createCoordinator({
+    readInstalledOpenClawVersion: async () => "2026.4.15",
+    resolveOpenClawCommand: async () => "openclaw",
+    resolvePersonalWechatPluginInstallArgs: async () => ["plugins", "install", "/bundle/openclaw-weixin", "--force"],
+    runOpenClaw: async (args) => {
+      calls.push(`openclaw ${args.join(" ")}`);
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    spawnInteractiveCommand: (command, args) => {
+      calls.push(`spawn ${command} ${args.join(" ")}`);
+      setTimeout(() => {
+        child.stdout.emit("data", Buffer.from("QR code generated. Scan with WeChat.\n"));
+        child.emit("close", 0);
+      }, 0);
+      return child as unknown as ReturnType<typeof import("node:child_process").spawn>;
+    }
+  });
+
+  const result = await coordinator.saveChannelEntry({
+    channelId: "wechat",
+    action: "save",
+    values: {}
+  });
+
+  assert.ok(result.session);
+  assert.ok(
+    result.session.logs.some((line) => line === "Preparing WeChat runtime plugin: openclaw plugins install /bundle/openclaw-weixin --force")
+  );
+  assert.deepEqual(calls, [
+    "openclaw plugins install /bundle/openclaw-weixin --force",
     "openclaw plugins enable openclaw-weixin",
     "spawn openclaw channels login --channel openclaw-weixin"
   ]);

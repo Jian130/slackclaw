@@ -86,7 +86,8 @@ import {
   getManagedOpenClawBinPath,
   getManagedOpenClawDir,
   getManagedOpenClawHomeDir,
-  getManagedOpenClawStateDir
+  getManagedOpenClawStateDir,
+  getRuntimeBundleDir
 } from "../runtime-paths.js";
 import { errorToLogDetails, formatConsoleLine, logDevelopmentCommand, writeErrorLog, writeInfoLog } from "../services/logger.js";
 import type { RuntimeManager } from "../runtime-manager/runtime-manager.js";
@@ -223,6 +224,7 @@ interface OpenClawPluginListJson {
   plugins?: Array<{
     id?: string;
     name?: string;
+    version?: string;
     source?: string;
     origin?: string;
     enabled?: boolean;
@@ -406,9 +408,10 @@ function getOpenClawStatePath(): string {
   return resolve(getDataDir(), "openclaw-state.json");
 }
 const OPENCLAW_VERSION_OVERRIDE = process.env.CHILLCLAW_OPENCLAW_VERSION?.trim() || undefined;
-const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "2026.3.11";
+const OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE ?? "2026.4.15";
 const OPENCLAW_RUNTIME_PREFERENCE_ENV = "CHILLCLAW_OPENCLAW_RUNTIME_PREFERENCE";
 const PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY = "openclaw-weixin";
+const PERSONAL_WECHAT_BUNDLED_PLUGIN_ARTIFACT_PATH = "openclaw-plugins/openclaw-weixin";
 const FEISHU_BUNDLED_SINCE = "2026.3.7";
 const OPENCLAW_MAIN_AGENT_ID = "main";
 const OPENCLAW_INSTALL_DOCS_URL = "https://docs.openclaw.ai/install";
@@ -2987,6 +2990,22 @@ async function inspectPlugin(pluginId: string): Promise<{
   };
 }
 
+async function resolvePersonalWechatPluginInstallArgs(): Promise<string[] | undefined> {
+  const runtimeBundleDir = getRuntimeBundleDir();
+  if (!runtimeBundleDir) {
+    return undefined;
+  }
+
+  const pluginDir = resolve(runtimeBundleDir, PERSONAL_WECHAT_BUNDLED_PLUGIN_ARTIFACT_PATH);
+  const packageJsonPath = resolve(pluginDir, "package.json");
+  const entryPath = resolve(pluginDir, "index.ts");
+  if (!(await fileExists(packageJsonPath)) || !(await fileExists(entryPath))) {
+    return undefined;
+  }
+
+  return ["plugins", "install", pluginDir, "--force"];
+}
+
 function providerMatchesAuthProvider(provider: InternalModelProviderConfig, authProvider: string): boolean {
   const normalized = authProvider.trim().toLowerCase();
   const candidates = new Set<string>();
@@ -3259,6 +3278,7 @@ export class OpenClawAdapter implements EngineAdapter {
       },
       markGatewayApplyPending: () => this.markGatewayApplyPending(),
       readInstalledOpenClawVersion,
+      resolvePersonalWechatPluginInstallArgs,
       inspectPlugin,
       restartGatewayAndRequireHealthy: (reason) => this.restartGatewayAndRequireHealthy(reason),
       writeFeishuChannelConfig: (request) => this.writeFeishuChannelConfig(request),

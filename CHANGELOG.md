@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.2.4 - 2026-04-19
+
+### 2026-04-19 01:29 CST
+
+- fixed clean macOS personal WeChat onboarding by bundling a vendored `@tencent-weixin/openclaw-weixin@2.1.8` runtime artifact and installing that local plugin directory before login, so channel setup no longer depends on a live ClawHub/npm plugin lookup
+- repaired stale WeChat plugin state by force-installing the pinned plugin whenever the existing OpenClaw plugin entry is missing, broken, or not reporting the pinned version before enabling `openclaw-weixin` and starting QR login
+
+### 2026-04-19 00:43 CST
+
+- bumped ChillClaw package metadata and internal workspace dependency pins to 0.2.4 for the new installer release
+- updated the bundled managed OpenClaw runtime baseline to 2026.4.15 and the personal WeChat plugin pin to `@tencent-weixin/openclaw-weixin@2.1.8`, so clean macOS onboarding ships with a host version compatible with the latest WeChat plugin
+
 ## 0.2.3 - 2026-04-18
 
 ### 2026-04-18 23:34 CST

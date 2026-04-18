@@ -32,7 +32,14 @@ type LoginSessionState = ChannelLoginSessionSnapshot & {
   exitCode?: number;
 };
 
-const PERSONAL_WECHAT_PLUGIN_SPEC = "@tencent-weixin/openclaw-weixin@latest";
+const PERSONAL_WECHAT_PLUGIN_VERSION = "2.1.8";
+const PERSONAL_WECHAT_PLUGIN_SPEC = `@tencent-weixin/openclaw-weixin@${PERSONAL_WECHAT_PLUGIN_VERSION}`;
+const PERSONAL_WECHAT_PLUGIN_INSTALL_ARGS = ["plugins", "install", PERSONAL_WECHAT_PLUGIN_SPEC, "--force"];
+const PLUGIN_INSTALL_NPM_ENV = {
+  npm_config_omit: "dev",
+  npm_config_audit: "false",
+  npm_config_fund: "false"
+} satisfies Record<string, string>;
 
 type ChannelsConfigAccess = {
   readChannelSnapshot: () => Promise<{ list?: unknown; status?: unknown }>;
@@ -40,7 +47,7 @@ type ChannelsConfigAccess = {
   buildLiveChannelEntries: (list?: unknown, status?: unknown) => ConfiguredChannelEntry[];
   runOpenClaw: (
     args: string[],
-    options?: { allowFailure?: boolean }
+    options?: { allowFailure?: boolean; envOverrides?: Record<string, string | undefined> }
   ) => Promise<{ code: number; stdout: string; stderr: string }>;
   runMutationWithConfigFallback: (options: {
     commandArgs: string[];
@@ -51,8 +58,9 @@ type ChannelsConfigAccess = {
   removeChannelConfig: (channelKey: string) => Promise<void>;
   markGatewayApplyPending: () => Promise<void>;
   readInstalledOpenClawVersion: () => Promise<string | undefined>;
+  resolvePersonalWechatPluginInstallArgs?: () => Promise<string[] | undefined>;
   inspectPlugin: (pluginId: string) => Promise<{
-    entries: Array<{ enabled?: boolean; status?: string; error?: string }>;
+    entries: Array<{ enabled?: boolean; status?: string; error?: string; version?: string }>;
     diagnostics: Array<{ level?: string; message?: string }>;
     duplicate: boolean;
     loadError?: string;
@@ -694,7 +702,7 @@ export class ChannelsConfigCoordinator {
 
       const env = this.access.buildCommandEnv(openclawCommand ?? undefined);
       const existingWechatEntryIds = await this.readCurrentWechatEntryIds();
-      const pluginSpec = await this.ensurePersonalWechatRuntimePlugin();
+      const pluginInstallDisplay = await this.ensurePersonalWechatRuntimePlugin();
 
       const loginArgs = ["channels", "login", "--channel", this.access.personalWechatRuntimeChannelKey];
       this.access.logExternalCommand(openclawCommand, loginArgs);
@@ -737,7 +745,7 @@ export class ChannelsConfigCoordinator {
         startedAt: new Date().toISOString(),
         status: "in-progress",
         logs: [
-          `Preparing WeChat runtime plugin: openclaw plugins install ${pluginSpec}`,
+          `Preparing WeChat runtime plugin: ${pluginInstallDisplay}`,
           `Running WeChat login: ${[openclawCommand, ...loginArgs].join(" ")}`,
           "Starting the personal WeChat login.",
           "Follow the QR code and login guidance printed below."
@@ -951,7 +959,29 @@ export class ChannelsConfigCoordinator {
 
   private async ensurePersonalWechatRuntimePlugin(): Promise<string> {
     const runtimePluginId = this.access.personalWechatRuntimeChannelKey;
-    const inspected = await this.access.inspectPlugin(runtimePluginId);
+    let inspected = await this.access.inspectPlugin(runtimePluginId);
+    let installDisplay = `${PERSONAL_WECHAT_PLUGIN_SPEC} is already installed.`;
+
+    if (this.shouldInstallPersonalWechatPlugin(inspected)) {
+      const installArgs = await this.resolvePersonalWechatPluginInstallArgs();
+      installDisplay = ["openclaw", ...installArgs].join(" ");
+      const install = await this.access.runOpenClaw(installArgs, {
+        allowFailure: true,
+        envOverrides: PLUGIN_INSTALL_NPM_ENV
+      });
+      if (install.code !== 0) {
+        await this.access.writeErrorLog("Personal WeChat plugin install failed.", {
+          pluginId: runtimePluginId,
+          pluginSpec: PERSONAL_WECHAT_PLUGIN_SPEC,
+          installArgs,
+          result: install
+        }, {
+          scope: "ChannelsConfigCoordinator.ensurePersonalWechatRuntimePlugin.install"
+        });
+        throw new Error(install.stderr || install.stdout || `ChillClaw could not install ${PERSONAL_WECHAT_PLUGIN_SPEC}.`);
+      }
+      inspected = await this.access.inspectPlugin(runtimePluginId);
+    }
 
     if (inspected.loadError) {
       await this.access.writeErrorLog("Personal WeChat plugin is present but failed to load.", {
@@ -963,22 +993,8 @@ export class ChannelsConfigCoordinator {
         scope: "ChannelsConfigCoordinator.ensurePersonalWechatRuntimePlugin"
       });
       throw new Error(
-        `OpenClaw already has the personal WeChat plugin, but it failed to load: ${inspected.loadError}. Repair the installed plugin first, then retry setup.`
+        `OpenClaw has the personal WeChat plugin installed, but it still failed to load after repair: ${inspected.loadError}.`
       );
-    }
-
-    if (inspected.entries.length === 0) {
-      const install = await this.access.runOpenClaw(["plugins", "install", PERSONAL_WECHAT_PLUGIN_SPEC], { allowFailure: true });
-      if (install.code !== 0) {
-        await this.access.writeErrorLog("Personal WeChat plugin install failed.", {
-          pluginId: runtimePluginId,
-          pluginSpec: PERSONAL_WECHAT_PLUGIN_SPEC,
-          result: install
-        }, {
-          scope: "ChannelsConfigCoordinator.ensurePersonalWechatRuntimePlugin.install"
-        });
-        throw new Error(install.stderr || install.stdout || `ChillClaw could not install ${PERSONAL_WECHAT_PLUGIN_SPEC}.`);
-      }
     }
 
     const enable = await this.access.runOpenClaw(["plugins", "enable", runtimePluginId], { allowFailure: true });
@@ -993,6 +1009,19 @@ export class ChannelsConfigCoordinator {
       throw new Error(enable.stderr || enable.stdout || "ChillClaw could not enable the personal WeChat plugin.");
     }
 
-    return PERSONAL_WECHAT_PLUGIN_SPEC;
+    return installDisplay;
+  }
+
+  private async resolvePersonalWechatPluginInstallArgs(): Promise<string[]> {
+    const resolved = await this.access.resolvePersonalWechatPluginInstallArgs?.();
+    return resolved && resolved.length > 0 ? resolved : [...PERSONAL_WECHAT_PLUGIN_INSTALL_ARGS];
+  }
+
+  private shouldInstallPersonalWechatPlugin(inspected: Awaited<ReturnType<ChannelsConfigAccess["inspectPlugin"]>>): boolean {
+    if (inspected.loadError || inspected.entries.length === 0) {
+      return true;
+    }
+
+    return inspected.entries.some((entry) => entry.version?.trim() !== PERSONAL_WECHAT_PLUGIN_VERSION);
   }
 }

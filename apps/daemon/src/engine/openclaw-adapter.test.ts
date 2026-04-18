@@ -805,7 +805,7 @@ EOF
 elif [ "$1" = "plugins" ] && [ "$2" = "install" ] && [ "$3" = "@wecom/wecom-openclaw-plugin" ]; then
   touch "$OPENCLAW_TEST_PLUGIN_INSTALLED_MARKER"
   echo '{"status":"installed"}'
-elif [ "$1" = "plugins" ] && [ "$2" = "install" ] && [ "$3" = "@tencent-weixin/openclaw-weixin@latest" ]; then
+elif [ "$1" = "plugins" ] && [ "$2" = "install" ] && [ "$3" = "@tencent-weixin/openclaw-weixin@2.1.8" ]; then
   echo '{"status":"installed","pluginId":"openclaw-weixin"}'
 elif [ "$1" = "plugins" ] && [ "$2" = "update" ] && [ "$3" = "wecom-openclaw-plugin" ] && [ "$4" = "--yes" ]; then
   rm -f "$OPENCLAW_TEST_PLUGIN_UPDATE_MARKER"
@@ -1204,7 +1204,12 @@ test("creating a normal OAuth saved model entry authenticates through models aut
     assert.equal(countCommands(commands, "models auth login --provider openai-codex"), 1);
     assert.equal(countCommands(commands, "gateway restart"), 0);
 
-    const status = await adapter.status();
+    const status = await waitForTestValue(
+      () => adapter.status(),
+      (engineStatus) => engineStatus.pendingGatewayApply === true,
+      (engineStatus) => `Timed out waiting for pending gateway apply after OAuth auth:\n${JSON.stringify(engineStatus ?? null, null, 2)}`,
+      { intervalMs: 50 }
+    );
     assert.equal(status.pendingGatewayApply, true);
   }, {
     slowModelReads: true
@@ -1661,7 +1666,7 @@ test("configureWechatWorkaround removes the legacy channels.wecom-openclaw-plugi
   });
 });
 
-test("personal WeChat installs the latest plugin and starts a channel session log flow", async () => {
+test("personal WeChat installs the pinned plugin and starts a channel session log flow", async () => {
   await withFakeOpenClaw(async ({ adapter, logPath }) => {
     const result = await adapter.config.saveChannelEntry({
       channelId: "wechat",
@@ -1673,7 +1678,7 @@ test("personal WeChat installs the latest plugin and starts a channel session lo
       () => adapter.gateway.getChannelSession(result.session!.id),
       (channelSession) =>
         channelSession.logs.some((line) => /qr code|scan/i.test(line)) &&
-        channelSession.logs.some((line) => line.includes("openclaw plugins install") && line.includes("@tencent-weixin/openclaw-weixin@latest")) &&
+        channelSession.logs.some((line) => line.includes("openclaw plugins install") && line.includes("@tencent-weixin/openclaw-weixin@2.1.8")) &&
         channelSession.logs.some((line) => /channels login --channel openclaw-weixin/.test(line)),
       (channelSession) => `Timed out waiting for personal WeChat login logs:\n${channelSession?.logs.join("\n") ?? "(none)"}`
     );
@@ -1681,7 +1686,7 @@ test("personal WeChat installs the latest plugin and starts a channel session lo
     const commands = await waitForTestValue(
       () => readCommands(logPath),
       (loggedCommands) =>
-        loggedCommands.some((command) => command === "plugins install @tencent-weixin/openclaw-weixin@latest") &&
+        loggedCommands.some((command) => command === "plugins install @tencent-weixin/openclaw-weixin@2.1.8 --force") &&
         loggedCommands.some((command) => command === "plugins enable openclaw-weixin") &&
         loggedCommands.some((command) => command === "channels login --channel openclaw-weixin"),
       (loggedCommands) => `Timed out waiting for personal WeChat login commands:\n${loggedCommands?.join("\n") ?? "(none)"}`
@@ -1690,10 +1695,10 @@ test("personal WeChat installs the latest plugin and starts a channel session lo
     assert.equal(session.channelId, "wechat");
     assert.match(session.message ?? "", /wechat login|qr/i);
     assert.equal(session.logs.some((line) => /qr code|scan/i.test(line)), true);
-    assert.equal(session.logs.some((line) => line.includes("openclaw plugins install") && line.includes("@tencent-weixin/openclaw-weixin@latest")), true);
+    assert.equal(session.logs.some((line) => line.includes("openclaw plugins install") && line.includes("@tencent-weixin/openclaw-weixin@2.1.8")), true);
     assert.equal(session.logs.some((line) => /channels login --channel openclaw-weixin/.test(line)), true);
     assert.equal(
-      commands.some((command) => command === "plugins install @tencent-weixin/openclaw-weixin@latest"),
+      commands.some((command) => command === "plugins install @tencent-weixin/openclaw-weixin@2.1.8 --force"),
       true
     );
     assert.equal(commands.some((command) => command === "plugins enable openclaw-weixin"), true);
@@ -2284,10 +2289,10 @@ test("engine status and health checks share one version, status, and gateway rea
 test("installSpec reports the pinned OpenClaw version by default", () => {
   const adapter = new OpenClawAdapter();
 
-  assert.equal(adapter.installSpec.desiredVersion, "2026.3.11");
+  assert.equal(adapter.installSpec.desiredVersion, "2026.4.15");
   assert.equal(
     adapter.installSpec.prerequisites.includes(
-      "Permission to install or refresh the managed bundled OpenClaw 2026.3.11 runtime"
+      "Permission to install or refresh the managed bundled OpenClaw 2026.4.15 runtime"
     ),
     true
   );
@@ -2297,8 +2302,8 @@ test("deployment targets report the pinned OpenClaw version by default", async (
   await withFakeOpenClaw(async ({ adapter }) => {
     const overview = await adapter.getDeploymentTargets();
 
-    assert.equal(overview.targets[0]?.desiredVersion, "2026.3.11");
-    assert.equal(overview.targets[1]?.desiredVersion, "2026.3.11");
+    assert.equal(overview.targets[0]?.desiredVersion, "2026.4.15");
+    assert.equal(overview.targets[1]?.desiredVersion, "2026.4.15");
   });
 });
 
@@ -2308,11 +2313,11 @@ test("install accepts OpenClaw --version output with label and build metadata", 
       const result = await adapter.install(false, { forceLocal: true });
 
       assert.equal(result.status, "installed");
-      assert.equal(result.actualVersion, "2026.3.11");
-      assert.match(result.message, /OpenClaw 2026\.3\.11 is already available/);
+      assert.equal(result.actualVersion, "2026.4.15");
+      assert.match(result.message, /OpenClaw 2026\.4\.15 is already available/);
     },
     {
-      managedOpenClawVersion: "OpenClaw 2026.3.11 (29dc654)"
+      managedOpenClawVersion: "OpenClaw 2026.4.15 (29dc654)"
     }
   );
 });
@@ -2340,7 +2345,7 @@ test("install normalizes managed OpenClaw config with ChillClaw's minimum agent 
     assert.equal(config.agents?.defaults?.timeoutSeconds, 300);
     assert.equal(config.agents?.defaults?.workspace, "/tmp/openclaw-workspace");
   }, {
-    managedOpenClawVersion: "2026.3.11"
+    managedOpenClawVersion: "2026.4.15"
   });
 });
 
@@ -2365,7 +2370,7 @@ test("install preserves user OpenClaw agent timeouts above ChillClaw's minimum",
 
     assert.equal(config.agents?.defaults?.timeoutSeconds, 600);
   }, {
-    managedOpenClawVersion: "2026.3.11"
+    managedOpenClawVersion: "2026.4.15"
   });
 });
 
@@ -2452,13 +2457,13 @@ if [ "$1" = "install" ] && [ "$2" = "--prefix" ]; then
   cat > "$prefix/node_modules/.bin/openclaw" <<'EOF'
 #!/usr/bin/env node
 if [ "$1" = "--version" ]; then
-  echo "2026.3.11"
+  echo "2026.4.15"
 elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
   echo '{"setup":{"required":false},"gateway":{"reachable":true},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
 elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   echo '{"rpc":{"ok":true},"service":{"installed":true,"loaded":true}}'
 elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
-  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.11"}},"channel":{"label":"stable"}}'
+  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.4.15"}},"channel":{"label":"stable"}}'
 else
   echo '{}'
 fi
@@ -2557,7 +2562,7 @@ test("install normalizes reused OpenClaw gateway config to ChillClaw's local bas
     managedBinary,
     `#!/bin/sh
 if [ "$1" = "--version" ]; then
-  echo "2026.3.11"
+  echo "2026.4.15"
 elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
   echo '{"configPath":${JSON.stringify(configPath)},"setup":{"required":false},"gateway":{"reachable":false},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
 elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
@@ -2565,7 +2570,7 @@ elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
 elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
   echo '{"rpc":{"ok":false,"error":"gateway url override requires explicit credentials"},"service":{"installed":true,"loaded":true}}'
 elif [ "$1" = "update" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
-  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.3.11"}},"channel":{"label":"stable"}}'
+  echo '{"availability":{"available":false},"update":{"installKind":"package","packageManager":"npm","registry":{"latestVersion":"2026.4.15"}},"channel":{"label":"stable"}}'
 else
   echo '{}'
 fi

@@ -242,8 +242,8 @@ ChillClaw now includes a developer-only engine compatibility runner for evaluati
   - `npm run test`
 - Run the compatibility matrix:
   - `npm run test:engine-compat`
-  - `npm run test:engine-compat -- --candidate-version 2026.3.11`
-  - `npm run test:engine-compat -- --runtime managed --candidate-version 2026.3.11`
+  - `npm run test:engine-compat -- --candidate-version 2026.4.15`
+  - `npm run test:engine-compat -- --runtime managed --candidate-version 2026.4.15`
 
 What the compatibility runner does:
 
@@ -369,7 +369,7 @@ This keeps each OpenClaw agent isolated and closer to the multi-agent workspace 
 - Managed OpenClaw commands run with an isolated OpenClaw home under ChillClaw data, so channel setup flows such as personal WeChat login do not read or mutate the user's normal `~/.openclaw` config.
 - ChillClaw detects external OpenClaw installs only for migration/debug context; product install and update flows do not reuse or mutate them.
 - During managed install, update, repair, or recovery, ChillClaw forces the OpenClaw gateway config back to ChillClaw's safe local baseline: `gateway.mode=local`, `gateway.bind=loopback`, token auth enabled, existing token preserved when present, and inherited `gateway.remote` overrides removed.
-- Runtime prerequisites are prepared through the daemon Runtime Manager. Packaged builds satisfy Node/npm, OpenClaw, Ollama, and local model catalog metadata from bundled artifacts; development paths delegate approved artifact transfers to the daemon Download Manager before install/unpack logic runs. Managed OpenClaw updates are applied through Runtime Manager, may use a ChillClaw-curated concrete npm package artifact, and are verified before the gateway is restarted. Local model weights are downloaded during onboarding instead of being bundled in the app.
+- Runtime prerequisites are prepared through the daemon Runtime Manager. Packaged builds satisfy Node/npm, OpenClaw, the vendored personal WeChat OpenClaw plugin, Ollama, and local model catalog metadata from bundled artifacts; development paths delegate approved artifact transfers to the daemon Download Manager before install/unpack logic runs. Managed OpenClaw updates are applied through Runtime Manager, may use a ChillClaw-curated concrete npm package artifact, and are verified before the gateway is restarted. Local model weights are downloaded during onboarding instead of being bundled in the app.
 - If required managed prerequisites cannot be prepared, setup fails with a direct prerequisite message instead of pretending installation succeeded.
 - UI install/setup errors now surface the daemon's real error message instead of only showing a generic HTTP status.
 
@@ -381,7 +381,7 @@ Prepare the bundled CLI runtimes, then build a local smoke testing macOS app bun
 
 `npm run build:mac-installer`
 
-The prepare step downloads and stages the extracted Node.js runtime directory for the current Mac architecture, installs the pinned OpenClaw runtime prefix, stages the standalone `ollama` CLI binary, and writes `models/local-model-catalog.json` under `runtime-artifacts`. The installer builder requires those runnable CLI payloads plus the catalog metadata and executes the packaged Node/npm/OpenClaw binaries during staging so a DMG cannot ship with a manifest that points at missing or wrong-architecture runtime files. It deliberately does not stage `Ollama.app`, `Ollama.dmg`, other runtime installer/UI payloads, or local model weights.
+The prepare step downloads and stages the extracted Node.js runtime directory for the current Mac architecture, installs the pinned OpenClaw runtime prefix, vendors the pinned personal WeChat OpenClaw plugin, stages the standalone `ollama` CLI binary, and writes `models/local-model-catalog.json` under `runtime-artifacts`. The installer builder requires those runnable CLI payloads plus the catalog metadata and executes the packaged Node/npm/OpenClaw binaries during staging so a DMG cannot ship with a manifest that points at missing or wrong-architecture runtime files. It deliberately does not stage `Ollama.app`, `Ollama.dmg`, other runtime installer/UI payloads, or local model weights.
 
 For signed macOS releases, packaged `node` is signed with `scripts/macos-node-runtime-entitlements.plist`; other runtime executables keep standard hardened-runtime signing. The unsigned local installer smoke build proves staged payload layout and runnability on the build Mac, but it does not prove Developer ID hardened-runtime entitlement behavior on another Mac.
 
