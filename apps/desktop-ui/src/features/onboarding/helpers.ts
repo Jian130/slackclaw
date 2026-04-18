@@ -84,6 +84,13 @@ export function applyOnboardingChannelSessionToConfig(
   };
 }
 
+export function onboardingChannelSessionHandoffCompleted(
+  onboardingState: Pick<OnboardingStateResponse, "draft"> | undefined,
+  sessionId: string
+): boolean {
+  return onboardingState?.draft.currentStep === "employee" && onboardingState.draft.activeChannelSessionId !== sessionId;
+}
+
 export function resolveOnboardingChannelSessionLogMode(logs: string[]): "plain" | "qr" {
   const qrLikeLines = logs.filter((line) => /[█▀▄▌▐]/u.test(line)).length;
   return qrLikeLines >= 4 ? "qr" : "plain";

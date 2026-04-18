@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.1 - 2026-04-18
+
+### 2026-04-18 20:20 CST
+
+- fixed personal WeChat onboarding handoff across the React and native macOS clients so a stale ended login session no longer shows an error popup after ChillClaw has already advanced setup to the AI employee step
+- added matching React helper and native macOS regression coverage for recovered channel-session handoff, and bumped ChillClaw package metadata and internal workspace dependency pins to 0.2.1 for the tagged release
+
 ## 0.2.0 - 2026-04-17
 
 ### 2026-04-18 19:49 CST

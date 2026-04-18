@@ -1028,6 +1028,9 @@ final class NativeOnboardingViewModel {
             if let onboarding = next.onboarding {
                 applyOnboardingState(onboarding)
             }
+            if completeChannelSessionHandoffIfOnboardingAdvanced() {
+                return
+            }
             if try await maybeAdvanceCompletedChannelSetupIfNeeded(
                 channelId: next.session.channelId,
                 preferredEntryId: next.session.entryId
@@ -1284,6 +1287,9 @@ final class NativeOnboardingViewModel {
         if let onboarding = next.onboarding {
             applyOnboardingState(onboarding)
         }
+        if completeChannelSessionHandoffIfOnboardingAdvanced() {
+            return
+        }
         let channelId = draftChannel?.channelId ?? next.session.channelId
         let preferredEntryId = draftChannel?.entryId ?? next.session.entryId
 
@@ -1321,6 +1327,9 @@ final class NativeOnboardingViewModel {
                     self.applyChannelConfig(next.channelConfig, activeSession: next.session)
                     if let onboarding = next.onboarding {
                         self.applyOnboardingState(onboarding)
+                    }
+                    if self.completeChannelSessionHandoffIfOnboardingAdvanced() {
+                        return
                     }
 
                     if try await self.maybeAdvanceCompletedChannelSetupIfNeeded(
@@ -1369,6 +1378,22 @@ final class NativeOnboardingViewModel {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+    }
+
+    private func completeChannelSessionHandoffIfOnboardingAdvanced() -> Bool {
+        guard onboardingIsCurrentOrLater(currentDraft.currentStep, target: .employee) else {
+            return false
+        }
+
+        channelSessionInput = ""
+        pageError = nil
+        channelSessionTask?.cancel()
+        channelSessionTask = nil
+        if var channelConfig = appState.channelConfig {
+            channelConfig.activeSession = nil
+            appState.channelConfig = channelConfig
+        }
+        return true
     }
 
     func isSelectedChannelMissingRequiredValues() -> Bool {

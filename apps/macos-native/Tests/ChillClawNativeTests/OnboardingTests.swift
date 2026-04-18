@@ -3076,6 +3076,133 @@ struct OnboardingTests {
     }
 
     @Test
+    func recoveredPersonalWechatSessionEndDoesNotShowErrorAfterEmployeeHandoff() async throws {
+        let recorder = NativeRequestRecorder()
+        let sessionId = "wechat:default:login"
+        let stagedEntry = ConfiguredChannelEntry(
+            id: "wechat:default",
+            channelId: .wechat,
+            label: "WeChat",
+            status: "awaiting-pairing",
+            summary: "WeChat login is staged and waiting for pairing.",
+            detail: "Complete the remaining WeChat pairing steps before using chat.",
+            maskedConfigSummary: [],
+            editableValues: [:],
+            pairingRequired: false,
+            lastUpdatedAt: "2026-04-07T06:04:48.605Z"
+        )
+        let initialConfig = ChannelConfigOverview(
+            baseOnboardingCompleted: true,
+            capabilities: [],
+            entries: [stagedEntry],
+            activeSession: .init(
+                id: sessionId,
+                channelId: .wechat,
+                entryId: stagedEntry.id,
+                status: "running",
+                message: "WeChat login is waiting for QR confirmation.",
+                logs: ["Starting the personal WeChat installer."],
+                launchUrl: nil,
+                inputPrompt: nil
+            ),
+            gatewaySummary: "Gateway ready"
+        )
+        let stagedConfig = ChannelConfigOverview(
+            baseOnboardingCompleted: true,
+            capabilities: [],
+            entries: [stagedEntry],
+            activeSession: nil,
+            gatewaySummary: "Gateway ready"
+        )
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/channel/entries"):
+                var nextState = makeOnboardingStateResponse(step: .channel)
+                nextState.draft.channel = .init(channelId: .wechat, entryId: stagedEntry.id)
+                nextState.draft.activeChannelSessionId = sessionId
+                nextState.draft.channelProgress = .init(status: .capturing, sessionId: sessionId, message: "Started WeChat login", requiresGatewayApply: false)
+                let body = try JSONEncoder.chillClaw.encode(
+                    ChannelConfigActionResponse(
+                        status: "interactive",
+                        message: "Started WeChat login",
+                        channelConfig: initialConfig,
+                        session: initialConfig.activeSession,
+                        requiresGatewayApply: false,
+                        onboarding: nextState
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            case ("GET", "/api/onboarding/channel/session/wechat:default:login"):
+                var nextState = makeOnboardingStateResponse(step: .employee)
+                nextState.draft.channel = .init(channelId: .wechat, entryId: stagedEntry.id)
+                nextState.draft.channelProgress = .init(status: .staged, sessionId: sessionId, message: stagedEntry.summary, requiresGatewayApply: false)
+                let body = try JSONEncoder.chillClaw.encode(
+                    ChannelSessionResponse(
+                        session: .init(
+                            id: sessionId,
+                            channelId: .wechat,
+                            entryId: stagedEntry.id,
+                            status: "failed",
+                            message: "The channel login session ended. Start the login again.",
+                            logs: [],
+                            launchUrl: nil,
+                            inputPrompt: nil
+                        ),
+                        channelConfig: stagedConfig,
+                        onboarding: nextState
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = ChillClawChatViewModel(transport: FakeChatTransport())
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { stagedConfig },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .channel)
+        viewModel.updateSelectedChannel(.wechat)
+
+        await viewModel.saveChannel()
+        await waitForRecordedURLCount(recorder, expectedCount: 2)
+
+        #expect(viewModel.currentStep == .employee)
+        #expect(viewModel.currentDraft.channel?.entryId == stagedEntry.id)
+        #expect(viewModel.currentDraft.activeChannelSessionId == nil)
+        #expect(viewModel.pageError == nil)
+        #expect(viewModel.channelBusy == false)
+    }
+
+    @Test
     func personalWechatOnboardingAlwaysUsesTheLoginSaveAction() async throws {
         let recorder = NativeRequestRecorder()
         let sessionId = "wechat:default:login"

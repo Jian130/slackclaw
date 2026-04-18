@@ -6,6 +6,7 @@ import type {
   ChannelSession,
   ChillClawEvent,
   LocalModelRuntimeOverview,
+  OnboardingStateResponse,
   OnboardingStep
 } from "@chillclaw/contracts";
 
@@ -32,6 +33,7 @@ import {
   resolveOnboardingPresetSkillIds,
   resolveOnboardingActiveChannelSession,
   resolveOnboardingChannelSessionLogMode,
+  onboardingChannelSessionHandoffCompleted,
   resolveOnboardingChannelSetupVariant,
   shouldRefreshOnboardingChannelConfig,
   buildOnboardingChannelSaveValues,
@@ -180,6 +182,37 @@ describe("onboarding helpers", () => {
     expect(
       resolveOnboardingActiveChannelSession(channelConfig, "telegram", "wechat:default:login")
     ).toBeUndefined();
+  });
+
+  it("treats a recovered WeChat session response as complete once onboarding reaches the employee step", () => {
+    const onboardingState: OnboardingStateResponse = {
+      firstRun: {
+        introCompleted: true,
+        setupCompleted: false
+      },
+      draft: {
+        currentStep: "employee",
+        channel: {
+          channelId: "wechat",
+          entryId: "wechat:default"
+        },
+        channelProgress: {
+          status: "staged",
+          sessionId: "wechat:default:login",
+          message: "WeChat login is staged and waiting for pairing."
+        }
+      },
+      config: {
+        modelProviders: [],
+        channels: [],
+        employeePresets: []
+      },
+      summary: {}
+    };
+
+    expect(onboardingChannelSessionHandoffCompleted(onboardingState, "wechat:default:login")).toBe(true);
+    expect(onboardingChannelSessionHandoffCompleted({ ...onboardingState, draft: { currentStep: "channel" } }, "wechat:default:login")).toBe(false);
+    expect(onboardingChannelSessionHandoffCompleted(undefined, "wechat:default:login")).toBe(false);
   });
 
   it("detects terminal QR blocks so the onboarding session log can render them scanably", () => {

@@ -81,6 +81,7 @@ import {
   describeOnboardingLocalModelDownload,
   mergeOnboardingInstallProgress,
   onboardingInstallProgressFromRuntimeEvent,
+  onboardingChannelSessionHandoffCompleted,
   onboardingDestinationPath,
   resolveOnboardingEmployeePresetReadiness,
   resolveOnboardingEmployeePresets,
@@ -978,9 +979,22 @@ export default function OnboardingPage() {
           return;
         }
 
-        setChannelConfig(applyOnboardingChannelSessionToConfig(next.channelConfig, next.session));
+        const handoffCompleted = onboardingChannelSessionHandoffCompleted(
+          next.onboarding,
+          currentDraft.activeChannelSessionId!
+        );
+        setChannelConfig(
+          handoffCompleted
+            ? { ...next.channelConfig, activeSession: undefined }
+            : applyOnboardingChannelSessionToConfig(next.channelConfig, next.session)
+        );
         if (next.onboarding) {
           await applyOnboardingState(next.onboarding);
+        }
+        if (handoffCompleted) {
+          setPageError(undefined);
+          setChannelSessionInput("");
+          return;
         }
         const channelId = currentDraft.channel?.channelId ?? next.session.channelId;
         const preferredEntryId = currentDraft.channel?.entryId ?? next.session.entryId;
@@ -1316,10 +1330,19 @@ export default function OnboardingPage() {
     setChannelBusy(true);
     try {
       const next = await submitOnboardingChannelSessionInput(activeChannelSession.id, { value: channelSessionInput.trim() });
-      setChannelConfig(applyOnboardingChannelSessionToConfig(next.channelConfig, next.session));
+      const handoffCompleted = onboardingChannelSessionHandoffCompleted(next.onboarding, activeChannelSession.id);
+      setChannelConfig(
+        handoffCompleted
+          ? { ...next.channelConfig, activeSession: undefined }
+          : applyOnboardingChannelSessionToConfig(next.channelConfig, next.session)
+      );
       setChannelSessionInput("");
       if (next.onboarding) {
         await applyOnboardingState(next.onboarding);
+      }
+      if (handoffCompleted) {
+        setPageError(undefined);
+        return;
       }
       if (await maybeAdvanceCompletedChannelSetupIfNeeded(next.session.channelId, next.session.entryId, next.channelConfig)) {
         return;
