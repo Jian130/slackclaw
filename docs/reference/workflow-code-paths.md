@@ -172,6 +172,33 @@ This reference maps the current ChillClaw workflow surface to the code paths tha
 - Gateway reachability events come from `EventPublisher.publishGatewayStatus()`.
 - Local dev start/stop flows live in `scripts/start-dev.mjs`, `scripts/stop-dev.mjs`, and `scripts/dev-process-control.mjs`.
 
+### GitHub release download counts
+
+GitHub Release asset downloads are countable through each asset's `download_count`. This is the right source for installer-style assets such as DMGs, packages, ZIPs, EXEs, and future platform installers attached to a release.
+
+List per-release totals:
+
+```bash
+gh api --paginate repos/Jian130/chillclaw/releases \
+  --jq '.[] | {tag_name, downloads: ([.assets[]?.download_count] | add // 0)}'
+```
+
+List installer-like asset counts without counting metadata feeds or checksum sidecars:
+
+```bash
+gh api --paginate repos/Jian130/chillclaw/releases \
+  --jq '.[] | .tag_name as $tag | .assets[]? | select(.name | test("\\.(dmg|pkg|msi|exe|zip)$")) | {tag_name: $tag, name, download_count}'
+```
+
+Sum all release asset downloads:
+
+```bash
+gh api --paginate repos/Jian130/chillclaw/releases \
+  | jq -s '[.[][] | .assets[]?.download_count] | add // 0'
+```
+
+Do not treat every release asset download as an app install. Assets such as `runtime-update.json`, checksum files, and other machine-read metadata can be downloaded by update checks or automation. GitHub's generated source archives, clone counts, and traffic views are not represented by release asset `download_count`; repository traffic data is available only to users with repository access and only for GitHub's limited recent traffic window.
+
 ## 5. Onboarding
 
 ### Entry points

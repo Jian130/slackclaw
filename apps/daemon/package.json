@@ -1,6 +1,6 @@
 {
   "name": "@chillclaw/daemon",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -11,7 +11,7 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@chillclaw/contracts": "0.2.1",
+    "@chillclaw/contracts": "0.2.2",
     "ws": "^8.19.0"
   },
   "devDependencies": {

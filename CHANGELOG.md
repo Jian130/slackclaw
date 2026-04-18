@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.2 - 2026-04-18
+
+### 2026-04-18 23:09 CST
+
+- documented how to count GitHub Release asset downloads from release metadata, including installer-focused queries and the distinction between release assets, metadata assets, generated source archives, clones, and traffic data
+- bumped ChillClaw package metadata and internal workspace dependency pins to 0.2.2 for the new release tag
+
 ## 0.2.1 - 2026-04-18
 
 ### 2026-04-18 21:31 CST

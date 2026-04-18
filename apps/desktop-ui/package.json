@@ -1,6 +1,6 @@
 {
   "name": "@chillclaw/desktop-ui",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "lint": "tsc -p tsconfig.app.json --noEmit"
   },
   "dependencies": {
-    "@chillclaw/contracts": "0.2.1",
+    "@chillclaw/contracts": "0.2.2",
     "lucide-react": "^0.577.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
