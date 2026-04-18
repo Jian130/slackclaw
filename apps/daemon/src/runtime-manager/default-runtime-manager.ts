@@ -216,13 +216,41 @@ async function loadRuntimeUpdateManifest(): Promise<RuntimeManifestDocument> {
   }
 
   if (feedUrl.startsWith("http://") || feedUrl.startsWith("https://")) {
-    const response = await fetch(feedUrl, {
-      signal: AbortSignal.timeout(10_000)
-    });
-    if (!response.ok) {
-      throw new Error(`Runtime update feed returned HTTP ${response.status}.`);
+    try {
+      const response = await fetch(feedUrl, {
+        signal: AbortSignal.timeout(10_000)
+      });
+      if (!response.ok) {
+        await writeInfoLog(
+          "Runtime update feed is unavailable; continuing with the bundled runtime manifest.",
+          {
+            feedUrl,
+            status: response.status
+          },
+          {
+            scope: "runtimeManager.updateFeed"
+          }
+        );
+        return {
+          resources: []
+        };
+      }
+      return (await response.json()) as RuntimeManifestDocument;
+    } catch (error) {
+      await writeInfoLog(
+        "Runtime update feed could not be read; continuing with the bundled runtime manifest.",
+        {
+          feedUrl,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        {
+          scope: "runtimeManager.updateFeed"
+        }
+      );
+      return {
+        resources: []
+      };
     }
-    return (await response.json()) as RuntimeManifestDocument;
   }
 
   const path = feedUrl.startsWith("file://") ? fileURLToPath(feedUrl) : feedUrl;

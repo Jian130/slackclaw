@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { constants } from "node:fs";
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -54,6 +57,11 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
   const previousDataDir = process.env.CHILLCLAW_DATA_DIR;
   const previousBundleDir = process.env.CHILLCLAW_RUNTIME_BUNDLE_DIR;
   const previousManifestPath = process.env.CHILLCLAW_RUNTIME_MANIFEST_PATH;
+  const previousUpdateFeed = process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL;
+  const updateFeedServer = createServer((_, response) => {
+    response.writeHead(404, { "Content-Type": "text/plain" });
+    response.end("runtime update feed is not published yet");
+  });
 
   const manifest: RuntimeManifestDocument = {
     resources: [
@@ -80,6 +88,8 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
   };
 
   try {
+    updateFeedServer.listen(0, "127.0.0.1");
+    await once(updateFeedServer, "listening");
     await mkdir(join(bundledRuntimeDir, "node_modules", ".bin"), { recursive: true });
     await writeFile(bundledOpenClawBin, "#!/bin/sh\nprintf '2026.3.11\\n'\n");
     await chmod(bundledOpenClawBin, 0o755);
@@ -87,6 +97,7 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
     process.env.CHILLCLAW_DATA_DIR = dataDir;
     process.env.CHILLCLAW_RUNTIME_BUNDLE_DIR = bundleDir;
     process.env.CHILLCLAW_RUNTIME_MANIFEST_PATH = manifestPath;
+    process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL = `http://127.0.0.1:${(updateFeedServer.address() as AddressInfo).port}/runtime-update.json`;
 
     const result = await createRuntimeManager().prepare("openclaw-runtime");
 
@@ -109,6 +120,14 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
       delete process.env.CHILLCLAW_RUNTIME_MANIFEST_PATH;
     } else {
       process.env.CHILLCLAW_RUNTIME_MANIFEST_PATH = previousManifestPath;
+    }
+    if (previousUpdateFeed === undefined) {
+      delete process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL;
+    } else {
+      process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL = previousUpdateFeed;
+    }
+    if (updateFeedServer.listening) {
+      await new Promise<void>((resolveClose) => updateFeedServer.close(() => resolveClose()));
     }
     await rm(tempDir, { recursive: true, force: true });
   }

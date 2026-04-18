@@ -414,10 +414,19 @@ test("dev-mode app update routes report unsupported status", async () => {
   const previousAppRoot = process.env.CHILLCLAW_APP_ROOT;
   const previousAppVersion = process.env.CHILLCLAW_APP_VERSION;
   const previousFeedUrl = process.env.CHILLCLAW_APP_UPDATE_FEED_URL;
+  const previousRuntimeUpdateFeedUrl = process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL;
   process.env.CHILLCLAW_ENGINE = "mock";
   delete process.env.CHILLCLAW_APP_ROOT;
   delete process.env.CHILLCLAW_APP_VERSION;
   delete process.env.CHILLCLAW_APP_UPDATE_FEED_URL;
+
+  const runtimeFeedServer = createServer((_, response) => {
+    response.writeHead(404, { "Content-Type": "text/plain" });
+    response.end("runtime feed is not available in this release yet");
+  });
+  runtimeFeedServer.listen(0, "127.0.0.1");
+  await once(runtimeFeedServer, "listening");
+  process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL = `http://127.0.0.1:${(runtimeFeedServer.address() as AddressInfo).port}/runtime-update.json`;
 
   const server = startServer(0);
   await once(server, "listening");
@@ -436,6 +445,7 @@ test("dev-mode app update routes report unsupported status", async () => {
     assert.equal(postPayload.overview.appUpdate.status, "unsupported");
   } finally {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    await new Promise<void>((resolveClose) => runtimeFeedServer.close(() => resolveClose()));
     if (previousEngine === undefined) delete process.env.CHILLCLAW_ENGINE;
     else process.env.CHILLCLAW_ENGINE = previousEngine;
     if (previousAppRoot === undefined) delete process.env.CHILLCLAW_APP_ROOT;
@@ -444,6 +454,8 @@ test("dev-mode app update routes report unsupported status", async () => {
     else process.env.CHILLCLAW_APP_VERSION = previousAppVersion;
     if (previousFeedUrl === undefined) delete process.env.CHILLCLAW_APP_UPDATE_FEED_URL;
     else process.env.CHILLCLAW_APP_UPDATE_FEED_URL = previousFeedUrl;
+    if (previousRuntimeUpdateFeedUrl === undefined) delete process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL;
+    else process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL = previousRuntimeUpdateFeedUrl;
   }
 });
 
