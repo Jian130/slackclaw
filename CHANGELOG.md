@@ -4,6 +4,11 @@
 
 ## 0.2.0 - 2026-04-17
 
+### 2026-04-18 15:53 CST
+
+- fixed the daemon GitHub Actions suite by making the managed OpenClaw npm-update fixture use the same architecture-specific managed Node.js runtime directory as production, so Linux runners can find the fake managed npm command
+- made the macOS release publish step idempotent for reused release tags by updating existing release notes and replacing the DMG, checksum, and runtime update feed assets when the release already exists
+
 ### 2026-04-18 15:09 CST
 
 - fixed local `npm start` managed-runtime startup by passing the repo `runtime-artifacts` bundle into the preflight install helper while leaving the packaged manifest override unset, so onboarding can deploy the bundled OpenClaw 2026.3.11 runtime in development

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { createRuntimeManager, resolvePackagedRuntimeManifestForCurrentPlatform } from "./default-runtime-manager.js";
+import { getManagedNodeDistName } from "../runtime-paths.js";
 import type { RuntimeManifestDocument } from "./types.js";
 
 test("packaged Node runtime manifest resolves to the current Mac architecture", () => {
@@ -139,7 +140,7 @@ test("managed OpenClaw runtime update installs a concrete npm package inside the
   const bundleDir = join(tempDir, "bundle");
   const bundledRuntimeDir = join(bundleDir, "openclaw", "openclaw-runtime");
   const bundledOpenClawBin = join(bundledRuntimeDir, "node_modules", ".bin", "openclaw");
-  const managedNodeBinDir = join(dataDir, "node-runtime", "node-v22.22.2-darwin-arm64", "bin");
+  const managedNodeBinDir = join(dataDir, "node-runtime", getManagedNodeDistName(), "bin");
   const managedNpmBin = join(managedNodeBinDir, "npm");
   const manifestPath = join(bundleDir, "runtime-manifest.lock.json");
   const updateManifestPath = join(tempDir, "runtime-update.json");

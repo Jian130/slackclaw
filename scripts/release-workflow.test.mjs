@@ -42,6 +42,18 @@ test("macOS release workflow publishes a GitHub-hosted runtime update feed", asy
   assert.match(buildScript, /CHILLCLAW_RUNTIME_UPDATE_FEED_URL:-\$\{DEFAULT_RUNTIME_UPDATE_FEED_URL\}/);
 });
 
+test("macOS release workflow updates existing GitHub releases for rerun tags", async () => {
+  const workflow = await readRepoFile(".github/workflows/macos-release.yml");
+  const publishStepIndex = workflow.indexOf("name: Publish GitHub release");
+  const publishStep = workflow.slice(publishStepIndex);
+
+  assert.notEqual(publishStepIndex, -1);
+  assert.match(publishStep, /gh release view "\$\{GITHUB_REF_NAME\}"/);
+  assert.match(publishStep, /gh release edit "\$\{GITHUB_REF_NAME\}"[\s\S]*--title "ChillClaw \$\{\{ steps\.version\.outputs\.package_version \}\}"[\s\S]*--notes-file release-notes\.md[\s\S]*--latest/);
+  assert.match(publishStep, /gh release upload "\$\{GITHUB_REF_NAME\}"[\s\S]*"\$INSTALLER_PATH"[\s\S]*"\$CHECKSUM_PATH"[\s\S]*"\$RUNTIME_UPDATE_FEED_PATH"[\s\S]*--clobber/);
+  assert.match(publishStep, /else[\s\S]*gh release create "\$\{GITHUB_REF_NAME\}"/);
+});
+
 test("macOS release workflow accepts both v-prefixed and bare semver tags", async () => {
   const workflow = await readRepoFile(".github/workflows/macos-release.yml");
 
