@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.5 - 2026-04-19
+
+### 2026-04-19 19:35 CST
+
+- fixed the macOS installer size regression by installing the pinned OpenClaw package from its npm tarball into the package-local runtime tree instead of creating wrapper-level duplicate dependencies
+- pruned upstream test and CI folders from packaged OpenClaw dependencies during artifact preparation and managed runtime updates, with regression coverage keeping the wrapper runtime limited to `.bin` and `openclaw`
+- refreshed macOS installer output hygiene by regenerating the DMG checksum after icon stamping and removing stale legacy pkg outputs from `dist/macos`
+- added capability management design and refactor TODO docs for centralizing skills, tools, plugins, and onboarding preset readiness under a daemon-owned capability layer
+- bumped ChillClaw package metadata and internal workspace dependency pins to 0.2.5 for the new installer release
+
 ### 2026-04-19 02:49 CST
 
 - fixed macOS release signing for vendored OpenClaw runtime helpers by stripping stale embedded Mach-O signatures before applying ChillClaw's Developer ID signature, so native plugin binaries no longer abort the release workflow with `invalid or unsupported format for signature`

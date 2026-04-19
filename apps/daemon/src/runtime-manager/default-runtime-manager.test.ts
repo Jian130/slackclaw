@@ -134,7 +134,7 @@ test("managed OpenClaw runtime installs from a bundled directory artifact", asyn
   }
 });
 
-test("managed OpenClaw runtime update installs a concrete npm package inside the managed runtime", async () => {
+test("managed OpenClaw runtime update installs a concrete npm package without wrapper-level duplicate dependencies", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-openclaw-npm-update-test-"));
   const dataDir = join(tempDir, "data");
   const bundleDir = join(tempDir, "bundle");
@@ -203,20 +203,45 @@ test("managed OpenClaw runtime update installs a concrete npm package inside the
         "  printf '10.0.0\\n'",
         "  exit 0",
         "fi",
-        "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--prefix\" ]; then",
-        "  prefix=\"$3\"",
-        "  spec=\"$4\"",
-        "  mkdir -p \"$prefix/node_modules/.bin\"",
-        "  printf '%s\\n' \"$@\" > \"$prefix/npm-args.txt\"",
+        "if [ \"$1\" = \"pack\" ]; then",
+        "  spec=\"$2\"",
+        "  destination=\".\"",
+        "  shift 2",
+        "  while [ \"$#\" -gt 0 ]; do",
+        "    if [ \"$1\" = \"--pack-destination\" ]; then",
+        "      destination=\"$2\"",
+        "      shift 2",
+        "      continue",
+        "    fi",
+        "    shift",
+        "  done",
         "  if [ \"$spec\" != \"openclaw@2026.4.13\" ]; then",
         "    printf 'unexpected package spec: %s\\n' \"$spec\" >&2",
         "    exit 2",
         "  fi",
-        "  cat > \"$prefix/node_modules/.bin/openclaw\" <<'EOF'",
+        "  mkdir -p \"$destination/package\"",
+        "  cat > \"$destination/package/package.json\" <<'EOF'",
+        "{\"name\":\"openclaw\",\"version\":\"2026.4.13\",\"bin\":{\"openclaw\":\"openclaw.mjs\"},\"dependencies\":{\"package-local-dep\":\"1.0.0\"}}",
+        "EOF",
+        "  cat > \"$destination/package/openclaw.mjs\" <<'EOF'",
         "#!/bin/sh",
         "printf 'OpenClaw 2026.4.13 (test)\\n'",
         "EOF",
-        "  chmod +x \"$prefix/node_modules/.bin/openclaw\"",
+        "  chmod +x \"$destination/package/openclaw.mjs\"",
+        "  (cd \"$destination\" && tar -czf openclaw-2026.4.13.tgz package)",
+        "  rm -rf \"$destination/package\"",
+        "  printf '[{\"filename\":\"openclaw-2026.4.13.tgz\"}]\\n'",
+        "  exit 0",
+        "fi",
+        "if [ \"$1\" = \"install\" ] && [ \"$2\" = \"--prefix\" ]; then",
+        "  prefix=\"$3\"",
+        "  mkdir -p \"$prefix/node_modules/package-local-dep\"",
+        "  mkdir -p \"$prefix/node_modules/package-local-dep/test\"",
+        "  mkdir -p \"$prefix/node_modules/package-local-dep/.github/workflows\"",
+        "  printf '{\"name\":\"package-local-dep\",\"version\":\"1.0.0\"}\\n' > \"$prefix/node_modules/package-local-dep/package.json\"",
+        "  printf 'fixture\\n' > \"$prefix/node_modules/package-local-dep/test/runtime-fixture.txt\"",
+        "  printf 'ci\\n' > \"$prefix/node_modules/package-local-dep/.github/workflows/ci.yml\"",
+        "  printf '%s\\n' \"$@\" > \"$prefix/npm-args.txt\"",
         "  exit 0",
         "fi",
         "printf 'unexpected npm args: %s\\n' \"$*\" >&2",
@@ -240,9 +265,28 @@ test("managed OpenClaw runtime update installs a concrete npm package inside the
     assert.equal(result.status, "completed");
     assert.equal(result.resource.installedVersion, "2026.4.13");
     await access(join(dataDir, "openclaw-runtime", "node_modules", ".bin", "openclaw"), constants.X_OK);
+    await access(
+      join(dataDir, "openclaw-runtime", "node_modules", "openclaw", "node_modules", "package-local-dep", "package.json"),
+      constants.R_OK
+    );
+    await assert.rejects(
+      access(
+        join(dataDir, "openclaw-runtime", "node_modules", "openclaw", "node_modules", "package-local-dep", "test"),
+        constants.R_OK
+      )
+    );
+    await assert.rejects(
+      access(
+        join(dataDir, "openclaw-runtime", "node_modules", "openclaw", "node_modules", "package-local-dep", ".github"),
+        constants.R_OK
+      )
+    );
+    await assert.rejects(
+      access(join(dataDir, "openclaw-runtime", "node_modules", "package-local-dep", "package.json"), constants.R_OK)
+    );
     assert.match(
-      await readFile(join(dataDir, "openclaw-runtime", "npm-args.txt"), "utf8"),
-      /install\n--prefix\n.+openclaw-runtime\nopenclaw@2026\.4\.13/u
+      await readFile(join(dataDir, "openclaw-runtime", "node_modules", "openclaw", "npm-args.txt"), "utf8"),
+      /install\n--prefix\n.+openclaw-runtime\/node_modules\/openclaw\n--omit=dev\n--package-lock=false\n--legacy-peer-deps/u
     );
     assert.equal(resolve(dataDir, "openclaw-runtime").startsWith(dataDir), true);
   } finally {

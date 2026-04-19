@@ -225,6 +225,10 @@ test("macOS installer builder exposes staging-only and DMG-only release modes", 
   assert.match(buildScript, /--stage-only/);
   assert.match(buildScript, /--dmg-only/);
   assert.match(buildScript, /No staged ChillClaw\.app found/);
+  assert.match(buildScript, /DMG_CHECKSUM_OUTPUT/);
+  assert.match(buildScript, /writeInstallerChecksum\(DMG_OUTPUT\)/);
+  assert.match(buildScript, /LEGACY_SLACKCLAW_PKG_OUTPUT/);
+  assert.match(buildScript, /cleanLegacyInstallerOutputs\(\)/);
 });
 
 test("macOS installer builder stages runtime artifacts and LaunchAgent runtime environment", async () => {
@@ -267,7 +271,14 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(prepareScript, /prepareOpenClawRuntime/);
   assert.match(prepareScript, /const nodeRuntime = await prepareNodeRuntime\(resourceFor\(manifest, "node-npm-runtime"\)\)/);
   assert.match(prepareScript, /prepareOpenClawRuntime\(resourceFor\(manifest, "openclaw-runtime"\), nodeRuntime\)/);
-  assert.match(prepareScript, /run\(nodeRuntime\.npmBin,\s*\["install", "--prefix", targetDir, packageSpec\]/);
+  assert.match(prepareScript, /installPackedOpenClawRuntime\(targetDir, packageSpec, nodeRuntime\)/);
+  assert.match(prepareScript, /const packageRoot = resolve\(runtimeDir, "node_modules", "openclaw"\)/);
+  assert.match(prepareScript, /run\(nodeRuntime\.npmBin,\s*\[\s*"install",\s*"--omit=dev",\s*"--package-lock=false",\s*"--legacy-peer-deps"\s*\]/);
+  assert.match(prepareScript, /cwd: packageRoot/);
+  assert.match(prepareScript, /prunePackagedNodeModules\(packageRoot\)/);
+  assert.match(prepareScript, /PACKAGED_NODE_MODULES_PRUNE_DIRS/);
+  assert.match(prepareScript, /createOpenClawBinShim\(runtimeDir\)/);
+  assert.doesNotMatch(prepareScript, /"install", "--prefix", targetDir, packageSpec/);
   assert.match(prepareScript, /run\(openclawBin,\s*\["--version"\],\s*\{\s*pathPrefix: nodeRuntime\.binDir\s*\}\)/);
   assert.match(prepareScript, /PATH: \[options\.pathPrefix, process\.env\.PATH\]\.filter\(Boolean\)\.join\(delimiter\)/);
   assert.match(prepareScript, /prepareLocalModelCatalog/);
@@ -318,7 +329,7 @@ test("managed OpenClaw runtime packaging stays pinned and bundled-only", async (
   assert.match(runtimeManifest, /"id": "openclaw-runtime"[\s\S]*?"version": "2026\.4\.15"/);
   assert.match(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "2026\.4\.15"/);
   assert.match(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "2026\.4\.15"/);
-  assert.match(packageJson, /"version": "0\.2\.4"/);
+  assert.match(JSON.parse(packageJson).version, /^\d+\.\d+\.\d+$/);
   assert.doesNotMatch(runtimeManager, /DEFAULT_OPENCLAW_VERSION = process\.env\.CHILLCLAW_MANAGED_OPENCLAW_VERSION\?\.trim\(\) \|\| "latest"/);
   assert.doesNotMatch(openClawAdapter, /OPENCLAW_INSTALL_TARGET = OPENCLAW_VERSION_OVERRIDE \?\? "latest"/);
   assert.doesNotMatch(packageJson, /bootstrap:openclaw/);

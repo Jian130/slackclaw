@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
-import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, readdir, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, readdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -18,6 +18,7 @@ const LOCAL_MODEL_CATALOG_SOURCE = resolve(ROOT, "apps/daemon/src/config/local-m
 const CACHE_DIR = resolve(ROOT, "dist/runtime-artifact-downloads");
 const SCRIPT_LABEL = "ChillClaw runtime artifacts";
 const WECHAT_PLUGIN_PACKAGE = "@tencent-weixin/openclaw-weixin";
+const PACKAGED_NODE_MODULES_PRUNE_DIRS = new Set([".github", ".husky", ".nyc_output", "__tests__", "coverage", "test", "tests"]);
 
 async function main() {
   const manifest = JSON.parse(await readFile(MANIFEST_PATH, "utf8"));
@@ -115,16 +116,85 @@ async function prepareOpenClawRuntime(resource, nodeRuntime) {
   const openclawBin = resolve(targetDir, "node_modules", ".bin", "openclaw");
   const packageSpec = pinnedOpenClawPackageSpec(resource);
 
-  await rm(targetDir, { recursive: true, force: true });
-  await mkdir(targetDir, { recursive: true });
-  await run(nodeRuntime.npmBin, ["install", "--prefix", targetDir, packageSpec], {
-    pathPrefix: nodeRuntime.binDir
-  });
+  await installPackedOpenClawRuntime(targetDir, packageSpec, nodeRuntime);
   await requireExecutablePath(openclawBin, "OpenClaw runtime package did not produce node_modules/.bin/openclaw.");
   await run(openclawBin, ["--version"], {
     pathPrefix: nodeRuntime.binDir
   });
   log(`Prepared OpenClaw ${resource.version} runtime package at ${targetDir}.`);
+}
+
+async function installPackedOpenClawRuntime(targetDir, packageSpec, nodeRuntime) {
+  const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-openclaw-runtime-"));
+  const runtimeDir = resolve(tempDir, "openclaw-runtime");
+  const packageRoot = resolve(runtimeDir, "node_modules", "openclaw");
+
+  try {
+    const packOutput = await capture(nodeRuntime.npmBin, ["pack", packageSpec, "--ignore-scripts", "--json"], {
+      cwd: tempDir,
+      pathPrefix: nodeRuntime.binDir
+    });
+    const archiveName = parseNpmPackArchiveName(packOutput);
+    await run("tar", ["-xzf", resolve(tempDir, archiveName), "-C", tempDir]);
+    await mkdir(dirname(packageRoot), { recursive: true });
+    await rename(resolve(tempDir, "package"), packageRoot);
+    await run(nodeRuntime.npmBin, ["install", "--omit=dev", "--package-lock=false", "--legacy-peer-deps"], {
+      cwd: packageRoot,
+      pathPrefix: nodeRuntime.binDir
+    });
+    await prunePackagedNodeModules(packageRoot);
+    await createOpenClawBinShim(runtimeDir);
+    await requireExecutablePath(
+      resolve(runtimeDir, "node_modules", ".bin", "openclaw"),
+      "OpenClaw runtime package did not produce node_modules/.bin/openclaw."
+    );
+    await rm(targetDir, { recursive: true, force: true });
+    await mkdir(dirname(targetDir), { recursive: true });
+    await rename(runtimeDir, targetDir);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function createOpenClawBinShim(runtimeDir) {
+  const binDir = resolve(runtimeDir, "node_modules", ".bin");
+  const openclawEntry = resolve(runtimeDir, "node_modules", "openclaw", "openclaw.mjs");
+  const openclawBin = resolve(binDir, "openclaw");
+
+  await mkdir(binDir, { recursive: true });
+  await chmod(openclawEntry, 0o755);
+  await rm(openclawBin, { force: true });
+  await symlink("../openclaw/openclaw.mjs", openclawBin);
+}
+
+async function prunePackagedNodeModules(packageRoot) {
+  await prunePackagedNodeModulesDir(resolve(packageRoot, "node_modules"));
+}
+
+async function prunePackagedNodeModulesDir(dir) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const entryPath = resolve(dir, entry.name);
+    if (PACKAGED_NODE_MODULES_PRUNE_DIRS.has(entry.name)) {
+      await rm(entryPath, { recursive: true, force: true });
+      continue;
+    }
+
+    await prunePackagedNodeModulesDir(entryPath);
+  }
 }
 
 function pinnedOpenClawPackageSpec(resource) {
@@ -178,7 +248,7 @@ function parseNpmPackArchiveName(output) {
   const entries = Array.isArray(parsed) ? parsed : [parsed];
   const filename = entries.find((entry) => typeof entry?.filename === "string")?.filename;
   if (!filename) {
-    throw new Error("npm pack did not report a package archive filename for the WeChat plugin.");
+    throw new Error("npm pack did not report a package archive filename.");
   }
   return filename;
 }

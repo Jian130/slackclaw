@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { delimiter, dirname, resolve } from "node:path";
+import { delimiter, dirname, relative, resolve } from "node:path";
 
 import { writeScriptLogLine } from "./logging.mjs";
 
@@ -36,7 +37,10 @@ const APP_BRAND_LOGO_SOURCE = resolve(MACOS_NATIVE_PACKAGE_DIR, "Sources/ChillCl
 const RUNTIME_MANIFEST_SOURCE = resolve(ROOT, "runtime-manifest.lock.json");
 const RUNTIME_ARTIFACTS_SOURCE = resolve(ROOT, "runtime-artifacts");
 const DMG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.dmg`);
-const LEGACY_PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
+const DMG_CHECKSUM_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.dmg.sha256.txt`);
+const LEGACY_CHILLCLAW_PKG_OUTPUT = resolve(DIST_DIR, `${APP_NAME}-macOS.pkg`);
+const LEGACY_SLACKCLAW_PKG_OUTPUT = resolve(DIST_DIR, "SlackClaw-macOS.pkg");
+const LEGACY_PKG_OUTPUTS = [LEGACY_CHILLCLAW_PKG_OUTPUT, LEGACY_SLACKCLAW_PKG_OUTPUT];
 const INSTALLER_ICON_PNG = resolve(BUILD_DIR, "installer-icon.png");
 const INSTALLER_ICON_RESOURCE = resolve(BUILD_DIR, "installer-icon.rsrc");
 const LAUNCH_AGENT_LABEL = "ai.chillclaw.daemon";
@@ -573,10 +577,17 @@ async function requireExecutablePath(path, message) {
 
 async function buildInstaller() {
   await mkdir(dirname(DMG_OUTPUT), { recursive: true });
-  await rm(LEGACY_PKG_OUTPUT, { force: true });
+  await cleanLegacyInstallerOutputs();
   await stageDiskImageContents();
   await run("hdiutil", ["create", "-volname", APP_NAME, "-srcfolder", DMG_STAGING_DIR, "-ov", "-format", "UDZO", DMG_OUTPUT]);
   await applyInstallerFileIcon(DMG_OUTPUT);
+  await writeInstallerChecksum(DMG_OUTPUT);
+}
+
+async function cleanLegacyInstallerOutputs() {
+  for (const output of LEGACY_PKG_OUTPUTS) {
+    await rm(output, { force: true });
+  }
 }
 
 async function assertStagedAppBundleExists() {
@@ -603,6 +614,25 @@ async function applyInstallerFileIcon(installerPath) {
 
   await run("Rez", ["-append", INSTALLER_ICON_RESOURCE, "-o", installerPath]);
   await run("SetFile", ["-a", "C", installerPath]);
+}
+
+async function writeInstallerChecksum(installerPath) {
+  const digest = await sha256File(installerPath);
+  await writeFile(DMG_CHECKSUM_OUTPUT, `${digest}  ${relative(ROOT, installerPath)}\n`);
+}
+
+function sha256File(path) {
+  return new Promise((resolvePromise, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => {
+      hash.update(chunk);
+    });
+    stream.on("end", () => {
+      resolvePromise(hash.digest("hex"));
+    });
+  });
 }
 
 function warnAboutLocalDistributionReadiness() {

@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, chmod, copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -43,6 +43,7 @@ import type {
 const DEFAULT_OPENCLAW_VERSION = process.env.CHILLCLAW_MANAGED_OPENCLAW_VERSION?.trim() || "2026.4.15";
 const DEFAULT_OLLAMA_VERSION = process.env.CHILLCLAW_MANAGED_OLLAMA_VERSION?.trim() || "0.20.6";
 const DEFAULT_OLLAMA_CLI_ARCHIVE_NAME = "ollama-darwin.tgz";
+const PACKAGED_NODE_MODULES_PRUNE_DIRS = new Set([".github", ".husky", ".nyc_output", "__tests__", "coverage", "test", "tests"]);
 
 export function createRuntimeManager(eventPublisher?: EventPublisher, downloadManager?: DownloadManager): RuntimeManager {
   return new RuntimeManager({
@@ -648,15 +649,7 @@ async function installOpenClawFromNpmPackage(
     }, {
       scope: "runtimeManager.openclaw.installNpmPackage"
     });
-    const npmArgs = [...invocation.argsPrefix, "install", "--prefix", nextDir, packageSpec];
-    const result = await runCommand(invocation.command, npmArgs, {
-      allowFailure: true,
-      env: managedNodeEnv(invocation.command)
-    });
-
-    if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || `${manifest.label} npm install failed.`);
-    }
+    await installPackedOpenClawRuntime(nextDir, packageSpec, invocation, workspace, manifest);
 
     await access(nextBin, constants.X_OK);
     const version = await probeVersion(nextBin, ["--version"], managedNodeEnv(nextBin));
@@ -687,6 +680,119 @@ async function installOpenClawFromNpmPackage(
     throw error;
   } finally {
     await rm(workspace, { recursive: true, force: true });
+  }
+}
+
+async function installPackedOpenClawRuntime(
+  runtimeDir: string,
+  packageSpec: string,
+  invocation: { command: string; argsPrefix: string[] },
+  workspace: string,
+  manifest: RuntimeResourceManifest
+): Promise<void> {
+  const packageRoot = resolve(runtimeDir, "node_modules", "openclaw");
+  const packArgs = [
+    ...invocation.argsPrefix,
+    "pack",
+    packageSpec,
+    "--ignore-scripts",
+    "--json",
+    "--pack-destination",
+    workspace
+  ];
+  const packResult = await runCommand(invocation.command, packArgs, {
+    allowFailure: true,
+    env: managedNodeEnv(invocation.command)
+  });
+
+  if (packResult.code !== 0) {
+    throw new Error(packResult.stderr || packResult.stdout || `${manifest.label} npm pack failed.`);
+  }
+
+  const archiveName = parseNpmPackArchiveName(packResult.stdout);
+  const archivePath = resolve(workspace, basename(archiveName));
+  const extractResult = await runCommand("/usr/bin/tar", ["-xzf", archivePath, "-C", workspace], {
+    allowFailure: true,
+    env: managedNodeEnv()
+  });
+
+  if (extractResult.code !== 0) {
+    throw new Error(extractResult.stderr || extractResult.stdout || `${manifest.label} package extraction failed.`);
+  }
+
+  await mkdir(dirname(packageRoot), { recursive: true });
+  await rename(resolve(workspace, "package"), packageRoot);
+
+  const installArgs = [
+    ...invocation.argsPrefix,
+    "install",
+    "--prefix",
+    packageRoot,
+    "--omit=dev",
+    "--package-lock=false",
+    "--legacy-peer-deps"
+  ];
+  const installResult = await runCommand(invocation.command, installArgs, {
+    allowFailure: true,
+    env: managedNodeEnv(invocation.command)
+  });
+
+  if (installResult.code !== 0) {
+    throw new Error(installResult.stderr || installResult.stdout || `${manifest.label} npm install failed.`);
+  }
+
+  await prunePackagedNodeModules(packageRoot);
+  await createOpenClawBinShim(runtimeDir);
+}
+
+function parseNpmPackArchiveName(output: string): string {
+  const parsed = JSON.parse(output);
+  const entries = Array.isArray(parsed) ? parsed : [parsed];
+  const filename = entries.find((entry) => typeof entry?.filename === "string")?.filename;
+  if (!filename) {
+    throw new Error("npm pack did not report a package archive filename.");
+  }
+  return filename;
+}
+
+async function createOpenClawBinShim(runtimeDir: string): Promise<void> {
+  const binDir = resolve(runtimeDir, "node_modules", ".bin");
+  const openclawEntry = resolve(runtimeDir, "node_modules", "openclaw", "openclaw.mjs");
+  const openclawBin = resolve(binDir, "openclaw");
+
+  await mkdir(binDir, { recursive: true });
+  await chmod(openclawEntry, 0o755);
+  await rm(openclawBin, { force: true });
+  await symlink("../openclaw/openclaw.mjs", openclawBin);
+}
+
+async function prunePackagedNodeModules(packageRoot: string): Promise<void> {
+  await prunePackagedNodeModulesDir(resolve(packageRoot, "node_modules"));
+}
+
+async function prunePackagedNodeModulesDir(dir: string): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const entryPath = resolve(dir, entry.name);
+    if (PACKAGED_NODE_MODULES_PRUNE_DIRS.has(entry.name)) {
+      await rm(entryPath, { recursive: true, force: true });
+      continue;
+    }
+
+    await prunePackagedNodeModulesDir(entryPath);
   }
 }
 
