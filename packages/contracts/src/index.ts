@@ -647,6 +647,20 @@ export interface OnboardingOperationsState {
   completion?: LongRunningOperationSummary;
 }
 
+export interface OnboardingEmployeePresetCapabilityState {
+  presetId: string;
+  status: CapabilityStatus;
+  summary: string;
+  requirements: CapabilityRequirement[];
+}
+
+export interface OnboardingCapabilityReadiness {
+  engine: EngineKind;
+  checkedAt: string;
+  employeePresets: OnboardingEmployeePresetCapabilityState[];
+  summary: string;
+}
+
 export interface OnboardingStateResponse {
   firstRun: FirstRunState;
   draft: OnboardingDraftState;
@@ -654,6 +668,7 @@ export interface OnboardingStateResponse {
   summary: OnboardingCompletionSummary;
   localRuntime?: LocalModelRuntimeOverview;
   presetSkillSync?: PresetSkillSyncOverview;
+  capabilityReadiness?: OnboardingCapabilityReadiness;
   operations?: OnboardingOperationsState;
 }
 
@@ -823,6 +838,70 @@ export interface ManagedPluginEntry {
 
 export interface PluginConfigOverview {
   entries: ManagedPluginEntry[];
+}
+
+export type CapabilityKind = "skill" | "plugin" | "tool" | "tool-group" | "feature" | "preset";
+export type CapabilityStatus = "ready" | "missing" | "disabled" | "blocked" | "error" | "unknown";
+
+export interface CapabilityRequirement {
+  id: string;
+  kind: CapabilityKind;
+  status: CapabilityStatus;
+  summary: string;
+  label?: string;
+}
+
+export interface CapabilityRuntimeRef {
+  engine: EngineKind;
+  kind: CapabilityKind;
+  id: string;
+}
+
+export interface CapabilityEntry {
+  id: string;
+  kind: CapabilityKind;
+  engine: EngineKind;
+  label: string;
+  description?: string;
+  status: CapabilityStatus;
+  summary: string;
+  requirements: CapabilityRequirement[];
+  runtimeRef?: CapabilityRuntimeRef;
+}
+
+export interface CapabilityOverview {
+  engine: EngineKind;
+  checkedAt: string;
+  entries: CapabilityEntry[];
+  summary: string;
+}
+
+export interface ToolProviderPolicy {
+  profile?: string;
+  allow?: string[];
+  deny?: string[];
+}
+
+export interface ToolEntry {
+  id: string;
+  kind: "tool" | "tool-group";
+  engine: EngineKind;
+  label: string;
+  description?: string;
+  status: CapabilityStatus;
+  summary: string;
+  runtimeRef?: CapabilityRuntimeRef;
+}
+
+export interface ToolOverview {
+  engine: EngineKind;
+  checkedAt: string;
+  profile?: string;
+  allow: string[];
+  deny: string[];
+  byProvider: Record<string, ToolProviderPolicy>;
+  entries: ToolEntry[];
+  summary: string;
 }
 
 export interface BrainAssignment {

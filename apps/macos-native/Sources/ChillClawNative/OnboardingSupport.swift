@@ -358,6 +358,15 @@ enum NativeOnboardingPresetReadinessStatus: Sendable {
     case syncing
     case repair
     case install
+    case attention
+    case unknown
+}
+
+struct NativeOnboardingPresetRequirementReadiness: Sendable, Identifiable {
+    let id: String
+    let label: String
+    let status: String
+    let summary: String
 }
 
 struct NativeOnboardingPresetReadiness: Sendable {
@@ -365,6 +374,7 @@ struct NativeOnboardingPresetReadiness: Sendable {
     let label: String
     let detail: String?
     let blocking: Bool
+    let requirements: [NativeOnboardingPresetRequirementReadiness]
 }
 
 func nativeOnboardingPresetStatusTone(_ status: NativeOnboardingPresetReadinessStatus) -> NativeStatusTone {
@@ -377,6 +387,46 @@ func nativeOnboardingPresetStatusTone(_ status: NativeOnboardingPresetReadinessS
         return .warning
     case .install:
         return .neutral
+    case .attention:
+        return .warning
+    case .unknown:
+        return .neutral
+    }
+}
+
+func nativeOnboardingCapabilityRequirementTone(_ status: String) -> NativeStatusTone {
+    switch status {
+    case "ready":
+        return .success
+    case "blocked", "disabled":
+        return .warning
+    case "error":
+        return .danger
+    case "missing":
+        return .info
+    case "unknown":
+        return .neutral
+    default:
+        return .neutral
+    }
+}
+
+func nativeOnboardingCapabilityRequirementLabel(_ status: String) -> String {
+    switch status {
+    case "ready":
+        return "Ready"
+    case "missing":
+        return "Needs setup"
+    case "disabled":
+        return "Disabled"
+    case "blocked":
+        return "Blocked"
+    case "error":
+        return "Error"
+    case "unknown":
+        return "Checking"
+    default:
+        return "Checking"
     }
 }
 
@@ -390,9 +440,22 @@ func resolveOnboardingEmployeePresetReadiness(
     preset: OnboardingEmployeePresetPresentation,
     onboardingState: OnboardingStateResponse?
 ) -> NativeOnboardingPresetReadiness {
+    if let capabilityReadiness = resolveOnboardingEmployeePresetCapabilityReadiness(
+        presetID: preset.id,
+        onboardingState: onboardingState
+    ) {
+        return capabilityReadiness
+    }
+
     let presetSkillIDs = resolveOnboardingPresetSkillIDs(presetSkillIDs: preset.presetSkillIds)
     if presetSkillIDs.isEmpty {
-        return .init(status: .ready, label: "Ready", detail: "This preset does not need any managed skills.", blocking: false)
+        return .init(
+            status: .ready,
+            label: "Ready",
+            detail: "This preset does not need any managed skills.",
+            blocking: false,
+            requirements: []
+        )
     }
 
     let entries = presetSkillIDs.compactMap { presetSkillID in
@@ -404,7 +467,8 @@ func resolveOnboardingEmployeePresetReadiness(
             status: .ready,
             label: "Ready",
             detail: onboardingState?.presetSkillSync?.summary ?? "Preset skills are verified in the active runtime.",
-            blocking: false
+            blocking: false,
+            requirements: []
         )
     }
 
@@ -413,7 +477,8 @@ func resolveOnboardingEmployeePresetReadiness(
             status: .repair,
             label: "Repair needed",
             detail: failedEntry.lastError ?? onboardingState?.presetSkillSync?.summary ?? "ChillClaw could not verify every preset skill.",
-            blocking: false
+            blocking: false,
+            requirements: []
         )
     }
 
@@ -422,7 +487,8 @@ func resolveOnboardingEmployeePresetReadiness(
             status: .syncing,
             label: "Syncing",
             detail: onboardingState?.presetSkillSync?.summary ?? "ChillClaw is syncing preset skills for this employee.",
-            blocking: false
+            blocking: false,
+            requirements: []
         )
     }
 
@@ -430,8 +496,66 @@ func resolveOnboardingEmployeePresetReadiness(
         status: .install,
         label: "Prepared on finish",
         detail: "Choose this preset and ChillClaw will prepare its guided skills during final setup.",
-        blocking: false
+        blocking: false,
+        requirements: []
     )
+}
+
+private func resolveOnboardingEmployeePresetCapabilityReadiness(
+    presetID: String,
+    onboardingState: OnboardingStateResponse?
+) -> NativeOnboardingPresetReadiness? {
+    guard let capabilityReadiness = onboardingState?.capabilityReadiness,
+          let preset = capabilityReadiness.employeePresets.first(where: { $0.presetId == presetID }) else {
+        return nil
+    }
+
+    let requirements = preset.requirements.map { requirement in
+        NativeOnboardingPresetRequirementReadiness(
+            id: requirement.id,
+            label: requirement.label ?? requirement.id,
+            status: requirement.status,
+            summary: requirement.summary
+        )
+    }
+
+    switch preset.status {
+    case "ready":
+        return .init(
+            status: .ready,
+            label: "Ready",
+            detail: preset.summary.isEmpty ? capabilityReadiness.summary : preset.summary,
+            blocking: false,
+            requirements: requirements
+        )
+    case "unknown":
+        return .init(
+            status: .unknown,
+            label: "Checking setup",
+            detail: preset.summary.isEmpty ? capabilityReadiness.summary : preset.summary,
+            blocking: false,
+            requirements: requirements
+        )
+    default:
+        return .init(
+            status: .attention,
+            label: nativeOnboardingCapabilityPresetAttentionLabel(preset.status),
+            detail: preset.summary.isEmpty ? capabilityReadiness.summary : preset.summary,
+            blocking: false,
+            requirements: requirements
+        )
+    }
+}
+
+private func nativeOnboardingCapabilityPresetAttentionLabel(_ status: String) -> String {
+    switch status {
+    case "disabled":
+        return "Disabled"
+    case "error":
+        return "Needs repair"
+    default:
+        return "Needs setup"
+    }
 }
 
 enum OnboardingRefreshResource {

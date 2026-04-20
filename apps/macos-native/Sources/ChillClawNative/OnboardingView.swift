@@ -135,6 +135,41 @@ private struct OnboardingPresetStatusBadge: View {
     }
 }
 
+private struct OnboardingPresetRequirementRows: View {
+    let readiness: NativeOnboardingPresetReadiness
+
+    var body: some View {
+        if !readiness.requirements.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(readiness.requirements) { requirement in
+                    HStack(spacing: 12) {
+                        Text(requirement.label)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(nativeOnboardingTextSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                        StatusBadge(
+                            nativeOnboardingCapabilityRequirementLabel(requirement.status),
+                            tone: nativeOnboardingCapabilityRequirementTone(requirement.status)
+                        )
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: nativeOnboardingControlRadius, style: .continuous)
+                            .fill(Color.white.opacity(0.72))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: nativeOnboardingControlRadius, style: .continuous)
+                            .strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+}
+
 private struct OnboardingGlassPanel<Content: View>: View {
     let title: String?
     let subtitle: String?
@@ -1814,6 +1849,7 @@ struct NativeOnboardingView: View {
                                     .font(.system(size: 13, weight: .regular))
                                     .foregroundStyle(nativeOnboardingTextSecondary)
                             }
+                            OnboardingPresetRequirementRows(readiness: readiness)
                         }
                         FlowLayout(selectedPreset.starterSkillLabels + selectedPreset.toolLabels, id: \.self) { label in
                             Text(label)

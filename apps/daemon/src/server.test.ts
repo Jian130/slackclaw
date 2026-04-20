@@ -8,6 +8,8 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 
+import type { CapabilityOverview, OnboardingStateResponse, ToolOverview } from "@chillclaw/contracts";
+
 import { StateStore, type AppState } from "./services/state-store.js";
 import {
   startServer,
@@ -22,6 +24,10 @@ const sourceDir = dirname(fileURLToPath(import.meta.url));
 
 async function pathExists(path: string): Promise<boolean> {
   return stat(path).then(() => true).catch(() => false);
+}
+
+async function readJson<T>(response: Response): Promise<T> {
+  return await response.json() as T;
 }
 
 test("fresh overview reads only invalidate overview-related caches", () => {
@@ -629,5 +635,63 @@ test("AI team overview route returns a daemon snapshot instead of an unsupported
     } else {
       process.env.CHILLCLAW_ENGINE = previousEngine;
     }
+  }
+});
+
+test("capability, tool, and onboarding overview routes expose one read-only readiness snapshot", async () => {
+  const previousEngine = process.env.CHILLCLAW_ENGINE;
+  const previousDataDir = process.env.CHILLCLAW_DATA_DIR;
+  const root = await mkdtemp(resolve(tmpdir(), "chillclaw-capability-route-smoke-"));
+  process.env.CHILLCLAW_ENGINE = "mock";
+  process.env.CHILLCLAW_DATA_DIR = root;
+
+  const server = startServer(0);
+  await once(server, "listening");
+  const port = (server.address() as AddressInfo).port;
+
+  try {
+    const onboardingResponse = await fetch(`http://127.0.0.1:${port}/api/onboarding/state`);
+    const capabilityResponse = await fetch(`http://127.0.0.1:${port}/api/capabilities/overview`);
+    const toolResponse = await fetch(`http://127.0.0.1:${port}/api/tools/overview`);
+
+    assert.equal(onboardingResponse.status, 200);
+    assert.equal(capabilityResponse.status, 200);
+    assert.equal(toolResponse.status, 200);
+
+    const onboarding = await readJson<OnboardingStateResponse>(onboardingResponse);
+    const capabilities = await readJson<CapabilityOverview>(capabilityResponse);
+    const tools = await readJson<ToolOverview>(toolResponse);
+
+    assert.equal(onboarding.capabilityReadiness?.engine, "openclaw");
+    assert.equal(onboarding.capabilityReadiness?.employeePresets.length, onboarding.config.employeePresets.length);
+    assert.equal(capabilities.engine, "openclaw");
+    assert.equal(tools.engine, "openclaw");
+    assert.ok(tools.allow.includes("group:web"));
+
+    const researchPreset = onboarding.capabilityReadiness?.employeePresets.find((entry) => entry.presetId === "research-analyst");
+    const researchCapability = capabilities.entries.find((entry) => entry.kind === "preset" && entry.id === "research-analyst");
+    const webTool = tools.entries.find((entry) => entry.id === "group:web");
+    const webCapability = capabilities.entries.find((entry) => entry.kind === "tool-group" && entry.id === "group:web");
+
+    assert.ok(researchPreset);
+    assert.ok(researchCapability);
+    assert.ok(webTool);
+    assert.ok(webCapability);
+    assert.equal(researchPreset.status, researchCapability.status);
+    assert.deepEqual(researchPreset.requirements, researchCapability.requirements);
+    assert.equal(webCapability.status, webTool.status);
+
+    const onboardingAfterReadOnlyRoutesResponse = await fetch(`http://127.0.0.1:${port}/api/onboarding/state`);
+    assert.equal(onboardingAfterReadOnlyRoutesResponse.status, 200);
+    const onboardingAfterReadOnlyRoutes = await readJson<OnboardingStateResponse>(onboardingAfterReadOnlyRoutesResponse);
+    assert.deepEqual(onboardingAfterReadOnlyRoutes.draft, onboarding.draft);
+    assert.deepEqual(onboardingAfterReadOnlyRoutes.firstRun, onboarding.firstRun);
+  } finally {
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    if (previousEngine === undefined) delete process.env.CHILLCLAW_ENGINE;
+    else process.env.CHILLCLAW_ENGINE = previousEngine;
+    if (previousDataDir === undefined) delete process.env.CHILLCLAW_DATA_DIR;
+    else process.env.CHILLCLAW_DATA_DIR = previousDataDir;
+    await rm(root, { recursive: true, force: true });
   }
 });

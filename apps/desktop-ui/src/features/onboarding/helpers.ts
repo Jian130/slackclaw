@@ -1,4 +1,6 @@
 import type {
+  CapabilityRequirement,
+  CapabilityStatus,
   ChannelConfigOverview,
   ChannelSession,
   ConfiguredChannelEntry,
@@ -10,6 +12,7 @@ import type {
   OnboardingEmployeePresetPresentation,
   OnboardingModelProviderPresentation,
   OnboardingInstallState,
+  OnboardingCapabilityReadiness,
   OnboardingStateResponse,
   OnboardingStep,
   PresetSkillSyncOverview,
@@ -125,13 +128,27 @@ export function shouldRefreshOnboardingChannelConfig(
   return currentStep === "channel" || Boolean(draftChannel);
 }
 
-export type OnboardingEmployeePresetReadinessStatus = "ready" | "syncing" | "repair" | "install";
+export type OnboardingEmployeePresetReadinessStatus =
+  | "ready"
+  | "syncing"
+  | "repair"
+  | "install"
+  | "attention"
+  | "unknown";
+
+export interface OnboardingEmployeePresetRequirementReadiness {
+  id: string;
+  label: string;
+  status: CapabilityStatus;
+  summary: string;
+}
 
 export interface OnboardingEmployeePresetReadiness {
   status: OnboardingEmployeePresetReadinessStatus;
   label: string;
   detail?: string;
   blocking: boolean;
+  requirements?: OnboardingEmployeePresetRequirementReadiness[];
 }
 
 export function resolveOnboardingPresetSkillIds(
@@ -148,9 +165,15 @@ export function resolveOnboardingPresetSkillIds(
 }
 
 export function resolveOnboardingEmployeePresetReadiness(
-  preset: Pick<OnboardingEmployeePresetPresentation, "presetSkillIds">,
-  presetSkillSync: PresetSkillSyncOverview | undefined
+  preset: Pick<OnboardingEmployeePresetPresentation, "presetSkillIds"> & Partial<Pick<OnboardingEmployeePresetPresentation, "id">>,
+  presetSkillSync: PresetSkillSyncOverview | undefined,
+  capabilityReadiness?: OnboardingCapabilityReadiness
 ): OnboardingEmployeePresetReadiness {
+  const capabilityPresetReadiness = resolveOnboardingEmployeePresetCapabilityReadiness(preset.id, capabilityReadiness);
+  if (capabilityPresetReadiness) {
+    return capabilityPresetReadiness;
+  }
+
   const presetSkillIds = resolveOnboardingPresetSkillIds(preset);
   if (presetSkillIds.length === 0) {
     return {
@@ -200,6 +223,70 @@ export function resolveOnboardingEmployeePresetReadiness(
     detail: "Choose this preset and ChillClaw will prepare its guided skills during final setup.",
     blocking: false
   };
+}
+
+function resolveOnboardingEmployeePresetCapabilityReadiness(
+  presetId: string | undefined,
+  capabilityReadiness: OnboardingCapabilityReadiness | undefined
+): OnboardingEmployeePresetReadiness | undefined {
+  if (!presetId || !capabilityReadiness) {
+    return undefined;
+  }
+
+  const preset = capabilityReadiness.employeePresets.find((entry) => entry.presetId === presetId);
+  if (!preset) {
+    return undefined;
+  }
+
+  const requirements = preset.requirements.map(normalizeCapabilityRequirement);
+  if (preset.status === "ready") {
+    return {
+      status: "ready",
+      label: "Ready",
+      detail: preset.summary || capabilityReadiness.summary,
+      blocking: false,
+      requirements
+    };
+  }
+
+  if (preset.status === "unknown") {
+    return {
+      status: "unknown",
+      label: "Checking setup",
+      detail: preset.summary || capabilityReadiness.summary,
+      blocking: false,
+      requirements
+    };
+  }
+
+  return {
+    status: "attention",
+    label: capabilityPresetAttentionLabel(preset.status),
+    detail: preset.summary || capabilityReadiness.summary,
+    blocking: false,
+    requirements
+  };
+}
+
+function normalizeCapabilityRequirement(requirement: CapabilityRequirement): OnboardingEmployeePresetRequirementReadiness {
+  return {
+    id: requirement.id,
+    label: requirement.label ?? requirement.id,
+    status: requirement.status,
+    summary: requirement.summary
+  };
+}
+
+function capabilityPresetAttentionLabel(status: CapabilityStatus): string {
+  if (status === "disabled") {
+    return "Disabled";
+  }
+
+  if (status === "error") {
+    return "Needs repair";
+  }
+
+  return "Needs setup";
 }
 
 export interface ResolvedOnboardingModelProvider {

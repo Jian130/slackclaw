@@ -5,6 +5,80 @@ import Testing
 
 struct ChillClawProtocolTests {
     @Test
+    func capabilityAndToolOverviewsDecodeEngineBackedEntries() throws {
+        let capabilityData = """
+        {
+          "engine": "openclaw",
+          "checkedAt": "2026-04-20T00:00:00.000Z",
+          "entries": [
+            {
+              "id": "research-brief",
+              "kind": "skill",
+              "engine": "openclaw",
+              "label": "Research Brief",
+              "description": "Create concise research summaries.",
+              "status": "ready",
+              "summary": "Skill is ready.",
+              "requirements": [
+                {
+                  "id": "group:web",
+                  "kind": "tool-group",
+                  "status": "ready",
+                  "summary": "Web tools are available."
+                }
+              ],
+              "runtimeRef": {
+                "engine": "openclaw",
+                "kind": "skill",
+                "id": "research-brief"
+              }
+            }
+          ],
+          "summary": "1 capability ready."
+        }
+        """.data(using: .utf8)!
+
+        let toolData = """
+        {
+          "engine": "openclaw",
+          "checkedAt": "2026-04-20T00:00:00.000Z",
+          "profile": "default",
+          "allow": ["group:web"],
+          "deny": ["openclaw.exec"],
+          "byProvider": {
+            "openai": {
+              "allow": ["group:web"],
+              "deny": ["group:runtime"]
+            }
+          },
+          "entries": [
+            {
+              "id": "group:web",
+              "kind": "tool-group",
+              "engine": "openclaw",
+              "label": "Web",
+              "status": "ready",
+              "summary": "Allowed by global tool policy."
+            }
+          ],
+          "summary": "1 ready."
+        }
+        """.data(using: .utf8)!
+
+        let capabilityOverview = try JSONDecoder.chillClaw.decode(CapabilityOverview.self, from: capabilityData)
+        let toolOverview = try JSONDecoder.chillClaw.decode(ToolOverview.self, from: toolData)
+
+        #expect(capabilityOverview.engine == "openclaw")
+        #expect(capabilityOverview.entries[0].kind == "skill")
+        #expect(capabilityOverview.entries[0].requirements[0].id == "group:web")
+        #expect(capabilityOverview.entries[0].runtimeRef?.id == "research-brief")
+        #expect(toolOverview.profile == "default")
+        #expect(toolOverview.allow == ["group:web"])
+        #expect(toolOverview.byProvider["openai"]?.deny == ["group:runtime"])
+        #expect(toolOverview.entries[0].status == "ready")
+    }
+
+    @Test
     func modelConfigOverviewDecodesExtendedProviderMetadata() throws {
         let data = """
         {
@@ -544,6 +618,27 @@ struct ChillClawProtocolTests {
             "summary": "1 preset skill verified on the managed-local runtime.",
             "repairRecommended": false
           },
+          "capabilityReadiness": {
+            "engine": "openclaw",
+            "checkedAt": "2026-04-20T00:00:00.000Z",
+            "employeePresets": [
+              {
+                "presetId": "research-analyst",
+                "status": "blocked",
+                "summary": "1 requirement needs attention.",
+                "requirements": [
+                  {
+                    "id": "status-writer",
+                    "kind": "skill",
+                    "label": "Status Writer",
+                    "status": "blocked",
+                    "summary": "Skill is blocked by the current OpenClaw allowlist."
+                  }
+                ]
+              }
+            ],
+            "summary": "0 ready · 1 need attention."
+          },
           "summary": {
             "install": {
               "installed": true,
@@ -608,6 +703,8 @@ struct ChillClawProtocolTests {
         #expect(response.draft.install?.disposition == "reused-existing")
         #expect(response.draft.activeModelAuthSessionId == "session-1")
         #expect(response.presetSkillSync?.entries.first?.status == .verified)
+        #expect(response.capabilityReadiness?.employeePresets.first?.status == "blocked")
+        #expect(response.capabilityReadiness?.employeePresets.first?.requirements.first?.id == "status-writer")
         #expect(response.summary.model?.entryId == "entry-1")
         #expect(response.localRuntime?.recommendation == "local")
         #expect(response.localRuntime?.status == "installing-runtime")

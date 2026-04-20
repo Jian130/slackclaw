@@ -158,6 +158,23 @@ struct OnboardingTests {
     }
 
     @Test
+    func modelNextButtonsShowBusyStateWhileAdvancing() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/ChillClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("private var modelAdvanceButtonLabel: some View"))
+        #expect(source.contains("disabled: viewModel.modelAdvanceBusy"))
+        #expect(source.contains("if viewModel.modelAdvanceBusy"))
+        #expect(source.contains("ProgressView()"))
+    }
+
+    @Test
     func createEmployeeButtonDisablesWhileCreating() throws {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1130,6 +1147,63 @@ struct OnboardingTests {
         #expect(!urls.contains("http://127.0.0.1:4545/api/models/local-runtime/install"))
         #expect(!urls.contains("http://127.0.0.1:4545/api/onboarding/state"))
         #expect(urls.contains("http://127.0.0.1:4545/api/onboarding/navigate"))
+        #expect(viewModel.currentStep == .channel)
+        #expect(viewModel.pageError == nil)
+    }
+
+    @Test
+    func advancingPastModelIgnoresDuplicateClicksWhileNavigationIsPending() async throws {
+        let recorder = NativeRequestRecorder()
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/navigate"):
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                let body = try JSONEncoder.chillClaw.encode(makeOnboardingStateResponse(step: .channel))
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: { true }),
+            processManager: DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true }),
+            chatViewModel: ChillClawChatViewModel(transport: FakeChatTransport()),
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model)
+
+        let firstAdvance = Task { await viewModel.advancePastModel() }
+        await waitForRecordedURLCount(recorder, expectedCount: 1)
+        let secondAdvance = Task { await viewModel.advancePastModel() }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        let navigateCount = await recorder.recordedURLs().filter { $0.hasSuffix("/api/onboarding/navigate") }.count
+        #expect(navigateCount == 1)
+
+        await firstAdvance.value
+        await secondAdvance.value
         #expect(viewModel.currentStep == .channel)
         #expect(viewModel.pageError == nil)
     }
@@ -3574,6 +3648,63 @@ struct OnboardingTests {
         let failed = resolveOnboardingEmployeePresetReadiness(preset: preset, onboardingState: failedState)
         #expect(failed.status == .repair)
         #expect(failed.detail == "Missing skill install.")
+    }
+
+    @Test
+    func resolvesCapabilityReadinessBeforeLegacyPresetSkillSync() {
+        let onboardingState = makeOnboardingStateResponse(step: .employee)
+        let preset = try! #require(onboardingState.config.employeePresets.first)
+        let capabilityState = OnboardingStateResponse(
+            firstRun: onboardingState.firstRun,
+            draft: onboardingState.draft,
+            config: onboardingState.config,
+            summary: onboardingState.summary,
+            presetSkillSync: onboardingState.presetSkillSync,
+            capabilityReadiness: .init(
+                engine: "openclaw",
+                checkedAt: "2026-03-27T00:00:00.000Z",
+                employeePresets: [
+                    .init(
+                        presetId: "research-analyst",
+                        status: "blocked",
+                        summary: "Status Writer is blocked by the active runtime policy.",
+                        requirements: [
+                            .init(
+                                id: "status-writer",
+                                kind: "skill",
+                                status: "blocked",
+                                summary: "Blocked by allowlist policy.",
+                                label: "Status Writer"
+                            )
+                        ]
+                    )
+                ],
+                summary: "1 employee preset needs setup."
+            )
+        )
+
+        let readiness = resolveOnboardingEmployeePresetReadiness(preset: preset, onboardingState: capabilityState)
+
+        #expect(readiness.status == .attention)
+        #expect(readiness.label == "Needs setup")
+        #expect(readiness.detail == "Status Writer is blocked by the active runtime policy.")
+        #expect(readiness.blocking == false)
+        #expect(readiness.requirements.first?.label == "Status Writer")
+        #expect(readiness.requirements.first?.status == "blocked")
+    }
+
+    @Test
+    func selectedEmployeePresetPreviewRendersCapabilityRequirements() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/ChillClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("OnboardingPresetRequirementRows(readiness: readiness)"))
     }
 
     @Test

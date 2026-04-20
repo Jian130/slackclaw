@@ -4323,6 +4323,33 @@
   flex-wrap: wrap;
 }
 
+.onboarding-capability-requirements {
+  display: grid;
+  gap: 8px;
+}
+
+.onboarding-capability-requirement {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgb(var(--slate-rgb) / 0.12);
+  border-radius: var(--radius-sm);
+  background: rgb(var(--white-rgb) / 0.72);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.onboarding-capability-requirement > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .onboarding-preview-card__top {
   display: flex;
   align-items: center;

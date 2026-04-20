@@ -62,6 +62,7 @@ import { OpenClawGatewayManager } from "./openclaw-gateway-manager.js";
 import { OpenClawInstanceManager } from "./openclaw-instance-manager.js";
 import { OpenClawPluginManager } from "./openclaw-plugin-manager.js";
 import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
+import { openClawToolDefinitions } from "../config/capability-catalog.js";
 import { listManagedPluginDefinitions, managedPluginDefinitionById, managedPluginDefinitionForFeature } from "../config/managed-plugins.js";
 
 import type { EngineAdapter } from "./adapter.js";
@@ -75,12 +76,14 @@ import type {
   GatewayManager,
   InstanceManager,
   PluginManager,
+  RuntimeToolAccess,
   ManagedSkillInstallRequest,
   ManagedSkillInstallResult,
   ConfigManager,
   SaveAIMemberRuntimeOptions,
   SkillRuntimeCatalog,
-  SkillRuntimeEntry
+  SkillRuntimeEntry,
+  ToolManager
 } from "./adapter.js";
 
 const MOCK_STANDARD_OPENCLAW_REQUIREMENTS = [
@@ -102,6 +105,7 @@ export class MockAdapter implements EngineAdapter {
   readonly aiEmployees: AIEmployeeManager;
   readonly gateway: GatewayManager;
   readonly plugins: PluginManager;
+  readonly tools: ToolManager;
   readonly installSpec: EngineInstallSpec = {
     engine: "openclaw",
     desiredVersion: "latest",
@@ -268,6 +272,19 @@ export class MockAdapter implements EngineAdapter {
       }
     ])
   );
+  private readonly toolAccess: RuntimeToolAccess = {
+    engine: "openclaw",
+    profile: "default",
+    allow: ["group:web"],
+    deny: [],
+    byProvider: {},
+    entries: openClawToolDefinitions.map((definition) => ({
+      id: definition.id,
+      kind: definition.kind,
+      label: definition.label,
+      description: definition.description
+    }))
+  };
   private skillRuntimeCatalog: SkillRuntimeCatalog = {
     workspaceDir: "/mock/openclaw/workspace",
     managedSkillsDir: "/mock/openclaw/workspace/skills",
@@ -459,6 +476,9 @@ export class MockAdapter implements EngineAdapter {
       updatePlugin: (pluginId) => this.updatePlugin(pluginId),
       removePlugin: (pluginId) => this.removePlugin(pluginId)
     });
+    this.tools = {
+      getRuntimeToolAccess: () => this.getRuntimeToolAccess()
+    };
   }
 
   private markGatewayApplyPending(summary = summarizePendingGatewayApply()): void {
@@ -486,6 +506,26 @@ export class MockAdapter implements EngineAdapter {
       status: "already-installed",
       message: "Mock OpenClaw runtime is deployed and ready for onboarding.",
       engineStatus: await this.status()
+    };
+  }
+
+  async getRuntimeToolAccess(): Promise<RuntimeToolAccess> {
+    return {
+      engine: this.toolAccess.engine,
+      profile: this.toolAccess.profile,
+      allow: [...this.toolAccess.allow],
+      deny: [...this.toolAccess.deny],
+      byProvider: Object.fromEntries(
+        Object.entries(this.toolAccess.byProvider).map(([providerId, policy]) => [
+          providerId,
+          {
+            profile: policy.profile,
+            allow: policy.allow ? [...policy.allow] : undefined,
+            deny: policy.deny ? [...policy.deny] : undefined
+          }
+        ])
+      ),
+      entries: this.toolAccess.entries.map((entry) => ({ ...entry }))
     };
   }
 

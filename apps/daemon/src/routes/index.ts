@@ -1,5 +1,6 @@
 import type { RouteDefinition, RouteParams } from "./types.js";
 
+import { capabilityRoutes } from "./capabilities.js";
 import { catalogRoutes } from "./catalog.js";
 import { channelsRoutes } from "./channels.js";
 import { chatRoutes } from "./chat.js";
@@ -16,6 +17,7 @@ export const routeDefinitions: RouteDefinition[] = [
   ...runtimeRoutes,
   ...onboardingRoutes,
   ...channelsRoutes,
+  ...capabilityRoutes,
   ...catalogRoutes,
   ...chatRoutes
 ];

@@ -4,8 +4,10 @@ import {
   createAIMember,
   completeOnboarding,
   fetchAITeamOverview,
+  fetchCapabilityOverview,
   fetchPluginConfig,
   fetchOverview,
+  fetchToolOverview,
   redoOnboarding,
   resetClientReadStateForTests,
   updatePlugin
@@ -125,6 +127,25 @@ describe("API client GET dedupe", () => {
     await fetchPluginConfig();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats capability and tool overviews like cached daemon snapshots", async () => {
+    const fetchMock = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<{ ok: true; json: () => Promise<{ entries: never[] }> }>
+    >(async () => ({
+      ok: true,
+      json: async () => ({ entries: [] })
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchCapabilityOverview();
+    await fetchCapabilityOverview();
+    await fetchToolOverview();
+    await fetchToolOverview();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0] ?? "")).toContain("/capabilities/overview");
+    expect(String(fetchMock.mock.calls[1]?.[0] ?? "")).toContain("/tools/overview");
   });
 
   it("posts plugin update mutations to the dedicated plugin endpoint", async () => {

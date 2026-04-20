@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
 import {
+  type CapabilityOverview,
   createDefaultLocalModelRuntimeOverview,
   type ChannelConfigOverview,
   type LocalModelRuntimeOverview,
@@ -12,6 +13,7 @@ import {
 
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
+import type { CapabilityService } from "./capability-service.js";
 import { ChannelSetupService } from "./channel-setup-service.js";
 import { EventBusService } from "./event-bus-service.js";
 import { EventPublisher } from "./event-publisher.js";
@@ -23,7 +25,11 @@ import { StateStore } from "./state-store.js";
 
 function createService(
   testName: string,
-  options?: { withEvents?: boolean; localModelRuntimeService?: LocalModelRuntimeService }
+  options?: {
+    withEvents?: boolean;
+    localModelRuntimeService?: LocalModelRuntimeService;
+    capabilityService?: CapabilityService;
+  }
 ) {
   const filePath = resolve(process.cwd(), `apps/daemon/.data/${testName}-${randomUUID()}.json`);
   const adapter = new MockAdapter();
@@ -49,7 +55,8 @@ function createService(
       aiTeamService,
       presetSkillService,
       eventPublisher,
-      options?.localModelRuntimeService
+      options?.localModelRuntimeService,
+      options?.capabilityService
     )
   };
 }
@@ -2797,6 +2804,61 @@ test("onboarding state exposes the curated model providers for step 3", async ()
   assert.deepEqual(state.config?.employeePresets?.[0]?.presetSkillIds, ["research-brief", "status-writer"]);
   assert.deepEqual(state.config?.employeePresets?.[1]?.knowledgePackIds, ["customer-voice"]);
   assert.equal(state.config?.employeePresets?.[2]?.theme, "operator");
+});
+
+test("onboarding state includes read-only capability readiness for employee presets", async () => {
+  const capabilityOverview: CapabilityOverview = {
+    engine: "openclaw",
+    checkedAt: "2026-04-20T00:00:00.000Z",
+    entries: [
+      {
+        id: "research-analyst",
+        kind: "preset",
+        engine: "openclaw",
+        label: "Research Analyst",
+        status: "blocked",
+        summary: "1 requirement needs attention.",
+        requirements: [
+          {
+            id: "status-writer",
+            kind: "skill",
+            label: "Status Writer",
+            status: "blocked",
+            summary: "Skill is blocked by the current OpenClaw allowlist."
+          }
+        ]
+      },
+      {
+        id: "support-captain",
+        kind: "preset",
+        engine: "openclaw",
+        label: "Support Captain",
+        status: "ready",
+        summary: "All requirements are ready.",
+        requirements: []
+      }
+    ],
+    summary: "1 ready · 1 needs attention"
+  };
+  const capabilityService = {
+    getOverview: async () => capabilityOverview
+  } as unknown as CapabilityService;
+  const { service } = createService("onboarding-service-capability-readiness", { capabilityService });
+
+  const state = await service.getState();
+  const byPreset = new Map(state.capabilityReadiness?.employeePresets.map((preset) => [preset.presetId, preset]));
+
+  assert.equal(state.capabilityReadiness?.engine, "openclaw");
+  assert.equal(state.capabilityReadiness?.checkedAt, "2026-04-20T00:00:00.000Z");
+  assert.equal(byPreset.get("research-analyst")?.status, "blocked");
+  assert.equal(byPreset.get("research-analyst")?.requirements[0]?.id, "status-writer");
+  assert.equal(byPreset.get("support-captain")?.status, "ready");
+  assert.equal(byPreset.get("delivery-operator")?.status, "missing");
+  assert.equal(state.capabilityReadiness?.summary, "1 ready · 2 need attention.");
+
+  const updated = await service.updateState({ currentStep: "employee" }, { responseSummaryMode: "draft" });
+  assert.equal(updated.capabilityReadiness?.employeePresets.length, 3);
+  assert.equal(updated.capabilityReadiness?.summary, "1 ready · 2 need attention.");
 });
 
 test("onboarding service fails fast when onboarding config references a missing employee preset id", async () => {

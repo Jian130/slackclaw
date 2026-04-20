@@ -48,6 +48,7 @@ import { ModelsConfigCoordinator } from "./openclaw-models-config-coordinator.js
 import { OpenClawPluginManager } from "./openclaw-plugin-manager.js";
 import { OpenClawRuntimeLifecycleService } from "./openclaw-runtime-lifecycle-service.js";
 import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
+import { OpenClawToolAccessCoordinator } from "./openclaw-tool-access-coordinator.js";
 import { type CommandResult, probeCommand as probeExternalCommand, resolveCommandFromPath as resolveCommandFromShellPath, runCommand as runExternalCommand } from "../platform/cli-runner.js";
 import { createDefaultSecretsAdapter } from "../platform/macos-keychain-secrets-adapter.js";
 import { OpenClawGatewaySocketAdapter, normalizeGatewaySocketUrl } from "../platform/openclaw-gateway-socket-adapter.js";
@@ -77,6 +78,7 @@ import type {
   AIMemberRuntimeCandidate,
   AIMemberRuntimeRequest,
   PluginManager,
+  ToolManager,
 } from "./adapter.js";
 import {
   getAppRootDir,
@@ -348,6 +350,12 @@ interface OpenClawConfigFileJson {
   channels?: Record<string, unknown>;
   plugins?: {
     entries?: Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
+  };
+  tools?: {
+    profile?: string;
+    allow?: string[];
+    deny?: string[];
+    byProvider?: Record<string, { profile?: string; allow?: string[]; deny?: string[] }>;
   };
   auth?: {
     profiles?: Record<string, { provider?: string; mode?: string; email?: string }>;
@@ -3126,6 +3134,7 @@ export class OpenClawAdapter implements EngineAdapter {
   readonly aiEmployees: AIEmployeeManager;
   readonly gateway: GatewayManager;
   readonly plugins: PluginManager;
+  readonly tools: ToolManager;
   private readonly channelsConfigCoordinator: ChannelsConfigCoordinator;
   private readonly modelsConfigCoordinator: ModelsConfigCoordinator;
   private readonly runtimeLifecycleService: OpenClawRuntimeLifecycleService;
@@ -3326,6 +3335,22 @@ export class OpenClawAdapter implements EngineAdapter {
         this.writeOpenClawConfigSnapshot(configPath, config as OpenClawConfigFileJson),
       inspectPlugin,
       restartGatewayAndRequireHealthy: (reason) => this.restartGatewayAndRequireHealthy(reason)
+    });
+    const toolAccessCoordinator = new OpenClawToolAccessCoordinator({
+      engine: this.capabilities.engine,
+      readOpenClawConfigSnapshot: async () => {
+        const snapshot = await this.readOpenClawConfigSnapshot();
+        return snapshot as unknown as {
+          config: {
+            tools?: {
+              profile?: unknown;
+              allow?: unknown;
+              deny?: unknown;
+              byProvider?: unknown;
+            };
+          };
+        };
+      }
     });
     const agentsConfigCoordinator = new AgentsConfigCoordinator({
       listAIMemberRuntimeCandidates: () => this.listAIMemberRuntimeCandidates(),
@@ -3548,6 +3573,7 @@ export class OpenClawAdapter implements EngineAdapter {
       startGatewayAfterChannels: () => runtimeLifecycleService.startGatewayAfterChannels()
     });
     this.plugins = new OpenClawPluginManager(capabilityConfigCoordinator);
+    this.tools = toolAccessCoordinator;
   }
 
   invalidateReadCaches(resources?: import("./adapter.js").EngineReadCacheResource[]): void {

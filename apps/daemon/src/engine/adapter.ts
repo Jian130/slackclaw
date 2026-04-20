@@ -90,7 +90,29 @@ export type EngineChatLiveEvent =
       toolActivity: ChatToolActivity;
     };
 
-export type EngineReadCacheResource = "engine" | "models" | "channels" | "plugins" | "skills" | "ai-members";
+export type EngineReadCacheResource = "engine" | "models" | "channels" | "plugins" | "skills" | "tools" | "ai-members";
+
+export interface RuntimeToolAccessEntry {
+  id: string;
+  kind: "tool" | "tool-group";
+  label: string;
+  description?: string;
+}
+
+export interface RuntimeToolProviderPolicy {
+  profile?: string;
+  allow?: string[];
+  deny?: string[];
+}
+
+export interface RuntimeToolAccess {
+  engine: EngineCapabilities["engine"];
+  profile?: string;
+  allow: string[];
+  deny: string[];
+  byProvider: Record<string, RuntimeToolProviderPolicy>;
+  entries: RuntimeToolAccessEntry[];
+}
 
 export interface ManagedSkillInstallRequest {
   slug: string;
@@ -291,6 +313,10 @@ export interface PluginManager {
   removePlugin(pluginId: string): Promise<{ message: string; pluginConfig: PluginConfigOverview }>;
 }
 
+export interface ToolManager {
+  getRuntimeToolAccess(): Promise<RuntimeToolAccess>;
+}
+
 export interface EngineAdapter {
   readonly installSpec: EngineInstallSpec;
   readonly capabilities: EngineCapabilities;
@@ -299,6 +325,7 @@ export interface EngineAdapter {
   readonly aiEmployees: AIEmployeeManager;
   readonly gateway: GatewayManager;
   readonly plugins: PluginManager;
+  readonly tools: ToolManager;
 
   invalidateReadCaches(resources?: EngineReadCacheResource[]): void;
 }

@@ -8,6 +8,7 @@ import { AppControlService } from "../services/app-control-service.js";
 import { AppServiceManager } from "../services/app-service-manager.js";
 import { AppUpdateService } from "../services/app-update-service.js";
 import { AITeamService } from "../services/ai-team-service.js";
+import { CapabilityService } from "../services/capability-service.js";
 import { ChatService as DaemonChatService } from "../services/chat-service.js";
 import { ChannelSetupService } from "../services/channel-setup-service.js";
 import { EventBusService } from "../services/event-bus-service.js";
@@ -21,6 +22,7 @@ import { SetupService } from "../services/setup-service.js";
 import { SkillService } from "../services/skill-service.js";
 import { StateStore } from "../services/state-store.js";
 import { TaskService } from "../services/task-service.js";
+import { ToolService } from "../services/tool-service.js";
 
 export interface ServerContext {
   adapter: ReturnType<typeof createEngineAdapter>;
@@ -37,6 +39,8 @@ export interface ServerContext {
   presetSkillService: PresetSkillService;
   channelSetupService: ChannelSetupService;
   pluginService: PluginService;
+  toolService: ToolService;
+  capabilityService: CapabilityService;
   aiTeamService: AITeamService;
   chatService: DaemonChatService;
   skillService: SkillService;
@@ -61,6 +65,8 @@ export function createServerContext(setServerStop: () => void): ServerContext {
   const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
   const channelSetupService = new ChannelSetupService(adapter, store, eventPublisher, secrets);
   const pluginService = new PluginService(adapter, eventPublisher);
+  const toolService = new ToolService(adapter);
+  const capabilityService = new CapabilityService(adapter, toolService);
   const aiTeamService = new AITeamService(adapter, store, eventPublisher, presetSkillService);
   const chatService = new DaemonChatService(adapter, store, aiTeamService, eventPublisher);
   const skillService = new SkillService(adapter, store, eventPublisher, presetSkillService);
@@ -73,7 +79,8 @@ export function createServerContext(setServerStop: () => void): ServerContext {
     aiTeamService,
     presetSkillService,
     eventPublisher,
-    localModelRuntimeService
+    localModelRuntimeService,
+    capabilityService
   );
   const taskService = new TaskService(adapter, store, eventPublisher);
   const appControlService = new AppControlService(setServerStop);
@@ -93,6 +100,8 @@ export function createServerContext(setServerStop: () => void): ServerContext {
     presetSkillService,
     channelSetupService,
     pluginService,
+    toolService,
+    capabilityService,
     aiTeamService,
     chatService,
     skillService,

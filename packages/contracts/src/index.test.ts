@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   createDefaultProductOverview,
   createDefaultRuntimeManagerOverview,
+  type CapabilityOverview,
   type DeploymentTargetsResponse,
   type AITeamOverview,
   type ChatActionResponse,
@@ -22,7 +23,8 @@ import {
   type RevisionedSnapshot,
   type SetupRunResponse,
   type SkillCatalogOverview,
-  type SkillMarketplaceDetail
+  type SkillMarketplaceDetail,
+  type ToolOverview
 } from "./index.js";
 
 test("default product overview starts with OpenClaw not installed", () => {
@@ -506,6 +508,87 @@ test("plugin config overview serializes managed plugin entries and dependencies"
   assert.equal(parsed.entries[0]?.activeDependentCount, 1);
 });
 
+test("capability overview serializes engine-backed entries and requirements", () => {
+  const overview: CapabilityOverview = {
+    engine: "openclaw",
+    checkedAt: "2026-04-20T00:00:00.000Z",
+    entries: [
+      {
+        id: "research-brief",
+        kind: "skill",
+        engine: "openclaw",
+        label: "Research Brief",
+        description: "Create concise research summaries.",
+        status: "ready",
+        summary: "Skill is ready.",
+        requirements: [
+          {
+            id: "group:web",
+            kind: "tool-group",
+            status: "ready",
+            summary: "Web tools are available."
+          }
+        ],
+        runtimeRef: {
+          engine: "openclaw",
+          kind: "skill",
+          id: "research-brief"
+        }
+      }
+    ],
+    summary: "1 capability ready."
+  };
+
+  const parsed = JSON.parse(JSON.stringify(overview)) as CapabilityOverview;
+
+  assert.equal(parsed.engine, "openclaw");
+  assert.equal(parsed.entries[0]?.kind, "skill");
+  assert.equal(parsed.entries[0]?.runtimeRef?.id, "research-brief");
+  assert.equal(parsed.entries[0]?.requirements[0]?.kind, "tool-group");
+});
+
+test("tool overview serializes global OpenClaw tool policy", () => {
+  const overview: ToolOverview = {
+    engine: "openclaw",
+    checkedAt: "2026-04-20T00:00:00.000Z",
+    profile: "default",
+    allow: ["group:web"],
+    deny: ["openclaw.exec"],
+    byProvider: {
+      openai: {
+        allow: ["group:web"],
+        deny: ["group:runtime"]
+      }
+    },
+    entries: [
+      {
+        id: "group:web",
+        kind: "tool-group",
+        engine: "openclaw",
+        label: "Web",
+        status: "ready",
+        summary: "Allowed by global tool policy."
+      },
+      {
+        id: "openclaw.exec",
+        kind: "tool",
+        engine: "openclaw",
+        label: "openclaw.exec",
+        status: "blocked",
+        summary: "Denied by global tool policy."
+      }
+    ],
+    summary: "1 ready · 1 blocked."
+  };
+
+  const parsed = JSON.parse(JSON.stringify(overview)) as ToolOverview;
+
+  assert.equal(parsed.profile, "default");
+  assert.deepEqual(parsed.allow, ["group:web"]);
+  assert.equal(parsed.byProvider.openai?.deny?.[0], "group:runtime");
+  assert.equal(parsed.entries[1]?.status, "blocked");
+});
+
 test("revisioned snapshot events serialize authoritative resource updates", () => {
   const snapshot: RevisionedSnapshot<ModelConfigOverview> = {
     epoch: "daemon-epoch-1",
@@ -965,6 +1048,49 @@ test("onboarding response serializes preset skill sync summary", () => {
 
   const parsed = JSON.parse(JSON.stringify(response)) as OnboardingStateResponse;
   assert.equal(parsed.presetSkillSync?.summary, "No preset skills selected.");
+});
+
+test("onboarding response serializes optional capability readiness", () => {
+  const response: OnboardingStateResponse = {
+    firstRun: {
+      introCompleted: false,
+      setupCompleted: false
+    },
+    draft: {
+      currentStep: "employee"
+    },
+    config: {
+      modelProviders: [],
+      channels: [],
+      employeePresets: []
+    },
+    summary: {},
+    capabilityReadiness: {
+      engine: "openclaw",
+      checkedAt: "2026-04-20T00:00:00.000Z",
+      employeePresets: [
+        {
+          presetId: "research-analyst",
+          status: "blocked",
+          summary: "1 requirement needs attention.",
+          requirements: [
+            {
+              id: "status-writer",
+              kind: "skill",
+              label: "Status Writer",
+              status: "blocked",
+              summary: "Skill is blocked by the current OpenClaw allowlist."
+            }
+          ]
+        }
+      ],
+      summary: "0 ready · 1 need attention."
+    }
+  };
+
+  const parsed = JSON.parse(JSON.stringify(response)) as OnboardingStateResponse;
+  assert.equal(parsed.capabilityReadiness?.engine, "openclaw");
+  assert.equal(parsed.capabilityReadiness?.employeePresets[0]?.requirements[0]?.status, "blocked");
 });
 
 test("onboarding employee preset presentation carries daemon-owned avatar preset ids", () => {

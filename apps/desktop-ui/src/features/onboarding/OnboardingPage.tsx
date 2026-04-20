@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useNavigate } from "react-router-dom";
 import type {
   AITeamOverview,
+  CapabilityStatus,
   ChannelConfigOverview,
   CompleteOnboardingResponse,
   ModelAuthMethod,
@@ -104,6 +105,7 @@ import {
   shouldRefreshOnboardingChannelConfig,
   shouldShowOnboardingAuthMethodChooser,
   type OnboardingInstallProgressSnapshot,
+  type OnboardingEmployeePresetReadiness,
   type OnboardingModelStepMode
 } from "./helpers.js";
 
@@ -196,6 +198,61 @@ function requiredModelFieldsMissing(method: ModelAuthMethod | undefined, values:
   }
 
   return method.fields.some((field) => field.required && !values[field.id]?.trim());
+}
+
+type StatusBadgeTone = "neutral" | "success" | "warning" | "info" | "danger";
+
+function onboardingEmployeePresetReadinessTone(
+  status: OnboardingEmployeePresetReadiness["status"] | undefined
+): StatusBadgeTone {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "repair":
+    case "attention":
+      return "warning";
+    case "syncing":
+      return "info";
+    case "install":
+    case "unknown":
+    default:
+      return "neutral";
+  }
+}
+
+function onboardingCapabilityRequirementTone(status: CapabilityStatus): StatusBadgeTone {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "blocked":
+    case "disabled":
+      return "warning";
+    case "error":
+      return "danger";
+    case "unknown":
+      return "neutral";
+    case "missing":
+    default:
+      return "info";
+  }
+}
+
+function onboardingCapabilityRequirementLabel(status: CapabilityStatus): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "missing":
+      return "Needs setup";
+    case "disabled":
+      return "Disabled";
+    case "blocked":
+      return "Blocked";
+    case "error":
+      return "Error";
+    case "unknown":
+    default:
+      return "Checking";
+  }
 }
 
 type OnboardingAuthMethodGridStyle = CSSProperties & {
@@ -465,10 +522,14 @@ export default function OnboardingPage() {
       new Map(
         employeePresets.map((preset) => [
           preset.id,
-          resolveOnboardingEmployeePresetReadiness(preset, onboardingState?.presetSkillSync)
+          resolveOnboardingEmployeePresetReadiness(
+            preset,
+            onboardingState?.presetSkillSync,
+            onboardingState?.capabilityReadiness
+          )
         ])
       ),
-    [employeePresets, onboardingState?.presetSkillSync]
+    [employeePresets, onboardingState?.capabilityReadiness, onboardingState?.presetSkillSync]
   );
   const selectedEmployeePresetReadiness = selectedEmployeePreset
     ? employeePresetReadinessById.get(selectedEmployeePreset.id)
@@ -2422,14 +2483,7 @@ export default function OnboardingPage() {
                         <div className="onboarding-employee-preset-grid">
                           {employeePresets.map((preset) => {
                             const readiness = employeePresetReadinessById.get(preset.id);
-                            const readinessTone =
-                              readiness?.status === "ready"
-                                ? "success"
-                                : readiness?.status === "repair"
-                                  ? "warning"
-                                  : readiness?.status === "syncing"
-                                    ? "info"
-                                    : "neutral";
+                            const readinessTone = onboardingEmployeePresetReadinessTone(readiness?.status);
 
                             return (
                               <button
@@ -2510,15 +2564,7 @@ export default function OnboardingPage() {
                         <div className="actions-row onboarding-preview-card__chips">
                           {selectedEmployeePresetReadiness ? (
                             <StatusBadge
-                              tone={
-                                selectedEmployeePresetReadiness.status === "ready"
-                                  ? "success"
-                                  : selectedEmployeePresetReadiness.status === "repair"
-                                    ? "warning"
-                                    : selectedEmployeePresetReadiness.status === "syncing"
-                                      ? "info"
-                                      : "neutral"
-                              }
+                              tone={onboardingEmployeePresetReadinessTone(selectedEmployeePresetReadiness.status)}
                             >
                               {selectedEmployeePresetReadiness.label}
                             </StatusBadge>
@@ -2535,6 +2581,18 @@ export default function OnboardingPage() {
                         </p>
                         {selectedEmployeePresetReadiness?.detail ? (
                           <p className="card__description">{selectedEmployeePresetReadiness.detail}</p>
+                        ) : null}
+                        {selectedEmployeePresetReadiness?.requirements?.length ? (
+                          <div className="onboarding-capability-requirements" aria-label="Preset requirements">
+                            {selectedEmployeePresetReadiness.requirements.map((requirement) => (
+                              <div className="onboarding-capability-requirement" key={`${requirement.id}:${requirement.status}`}>
+                                <span>{requirement.label}</span>
+                                <StatusBadge tone={onboardingCapabilityRequirementTone(requirement.status)}>
+                                  {onboardingCapabilityRequirementLabel(requirement.status)}
+                                </StatusBadge>
+                              </div>
+                            ))}
+                          </div>
                         ) : null}
                       </div>
 

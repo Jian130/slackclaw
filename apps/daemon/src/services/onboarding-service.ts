@@ -13,6 +13,7 @@ import type {
   ModelAuthSessionInputRequest,
   ModelAuthSessionResponse,
   ModelConfigActionResponse,
+  OnboardingCapabilityReadiness,
   OnboardingModelState,
   OnboardingCompletionSummary,
   OnboardingEmployeeState,
@@ -31,6 +32,7 @@ import type { EngineAdapter } from "../engine/adapter.js";
 import { aiMemberPresetById, normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";
 import { resolveOnboardingUiConfig } from "../config/onboarding-config.js";
 import type { ChannelSetupService } from "./channel-setup-service.js";
+import type { CapabilityService } from "./capability-service.js";
 import { EventPublisher } from "./event-publisher.js";
 import { fallbackMutationSyncMeta } from "./mutation-sync.js";
 import type { OverviewService } from "./overview-service.js";
@@ -278,7 +280,8 @@ export class OnboardingService {
     private readonly aiTeamService: AITeamService,
     private readonly presetSkillService?: PresetSkillService,
     private readonly eventPublisher?: EventPublisher,
-    private readonly localModelRuntimeService?: LocalModelRuntimeService
+    private readonly localModelRuntimeService?: LocalModelRuntimeService,
+    private readonly capabilityService?: CapabilityService
   ) {
     void this.resumePendingWarmups();
   }
@@ -441,6 +444,7 @@ export class OnboardingService {
       const presetSkillSync = this.presetSkillService
         ? await this.presetSkillService.getOverview()
         : undefined;
+      const capabilityReadiness = await this.buildCapabilityReadiness();
       const summary =
         options?.responseSummaryMode === "draft" || reuseDraftSummary
           ? this.buildDraftSummary(draft)
@@ -456,6 +460,7 @@ export class OnboardingService {
         config: onboardingUiConfig,
         summary,
         presetSkillSync,
+        capabilityReadiness,
         operations: this.operationsForState(nextState, undefined)
       };
     });
@@ -1392,6 +1397,8 @@ export class OnboardingService {
           draft: defaultOnboardingDraftState()
         }
       }));
+      const presetSkillSync = this.presetSkillService ? await this.presetSkillService.setDesiredPresetSkillIds("onboarding", []) : undefined;
+      const capabilityReadiness = await this.buildCapabilityReadiness();
 
       return {
         firstRun: {
@@ -1402,7 +1409,8 @@ export class OnboardingService {
         draft: nextState.onboarding?.draft ?? defaultOnboardingDraftState(),
         config: onboardingUiConfig,
         summary: {},
-        presetSkillSync: this.presetSkillService ? await this.presetSkillService.setDesiredPresetSkillIds("onboarding", []) : undefined
+        presetSkillSync,
+        capabilityReadiness
       };
     });
   }
@@ -1867,6 +1875,64 @@ export class OnboardingService {
     return Object.keys(operations).length > 0 ? operations : undefined;
   }
 
+  private async buildCapabilityReadiness(): Promise<OnboardingCapabilityReadiness | undefined> {
+    if (!this.capabilityService) {
+      return undefined;
+    }
+
+    try {
+      const overview = await this.capabilityService.getOverview();
+      const presetEntries = new Map(
+        overview.entries
+          .filter((entry) => entry.kind === "preset")
+          .map((entry) => [entry.id, entry])
+      );
+      const employeePresets = onboardingUiConfig.employeePresets.map((preset) => {
+        const entry = presetEntries.get(preset.id);
+
+        if (!entry) {
+          return {
+            presetId: preset.id,
+            status: "missing" as const,
+            summary: "Preset is not present in the capability catalog.",
+            requirements: []
+          };
+        }
+
+        return {
+          presetId: preset.id,
+          status: entry.status,
+          summary: entry.summary,
+          requirements: entry.requirements
+        };
+      });
+
+      return {
+        engine: overview.engine,
+        checkedAt: overview.checkedAt,
+        employeePresets,
+        summary: summarizeOnboardingCapabilityReadiness(employeePresets)
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logOnboardingEvent("onboarding.capabilityReadiness", "Capability readiness is unavailable.", { error: message });
+
+      const employeePresets = onboardingUiConfig.employeePresets.map((preset) => ({
+        presetId: preset.id,
+        status: "unknown" as const,
+        summary: "Capability readiness is temporarily unavailable.",
+        requirements: []
+      }));
+
+      return {
+        engine: this.adapter.capabilities.engine,
+        checkedAt: new Date().toISOString(),
+        employeePresets,
+        summary: "Capability readiness is temporarily unavailable."
+      };
+    }
+  }
+
   private async buildStateResponse(state: Awaited<ReturnType<StateStore["read"]>>): Promise<OnboardingStateResponse> {
     const draft = {
       ...(state.onboarding?.draft ?? defaultOnboardingDraftState()),
@@ -1893,6 +1959,7 @@ export class OnboardingService {
     if (this.presetSkillService) {
       console.log(formatConsoleLine(`presetSkillService.getOverview: ${(performance.now() - tPreset).toFixed(1)}ms`, { scope: "onboarding.buildStateResponse" }));
     }
+    const capabilityReadiness = await this.buildCapabilityReadiness();
 
     const response = {
       firstRun: {
@@ -1905,6 +1972,7 @@ export class OnboardingService {
       summary,
       localRuntime,
       presetSkillSync,
+      capabilityReadiness,
       operations: this.operationsForState(state, localRuntime)
     };
     logOnboardingEvent("onboarding.buildStateResponse", "Built onboarding state response.", summarizeOnboardingOperationResult(response));
@@ -2442,4 +2510,10 @@ export class OnboardingService {
       activeChannelSessionId: session.id
     };
   }
+}
+
+function summarizeOnboardingCapabilityReadiness(employeePresets: OnboardingCapabilityReadiness["employeePresets"]): string {
+  const ready = employeePresets.filter((preset) => preset.status === "ready").length;
+  const attention = employeePresets.length - ready;
+  return `${ready} ready · ${attention} ${attention === 1 ? "needs" : "need"} attention.`;
 }

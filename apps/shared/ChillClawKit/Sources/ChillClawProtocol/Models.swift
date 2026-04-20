@@ -382,6 +382,46 @@ public struct OnboardingOperationsState: Codable, Sendable {
     public var completion: LongRunningOperationSummary?
 }
 
+public struct OnboardingEmployeePresetCapabilityState: Codable, Sendable, Identifiable {
+    public var presetId: String
+    public var status: String
+    public var summary: String
+    public var requirements: [CapabilityRequirement]
+
+    public var id: String { presetId }
+
+    public init(
+        presetId: String,
+        status: String,
+        summary: String,
+        requirements: [CapabilityRequirement]
+    ) {
+        self.presetId = presetId
+        self.status = status
+        self.summary = summary
+        self.requirements = requirements
+    }
+}
+
+public struct OnboardingCapabilityReadiness: Codable, Sendable {
+    public var engine: String
+    public var checkedAt: String
+    public var employeePresets: [OnboardingEmployeePresetCapabilityState]
+    public var summary: String
+
+    public init(
+        engine: String,
+        checkedAt: String,
+        employeePresets: [OnboardingEmployeePresetCapabilityState],
+        summary: String
+    ) {
+        self.engine = engine
+        self.checkedAt = checkedAt
+        self.employeePresets = employeePresets
+        self.summary = summary
+    }
+}
+
 public struct OnboardingStateResponse: Codable, Sendable {
     public var firstRun: FirstRunState
     public var draft: OnboardingDraftState
@@ -389,6 +429,7 @@ public struct OnboardingStateResponse: Codable, Sendable {
     public var summary: OnboardingCompletionSummary
     public var localRuntime: LocalModelRuntimeOverview?
     public var presetSkillSync: PresetSkillSyncOverview?
+    public var capabilityReadiness: OnboardingCapabilityReadiness?
     public var operations: OnboardingOperationsState?
 
     public init(
@@ -398,6 +439,7 @@ public struct OnboardingStateResponse: Codable, Sendable {
         summary: OnboardingCompletionSummary,
         localRuntime: LocalModelRuntimeOverview? = nil,
         presetSkillSync: PresetSkillSyncOverview? = nil,
+        capabilityReadiness: OnboardingCapabilityReadiness? = nil,
         operations: OnboardingOperationsState? = nil
     ) {
         self.firstRun = firstRun
@@ -406,6 +448,7 @@ public struct OnboardingStateResponse: Codable, Sendable {
         self.summary = summary
         self.localRuntime = localRuntime
         self.presetSkillSync = presetSkillSync
+        self.capabilityReadiness = capabilityReadiness
         self.operations = operations
     }
 }
@@ -1389,6 +1432,67 @@ public struct ManagedPluginEntry: Codable, Sendable, Identifiable {
 
 public struct PluginConfigOverview: Codable, Sendable {
     public var entries: [ManagedPluginEntry]
+}
+
+public struct CapabilityRequirement: Codable, Sendable, Identifiable {
+    public var id: String
+    public var kind: String
+    public var status: String
+    public var summary: String
+    public var label: String?
+}
+
+public struct CapabilityRuntimeRef: Codable, Sendable {
+    public var engine: String
+    public var kind: String
+    public var id: String
+}
+
+public struct CapabilityEntry: Codable, Sendable, Identifiable {
+    public var id: String
+    public var kind: String
+    public var engine: String
+    public var label: String
+    public var description: String?
+    public var status: String
+    public var summary: String
+    public var requirements: [CapabilityRequirement]
+    public var runtimeRef: CapabilityRuntimeRef?
+}
+
+public struct CapabilityOverview: Codable, Sendable {
+    public var engine: String
+    public var checkedAt: String
+    public var entries: [CapabilityEntry]
+    public var summary: String
+}
+
+public struct ToolProviderPolicy: Codable, Sendable {
+    public var profile: String?
+    public var allow: [String]?
+    public var deny: [String]?
+}
+
+public struct ToolEntry: Codable, Sendable, Identifiable {
+    public var id: String
+    public var kind: String
+    public var engine: String
+    public var label: String
+    public var description: String?
+    public var status: String
+    public var summary: String
+    public var runtimeRef: CapabilityRuntimeRef?
+}
+
+public struct ToolOverview: Codable, Sendable {
+    public var engine: String
+    public var checkedAt: String
+    public var profile: String?
+    public var allow: [String]
+    public var deny: [String]
+    public var byProvider: [String: ToolProviderPolicy]
+    public var entries: [ToolEntry]
+    public var summary: String
 }
 
 public struct ChannelConfigActionResponse: Codable, Sendable {

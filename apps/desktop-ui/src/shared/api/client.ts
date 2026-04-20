@@ -18,6 +18,7 @@ import type {
   ChannelSessionResponse,
   CompleteOnboardingRequest,
   CompleteOnboardingResponse,
+  CapabilityOverview,
   DeploymentTargetActionResponse,
   DeploymentTargetsResponse,
   DownloadActionResponse,
@@ -56,6 +57,7 @@ import type {
   SkillCatalogOverview,
   SkillMarketplaceDetail,
   SkillMarketplaceEntry,
+  ToolOverview,
   UpdateSkillRequest
 } from "@chillclaw/contracts";
 import type {
@@ -114,6 +116,8 @@ function getGetCacheMs(path: string): number | undefined {
     path.startsWith("/channels/config") ||
     path.startsWith("/plugins/config") ||
     path.startsWith("/skills/config") ||
+    path.startsWith("/capabilities/overview") ||
+    path.startsWith("/tools/overview") ||
     path.startsWith("/ai-team/overview") ||
     path.startsWith("/chat/overview")
   ) {
@@ -613,6 +617,14 @@ export function fetchPluginConfig(options?: { fresh?: boolean }): Promise<Plugin
 
 export function fetchSkillConfig(options?: { fresh?: boolean }): Promise<SkillCatalogOverview> {
   return readJson<SkillCatalogOverview>("/skills/config", options);
+}
+
+export function fetchCapabilityOverview(options?: { fresh?: boolean }): Promise<CapabilityOverview> {
+  return readJson<CapabilityOverview>("/capabilities/overview", options);
+}
+
+export function fetchToolOverview(options?: { fresh?: boolean }): Promise<ToolOverview> {
+  return readJson<ToolOverview>("/tools/overview", options);
 }
 
 export function fetchMarketplacePreview(): Promise<SkillMarketplaceEntry[]> {

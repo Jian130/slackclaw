@@ -749,6 +749,104 @@ describe("onboarding helpers", () => {
     });
   });
 
+  it("prefers capability readiness over legacy preset skill sync for employee presets", () => {
+    const preset = {
+      id: "research-analyst",
+      presetSkillIds: ["research-brief", "status-writer"]
+    };
+
+    const readiness = resolveOnboardingEmployeePresetReadiness(
+      preset,
+      {
+        targetMode: "managed-local",
+        entries: [
+          {
+            presetSkillId: "research-brief",
+            runtimeSlug: "research-brief",
+            targetMode: "managed-local",
+            status: "verified",
+            updatedAt: "2026-03-27T00:00:00.000Z"
+          },
+          {
+            presetSkillId: "status-writer",
+            runtimeSlug: "status-writer",
+            targetMode: "managed-local",
+            status: "verified",
+            updatedAt: "2026-03-27T00:00:00.000Z"
+          }
+        ],
+        summary: "2 preset skills verified on the managed-local runtime.",
+        repairRecommended: false
+      },
+      {
+        engine: "openclaw",
+        checkedAt: "2026-03-27T00:00:00.000Z",
+        summary: "1 employee preset needs setup.",
+        employeePresets: [
+          {
+            presetId: "research-analyst",
+            status: "blocked",
+            summary: "Status Writer is blocked by the active runtime policy.",
+            requirements: [
+              {
+                id: "status-writer",
+                kind: "skill",
+                status: "blocked",
+                summary: "Blocked by allowlist policy.",
+                label: "Status Writer"
+              }
+            ]
+          }
+        ]
+      }
+    );
+
+    expect(readiness).toMatchObject({
+      status: "attention",
+      label: "Needs setup",
+      detail: "Status Writer is blocked by the active runtime policy.",
+      blocking: false,
+      requirements: [
+        {
+          id: "status-writer",
+          label: "Status Writer",
+          status: "blocked",
+          summary: "Blocked by allowlist policy."
+        }
+      ]
+    });
+  });
+
+  it("maps unknown capability readiness to a non-blocking checking state", () => {
+    const readiness = resolveOnboardingEmployeePresetReadiness(
+      {
+        id: "support-captain",
+        presetSkillIds: ["customer-voice"]
+      },
+      undefined,
+      {
+        engine: "openclaw",
+        checkedAt: "2026-03-27T00:00:00.000Z",
+        summary: "Capability readiness is still loading.",
+        employeePresets: [
+          {
+            presetId: "support-captain",
+            status: "unknown",
+            summary: "ChillClaw is checking the tools and skills for this preset.",
+            requirements: []
+          }
+        ]
+      }
+    );
+
+    expect(readiness).toMatchObject({
+      status: "unknown",
+      label: "Checking setup",
+      detail: "ChillClaw is checking the tools and skills for this preset.",
+      blocking: false
+    });
+  });
+
   it("uses provider-specific channel setup variants", () => {
     expect(resolveOnboardingChannelSetupVariant("wechat-work-guided")).toBe("wechat-work-guided");
     expect(resolveOnboardingChannelSetupVariant("wechat-guided")).toBe("wechat-guided");
