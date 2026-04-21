@@ -27,6 +27,8 @@ struct NativeDashboardCopy: Sendable {
     let connectedModelsMetricTitle: String
     let aiMembersMetricTitle: String
     let activeTasksMetricTitle: String
+    let capabilitiesReadyMetricTitle: String
+    let toolsReadyMetricTitle: String
     let channelsReadyMetricTitle: String
     let engineInstalled: String
     let engineMissing: String
@@ -35,6 +37,8 @@ struct NativeDashboardCopy: Sendable {
     let inProgress: String
     let openClawDeployedTitle: String
     let gatewayReachableTitle: String
+    let capabilitiesHealthTitle: String
+    let toolsHealthTitle: String
     let channelsConfiguredTitle: String
     let healthBlockersTitle: String
     let aiMemberRosterTitle: String
@@ -81,6 +85,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             connectedModelsMetricTitle: "已连接模型",
             aiMembersMetricTitle: "AI 员工",
             activeTasksMetricTitle: "进行中的任务",
+            capabilitiesReadyMetricTitle: "已就绪能力",
+            toolsReadyMetricTitle: "已就绪工具",
             channelsReadyMetricTitle: "已就绪渠道",
             engineInstalled: "已安装",
             engineMissing: "缺失",
@@ -89,6 +95,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             inProgress: "进行中",
             openClawDeployedTitle: "OpenClaw 已部署",
             gatewayReachableTitle: "网关可达",
+            capabilitiesHealthTitle: "能力",
+            toolsHealthTitle: "工具",
             channelsConfiguredTitle: "渠道已配置",
             healthBlockersTitle: "健康阻塞项",
             aiMemberRosterTitle: "AI 员工名单",
@@ -132,6 +140,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             connectedModelsMetricTitle: "接続済みモデル",
             aiMembersMetricTitle: "AI メンバー",
             activeTasksMetricTitle: "進行中のタスク",
+            capabilitiesReadyMetricTitle: "準備済み機能",
+            toolsReadyMetricTitle: "準備済みツール",
             channelsReadyMetricTitle: "準備完了のチャネル",
             engineInstalled: "インストール済み",
             engineMissing: "未インストール",
@@ -140,6 +150,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             inProgress: "進行中",
             openClawDeployedTitle: "OpenClaw 配備済み",
             gatewayReachableTitle: "ゲートウェイ到達可能",
+            capabilitiesHealthTitle: "機能",
+            toolsHealthTitle: "ツール",
             channelsConfiguredTitle: "チャネル設定",
             healthBlockersTitle: "健全性の阻害要因",
             aiMemberRosterTitle: "AI メンバー一覧",
@@ -183,6 +195,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             connectedModelsMetricTitle: "연결된 모델",
             aiMembersMetricTitle: "AI 멤버",
             activeTasksMetricTitle: "진행 중인 작업",
+            capabilitiesReadyMetricTitle: "준비된 기능",
+            toolsReadyMetricTitle: "준비된 도구",
             channelsReadyMetricTitle: "준비된 채널",
             engineInstalled: "설치됨",
             engineMissing: "없음",
@@ -191,6 +205,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             inProgress: "진행 중",
             openClawDeployedTitle: "OpenClaw 배포됨",
             gatewayReachableTitle: "게이트웨이 연결 가능",
+            capabilitiesHealthTitle: "기능",
+            toolsHealthTitle: "도구",
             channelsConfiguredTitle: "채널 구성",
             healthBlockersTitle: "상태 차단 요소",
             aiMemberRosterTitle: "AI 멤버 명단",
@@ -234,6 +250,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             connectedModelsMetricTitle: "Modelos conectados",
             aiMembersMetricTitle: "Miembros de IA",
             activeTasksMetricTitle: "Tareas activas",
+            capabilitiesReadyMetricTitle: "Capacidades listas",
+            toolsReadyMetricTitle: "Herramientas listas",
             channelsReadyMetricTitle: "Canales listos",
             engineInstalled: "Instalado",
             engineMissing: "Falta",
@@ -242,6 +260,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             inProgress: "En progreso",
             openClawDeployedTitle: "OpenClaw desplegado",
             gatewayReachableTitle: "Gateway accesible",
+            capabilitiesHealthTitle: "Capacidades",
+            toolsHealthTitle: "Herramientas",
             channelsConfiguredTitle: "Canales configurados",
             healthBlockersTitle: "Bloqueos de salud",
             aiMemberRosterTitle: "Plantilla de IA",
@@ -285,6 +305,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             connectedModelsMetricTitle: "Connected Models",
             aiMembersMetricTitle: "AI Members",
             activeTasksMetricTitle: "Active Tasks",
+            capabilitiesReadyMetricTitle: "Capabilities Ready",
+            toolsReadyMetricTitle: "Tools Ready",
             channelsReadyMetricTitle: "Channels Ready",
             engineInstalled: "Installed",
             engineMissing: "Missing",
@@ -293,6 +315,8 @@ func nativeDashboardCopy(localeIdentifier: String = resolveNativeOnboardingLocal
             inProgress: "In Progress",
             openClawDeployedTitle: "OpenClaw deployed",
             gatewayReachableTitle: "Gateway reachable",
+            capabilitiesHealthTitle: "Capabilities",
+            toolsHealthTitle: "Tools",
             channelsConfiguredTitle: "Channels configured",
             healthBlockersTitle: "Health blockers",
             aiMemberRosterTitle: "AI member roster",

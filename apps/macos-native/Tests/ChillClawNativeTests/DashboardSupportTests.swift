@@ -13,22 +13,28 @@ struct DashboardSupportTests {
         let presentation = makeDashboardPresentation(
             overview: makeDashboardOverview(),
             modelConfig: makeDashboardModelConfig(),
-            aiTeamOverview: makeDashboardAITeamOverview()
+            aiTeamOverview: makeDashboardAITeamOverview(),
+            capabilityOverview: makeDashboardCapabilityOverview(),
+            toolOverview: makeDashboardToolOverview()
         )
 
-        #expect(presentation.metrics.count == 5)
+        #expect(presentation.metrics.count == 7)
         #expect(presentation.metrics[0] == .init(title: "Engine", value: "Installed", detail: "Ready"))
         #expect(presentation.metrics[1] == .init(title: "Connected Models", value: "2", detail: "MiniMax / minimax-chat"))
         #expect(presentation.metrics[2] == .init(title: "AI Members", value: "2", detail: "1 ready / 1 busy"))
         #expect(presentation.metrics[3] == .init(title: "Active Tasks", value: "3", detail: "In Progress"))
-        #expect(presentation.metrics[4] == .init(title: "Channels Ready", value: "2", detail: "Gateway ready"))
+        #expect(presentation.metrics[4] == .init(title: "Capabilities Ready", value: "1", detail: "1 ready · 1 needs attention."))
+        #expect(presentation.metrics[5] == .init(title: "Tools Ready", value: "1", detail: "1 tool ready · 1 blocked."))
+        #expect(presentation.metrics[6] == .init(title: "Channels Ready", value: "2", detail: "Gateway ready"))
 
-        #expect(presentation.healthItems.count == 5)
+        #expect(presentation.healthItems.count == 7)
         #expect(presentation.healthItems[0] == .init(title: "OpenClaw deployed", status: "Active", tone: .success))
         #expect(presentation.healthItems[1] == .init(title: "Gateway reachable", status: "Running", tone: .success))
-        #expect(presentation.healthItems[2] == .init(title: "Channels configured", status: "2 ready", tone: .success))
-        #expect(presentation.healthItems[3] == .init(title: "Health blockers", status: "Review", tone: .warning))
-        #expect(presentation.healthItems[4] == .init(title: "AI member roster", status: "2 members", tone: .info))
+        #expect(presentation.healthItems[2] == .init(title: "Capabilities", status: "Review", tone: .warning))
+        #expect(presentation.healthItems[3] == .init(title: "Tools", status: "Review", tone: .warning))
+        #expect(presentation.healthItems[4] == .init(title: "Channels configured", status: "2 ready", tone: .success))
+        #expect(presentation.healthItems[5] == .init(title: "Health blockers", status: "Review", tone: .warning))
+        #expect(presentation.healthItems[6] == .init(title: "AI member roster", status: "2 members", tone: .info))
 
         #expect(presentation.employeeRows.count == 2)
         #expect(presentation.activityRows.count == 2)
@@ -213,5 +219,33 @@ private func makeDashboardAITeamOverview() -> AITeamOverview {
         knowledgePacks: [],
         skillOptions: [],
         presetSkillSync: nil
+    )
+}
+
+private func makeDashboardCapabilityOverview() -> CapabilityOverview {
+    .init(
+        engine: "openclaw",
+        checkedAt: "2026-04-20T00:00:00.000Z",
+        entries: [
+            .init(id: "general-assistant", kind: "preset", engine: "openclaw", label: "General Assistant", description: nil, status: "ready", summary: "Ready.", requirements: [], runtimeRef: nil),
+            .init(id: "openclaw-weixin", kind: "plugin", engine: "openclaw", label: "WeChat", description: nil, status: "blocked", summary: "Blocked.", requirements: [], runtimeRef: nil)
+        ],
+        summary: "1 ready · 1 needs attention."
+    )
+}
+
+private func makeDashboardToolOverview() -> ToolOverview {
+    .init(
+        engine: "openclaw",
+        checkedAt: "2026-04-20T00:00:00.000Z",
+        profile: "default",
+        allow: ["web.search"],
+        deny: ["fs.write"],
+        byProvider: [:],
+        entries: [
+            .init(id: "web.search", kind: "tool", engine: "openclaw", label: "Web Search", description: nil, status: "ready", summary: "Allowed.", runtimeRef: nil),
+            .init(id: "fs.write", kind: "tool", engine: "openclaw", label: "File Write", description: nil, status: "blocked", summary: "Denied.", runtimeRef: nil)
+        ],
+        summary: "1 tool ready · 1 blocked."
     )
 }

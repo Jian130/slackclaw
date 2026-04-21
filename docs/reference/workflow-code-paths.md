@@ -22,9 +22,9 @@ This reference maps the current ChillClaw workflow surface to the code paths tha
 | Deploy runtime lifecycle | `apps/desktop-ui/src/features/deploy/DeployPage.tsx` | `apps/macos-native/Sources/ChillClawNative/DeploySupport.swift`, `apps/macos-native/Sources/ChillClawNative/Screens.swift` | `GET /api/deploy/targets`, deploy target mutations, `POST /api/deploy/gateway/restart` | `adapter.instances.*`, `adapter.gateway.restartGateway()`, `EventPublisher` |
 | Onboarding | `apps/desktop-ui/src/features/onboarding/OnboardingPage.tsx` | `apps/macos-native/Sources/ChillClawNative/OnboardingViewModel.swift`, `apps/macos-native/Sources/ChillClawNative/OnboardingView.swift` | `/api/onboarding/*`, `POST /api/install`, runtime/model/channel helper routes | `OnboardingService`, `SetupService`, `ChannelSetupService`, `AITeamService`, `adapter.gateway.finalizeOnboardingSetup()` |
 | Model configuration and auth | `apps/desktop-ui/src/features/config/ConfigPage.tsx`, onboarding page | `apps/macos-native/Sources/ChillClawNative/ConfigurationSupport.swift`, onboarding view model | `/api/models/*`, onboarding model routes | `adapter.config.*`, `apps/daemon/src/engine/openclaw-config-manager.ts`, model coordinators |
-| Channel configuration and sessions | `apps/desktop-ui/src/features/config/ConfigPage.tsx`, onboarding page | `apps/macos-native/Sources/ChillClawNative/ConfigurationSupport.swift`, onboarding view model | `/api/channels/*`, onboarding channel routes, Feishu callback routes | `ChannelSetupService`, `FeatureWorkflowService`, `adapter.config.*`, `adapter.gateway.*`, channels coordinator |
+| Channel configuration and sessions | `apps/desktop-ui/src/features/config/ConfigPage.tsx`, onboarding page | `apps/macos-native/Sources/ChillClawNative/ConfigurationSupport.swift`, onboarding view model | `/api/channels/*`, onboarding channel routes, Feishu callback routes | `ChannelSetupService`, `CapabilityService`, `adapter.config.*`, `adapter.gateway.*`, channels coordinator |
 | Chat threads and streaming | `apps/desktop-ui/src/features/chat/ChatPage.tsx` | `apps/macos-native/Sources/ChillClawNative/AppState.swift`, `apps/shared/ChillClawKit/Sources/ChillClawChatUI/ChatViewModel.swift` | `/api/chat/*`, `GET /api/events` | `ChatService`, `adapter.gateway.getChatThreadDetail()`, `sendChatMessage()`, `abortChatMessage()` |
-| Skills and plugins | `apps/desktop-ui/src/features/skills/SkillsPage.tsx`, `apps/desktop-ui/src/features/plugins/PluginsPage.tsx` | `apps/macos-native/Sources/ChillClawNative/Screens.swift`, `apps/macos-native/Sources/ChillClawNative/AppState.swift` | `/api/skills/*`, `/api/plugins/*`, marketplace catalog routes | `SkillService`, `PluginService`, `PresetSkillService`, `adapter.config.*`, `adapter.plugins.*` |
+| Skills and plugins | `apps/desktop-ui/src/features/skills/SkillsPage.tsx`, `apps/desktop-ui/src/features/plugins/PluginsPage.tsx` | `apps/macos-native/Sources/ChillClawNative/Screens.swift`, `apps/macos-native/Sources/ChillClawNative/AppState.swift` | `/api/skills/*`, `/api/plugins/*`, marketplace catalog routes | `SkillService`, `PluginService`, `CapabilityService`, `adapter.config.*`, `adapter.plugins.*` |
 | Task execution | client API only today | client API only today | `POST /api/tasks` | `TaskService` -> `adapter.gateway.runTask()` |
 
 ## 1. App startup and daemon boot
@@ -273,7 +273,7 @@ Do not treat every release asset download as an app install. Assets such as `run
 - The standard config routes in `apps/daemon/src/routes/models.ts` call `adapter.config.*` directly.
 - Onboarding wraps the same engine path through `OnboardingService.saveModelEntry()` and auth-session helpers.
 - The OpenClaw implementation is composed in `apps/daemon/src/engine/openclaw-adapter.ts`.
-- The main lower-level managers are `apps/daemon/src/engine/openclaw-config-manager.ts`, `apps/daemon/src/engine/openclaw-models-config-coordinator.ts`, and `apps/daemon/src/engine/openclaw-capability-config-coordinator.ts`.
+- The main lower-level managers are `apps/daemon/src/engine/openclaw-config-manager.ts`, `apps/daemon/src/engine/openclaw-models-config-coordinator.ts`, and `apps/daemon/src/engine/openclaw-skill-plugin-coordinator.ts`.
 
 ### Support and eventing
 
@@ -305,7 +305,7 @@ Do not treat every release asset download as an app install. Assets such as `run
 
 - Route handlers live in `apps/daemon/src/routes/channels.ts` and `apps/daemon/src/routes/onboarding.ts`.
 - `apps/daemon/src/services/channel-setup-service.ts` owns channel config overview, staged entry storage, secret handling, and session follow-up.
-- `ChannelSetupService` delegates prerequisite handling to `apps/daemon/src/services/feature-workflow-service.ts`.
+- `ChannelSetupService` delegates prerequisite handling to `apps/daemon/src/services/capability-service.ts`.
 - Engine calls flow through:
   - `adapter.config.saveChannelEntry()`
   - `adapter.config.getChannelState()`
@@ -388,7 +388,7 @@ Do not treat every release asset download as an app install. Assets such as `run
 
 - `apps/daemon/src/services/skill-service.ts` builds the installed-skill view from runtime data plus ChillClaw-managed custom metadata.
 - `apps/daemon/src/services/plugin-service.ts` fronts managed plugin install/update/remove flows.
-- `apps/daemon/src/services/preset-skill-service.ts` reconciles preset-owned skills.
+- `apps/daemon/src/services/capability-service.ts` reconciles preset-owned skills as compatibility state while capability management replaces preset-specific orchestration.
 - Engine calls flow through `adapter.config.*` for marketplace/runtime skills and `adapter.plugins.*` for managed plugins.
 
 ### Support modules

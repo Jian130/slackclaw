@@ -4,9 +4,9 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
+import { CapabilityService } from "./capability-service.js";
 import { EventBusService } from "./event-bus-service.js";
 import { EventPublisher } from "./event-publisher.js";
-import { PresetSkillService } from "./preset-skill-service.js";
 import { SkillService } from "./skill-service.js";
 import { StateStore } from "./state-store.js";
 
@@ -15,13 +15,13 @@ function createService(testName: string, adapter = new MockAdapter(), options?: 
   const store = new StateStore(filePath);
   const bus = options?.withEvents ? new EventBusService() : undefined;
   const eventPublisher = bus ? new EventPublisher(bus) : undefined;
-  const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
+  const capabilityService = new CapabilityService(adapter, undefined, store, eventPublisher);
 
   return {
     adapter,
     store,
-    presetSkillService,
-    service: new SkillService(adapter, store, eventPublisher, presetSkillService),
+    capabilityService,
+    service: new SkillService(adapter, store, eventPublisher, capabilityService),
     bus
   };
 }
@@ -107,9 +107,9 @@ test("skill service publishes snapshot events for install, update, and remove", 
 });
 
 test("skill service can repair preset skill sync and returns the updated overview", async () => {
-  const { service, presetSkillService } = createService("skills-preset-repair");
+  const { service, capabilityService } = createService("skills-preset-repair");
 
-  await presetSkillService.setDesiredPresetSkillIds("onboarding", ["research-brief"]);
+  await capabilityService.setDesiredPresetSkillIds("onboarding", ["research-brief"]);
   const response = await service.repairPresetSkillSync();
 
   assert.equal(response.status, "completed");

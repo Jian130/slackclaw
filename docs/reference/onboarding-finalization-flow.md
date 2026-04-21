@@ -262,7 +262,7 @@ startOnboardingWarmup(warmupTaskId)
 -> readOnboardingWarmup(taskId)
 -> update warmup status: running, "Verifying preset skills"
 -> aiTeamService.markOnboardingWarmupProgress(...)
--> presetSkillService.setDesiredPresetSkillIds("onboarding", presetSkillIds, waitForReconcile: true)
+-> capabilityService.setDesiredPresetSkillIds("onboarding", presetSkillIds, waitForReconcile: true)
 -> update warmup status: running, "Indexing memory"
 -> aiTeamService.finalizeOnboardingWarmup(memberId)
 -> update warmup status: running, "Applying gateway changes"

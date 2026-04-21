@@ -12,7 +12,7 @@ test("OpenClawAdapter composes the new coordinators and runtime services", async
   assert.match(source, /ChannelsConfigCoordinator/);
   assert.match(source, /ModelsConfigCoordinator/);
   assert.match(source, /AgentsConfigCoordinator/);
-  assert.match(source, /CapabilityConfigCoordinator/);
+  assert.match(source, /OpenClawSkillPluginCoordinator/);
   assert.match(source, /OpenClawRuntimeLifecycleService/);
   assert.match(source, /ChatService/);
 });
@@ -145,8 +145,8 @@ test("AgentsConfigCoordinator owns the extracted AI member auth, profile sync, a
   assert.match(source, /private async bindMemberChannelExclusively\(/);
 });
 
-test("CapabilityConfigCoordinator owns the extracted marketplace filesystem and managed-plugin cleanup helpers", async () => {
-  const source = await readFile(resolve(sourceDir, "openclaw-capability-config-coordinator.ts"), "utf8");
+test("OpenClawSkillPluginCoordinator owns the extracted marketplace filesystem and managed-plugin cleanup helpers", async () => {
+  const source = await readFile(resolve(sourceDir, "openclaw-skill-plugin-coordinator.ts"), "utf8");
 
   assert.match(source, /private async readOpenClawSkillsList\(/);
   assert.match(source, /private async resolveSharedSkillsDir\(/);

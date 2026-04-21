@@ -295,7 +295,7 @@ function toSkillReadinessSummary(skills: SkillRuntimeEntry[], warnings: string[]
   };
 }
 
-export class CapabilityConfigCoordinator {
+export class OpenClawSkillPluginCoordinator {
   constructor(private readonly access: CapabilityConfigAccess) {}
 
   async getSkillRuntimeCatalog(): Promise<SkillRuntimeCatalog> {

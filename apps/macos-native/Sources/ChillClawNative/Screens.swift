@@ -109,6 +109,8 @@ struct DashboardScreen: View {
                     overview: overview,
                     modelConfig: appState.modelConfig,
                     aiTeamOverview: appState.aiTeamOverview,
+                    capabilityOverview: appState.capabilityOverview,
+                    toolOverview: appState.toolOverview,
                     localeIdentifier: localeIdentifier
                 )
 

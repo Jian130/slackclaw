@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Activity, ArrowRight, Brain, CheckCircle2, Shield, Sparkles, Users } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { ModelConfigOverview, ProductOverview } from "@chillclaw/contracts";
+import type { CapabilityOverview, CapabilityStatus, ChillClawEvent, ModelConfigOverview, ProductOverview, ToolOverview } from "@chillclaw/contracts";
 
 import { useAITeam } from "../../app/providers/AITeamProvider.js";
 import { useOverview } from "../../app/providers/OverviewProvider.js";
 import { useLocale } from "../../app/providers/LocaleProvider.js";
-import { fetchModelConfig } from "../../shared/api/client.js";
+import { fetchCapabilityOverview, fetchModelConfig, fetchToolOverview } from "../../shared/api/client.js";
+import { subscribeToDaemonEvents } from "../../shared/api/events.js";
 import { t } from "../../shared/i18n/messages.js";
 import { TagBadge } from "../../shared/ui/Badge.js";
 import { Button } from "../../shared/ui/Button.js";
@@ -49,20 +50,111 @@ export function connectedModelDetail(
   return "No configured models";
 }
 
+const READY_STATUSES: CapabilityStatus[] = ["ready"];
+const ATTENTION_STATUSES: CapabilityStatus[] = ["missing", "disabled", "blocked", "error"];
+
+export function capabilityReadyCount(capabilityOverview: CapabilityOverview | undefined): number {
+  return capabilityOverview?.entries.filter((entry) => READY_STATUSES.includes(entry.status)).length ?? 0;
+}
+
+export function capabilityReadinessDetail(capabilityOverview: CapabilityOverview | undefined): string {
+  return capabilityOverview?.summary ?? "Capability readiness is loading.";
+}
+
+export function toolReadyCount(toolOverview: ToolOverview | undefined): number {
+  return toolOverview?.entries.filter((entry) => READY_STATUSES.includes(entry.status)).length ?? 0;
+}
+
+export function toolReadinessDetail(toolOverview: ToolOverview | undefined): string {
+  return toolOverview?.summary ?? "Tool access is loading.";
+}
+
+function hasCapabilityAttention(capabilityOverview: CapabilityOverview | undefined): boolean {
+  return capabilityOverview?.entries.some((entry) => ATTENTION_STATUSES.includes(entry.status)) ?? false;
+}
+
+function hasToolAttention(toolOverview: ToolOverview | undefined): boolean {
+  return toolOverview?.entries.some((entry) => ATTENTION_STATUSES.includes(entry.status)) ?? false;
+}
+
+export function shouldRefreshDashboardCapabilitySnapshotsForEvent(event: ChillClawEvent): boolean {
+  return (
+    event.type === "skill-catalog.updated" ||
+    event.type === "preset-skill-sync.updated" ||
+    event.type === "plugin-config.updated" ||
+    event.type === "channel-config.updated" ||
+    event.type === "config.applied" ||
+    event.type === "deploy.completed" ||
+    event.type === "gateway.status"
+  );
+}
+
 export default function DashboardPage() {
   const { locale } = useLocale();
   const copy = t(locale).dashboard;
   const { overview } = useOverview();
   const { overview: aiTeam } = useAITeam();
   const [modelConfig, setModelConfig] = useState<ModelConfigOverview>();
+  const [capabilityOverview, setCapabilityOverview] = useState<CapabilityOverview>();
+  const [toolOverview, setToolOverview] = useState<ToolOverview>();
   const readyCount = aiTeam?.members.filter((member) => member.status === "ready").length ?? 0;
   const busyCount = aiTeam?.members.filter((member) => member.status === "busy").length ?? 0;
   const channelReady = overview?.channelSetup.channels.filter((channel) => channel.status === "completed" || channel.status === "ready").length ?? 0;
 
   useEffect(() => {
-    void fetchModelConfig()
-      .then((next) => setModelConfig(next))
-      .catch(() => setModelConfig(undefined));
+    let cancelled = false;
+    const refreshDashboardSnapshots = async () => {
+      const [nextModelConfig, nextCapabilityOverview, nextToolOverview] = await Promise.all([
+        fetchModelConfig(),
+        fetchCapabilityOverview({ fresh: true }),
+        fetchToolOverview({ fresh: true })
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setModelConfig(nextModelConfig);
+      setCapabilityOverview(nextCapabilityOverview);
+      setToolOverview(nextToolOverview);
+    };
+
+    void refreshDashboardSnapshots()
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setModelConfig(undefined);
+        setCapabilityOverview(undefined);
+        setToolOverview(undefined);
+      });
+
+    const unsubscribe = subscribeToDaemonEvents((event) => {
+      if (!shouldRefreshDashboardCapabilitySnapshotsForEvent(event)) {
+        return;
+      }
+
+      void Promise.all([fetchCapabilityOverview({ fresh: true }), fetchToolOverview({ fresh: true })])
+        .then(([nextCapabilityOverview, nextToolOverview]) => {
+          if (cancelled) {
+            return;
+          }
+          setCapabilityOverview(nextCapabilityOverview);
+          setToolOverview(nextToolOverview);
+        })
+        .catch(() => {
+          if (cancelled) {
+            return;
+          }
+          setCapabilityOverview(undefined);
+          setToolOverview(undefined);
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   return (
@@ -138,6 +230,8 @@ export default function DashboardPage() {
         />
         <MetricCard detail={`${readyCount} ready / ${busyCount} busy`} label="AI Members" value={aiTeam?.members.length ?? 0} />
         <MetricCard detail="In Progress" label="Active Tasks" value={aiTeam?.members.reduce((total, member) => total + member.activeTaskCount, 0) ?? 0} />
+        <MetricCard detail={capabilityReadinessDetail(capabilityOverview)} label="Capabilities Ready" value={capabilityReadyCount(capabilityOverview)} />
+        <MetricCard detail={toolReadinessDetail(toolOverview)} label="Tools Ready" value={toolReadyCount(toolOverview)} />
         <MetricCard detail={overview?.channelSetup.gatewaySummary} label="Channels Ready" value={channelReady} />
       </div>
 
@@ -217,6 +311,8 @@ export default function DashboardPage() {
                 <div className="check-row"><strong>OpenClaw deployed</strong><StatusBadge tone={overview?.engine.installed ? "success" : "warning"}>{overview?.engine.installed ? "Active" : "Missing"}</StatusBadge></div>
                 <div className="check-row"><strong>Gateway reachable</strong><StatusBadge tone={overview?.engine.running ? "success" : "warning"}>{overview?.engine.running ? "Running" : "Stopped"}</StatusBadge></div>
                 <div className="check-row"><strong>Local AI runtime</strong><StatusBadge tone={overview?.localRuntime?.status === "ready" ? "success" : overview?.localRuntime?.status === "degraded" || overview?.localRuntime?.status === "failed" ? "warning" : "neutral"}>{overview?.localRuntime?.status === "ready" ? "Ready" : overview?.localRuntime?.status === "degraded" || overview?.localRuntime?.status === "failed" ? "Repair" : overview?.localRuntime?.recommendation === "local" ? "Available" : "Cloud"}</StatusBadge></div>
+                <div className="check-row"><strong>Capabilities</strong><StatusBadge tone={hasCapabilityAttention(capabilityOverview) ? "warning" : capabilityOverview ? "success" : "neutral"}>{hasCapabilityAttention(capabilityOverview) ? "Review" : capabilityOverview ? "Ready" : "Loading"}</StatusBadge></div>
+                <div className="check-row"><strong>Tools</strong><StatusBadge tone={hasToolAttention(toolOverview) ? "warning" : toolOverview ? "success" : "neutral"}>{hasToolAttention(toolOverview) ? "Review" : toolOverview ? "Ready" : "Loading"}</StatusBadge></div>
                 <div className="check-row"><strong>Channels configured</strong><StatusBadge tone={channelReady ? "success" : "warning"}>{channelReady ? `${channelReady} ready` : "Pending"}</StatusBadge></div>
                 <div className="check-row"><strong>Health blockers</strong><StatusBadge tone={overview?.healthChecks.some((check) => check.severity === "error") ? "warning" : "success"}>{overview?.healthChecks.some((check) => check.severity === "error") ? "Review" : "Clear"}</StatusBadge></div>
                 <div className="check-row"><strong>AI member roster</strong><StatusBadge tone="info">{aiTeam?.members.length ?? 0} members</StatusBadge></div>

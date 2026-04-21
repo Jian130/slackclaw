@@ -637,6 +637,22 @@ struct ChillClawProtocolTests {
                 ]
               }
             ],
+            "channels": [
+              {
+                "channelId": "wechat",
+                "status": "ready",
+                "summary": "Personal WeChat login is ready.",
+                "requirements": [
+                  {
+                    "id": "openclaw-weixin",
+                    "kind": "feature",
+                    "label": "Personal WeChat login",
+                    "status": "ready",
+                    "summary": "Login helper is available."
+                  }
+                ]
+              }
+            ],
             "summary": "0 ready · 1 need attention."
           },
           "summary": {
@@ -705,6 +721,8 @@ struct ChillClawProtocolTests {
         #expect(response.presetSkillSync?.entries.first?.status == .verified)
         #expect(response.capabilityReadiness?.employeePresets.first?.status == "blocked")
         #expect(response.capabilityReadiness?.employeePresets.first?.requirements.first?.id == "status-writer")
+        #expect(response.capabilityReadiness?.channels.first?.channelId == .wechat)
+        #expect(response.capabilityReadiness?.channels.first?.requirements.first?.id == "openclaw-weixin")
         #expect(response.summary.model?.entryId == "entry-1")
         #expect(response.localRuntime?.recommendation == "local")
         #expect(response.localRuntime?.status == "installing-runtime")

@@ -1084,6 +1084,22 @@ test("onboarding response serializes optional capability readiness", () => {
           ]
         }
       ],
+      channels: [
+        {
+          channelId: "wechat",
+          status: "ready",
+          summary: "Personal WeChat login is ready.",
+          requirements: [
+            {
+              id: "openclaw-weixin",
+              kind: "feature",
+              label: "Personal WeChat login",
+              status: "ready",
+              summary: "Login helper is available."
+            }
+          ]
+        }
+      ],
       summary: "0 ready · 1 need attention."
     }
   };
@@ -1091,6 +1107,8 @@ test("onboarding response serializes optional capability readiness", () => {
   const parsed = JSON.parse(JSON.stringify(response)) as OnboardingStateResponse;
   assert.equal(parsed.capabilityReadiness?.engine, "openclaw");
   assert.equal(parsed.capabilityReadiness?.employeePresets[0]?.requirements[0]?.status, "blocked");
+  assert.equal(parsed.capabilityReadiness?.channels[0]?.channelId, "wechat");
+  assert.equal(parsed.capabilityReadiness?.channels[0]?.requirements[0]?.id, "openclaw-weixin");
 });
 
 test("onboarding employee preset presentation carries daemon-owned avatar preset ids", () => {

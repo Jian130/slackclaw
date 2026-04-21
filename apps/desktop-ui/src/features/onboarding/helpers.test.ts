@@ -29,6 +29,7 @@ import {
   resolveOnboardingModelPickerProviders,
   resolveOnboardingModelViewState,
   resolveOnboardingChannelPresentations,
+  resolveOnboardingChannelCapabilityReadiness,
   resolveOnboardingEmployeePresets,
   resolveOnboardingPresetSkillIds,
   resolveOnboardingActiveChannelSession,
@@ -600,6 +601,46 @@ describe("onboarding helpers", () => {
     expect(channels.map((channel) => channel.setupKind)).toEqual(["wechat-guided"]);
   });
 
+  it("uses capability readiness for onboarding channel requirements", () => {
+    const readiness = resolveOnboardingChannelCapabilityReadiness("wechat", {
+      engine: "openclaw",
+      checkedAt: "2026-04-20T00:00:00.000Z",
+      summary: "1 ready · 0 need attention.",
+      employeePresets: [],
+      channels: [
+        {
+          channelId: "wechat",
+          status: "ready",
+          summary: "Personal WeChat login is ready.",
+          requirements: [
+            {
+              id: "openclaw-weixin",
+              kind: "feature",
+              label: "Personal WeChat login",
+              status: "ready",
+              summary: "Login helper is available."
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(readiness).toMatchObject({
+      status: "ready",
+      label: "Ready",
+      detail: "Personal WeChat login is ready.",
+      blocking: false,
+      requirements: [
+        {
+          id: "openclaw-weixin",
+          label: "Personal WeChat login",
+          status: "ready",
+          summary: "Login helper is available."
+        }
+      ]
+    });
+  });
+
   it("uses the daemon-curated onboarding employee presets instead of runtime skill options", () => {
     const presets = resolveOnboardingEmployeePresets({
       config: {
@@ -771,7 +812,8 @@ describe("onboarding helpers", () => {
               }
             ]
           }
-        ]
+        ],
+        channels: []
       }
     );
 
@@ -809,7 +851,8 @@ describe("onboarding helpers", () => {
             summary: "ChillClaw is checking the tools and skills for this preset.",
             requirements: []
           }
-        ]
+        ],
+        channels: []
       }
     );
 

@@ -32,10 +32,9 @@ flowchart TB
     Team["AITeamService"]
     Chat["ChatService"]
     Skills["SkillService"]
-    Presets["PresetSkillService"]
     Plugins["PluginService"]
+    Capabilities["CapabilityService"]
     Tasks["TaskService"]
-    Feature["FeatureWorkflowService<br/>(inside ChannelSetupService)"]
   end
 
   Server --> EventBus
@@ -58,6 +57,7 @@ flowchart TB
   Server --> Skills
   Server --> Presets
   Server --> Plugins
+  Server --> Capabilities
   Server --> Tasks
 
   Overview --> Adapter
@@ -77,28 +77,27 @@ flowchart TB
   Setup --> Store
   Setup --> Overview
   Setup --> Publisher
-  Setup --> Presets
 
   Onboarding --> Adapter
   Onboarding --> Store
   Onboarding --> Overview
   Onboarding --> Channels
   Onboarding --> Team
-  Onboarding --> Presets
+  Onboarding --> Capabilities
   Onboarding --> LocalRuntime
 
   Channels --> Adapter
   Channels --> Store
   Channels --> Publisher
   Channels --> Secrets
-  Channels --> Feature
+  Channels --> Capabilities
 
-  Feature --> Adapter
+  Capabilities --> Adapter
 
   Team --> Adapter
   Team --> Store
   Team --> Publisher
-  Team --> Presets
+  Team --> Capabilities
 
   Chat --> Adapter
   Chat --> Store
@@ -108,11 +107,7 @@ flowchart TB
   Skills --> Adapter
   Skills --> Store
   Skills --> Publisher
-  Skills --> Presets
-
-  Presets --> Adapter
-  Presets --> Store
-  Presets --> Publisher
+  Skills --> Capabilities
 
   Plugins --> Adapter
   Plugins --> Publisher
@@ -137,7 +132,7 @@ flowchart LR
   OpenClaw --> Conf["config<br/>OpenClawConfigManager"]
   OpenClaw --> AI["aiEmployees<br/>OpenClawAIEmployeeManager"]
   OpenClaw --> Gate["gateway<br/>OpenClawGatewayManager"]
-  OpenClaw --> Plug["plugins<br/>OpenClawPluginManager"]
+  OpenClaw --> Plug["plugins<br/>OpenClawSkillPluginCoordinator"]
 
   subgraph Platform["Daemon-internal platform seams"]
     CLI["cli-runner.ts"]
@@ -178,6 +173,6 @@ flowchart LR
 - `RuntimeManager` owns generic prerequisite lifecycle for Node/npm, managed OpenClaw, Ollama, and local model catalog metadata. It is manifest-driven and update-aware, but OpenClaw-specific product behavior still stays inside `OpenClawAdapter`.
 - `AppUpdateService` owns packaged app release checks. It feeds overview/settings state but does not manage prerequisite runtimes.
 - `LocalModelRuntimeService` owns managed local-model setup state and the handoff from Ollama readiness to OpenClaw model entries; Ollama model pull transfer state is represented as DownloadManager jobs while existing local-runtime progress snapshots remain for current clients.
-- `FeatureWorkflowService` is a helper used by `ChannelSetupService` for feature prerequisites such as OpenClaw plugins or external installers; it is not a separately wired server-context singleton.
+- `CapabilityService` owns capability readiness and managed feature prerequisites such as OpenClaw plugins or external installers. `ChannelSetupService` consumes it instead of preparing feature requirements directly.
 - Product services stay engine-agnostic. They coordinate user-facing behavior and reach OpenClaw only through the `EngineAdapter` seam.
 - OpenClaw-specific behavior is confined to the `OpenClaw*Manager` classes and the platform adapters in `apps/daemon/src/platform`.

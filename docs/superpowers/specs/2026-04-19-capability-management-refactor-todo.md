@@ -57,13 +57,13 @@ Target:
 TODO:
 
 - [ ] Add capability selection state that can represent current preset skill choices.
-- [ ] Add capability overview fields that can derive the current `presetSkillSync` response.
-- [ ] Move preset skill reconciliation into capability orchestration.
-- [ ] Update onboarding to request required capability IDs instead of calling `PresetSkillService`.
-- [ ] Update AI team readiness to resolve runtime skills through `CapabilityService`.
-- [ ] Update skill routes/tests to read compatibility preset status from the capability layer.
-- [ ] Delete `apps/daemon/src/services/preset-skill-service.ts`.
-- [ ] Remove direct `PresetSkillService` construction from `server-context`.
+- [x] Add capability overview fields that can derive the current `presetSkillSync` response.
+- [x] Move preset skill reconciliation into capability orchestration.
+- [x] Update onboarding to request preset readiness through `CapabilityService` instead of calling `PresetSkillService`.
+- [x] Update AI team readiness to resolve runtime skills through `CapabilityService`.
+- [x] Update skill routes/tests to read compatibility preset status from the capability layer.
+- [x] Delete `apps/daemon/src/services/preset-skill-service.ts`.
+- [x] Remove direct `PresetSkillService` construction from `server-context`.
 
 ### 2. Absorb `FeatureWorkflowService`
 
@@ -85,17 +85,18 @@ Target:
 
 TODO:
 
-- [ ] Move managed feature metadata into the capability catalog or make it imported by the catalog.
-- [ ] Add a capability ID for each managed channel feature, starting with WeChat.
-- [ ] Map channel feature requirements to skill, tool, plugin, and external installer requirements.
-- [ ] Replace `FeatureWorkflowService.prepareChannel(...)` with `CapabilityService.ensureCapabilities(...)`.
-- [ ] Delete `apps/daemon/src/services/feature-workflow-service.ts`.
+- [x] Move managed feature metadata into the capability catalog or make it imported by the catalog.
+- [x] Add a capability ID for each managed channel feature, starting with WeChat.
+- [x] Map channel feature requirements to skill, tool, plugin, and external installer requirements.
+- [x] Make onboarding channel readiness read from the capability overview instead of separate channel/plugin readiness code.
+- [x] Replace `FeatureWorkflowService.prepareChannel(...)` with `CapabilityService.prepareChannel(...)`.
+- [x] Delete `apps/daemon/src/services/feature-workflow-service.ts`.
 
 ### 3. Rename Or Split The OpenClaw Capability Coordinator
 
 Current file:
 
-- `apps/daemon/src/engine/openclaw-capability-config-coordinator.ts`
+- `apps/daemon/src/engine/openclaw-skill-plugin-coordinator.ts`
 
 Current issue:
 
@@ -117,8 +118,8 @@ TODO:
 - [ ] Preserve existing OpenClaw architecture tests during the move.
 - [ ] Move skill marketplace and runtime skill helpers into an OpenClaw skill coordinator.
 - [ ] Move managed-plugin cleanup helpers into an OpenClaw plugin coordinator.
-- [ ] Add a new OpenClaw tool access coordinator for `tools.profile`, `tools.allow`, `tools.deny`, `tools.byProvider`, and per-agent overrides.
-- [ ] Update architecture tests so the product-level `CapabilityService` name is unambiguous.
+- [x] Add a new OpenClaw tool access coordinator for `tools.profile`, `tools.allow`, `tools.deny`, `tools.byProvider`, and per-agent overrides.
+- [x] Update architecture tests so the product-level `CapabilityService` name is unambiguous.
 
 ### 4. Centralize Capability Metadata
 
@@ -139,11 +140,11 @@ Create a daemon-owned capability catalog that can describe product capabilities 
 
 TODO:
 
-- [ ] Create `apps/daemon/src/config/capability-catalog.ts`.
+- [x] Create `apps/daemon/src/config/capability-catalog.ts`.
 - [ ] Move user-facing channel capability metadata out of `ChannelSetupService`.
-- [ ] Reference managed plugins from capability definitions instead of duplicating plugin requirements.
-- [ ] Reference managed features from capability definitions instead of duplicating feature requirements.
-- [ ] Add capability definitions for onboarding presets.
+- [x] Reference managed plugins from capability definitions instead of duplicating plugin requirements.
+- [x] Reference managed features from capability definitions instead of duplicating feature requirements.
+- [x] Add capability definitions for onboarding presets.
 - [ ] Add tool or toolset requirements to capability definitions.
 - [ ] Keep localized client copy out of the catalog unless existing daemon metadata already owns it.
 
@@ -166,33 +167,33 @@ Add tool access through a capability-oriented adapter surface.
 
 TODO:
 
-- [ ] Add engine-neutral runtime tool types to daemon contracts.
-- [ ] Add `ToolService` as a product-layer service.
-- [ ] Add adapter methods for listing runtime tools and reading effective tool access.
+- [x] Add engine-neutral runtime tool types to daemon contracts.
+- [x] Add `ToolService` as a product-layer service.
+- [x] Add adapter methods for listing runtime tools and reading effective tool access.
 - [ ] Add adapter methods for patching tool access.
-- [ ] Implement OpenClaw tool access with OpenClaw config/schema/patch behavior where available.
+- [x] Implement OpenClaw tool access read with OpenClaw config/schema behavior.
 - [ ] Keep direct config-file edits as OpenClaw adapter fallback behavior only.
 - [ ] Map Hermes toolsets later through the same adapter contract.
 
-### 6. Reconsider `OpenClawPluginManager`
+### 6. Remove The Thin OpenClaw Plugin Wrapper
 
-Current file:
+Removed file:
 
 - `apps/daemon/src/engine/openclaw-plugin-manager.ts`
 
 Current issue:
 
-The wrapper is thin and may become unnecessary once plugin work is coordinated through capability adapter surfaces.
+The wrapper was thin pass-through code after plugin work moved through capability adapter surfaces.
 
 Target:
 
-Do not remove it early. Decide after the capability adapter contract is in place.
+Remove it once `OpenClawSkillPluginCoordinator` can satisfy the adapter `PluginManager` contract directly.
 
 TODO:
 
-- [ ] Keep `OpenClawPluginManager` during the first capability migration.
-- [ ] Recheck whether it still adds value after `PluginService` and `CapabilityService` share adapter capability methods.
-- [ ] Delete or inline it only if the adapter contract stays clearer without it.
+- [x] Keep the OpenClaw plugin wrapper during the first capability migration.
+- [x] Recheck whether it still adds value after `PluginService` and `CapabilityService` share adapter capability methods.
+- [x] Delete or inline it only if the adapter contract stays clearer without it.
 
 ### 7. Keep Large File Splits Targeted
 
@@ -222,16 +223,16 @@ TODO:
 
 ### 8. Audit Frontend Compatibility Barrels
 
-Current files:
+Checked files:
 
-- `apps/desktop-ui/src/api.ts`
-- `apps/desktop-ui/src/i18n.ts`
+- `apps/desktop-ui/src/api.ts` (removed)
+- `apps/desktop-ui/src/i18n.ts` (removed)
 - `apps/desktop-ui/src/App.tsx`
 - `apps/desktop-ui/src/styles.css`
 
 Current issue:
 
-`api.ts` and `i18n.ts` appear unused internally and may be old compatibility barrels. `App.tsx` and `styles.css` are still entrypoint compatibility files.
+`api.ts` and `i18n.ts` were unused internal compatibility barrels. `App.tsx` and `styles.css` are still entrypoint compatibility files.
 
 Target:
 
@@ -239,10 +240,10 @@ Remove only barrels that are confirmed not to be imported by tests, clients, pac
 
 TODO:
 
-- [ ] Check package exports, tests, and build entrypoints before removing any frontend barrel.
-- [ ] Keep `App.tsx` unless the app entrypoint is updated.
-- [ ] Keep `styles.css` unless `main.tsx` imports the shared stylesheet directly.
-- [ ] Remove `api.ts` and `i18n.ts` only if no compatibility consumers exist.
+- [x] Check package exports, tests, and build entrypoints before removing any frontend barrel.
+- [x] Keep `App.tsx` because `main.tsx` still imports the entrypoint barrel.
+- [x] Keep `styles.css` because `main.tsx` still imports the stylesheet barrel.
+- [x] Remove `api.ts` and `i18n.ts` only if no compatibility consumers exist.
 
 ### 9. Update Reference Docs After Code Migration
 
@@ -261,7 +262,7 @@ Keep docs aligned with the actual architecture after each migration phase.
 
 TODO:
 
-- [ ] Update reference docs when `CapabilityService` becomes the source of truth.
+- [x] Update reference docs when `CapabilityService` becomes the source of truth.
 - [ ] Update references to preset skill sync after compatibility fields are removed.
 - [ ] Update OpenClaw adapter documentation after coordinator rename or split.
 - [ ] Add Hermes mapping notes when the future Hermes adapter work begins.
@@ -270,34 +271,34 @@ TODO:
 
 ### Phase 1: Add Read-Only Capability Foundation
 
-- [ ] Add capability catalog.
-- [ ] Add `CapabilityService` overview read path.
-- [ ] Add `ToolService` read path.
-- [ ] Keep all existing services and API responses intact.
+- [x] Add capability catalog.
+- [x] Add `CapabilityService` overview read path.
+- [x] Add `ToolService` read path.
+- [x] Keep all existing services and API responses intact.
 
 ### Phase 2: Move Onboarding Presets To Capabilities
 
-- [ ] Add capability IDs to onboarding preset definitions.
-- [ ] Let onboarding call `CapabilityService` for readiness and repair.
+- [x] Add capability IDs to onboarding preset definitions.
+- [x] Let onboarding call `CapabilityService` for readiness and repair.
 - [ ] Keep `presetSkillSync` as a derived compatibility field.
 
 ### Phase 3: Move Channel Feature Preparation To Capabilities
 
-- [ ] Move managed channel capability metadata into the catalog.
-- [ ] Replace `FeatureWorkflowService.prepareChannel(...)`.
-- [ ] Delete `FeatureWorkflowService`.
+- [x] Move managed channel capability metadata into the catalog.
+- [x] Replace `FeatureWorkflowService.prepareChannel(...)`.
+- [x] Delete `FeatureWorkflowService`.
 
 ### Phase 4: Add Tool Access Management
 
-- [ ] Implement OpenClaw tool access read.
+- [x] Implement OpenClaw tool access read.
 - [ ] Implement OpenClaw tool access patch.
 - [ ] Surface capability blockers caused by denied or missing tools.
 
 ### Phase 5: Remove Preset Skill Compatibility
 
-- [ ] Remove direct `PresetSkillService` usage.
+- [x] Remove direct `PresetSkillService` usage.
 - [ ] Remove legacy preset-only state once clients no longer depend on it.
-- [ ] Delete `PresetSkillService`.
+- [x] Delete `PresetSkillService`.
 
 ### Phase 6: Prepare For Hermes
 

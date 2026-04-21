@@ -17,9 +17,9 @@ import type {
 import { defaultChannelSetupStateMap } from "../config/channel-setup-state.js";
 import type { EngineAdapter } from "../engine/adapter.js";
 import { channelSecretName, NoopSecretsAdapter, type SecretsAdapter } from "../platform/secrets-adapter.js";
+import { CapabilityService, type FeaturePreparationResult } from "./capability-service.js";
 import type { AppState } from "./state-store.js";
 import { EventPublisher } from "./event-publisher.js";
-import { FeatureWorkflowService, type FeaturePreparationResult } from "./feature-workflow-service.js";
 import { fallbackMutationSyncMeta } from "./mutation-sync.js";
 import { StateStore, type StoredChannelEntryState } from "./state-store.js";
 
@@ -446,7 +446,7 @@ export class ChannelSetupService {
     private readonly store: StateStore,
     private readonly eventPublisher?: EventPublisher,
     private readonly secrets: SecretsAdapter = new NoopSecretsAdapter(),
-    private readonly featureWorkflowService: FeatureWorkflowService = new FeatureWorkflowService(adapter)
+    private readonly capabilityService: Pick<CapabilityService, "prepareChannel"> = new CapabilityService(adapter)
   ) {}
 
   async getOverviewFromState(state?: AppState): Promise<ChannelSetupOverview> {
@@ -546,7 +546,7 @@ export class ChannelSetupService {
 
   async saveEntry(entryId: string | undefined, request: SaveChannelEntryRequest): Promise<ChannelConfigActionResponse> {
     const workflowPreparation =
-      request.action === "approve-pairing" ? undefined : await this.featureWorkflowService.prepareChannel(request.channelId);
+      request.action === "approve-pairing" ? undefined : await this.capabilityService.prepareChannel(request.channelId);
     if (workflowPreparation?.pluginConfig) {
       this.eventPublisher?.publishPluginConfigUpdated(workflowPreparation.pluginConfig);
     }

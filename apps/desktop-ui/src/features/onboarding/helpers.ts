@@ -151,6 +151,8 @@ export interface OnboardingEmployeePresetReadiness {
   requirements?: OnboardingEmployeePresetRequirementReadiness[];
 }
 
+export type OnboardingChannelCapabilityReadiness = OnboardingEmployeePresetReadiness;
+
 export function resolveOnboardingPresetSkillIds(
   preset:
     | Pick<OnboardingEmployeePresetPresentation, "presetSkillIds">
@@ -225,6 +227,49 @@ export function resolveOnboardingEmployeePresetReadiness(
   };
 }
 
+export function resolveOnboardingChannelCapabilityReadiness(
+  channelId: string | undefined,
+  capabilityReadiness?: OnboardingCapabilityReadiness
+): OnboardingChannelCapabilityReadiness | undefined {
+  if (!channelId || !capabilityReadiness) {
+    return undefined;
+  }
+
+  const channel = (capabilityReadiness.channels ?? []).find((entry) => entry.channelId === channelId);
+  if (!channel) {
+    return undefined;
+  }
+
+  const requirements = channel.requirements.map(normalizeCapabilityRequirement);
+  if (channel.status === "ready") {
+    return {
+      status: "ready",
+      label: "Ready",
+      detail: channel.summary || capabilityReadiness.summary,
+      blocking: false,
+      requirements
+    };
+  }
+
+  if (channel.status === "unknown") {
+    return {
+      status: "unknown",
+      label: "Checking setup",
+      detail: channel.summary || capabilityReadiness.summary,
+      blocking: false,
+      requirements
+    };
+  }
+
+  return {
+    status: "attention",
+    label: capabilityChannelAttentionLabel(channel.status),
+    detail: channel.summary || capabilityReadiness.summary,
+    blocking: channel.status === "blocked" || channel.status === "error",
+    requirements
+  };
+}
+
 function resolveOnboardingEmployeePresetCapabilityReadiness(
   presetId: string | undefined,
   capabilityReadiness: OnboardingCapabilityReadiness | undefined
@@ -266,6 +311,22 @@ function resolveOnboardingEmployeePresetCapabilityReadiness(
     blocking: false,
     requirements
   };
+}
+
+function capabilityChannelAttentionLabel(status: CapabilityStatus): string {
+  if (status === "disabled") {
+    return "Disabled";
+  }
+
+  if (status === "error") {
+    return "Needs repair";
+  }
+
+  if (status === "blocked") {
+    return "Blocked";
+  }
+
+  return "Needs setup";
 }
 
 function normalizeCapabilityRequirement(requirement: CapabilityRequirement): OnboardingEmployeePresetRequirementReadiness {

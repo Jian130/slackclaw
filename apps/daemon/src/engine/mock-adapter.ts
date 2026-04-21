@@ -60,7 +60,6 @@ import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
 import { OpenClawConfigManager } from "./openclaw-config-manager.js";
 import { OpenClawGatewayManager } from "./openclaw-gateway-manager.js";
 import { OpenClawInstanceManager } from "./openclaw-instance-manager.js";
-import { OpenClawPluginManager } from "./openclaw-plugin-manager.js";
 import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
 import { openClawToolDefinitions } from "../config/capability-catalog.js";
 import { listManagedPluginDefinitions, managedPluginDefinitionById, managedPluginDefinitionForFeature } from "../config/managed-plugins.js";
@@ -469,13 +468,13 @@ export class MockAdapter implements EngineAdapter {
       finalizeOnboardingSetup: () => this.finalizeOnboardingSetup(),
       startGatewayAfterChannels: () => this.startGatewayAfterChannels()
     });
-    this.plugins = new OpenClawPluginManager({
+    this.plugins = {
       getConfigOverview: () => this.getPluginConfigOverview(),
       ensureFeatureRequirements: (featureId, options) => this.ensureFeatureRequirements(featureId, options),
       installPlugin: (pluginId) => this.installPlugin(pluginId),
       updatePlugin: (pluginId) => this.updatePlugin(pluginId),
       removePlugin: (pluginId) => this.removePlugin(pluginId)
-    });
+    };
     this.tools = {
       getRuntimeToolAccess: () => this.getRuntimeToolAccess()
     };

@@ -89,6 +89,7 @@ import {
   onboardingRefreshResourceForEvent,
   resolveCompletedOnboardingChannelEntry,
   resolveOnboardingActiveChannelSession,
+  resolveOnboardingChannelCapabilityReadiness,
   resolveOnboardingChannelPresentations,
   resolveOnboardingChannelSessionLogMode,
   resolveOnboardingChannelSetupVariant,
@@ -105,6 +106,7 @@ import {
   shouldRefreshOnboardingChannelConfig,
   shouldShowOnboardingAuthMethodChooser,
   type OnboardingInstallProgressSnapshot,
+  type OnboardingChannelCapabilityReadiness,
   type OnboardingEmployeePresetReadiness,
   type OnboardingModelStepMode
 } from "./helpers.js";
@@ -203,7 +205,7 @@ function requiredModelFieldsMissing(method: ModelAuthMethod | undefined, values:
 type StatusBadgeTone = "neutral" | "success" | "warning" | "info" | "danger";
 
 function onboardingEmployeePresetReadinessTone(
-  status: OnboardingEmployeePresetReadiness["status"] | undefined
+  status: OnboardingEmployeePresetReadiness["status"] | OnboardingChannelCapabilityReadiness["status"] | undefined
 ): StatusBadgeTone {
   switch (status) {
     case "ready":
@@ -534,6 +536,10 @@ export default function OnboardingPage() {
   const selectedEmployeePresetReadiness = selectedEmployeePreset
     ? employeePresetReadinessById.get(selectedEmployeePreset.id)
     : undefined;
+  const selectedChannelReadiness = useMemo(
+    () => resolveOnboardingChannelCapabilityReadiness(selectedChannelPresentation?.id, onboardingState?.capabilityReadiness),
+    [onboardingState?.capabilityReadiness, selectedChannelPresentation?.id]
+  );
   const selectedEmployeeAvatar = resolveMemberAvatarPreset(
     selectedEmployeePreset?.avatarPresetId || currentDraft.employee?.avatarPresetId
   );
@@ -2192,6 +2198,32 @@ export default function OnboardingPage() {
                           {selectedChannelPresentation.secondaryLabel ? <span>{selectedChannelPresentation.secondaryLabel}</span> : null}
                         </div>
                       </div>
+
+                      {selectedChannelReadiness ? (
+                        <div className="onboarding-channel-docs-card onboarding-channel-docs-card--wechat">
+                          <div className="onboarding-channel-docs-card__header">
+                            <StatusBadge tone={onboardingEmployeePresetReadinessTone(selectedChannelReadiness.status)}>
+                              {selectedChannelReadiness.label}
+                            </StatusBadge>
+                            <strong>Channel setup</strong>
+                          </div>
+                          {selectedChannelReadiness.detail ? (
+                            <p className="card__description">{selectedChannelReadiness.detail}</p>
+                          ) : null}
+                          {selectedChannelReadiness.requirements?.length ? (
+                            <div className="onboarding-capability-requirements" aria-label="Channel requirements">
+                              {selectedChannelReadiness.requirements.map((requirement) => (
+                                <div className="onboarding-capability-requirement" key={`${requirement.id}:${requirement.status}`}>
+                                  <span>{requirement.label}</span>
+                                  <StatusBadge tone={onboardingCapabilityRequirementTone(requirement.status)}>
+                                    {onboardingCapabilityRequirementLabel(requirement.status)}
+                                  </StatusBadge>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       {selectedChannelSetupVariant === "wechat-work-guided" ? (
                         <>

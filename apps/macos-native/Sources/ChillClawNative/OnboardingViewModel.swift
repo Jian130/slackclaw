@@ -196,6 +196,7 @@ final class NativeOnboardingViewModel {
     var installBusy = false
     var installProgress = NativeOnboardingInstallProgressSnapshot()
     var modelBusy = ""
+    var modelAdvanceBusy = false
     var channelBusy = false
     var employeeBusy = false
     var completionBusy: OnboardingDestination?
@@ -498,6 +499,13 @@ final class NativeOnboardingViewModel {
         resolveOnboardingChannelSetupVariant(selectedChannelPresentation?.setupKind)
     }
 
+    var selectedChannelReadiness: NativeOnboardingPresetReadiness? {
+        resolveOnboardingChannelCapabilityReadiness(
+            channelID: selectedChannelPresentation?.id,
+            onboardingState: onboardingState
+        )
+    }
+
     var selectedModelEntry: SavedModelEntry? {
         guard let modelConfig = appState.modelConfig else { return nil }
         if let entryId = currentDraft.model?.entryId,
@@ -785,7 +793,11 @@ final class NativeOnboardingViewModel {
     }
 
     func advancePastModel() async {
+        guard !modelAdvanceBusy else { return }
+
         pageError = nil
+        modelAdvanceBusy = true
+        defer { modelAdvanceBusy = false }
 
         if localRuntimeConnected, !hasManagedLocalRuntimeModelSelection {
             modelBusy = "adopt-local-runtime"

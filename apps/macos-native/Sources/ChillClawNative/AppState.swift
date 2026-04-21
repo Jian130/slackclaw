@@ -9,22 +9,56 @@ struct ChillClawAppDataLoader {
     var fetchOverview: @Sendable () async throws -> ProductOverview
     var fetchDeploymentTargets: @Sendable () async throws -> DeploymentTargetsResponse
     var fetchModelConfig: @Sendable () async throws -> ModelConfigOverview
+    var fetchCapabilityOverview: @Sendable () async throws -> CapabilityOverview
+    var fetchToolOverview: @Sendable () async throws -> ToolOverview
     var fetchChannelConfig: @Sendable () async throws -> ChannelConfigOverview
     var fetchPluginConfig: @Sendable () async throws -> PluginConfigOverview
     var fetchSkillsConfig: @Sendable () async throws -> SkillCatalogOverview
     var fetchAITeamOverview: @Sendable () async throws -> AITeamOverview
+
+    init(
+        fetchOverview: @escaping @Sendable () async throws -> ProductOverview,
+        fetchDeploymentTargets: @escaping @Sendable () async throws -> DeploymentTargetsResponse,
+        fetchModelConfig: @escaping @Sendable () async throws -> ModelConfigOverview,
+        fetchCapabilityOverview: @escaping @Sendable () async throws -> CapabilityOverview = { emptyNativeCapabilityOverview() },
+        fetchToolOverview: @escaping @Sendable () async throws -> ToolOverview = { emptyNativeToolOverview() },
+        fetchChannelConfig: @escaping @Sendable () async throws -> ChannelConfigOverview,
+        fetchPluginConfig: @escaping @Sendable () async throws -> PluginConfigOverview,
+        fetchSkillsConfig: @escaping @Sendable () async throws -> SkillCatalogOverview,
+        fetchAITeamOverview: @escaping @Sendable () async throws -> AITeamOverview
+    ) {
+        self.fetchOverview = fetchOverview
+        self.fetchDeploymentTargets = fetchDeploymentTargets
+        self.fetchModelConfig = fetchModelConfig
+        self.fetchCapabilityOverview = fetchCapabilityOverview
+        self.fetchToolOverview = fetchToolOverview
+        self.fetchChannelConfig = fetchChannelConfig
+        self.fetchPluginConfig = fetchPluginConfig
+        self.fetchSkillsConfig = fetchSkillsConfig
+        self.fetchAITeamOverview = fetchAITeamOverview
+    }
 
     static func live(client: ChillClawAPIClient) -> ChillClawAppDataLoader {
         ChillClawAppDataLoader(
             fetchOverview: { try await client.fetchOverview() },
             fetchDeploymentTargets: { try await client.fetchDeploymentTargets() },
             fetchModelConfig: { try await client.fetchModelConfig() },
+            fetchCapabilityOverview: { try await client.fetchCapabilityOverview() },
+            fetchToolOverview: { try await client.fetchToolOverview() },
             fetchChannelConfig: { try await client.fetchChannelConfig() },
             fetchPluginConfig: { try await client.fetchPluginConfig() },
             fetchSkillsConfig: { try await client.fetchSkillsConfig() },
             fetchAITeamOverview: { try await client.fetchAITeamOverview() }
         )
     }
+}
+
+private func emptyNativeCapabilityOverview() -> CapabilityOverview {
+    .init(engine: "openclaw", checkedAt: "", entries: [], summary: "Capability readiness is loading.")
+}
+
+private func emptyNativeToolOverview() -> ToolOverview {
+    .init(engine: "openclaw", checkedAt: "", profile: nil, allow: [], deny: [], byProvider: [:], entries: [], summary: "Tool access is loading.")
 }
 
 func shouldRefreshNativeOverviewForEvent(_ event: ChillClawEvent) -> Bool {
@@ -52,8 +86,10 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
         switch event {
         case .overviewUpdated, .aiTeamUpdated, .modelConfigUpdated:
             return false
-        case .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated, .downloadsUpdated:
+        case .downloadsUpdated:
             return false
+        case .channelConfigUpdated, .pluginConfigUpdated, .skillCatalogUpdated, .presetSkillSyncUpdated:
+            return true
         case .localRuntimeProgress, .localRuntimeCompleted:
             return false
         case .runtimeProgress, .runtimeCompleted, .runtimeUpdateStaged:
@@ -62,7 +98,9 @@ func shouldRefreshNativeSectionForEvent(_ event: ChillClawEvent, selectedSection
             return true
         case let .taskProgress(_, status, _):
             return status != .running
-        case .chatStream, .channelSessionUpdated, .configApplied, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
+        case .configApplied:
+            return true
+        case .chatStream, .channelSessionUpdated, .deployProgress, .downloadProgress, .downloadStatus, .downloadCompleted, .downloadFailed, .daemonHeartbeat:
             return false
         }
     case .deploy:
@@ -200,6 +238,8 @@ final class ChillClawAppState {
     var pluginConfig: PluginConfigOverview?
     var skillConfig: SkillCatalogOverview?
     var aiTeamOverview: AITeamOverview?
+    var capabilityOverview: CapabilityOverview?
+    var toolOverview: ToolOverview?
     var selectedMemberForChat: String?
     var bannerMessage: String?
     var errorMessage: String?
@@ -475,8 +515,12 @@ final class ChillClawAppState {
         case .dashboard:
             let modelConfig = try await loader.fetchModelConfig()
             let aiTeamOverview = try await loader.fetchAITeamOverview()
+            let capabilityOverview = try await loader.fetchCapabilityOverview()
+            let toolOverview = try await loader.fetchToolOverview()
             self.modelConfig = modelConfig
             self.aiTeamOverview = aiTeamOverview
+            self.capabilityOverview = capabilityOverview
+            self.toolOverview = toolOverview
             updateSelectedMemberForChat()
         case .deploy:
             self.deploymentTargets = try await loader.fetchDeploymentTargets()

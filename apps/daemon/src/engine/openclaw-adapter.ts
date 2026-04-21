@@ -38,14 +38,13 @@ import type {
 import { writeMemberWorkspaceFiles } from "./member-workspace.js";
 import { AgentsConfigCoordinator } from "./openclaw-agents-config-coordinator.js";
 import { OpenClawAIEmployeeManager } from "./openclaw-ai-employee-manager.js";
-import { CapabilityConfigCoordinator } from "./openclaw-capability-config-coordinator.js";
+import { OpenClawSkillPluginCoordinator } from "./openclaw-skill-plugin-coordinator.js";
 import { OpenClawChatService } from "./openclaw-chat-service.js";
 import { ChannelsConfigCoordinator } from "./openclaw-channels-config-coordinator.js";
 import { OpenClawConfigManager } from "./openclaw-config-manager.js";
 import { OpenClawGatewayManager } from "./openclaw-gateway-manager.js";
 import { OpenClawInstanceManager } from "./openclaw-instance-manager.js";
 import { ModelsConfigCoordinator } from "./openclaw-models-config-coordinator.js";
-import { OpenClawPluginManager } from "./openclaw-plugin-manager.js";
 import { OpenClawRuntimeLifecycleService } from "./openclaw-runtime-lifecycle-service.js";
 import { appendGatewayApplyMessage, summarizePendingGatewayApply } from "./openclaw-shared.js";
 import { OpenClawToolAccessCoordinator } from "./openclaw-tool-access-coordinator.js";
@@ -3309,7 +3308,7 @@ export class OpenClawAdapter implements EngineAdapter {
       personalWechatRuntimeChannelKey: PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY,
       feishuBundledSince: FEISHU_BUNDLED_SINCE
     });
-    const capabilityConfigCoordinator = new CapabilityConfigCoordinator({
+    const skillPluginCoordinator = new OpenClawSkillPluginCoordinator({
       readSkillSnapshot,
       runClawHub,
       runOpenClaw,
@@ -3535,18 +3534,18 @@ export class OpenClawAdapter implements EngineAdapter {
       getConfiguredChannelEntries: () => channelsConfigCoordinator.getConfiguredChannelEntries(),
       saveChannelEntry: (request) => channelsConfigCoordinator.saveChannelEntry(request),
       removeChannelEntry: (request) => channelsConfigCoordinator.removeChannelEntry(request),
-      getSkillRuntimeCatalog: () => capabilityConfigCoordinator.getSkillRuntimeCatalog(),
-      getInstalledSkillDetail: (skillId) => capabilityConfigCoordinator.getInstalledSkillDetail(skillId),
-      listMarketplaceInstalledSkills: () => capabilityConfigCoordinator.listMarketplaceInstalledSkills(),
-      exploreSkillMarketplace: (limit) => capabilityConfigCoordinator.exploreSkillMarketplace(limit),
-      searchSkillMarketplace: (query, limit) => capabilityConfigCoordinator.searchSkillMarketplace(query, limit),
-      getSkillMarketplaceDetail: (slug) => capabilityConfigCoordinator.getSkillMarketplaceDetail(slug),
-      installMarketplaceSkill: (request) => capabilityConfigCoordinator.installMarketplaceSkill(request),
-      updateMarketplaceSkill: (slug, request) => capabilityConfigCoordinator.updateMarketplaceSkill(slug, request),
-      saveCustomSkill: (skillId, request) => capabilityConfigCoordinator.saveCustomSkill(skillId, request),
-      removeInstalledSkill: (slug, request) => capabilityConfigCoordinator.removeInstalledSkill(slug, request),
-      installManagedSkill: (request) => capabilityConfigCoordinator.installManagedSkill(request),
-      verifyManagedSkill: (slug) => capabilityConfigCoordinator.verifyManagedSkill(slug)
+      getSkillRuntimeCatalog: () => skillPluginCoordinator.getSkillRuntimeCatalog(),
+      getInstalledSkillDetail: (skillId) => skillPluginCoordinator.getInstalledSkillDetail(skillId),
+      listMarketplaceInstalledSkills: () => skillPluginCoordinator.listMarketplaceInstalledSkills(),
+      exploreSkillMarketplace: (limit) => skillPluginCoordinator.exploreSkillMarketplace(limit),
+      searchSkillMarketplace: (query, limit) => skillPluginCoordinator.searchSkillMarketplace(query, limit),
+      getSkillMarketplaceDetail: (slug) => skillPluginCoordinator.getSkillMarketplaceDetail(slug),
+      installMarketplaceSkill: (request) => skillPluginCoordinator.installMarketplaceSkill(request),
+      updateMarketplaceSkill: (slug, request) => skillPluginCoordinator.updateMarketplaceSkill(slug, request),
+      saveCustomSkill: (skillId, request) => skillPluginCoordinator.saveCustomSkill(skillId, request),
+      removeInstalledSkill: (slug, request) => skillPluginCoordinator.removeInstalledSkill(slug, request),
+      installManagedSkill: (request) => skillPluginCoordinator.installManagedSkill(request),
+      verifyManagedSkill: (slug) => skillPluginCoordinator.verifyManagedSkill(slug)
     }, {
       secrets: this.secrets,
       resolveModelAuthSecretFieldIds: (providerId, methodId) =>
@@ -3572,7 +3571,7 @@ export class OpenClawAdapter implements EngineAdapter {
       finalizeOnboardingSetup: () => runtimeLifecycleService.finalizeOnboardingSetup(),
       startGatewayAfterChannels: () => runtimeLifecycleService.startGatewayAfterChannels()
     });
-    this.plugins = new OpenClawPluginManager(capabilityConfigCoordinator);
+    this.plugins = skillPluginCoordinator;
     this.tools = toolAccessCoordinator;
   }
 

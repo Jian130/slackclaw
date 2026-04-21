@@ -3679,6 +3679,7 @@ struct OnboardingTests {
                         ]
                     )
                 ],
+                channels: [],
                 summary: "1 employee preset needs setup."
             )
         )
@@ -3694,6 +3695,43 @@ struct OnboardingTests {
     }
 
     @Test
+    func resolvesChannelCapabilityReadinessFromOnboardingState() {
+        let onboardingState = makeOnboardingStateResponse(
+            step: .channel,
+            capabilityReadiness: .init(
+                engine: "openclaw",
+                checkedAt: "2026-04-20T00:00:00.000Z",
+                employeePresets: [],
+                channels: [
+                    .init(
+                        channelId: .wechat,
+                        status: "ready",
+                        summary: "Personal WeChat login is ready.",
+                        requirements: [
+                            .init(
+                                id: "openclaw-weixin",
+                                kind: "feature",
+                                status: "ready",
+                                summary: "Login helper is available.",
+                                label: "Personal WeChat login"
+                            )
+                        ]
+                    )
+                ],
+                summary: "1 ready · 0 need attention."
+            )
+        )
+
+        let readiness = resolveOnboardingChannelCapabilityReadiness(channelID: .wechat, onboardingState: onboardingState)
+
+        #expect(readiness?.status == .ready)
+        #expect(readiness?.label == "Ready")
+        #expect(readiness?.detail == "Personal WeChat login is ready.")
+        #expect(readiness?.requirements.first?.id == "openclaw-weixin")
+        #expect(readiness?.requirements.first?.label == "Personal WeChat login")
+    }
+
+    @Test
     func selectedEmployeePresetPreviewRendersCapabilityRequirements() throws {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -3705,6 +3743,20 @@ struct OnboardingTests {
         )
 
         #expect(source.contains("OnboardingPresetRequirementRows(readiness: readiness)"))
+    }
+
+    @Test
+    func selectedChannelPreviewRendersCapabilityRequirements() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/ChillClawNative/OnboardingView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("OnboardingPresetRequirementRows(readiness: channelReadiness)"))
     }
 
     @Test
@@ -5172,7 +5224,8 @@ private func makeDeploymentTargetsResponse(targets: [DeploymentTargetStatus]) ->
 
 private func makeOnboardingStateResponse(
     step: OnboardingStep,
-    localRuntime: LocalModelRuntimeOverview? = nil
+    localRuntime: LocalModelRuntimeOverview? = nil,
+    capabilityReadiness: OnboardingCapabilityReadiness? = nil
 ) -> OnboardingStateResponse {
     .init(
         firstRun: .init(introCompleted: true, setupCompleted: false),
@@ -5270,7 +5323,8 @@ private func makeOnboardingStateResponse(
             ],
             summary: "2 preset skills verified on the managed-local runtime.",
             repairRecommended: false
-        )
+        ),
+        capabilityReadiness: capabilityReadiness
     )
 }
 

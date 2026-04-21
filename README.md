@@ -6,7 +6,7 @@ ChillClaw is a macOS-first, local-first desktop product that makes OpenClaw usab
 - a separate React + Vite static website for the public ChillClaw landing page
 - a local TypeScript daemon with an engine adapter seam
 - an `OpenClawAdapter` implementation that manages deploy targets, model entries, channels, plugins, chat sessions, updates, and gateway health
-- shared contracts for deployment, model/channel management, AI members, chat, onboarding, task execution, recovery, and updates
+- shared contracts for deployment, model/channel management, capability and tool readiness, AI members, chat, onboarding, task execution, recovery, and updates
 - a daemon-owned Runtime Manager for pinned prerequisites such as Node/npm, OpenClaw, Ollama, and local model metadata
 - a managed local AI path that can install Ollama, download a recommended on-device model, and connect OpenClaw to that local runtime
 
@@ -62,6 +62,11 @@ The root `npm run build` and `npm test` commands now include the website workspa
   - stages model, channel, skill, and workspace configuration changes immediately without requiring the gateway to be running
   - returns explicit pending-apply state when saved configuration still needs the gateway to reload
   - falls back to direct OpenClaw config writes for known CLI command drift on safe config-backed mutations
+- Capability management:
+  - exposes daemon-owned read-only capability and tool overview APIs at `/api/capabilities/overview` and `/api/tools/overview`
+  - aggregates skill, plugin, tool, feature, and onboarding preset readiness through one `CapabilityService`
+  - reads OpenClaw global tool policy through a focused tool access coordinator instead of leaking raw OpenClaw config into clients
+  - keeps legacy onboarding compatibility fields available while web and native clients prefer daemon-owned capability readiness
 - Channel setup:
   - supports Telegram, WhatsApp, Feishu, WeChat Work (WeCom), and personal WeChat
   - keeps command-first setup behavior, with config-backed recovery for known safe command drift cases
@@ -122,6 +127,7 @@ flowchart LR
 - The daemon owns the OpenClaw gateway socket internally for chat and runtime behavior instead of exposing that socket to clients.
 - The daemon-side platform layer now owns explicit filesystem/state, CLI runner, gateway socket, and secrets seams, including a macOS keychain-backed secrets adapter for mirrored user-entered credentials.
 - The daemon owns a centralized Download Manager for runtime artifacts, Ollama model pulls, and future package downloads. It persists queue state under the ChillClaw data directory, emits retained `downloads.updated` snapshots plus live job events, and exposes `/api/downloads` for client parity.
+- The daemon owns centralized capability and tool overview services. `CapabilityService` combines runtime skills, managed plugins, OpenClaw tool policy, feature requirements, and onboarding preset requirements into one product-layer readiness model, while `ToolService` keeps engine-specific tool policy reads inside the adapter boundary.
 - The daemon also owns managed local-model runtime state, including host inspection, curated Ollama model recommendation, install progress, repair state, and OpenClaw model-entry handoff.
 - The daemon Runtime Manager owns generic prerequisite lifecycle for Node/npm, managed OpenClaw, Ollama, and local model catalog metadata. It reads a packaged `runtime-manifest.lock.json`, can check a curated update feed, stages approved updates silently, and applies them only through safe/explicit runtime actions with rollback state. Curated OpenClaw updates may install a concrete `openclaw@version` package through ChillClaw-managed Node/npm, still inside the ChillClaw data boundary. See [docs/reference/runtime-manager.md](docs/reference/runtime-manager.md).
 - Unfinished managed local-model downloads are resumed automatically from persisted daemon state, including the common cases where the client reconnects, the user retries setup, or the daemon restarts while Ollama is still downloading layers.

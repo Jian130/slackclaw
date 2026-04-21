@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.6 - 2026-04-21
+
+### 2026-04-21 14:58 CST
+
+- replaced the legacy preset-skill, feature-workflow, and OpenClaw plugin-manager split with a daemon-owned capability management path for skills, plugins, tools, feature requirements, and onboarding readiness
+- added read-only capability and tool overview contracts across the daemon, React client helpers, and native Swift models so web and macOS clients can render the same daemon-owned readiness state
+- wired onboarding, channel preparation, dashboard metrics, and native dashboard refresh behavior through the new capability service while keeping compatibility fields such as `presetSkillSync`, `presetSkillIds`, and `toolLabels`
+- removed obsolete frontend barrels and old daemon service files after the capability layer became the canonical path, and updated architecture/reference docs for the new manager boundary
+- bumped ChillClaw package metadata and internal workspace package versions to 0.2.6 for the capability management release tag
+
 ## 0.2.5 - 2026-04-19
 
 ### 2026-04-20 00:03 CST

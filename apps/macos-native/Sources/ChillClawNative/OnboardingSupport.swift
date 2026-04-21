@@ -501,6 +501,53 @@ func resolveOnboardingEmployeePresetReadiness(
     )
 }
 
+func resolveOnboardingChannelCapabilityReadiness(
+    channelID: SupportedChannelId?,
+    onboardingState: OnboardingStateResponse?
+) -> NativeOnboardingPresetReadiness? {
+    guard let channelID,
+          let capabilityReadiness = onboardingState?.capabilityReadiness,
+          let channel = capabilityReadiness.channels.first(where: { $0.channelId == channelID }) else {
+        return nil
+    }
+
+    let requirements = channel.requirements.map { requirement in
+        NativeOnboardingPresetRequirementReadiness(
+            id: requirement.id,
+            label: requirement.label ?? requirement.id,
+            status: requirement.status,
+            summary: requirement.summary
+        )
+    }
+
+    switch channel.status {
+    case "ready":
+        return .init(
+            status: .ready,
+            label: "Ready",
+            detail: channel.summary.isEmpty ? capabilityReadiness.summary : channel.summary,
+            blocking: false,
+            requirements: requirements
+        )
+    case "unknown":
+        return .init(
+            status: .unknown,
+            label: "Checking setup",
+            detail: channel.summary.isEmpty ? capabilityReadiness.summary : channel.summary,
+            blocking: false,
+            requirements: requirements
+        )
+    default:
+        return .init(
+            status: .attention,
+            label: nativeOnboardingCapabilityChannelAttentionLabel(channel.status),
+            detail: channel.summary.isEmpty ? capabilityReadiness.summary : channel.summary,
+            blocking: channel.status == "blocked" || channel.status == "error",
+            requirements: requirements
+        )
+    }
+}
+
 private func resolveOnboardingEmployeePresetCapabilityReadiness(
     presetID: String,
     onboardingState: OnboardingStateResponse?
@@ -544,6 +591,19 @@ private func resolveOnboardingEmployeePresetCapabilityReadiness(
             blocking: false,
             requirements: requirements
         )
+    }
+}
+
+private func nativeOnboardingCapabilityChannelAttentionLabel(_ status: String) -> String {
+    switch status {
+    case "disabled":
+        return "Disabled"
+    case "error":
+        return "Needs repair"
+    case "blocked":
+        return "Blocked"
+    default:
+        return "Needs setup"
     }
 }
 

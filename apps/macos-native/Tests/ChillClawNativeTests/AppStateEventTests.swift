@@ -86,6 +86,30 @@ struct AppStateEventTests {
         )
         #expect(
             shouldRefreshNativeSectionForEvent(
+                ChillClawEvent.pluginConfigUpdated(
+                    snapshot: .init(
+                        epoch: "epoch-1",
+                        revision: 5,
+                        data: emptyNativePluginConfig()
+                    )
+                ),
+                selectedSection: .dashboard
+            ) == true
+        )
+        #expect(
+            shouldRefreshNativeSectionForEvent(
+                ChillClawEvent.skillCatalogUpdated(
+                    snapshot: .init(
+                        epoch: "epoch-1",
+                        revision: 6,
+                        data: emptyNativeSkillConfig()
+                    )
+                ),
+                selectedSection: .dashboard
+            ) == true
+        )
+        #expect(
+            shouldRefreshNativeSectionForEvent(
                 ChillClawEvent.deployCompleted(
                     correlationId: "deploy-1",
                     targetId: "managed-local",

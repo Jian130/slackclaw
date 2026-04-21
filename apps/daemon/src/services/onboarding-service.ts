@@ -30,13 +30,13 @@ import type {
 
 import type { EngineAdapter } from "../engine/adapter.js";
 import { aiMemberPresetById, normalizePresetSkillIds, presetSkillDefinitionById } from "../config/ai-member-presets.js";
+import { managedFeatureIdForChannel } from "../config/managed-features.js";
 import { resolveOnboardingUiConfig } from "../config/onboarding-config.js";
 import type { ChannelSetupService } from "./channel-setup-service.js";
 import type { CapabilityService } from "./capability-service.js";
 import { EventPublisher } from "./event-publisher.js";
 import { fallbackMutationSyncMeta } from "./mutation-sync.js";
 import type { OverviewService } from "./overview-service.js";
-import type { PresetSkillService } from "./preset-skill-service.js";
 import { SetupService } from "./setup-service.js";
 import { AITeamService } from "./ai-team-service.js";
 import type { LocalModelRuntimeService } from "./local-model-runtime-service.js";
@@ -278,10 +278,10 @@ export class OnboardingService {
     private readonly overviewService: OverviewService,
     private readonly channelSetupService: ChannelSetupService,
     private readonly aiTeamService: AITeamService,
-    private readonly presetSkillService?: PresetSkillService,
+    private readonly capabilityPresetSyncService?: Pick<CapabilityService, "getPresetSkillSyncOverview" | "setDesiredPresetSkillIds">,
     private readonly eventPublisher?: EventPublisher,
     private readonly localModelRuntimeService?: LocalModelRuntimeService,
-    private readonly capabilityService?: CapabilityService
+    private readonly capabilityOverviewService?: Pick<CapabilityService, "getOverview">
   ) {
     void this.resumePendingWarmups();
   }
@@ -441,8 +441,8 @@ export class OnboardingService {
         ...(nextState.onboarding?.draft ?? defaultOnboardingDraftState()),
         employee: normalizedEmployeeState(nextState.onboarding?.draft?.employee)
       };
-      const presetSkillSync = this.presetSkillService
-        ? await this.presetSkillService.getOverview()
+      const presetSkillSync = this.capabilityPresetSyncService
+        ? await this.capabilityPresetSyncService.getPresetSkillSyncOverview()
         : undefined;
       const capabilityReadiness = await this.buildCapabilityReadiness();
       const summary =
@@ -1276,13 +1276,13 @@ export class OnboardingService {
       );
       this.publishWarmupProgress(taskId, "running", verificationMessage);
 
-      if (this.presetSkillService && warmup.presetSkillIds.length > 0) {
+      if (this.capabilityPresetSyncService && warmup.presetSkillIds.length > 0) {
         logOnboardingEvent("onboarding.runOnboardingWarmup", "Reconciling onboarding preset skills during warmup.", {
           taskId,
           presetSkillCount: warmup.presetSkillIds.length,
           targetMode: warmup.targetMode
         });
-        await this.presetSkillService.setDesiredPresetSkillIds("onboarding", warmup.presetSkillIds, {
+        await this.capabilityPresetSyncService.setDesiredPresetSkillIds("onboarding", warmup.presetSkillIds, {
           targetMode: warmup.targetMode,
           waitForReconcile: true
         });
@@ -1397,7 +1397,7 @@ export class OnboardingService {
           draft: defaultOnboardingDraftState()
         }
       }));
-      const presetSkillSync = this.presetSkillService ? await this.presetSkillService.setDesiredPresetSkillIds("onboarding", []) : undefined;
+      const presetSkillSync = this.capabilityPresetSyncService ? await this.capabilityPresetSyncService.setDesiredPresetSkillIds("onboarding", []) : undefined;
       const capabilityReadiness = await this.buildCapabilityReadiness();
 
       return {
@@ -1876,15 +1876,20 @@ export class OnboardingService {
   }
 
   private async buildCapabilityReadiness(): Promise<OnboardingCapabilityReadiness | undefined> {
-    if (!this.capabilityService) {
+    if (!this.capabilityOverviewService) {
       return undefined;
     }
 
     try {
-      const overview = await this.capabilityService.getOverview();
+      const overview = await this.capabilityOverviewService.getOverview();
       const presetEntries = new Map(
         overview.entries
           .filter((entry) => entry.kind === "preset")
+          .map((entry) => [entry.id, entry])
+      );
+      const featureEntries = new Map(
+        overview.entries
+          .filter((entry) => entry.kind === "feature")
           .map((entry) => [entry.id, entry])
       );
       const employeePresets = onboardingUiConfig.employeePresets.map((preset) => {
@@ -1906,12 +1911,33 @@ export class OnboardingService {
           requirements: entry.requirements
         };
       });
+      const channels = onboardingUiConfig.channels.map((channel) => {
+        const featureId = managedFeatureIdForChannel(channel.id);
+        const entry = featureId ? featureEntries.get(featureId) : undefined;
+
+        if (!entry) {
+          return {
+            channelId: channel.id,
+            status: "missing" as const,
+            summary: "Channel capability is not present in the capability catalog.",
+            requirements: []
+          };
+        }
+
+        return {
+          channelId: channel.id,
+          status: entry.status,
+          summary: entry.summary,
+          requirements: entry.requirements
+        };
+      });
 
       return {
         engine: overview.engine,
         checkedAt: overview.checkedAt,
         employeePresets,
-        summary: summarizeOnboardingCapabilityReadiness(employeePresets)
+        channels,
+        summary: summarizeOnboardingCapabilityReadiness(employeePresets, channels)
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1923,11 +1949,18 @@ export class OnboardingService {
         summary: "Capability readiness is temporarily unavailable.",
         requirements: []
       }));
+      const channels = onboardingUiConfig.channels.map((channel) => ({
+        channelId: channel.id,
+        status: "unknown" as const,
+        summary: "Capability readiness is temporarily unavailable.",
+        requirements: []
+      }));
 
       return {
         engine: this.adapter.capabilities.engine,
         checkedAt: new Date().toISOString(),
         employeePresets,
+        channels,
         summary: "Capability readiness is temporarily unavailable."
       };
     }
@@ -1955,9 +1988,9 @@ export class OnboardingService {
     }
 
     const tPreset = performance.now();
-    const presetSkillSync = this.presetSkillService ? await this.presetSkillService.getOverview() : undefined;
-    if (this.presetSkillService) {
-      console.log(formatConsoleLine(`presetSkillService.getOverview: ${(performance.now() - tPreset).toFixed(1)}ms`, { scope: "onboarding.buildStateResponse" }));
+    const presetSkillSync = this.capabilityPresetSyncService ? await this.capabilityPresetSyncService.getPresetSkillSyncOverview() : undefined;
+    if (this.capabilityPresetSyncService) {
+      console.log(formatConsoleLine(`capabilityService.getPresetSkillSyncOverview: ${(performance.now() - tPreset).toFixed(1)}ms`, { scope: "onboarding.buildStateResponse" }));
     }
     const capabilityReadiness = await this.buildCapabilityReadiness();
 
@@ -2512,8 +2545,12 @@ export class OnboardingService {
   }
 }
 
-function summarizeOnboardingCapabilityReadiness(employeePresets: OnboardingCapabilityReadiness["employeePresets"]): string {
-  const ready = employeePresets.filter((preset) => preset.status === "ready").length;
-  const attention = employeePresets.length - ready;
+function summarizeOnboardingCapabilityReadiness(
+  employeePresets: OnboardingCapabilityReadiness["employeePresets"],
+  channels: OnboardingCapabilityReadiness["channels"]
+): string {
+  const entries = [...employeePresets, ...channels];
+  const ready = entries.filter((entry) => entry.status === "ready").length;
+  const attention = entries.length - ready;
   return `${ready} ready · ${attention} ${attention === 1 ? "needs" : "need"} attention.`;
 }

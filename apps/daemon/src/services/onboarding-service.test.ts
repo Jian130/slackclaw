@@ -13,14 +13,13 @@ import {
 
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { AITeamService } from "./ai-team-service.js";
-import type { CapabilityService } from "./capability-service.js";
+import { CapabilityService } from "./capability-service.js";
 import { ChannelSetupService } from "./channel-setup-service.js";
 import { EventBusService } from "./event-bus-service.js";
 import { EventPublisher } from "./event-publisher.js";
 import { LocalModelRuntimeService } from "./local-model-runtime-service.js";
 import { OnboardingService } from "./onboarding-service.js";
 import { OverviewService } from "./overview-service.js";
-import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore } from "./state-store.js";
 
 function createService(
@@ -38,22 +37,22 @@ function createService(
   const eventPublisher = bus ? new EventPublisher(bus) : undefined;
   const overviewService = new OverviewService(adapter, store);
   const channelSetupService = new ChannelSetupService(adapter, store);
-  const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
-  const aiTeamService = new AITeamService(adapter, store, eventPublisher, presetSkillService);
+  const capabilityService = new CapabilityService(adapter, undefined, store, eventPublisher);
+  const aiTeamService = new AITeamService(adapter, store, eventPublisher, capabilityService);
 
   return {
     adapter,
     store,
     bus,
     aiTeamService,
-    presetSkillService,
+    capabilityService,
     service: new OnboardingService(
       adapter,
       store,
       overviewService,
       channelSetupService,
       aiTeamService,
-      presetSkillService,
+      capabilityService,
       eventPublisher,
       options?.localModelRuntimeService,
       options?.capabilityService
@@ -1518,7 +1517,7 @@ test("onboarding completion binds the selected channel to the created AI employe
 });
 
 test("onboarding completion persists a running warmup so clients can gate chat", async () => {
-  const { bus, presetSkillService, service, store } = createService("onboarding-service-fast-handoff", { withEvents: true });
+  const { bus, capabilityService, service, store } = createService("onboarding-service-fast-handoff", { withEvents: true });
   const events: Array<{ taskId: string; status: string; message: string }> = [];
   bus?.subscribe((event) => {
     if (event.type === "task.progress") {
@@ -1534,8 +1533,8 @@ test("onboarding completion persists a running warmup so clients can gate chat",
   const warmupGate = new Promise<void>((resolveWarmup) => {
     releaseWarmup = resolveWarmup;
   });
-  const originalSetDesiredPresetSkillIds = presetSkillService.setDesiredPresetSkillIds.bind(presetSkillService);
-  presetSkillService.setDesiredPresetSkillIds = async (...args) => {
+  const originalSetDesiredPresetSkillIds = capabilityService.setDesiredPresetSkillIds.bind(capabilityService);
+  capabilityService.setDesiredPresetSkillIds = async (...args) => {
     await warmupGate;
     return originalSetDesiredPresetSkillIds(...args);
   };
@@ -1654,7 +1653,7 @@ test("completed onboarding rejects draft mutations until first-run reset is requ
 });
 
 test("onboarding warmup failures keep onboarding completed and mark the created member for repair", async () => {
-  const { bus, presetSkillService, service, store } = createService("onboarding-service-warmup-failure", { withEvents: true });
+  const { bus, capabilityService, service, store } = createService("onboarding-service-warmup-failure", { withEvents: true });
   const taskStatuses: string[] = [];
   bus?.subscribe((event) => {
     if (event.type === "task.progress") {
@@ -1662,7 +1661,7 @@ test("onboarding warmup failures keep onboarding completed and mark the created 
     }
   });
 
-  presetSkillService.setDesiredPresetSkillIds = async () => {
+  capabilityService.setDesiredPresetSkillIds = async () => {
     throw new Error("Preset skill verification failed.");
   };
 
@@ -1893,9 +1892,9 @@ test("missing onboarding channel sessions clear the stale session id before surf
       throw new Error("Channel session not found.");
     }
   });
-  const presetSkillService = new PresetSkillService(adapter, store);
-  const aiTeamService = new AITeamService(adapter, store, undefined, presetSkillService);
-  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, presetSkillService);
+  const capabilityService = new CapabilityService(adapter, undefined, store);
+  const aiTeamService = new AITeamService(adapter, store, undefined, capabilityService);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, capabilityService);
 
   await service.updateState({
     currentStep: "channel",
@@ -2554,9 +2553,9 @@ test("onboarding completion avoids rebuilding expensive live summaries during fi
   const store = new StateStore(filePath);
   const overviewService = new OverviewService(adapter, store);
   const channelSetupService = new ChannelSetupService(adapter, store);
-  const presetSkillService = new PresetSkillService(adapter, store);
-  const aiTeamService = new AITeamService(adapter, store, undefined, presetSkillService);
-  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, presetSkillService);
+  const capabilityService = new CapabilityService(adapter, undefined, store);
+  const aiTeamService = new AITeamService(adapter, store, undefined, capabilityService);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, capabilityService);
 
   await service.updateState({
     currentStep: "employee",
@@ -2827,6 +2826,23 @@ test("onboarding state includes read-only capability readiness for employee pres
             summary: "Skill is blocked by the current OpenClaw allowlist."
           }
         ]
+      },
+      {
+        id: "channel:wechat",
+        kind: "feature",
+        engine: "openclaw",
+        label: "WeChat",
+        status: "ready",
+        summary: "Personal WeChat login is ready.",
+        requirements: [
+          {
+            id: "openclaw-weixin",
+            kind: "feature",
+            label: "Personal WeChat login",
+            status: "ready",
+            summary: "Login helper is available."
+          }
+        ]
       }
     ],
     summary: "0 ready · 1 needs attention"
@@ -2838,16 +2854,20 @@ test("onboarding state includes read-only capability readiness for employee pres
 
   const state = await service.getState();
   const byPreset = new Map(state.capabilityReadiness?.employeePresets.map((preset) => [preset.presetId, preset]));
+  const byChannel = new Map(state.capabilityReadiness?.channels.map((channel) => [channel.channelId, channel]));
 
   assert.equal(state.capabilityReadiness?.engine, "openclaw");
   assert.equal(state.capabilityReadiness?.checkedAt, "2026-04-20T00:00:00.000Z");
   assert.equal(byPreset.get("general-assistant")?.status, "blocked");
   assert.equal(byPreset.get("general-assistant")?.requirements[0]?.id, "status-writer");
-  assert.equal(state.capabilityReadiness?.summary, "0 ready · 1 needs attention.");
+  assert.equal(byChannel.get("wechat")?.status, "ready");
+  assert.equal(byChannel.get("wechat")?.requirements[0]?.id, "openclaw-weixin");
+  assert.equal(state.capabilityReadiness?.summary, "1 ready · 1 needs attention.");
 
   const updated = await service.updateState({ currentStep: "employee" }, { responseSummaryMode: "draft" });
   assert.equal(updated.capabilityReadiness?.employeePresets.length, 1);
-  assert.equal(updated.capabilityReadiness?.summary, "0 ready · 1 needs attention.");
+  assert.equal(updated.capabilityReadiness?.channels.length, 1);
+  assert.equal(updated.capabilityReadiness?.summary, "1 ready · 1 needs attention.");
 });
 
 test("onboarding service fails fast when onboarding config references a missing employee preset id", async () => {
@@ -2893,13 +2913,13 @@ test("onboarding service does not reconcile preset skills while editing the empl
   const store = new StateStore(filePath);
   const overviewService = new OverviewService(adapter, store);
   const channelSetupService = new ChannelSetupService(adapter, store);
-  const presetSkillService = new PresetSkillService(adapter, store);
-  const aiTeamService = new AITeamService(adapter, store, undefined, presetSkillService);
-  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, presetSkillService);
+  const capabilityService = new CapabilityService(adapter, undefined, store);
+  const aiTeamService = new AITeamService(adapter, store, undefined, capabilityService);
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, capabilityService);
 
   let reconcileCalls = 0;
-  const originalSetDesiredPresetSkillIds = presetSkillService.setDesiredPresetSkillIds.bind(presetSkillService);
-  presetSkillService.setDesiredPresetSkillIds = async (...args) => {
+  const originalSetDesiredPresetSkillIds = capabilityService.setDesiredPresetSkillIds.bind(capabilityService);
+  capabilityService.setDesiredPresetSkillIds = async (...args) => {
     reconcileCalls += 1;
     return originalSetDesiredPresetSkillIds(...args);
   };
@@ -2943,7 +2963,7 @@ test("onboarding service does not reconcile preset skills while editing the empl
 });
 
 test("onboarding completion schedules staged preset skills during background warmup", async () => {
-  const { presetSkillService, service } = createService("onboarding-service-finalize-preset-sync");
+  const { capabilityService, service } = createService("onboarding-service-finalize-preset-sync");
 
   const reconcileCalls: Array<{
     scope: string;
@@ -2951,8 +2971,8 @@ test("onboarding completion schedules staged preset skills during background war
     waitForReconcile: boolean | undefined;
     targetMode: string | undefined;
   }> = [];
-  const originalSetDesiredPresetSkillIds = presetSkillService.setDesiredPresetSkillIds.bind(presetSkillService);
-  presetSkillService.setDesiredPresetSkillIds = async (scope, presetSkillIds, options) => {
+  const originalSetDesiredPresetSkillIds = capabilityService.setDesiredPresetSkillIds.bind(capabilityService);
+  capabilityService.setDesiredPresetSkillIds = async (scope, presetSkillIds, options) => {
     reconcileCalls.push({
       scope,
       presetSkillIds,

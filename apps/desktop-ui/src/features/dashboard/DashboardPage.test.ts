@@ -2,9 +2,24 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createDefaultRuntimeManagerOverview, type ModelConfigOverview, type ProductOverview } from "@chillclaw/contracts";
+import {
+  type ChillClawEvent,
+  createDefaultRuntimeManagerOverview,
+  type CapabilityOverview,
+  type ModelConfigOverview,
+  type ProductOverview,
+  type ToolOverview
+} from "@chillclaw/contracts";
 
-import DashboardPage, { connectedModelCount, connectedModelDetail } from "./DashboardPage.js";
+import DashboardPage, {
+  capabilityReadyCount,
+  capabilityReadinessDetail,
+  connectedModelCount,
+  connectedModelDetail,
+  shouldRefreshDashboardCapabilitySnapshotsForEvent,
+  toolReadyCount,
+  toolReadinessDetail
+} from "./DashboardPage.js";
 
 vi.mock("../../app/providers/LocaleProvider.js", () => ({
   useLocale: () => ({ locale: "en" })
@@ -225,5 +240,85 @@ describe("DashboardPage model metrics", () => {
 
     expect(html).toContain("workspace-scaffold--full");
     expect(html).not.toContain("workspace-scaffold--centered");
+  });
+
+  it("summarizes dashboard capability and tool readiness from the new overview APIs", () => {
+    const capabilityOverview: CapabilityOverview = {
+      engine: "openclaw",
+      checkedAt: "2026-04-20T00:00:00.000Z",
+      entries: [
+        { id: "general-assistant", kind: "preset", engine: "openclaw", label: "General Assistant", status: "ready", summary: "Ready.", requirements: [] },
+        { id: "openclaw-weixin", kind: "plugin", engine: "openclaw", label: "WeChat", status: "blocked", summary: "Plugin blocked.", requirements: [] }
+      ],
+      summary: "1 ready · 1 needs attention."
+    };
+    const toolOverview: ToolOverview = {
+      engine: "openclaw",
+      checkedAt: "2026-04-20T00:00:00.000Z",
+      profile: "default",
+      allow: ["web.search"],
+      deny: ["fs.write"],
+      byProvider: {},
+      entries: [
+        { id: "web.search", kind: "tool", engine: "openclaw", label: "Web Search", status: "ready", summary: "Allowed." },
+        { id: "fs.write", kind: "tool", engine: "openclaw", label: "File Write", status: "blocked", summary: "Denied." }
+      ],
+      summary: "1 tool ready · 1 blocked."
+    };
+
+    expect(capabilityReadyCount(capabilityOverview)).toBe(1);
+    expect(capabilityReadinessDetail(capabilityOverview)).toBe("1 ready · 1 needs attention.");
+    expect(toolReadyCount(toolOverview)).toBe(1);
+    expect(toolReadinessDetail(toolOverview)).toBe("1 tool ready · 1 blocked.");
+  });
+
+  it("refreshes dashboard capability snapshots from existing capability-related events", () => {
+    const skillEvent: ChillClawEvent = {
+      type: "skill-catalog.updated",
+      snapshot: {
+        epoch: "epoch-1",
+        revision: 1,
+        data: {
+          installedSkills: [],
+          readiness: { total: 0, eligible: 0, disabled: 0, blocked: 0, missing: 0, warnings: [], summary: "Ready" },
+          marketplaceAvailable: false,
+          marketplaceSummary: "Marketplace unavailable.",
+          marketplacePreview: []
+        }
+      }
+    };
+    const modelEvent: ChillClawEvent = {
+      type: "model-config.updated",
+      snapshot: {
+        epoch: "epoch-1",
+        revision: 2,
+        data: {
+          providers: [],
+          models: [],
+          configuredModelKeys: [],
+          savedEntries: [],
+          fallbackEntryIds: []
+        }
+      }
+    };
+
+    expect(shouldRefreshDashboardCapabilitySnapshotsForEvent(skillEvent)).toBe(true);
+    expect(
+      shouldRefreshDashboardCapabilitySnapshotsForEvent({
+        type: "plugin-config.updated",
+        snapshot: { epoch: "epoch-1", revision: 3, data: { entries: [] } }
+      })
+    ).toBe(true);
+    expect(
+      shouldRefreshDashboardCapabilitySnapshotsForEvent({
+        type: "channel-config.updated",
+        snapshot: {
+          epoch: "epoch-1",
+          revision: 4,
+          data: { baseOnboardingCompleted: true, capabilities: [], entries: [], gatewaySummary: "Ready" }
+        }
+      })
+    ).toBe(true);
+    expect(shouldRefreshDashboardCapabilitySnapshotsForEvent(modelEvent)).toBe(false);
   });
 });

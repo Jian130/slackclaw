@@ -23,9 +23,9 @@ import type {
   SkillRuntimeCatalog
 } from "../engine/adapter.js";
 import { aiMemberPresets, defaultAIMemberSkillOptions, normalizePresetSkillIds } from "../config/ai-member-presets.js";
+import type { CapabilityService } from "./capability-service.js";
 import { EventPublisher } from "./event-publisher.js";
 import { fallbackMutationSyncMeta } from "./mutation-sync.js";
-import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore, type AITeamState } from "./state-store.js";
 
 const DEFAULT_TEAM_VISION =
@@ -294,7 +294,7 @@ export class AITeamService {
     private readonly adapter: EngineAdapter,
     private readonly store: StateStore,
     private readonly eventPublisher?: EventPublisher,
-    private readonly presetSkillService?: PresetSkillService
+    private readonly capabilityService?: Pick<CapabilityService, "getPresetSkillSyncOverview" | "resolveVerifiedRuntimeSkillIds">
   ) {}
 
   async getOverview(): Promise<AITeamOverview> {
@@ -365,7 +365,7 @@ export class AITeamService {
       memberPresets,
       knowledgePacks: DEFAULT_KNOWLEDGE_PACKS,
       skillOptions: baseOverview.skillOptions,
-      presetSkillSync: this.presetSkillService ? await this.presetSkillService.getOverview() : undefined
+      presetSkillSync: this.capabilityService ? await this.capabilityService.getPresetSkillSyncOverview() : undefined
     };
   }
 
@@ -947,11 +947,11 @@ export class AITeamService {
   }
 
   private async resolvePresetSkillRequest(presetSkillIds: string[]): Promise<string[]> {
-    if (this.presetSkillService) {
-      return this.presetSkillService.resolveVerifiedRuntimeSkillIds(presetSkillIds);
+    if (this.capabilityService) {
+      return this.capabilityService.resolveVerifiedRuntimeSkillIds(presetSkillIds);
     }
 
-    throw new Error("Preset skills cannot be resolved because preset skill sync is unavailable.");
+    throw new Error("Preset skills cannot be resolved because capability preset sync is unavailable.");
   }
 
   private async updateStoredMember(

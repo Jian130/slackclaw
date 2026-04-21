@@ -962,9 +962,22 @@ struct NativeOnboardingView: View {
                     )
             )
 
-            NativeOnboardingActionButton(variant: nativeOnboardingForwardActionVariant()) {
+            NativeOnboardingActionButton(variant: nativeOnboardingForwardActionVariant(), disabled: viewModel.modelAdvanceBusy) {
                 Task { await viewModel.advancePastModel() }
             } label: {
+                modelAdvanceButtonLabel
+            }
+        }
+    }
+
+    private var modelAdvanceButtonLabel: some View {
+        Group {
+            if viewModel.modelAdvanceBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                    .accessibilityLabel(viewModel.copy.next)
+            } else {
                 Text(viewModel.copy.next)
                     .font(.system(size: 15, weight: .semibold))
             }
@@ -1346,11 +1359,10 @@ struct NativeOnboardingView: View {
                                     )
                             )
 
-                            NativeOnboardingActionButton(variant: nativeOnboardingForwardActionVariant()) {
+                            NativeOnboardingActionButton(variant: nativeOnboardingForwardActionVariant(), disabled: viewModel.modelAdvanceBusy) {
                                 Task { await viewModel.advancePastModel() }
                             } label: {
-                                Text(viewModel.copy.next)
-                                    .font(.system(size: 15, weight: .semibold))
+                                modelAdvanceButtonLabel
                             }
                         }
                     }
@@ -1398,6 +1410,26 @@ struct NativeOnboardingView: View {
                                         .strokeBorder(Color(red: 0.56, green: 0.75, blue: 0.99), lineWidth: 2)
                                 )
                         )
+
+                        if let channelReadiness = viewModel.selectedChannelReadiness {
+                            SurfaceCard(tone: .muted, padding: 16, spacing: 12) {
+                                HStack(spacing: 10) {
+                                    OnboardingPresetStatusBadge(readiness: channelReadiness)
+                                    Text("Channel setup")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(nativeOnboardingTextPrimary)
+                                    Spacer(minLength: 0)
+                                }
+
+                                if let detail = channelReadiness.detail, !detail.isEmpty {
+                                    Text(detail)
+                                        .font(.system(size: 13, weight: .regular))
+                                        .foregroundStyle(nativeOnboardingTextSecondary)
+                                }
+
+                                OnboardingPresetRequirementRows(readiness: channelReadiness)
+                            }
+                        }
 
                         switch viewModel.selectedChannelSetupVariant {
                         case .wechatWorkGuided?:

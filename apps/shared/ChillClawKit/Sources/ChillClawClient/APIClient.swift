@@ -119,6 +119,8 @@ public final class ChillClawAPIClient: @unchecked Sendable {
     public func fetchRuntimeResources() async throws -> RuntimeManagerOverview { try await get("/api/runtime/resources") }
     public func fetchDeploymentTargets(fresh: Bool = true) async throws -> DeploymentTargetsResponse { try await get(fresh ? "/api/deploy/targets?fresh=1" : "/api/deploy/targets") }
     public func fetchModelConfig(fresh: Bool = true) async throws -> ModelConfigOverview { try await get(fresh ? "/api/models/config?fresh=1" : "/api/models/config") }
+    public func fetchCapabilityOverview(fresh: Bool = true) async throws -> CapabilityOverview { try await get(fresh ? "/api/capabilities/overview?fresh=1" : "/api/capabilities/overview") }
+    public func fetchToolOverview(fresh: Bool = true) async throws -> ToolOverview { try await get(fresh ? "/api/tools/overview?fresh=1" : "/api/tools/overview") }
     public func fetchChannelConfig(fresh: Bool = true) async throws -> ChannelConfigOverview { try await get(fresh ? "/api/channels/config?fresh=1" : "/api/channels/config") }
     public func fetchPluginConfig() async throws -> PluginConfigOverview { try await get("/api/plugins/config?fresh=1") }
     public func fetchSkillsConfig() async throws -> SkillCatalogOverview { try await get("/api/skills/config?fresh=1") }

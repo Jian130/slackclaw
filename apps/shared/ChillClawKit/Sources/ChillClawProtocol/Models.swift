@@ -403,22 +403,63 @@ public struct OnboardingEmployeePresetCapabilityState: Codable, Sendable, Identi
     }
 }
 
+public struct OnboardingChannelCapabilityState: Codable, Sendable, Identifiable {
+    public var channelId: SupportedChannelId
+    public var status: String
+    public var summary: String
+    public var requirements: [CapabilityRequirement]
+
+    public var id: SupportedChannelId { channelId }
+
+    public init(
+        channelId: SupportedChannelId,
+        status: String,
+        summary: String,
+        requirements: [CapabilityRequirement]
+    ) {
+        self.channelId = channelId
+        self.status = status
+        self.summary = summary
+        self.requirements = requirements
+    }
+}
+
 public struct OnboardingCapabilityReadiness: Codable, Sendable {
     public var engine: String
     public var checkedAt: String
     public var employeePresets: [OnboardingEmployeePresetCapabilityState]
+    public var channels: [OnboardingChannelCapabilityState]
     public var summary: String
 
     public init(
         engine: String,
         checkedAt: String,
         employeePresets: [OnboardingEmployeePresetCapabilityState],
+        channels: [OnboardingChannelCapabilityState],
         summary: String
     ) {
         self.engine = engine
         self.checkedAt = checkedAt
         self.employeePresets = employeePresets
+        self.channels = channels
         self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case engine
+        case checkedAt
+        case employeePresets
+        case channels
+        case summary
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        engine = try container.decode(String.self, forKey: .engine)
+        checkedAt = try container.decode(String.self, forKey: .checkedAt)
+        employeePresets = try container.decode([OnboardingEmployeePresetCapabilityState].self, forKey: .employeePresets)
+        channels = try container.decodeIfPresent([OnboardingChannelCapabilityState].self, forKey: .channels) ?? []
+        summary = try container.decode(String.self, forKey: .summary)
     }
 }
 
@@ -1465,6 +1506,18 @@ public struct CapabilityOverview: Codable, Sendable {
     public var checkedAt: String
     public var entries: [CapabilityEntry]
     public var summary: String
+
+    public init(
+        engine: String,
+        checkedAt: String,
+        entries: [CapabilityEntry],
+        summary: String
+    ) {
+        self.engine = engine
+        self.checkedAt = checkedAt
+        self.entries = entries
+        self.summary = summary
+    }
 }
 
 public struct ToolProviderPolicy: Codable, Sendable {
@@ -1493,6 +1546,26 @@ public struct ToolOverview: Codable, Sendable {
     public var byProvider: [String: ToolProviderPolicy]
     public var entries: [ToolEntry]
     public var summary: String
+
+    public init(
+        engine: String,
+        checkedAt: String,
+        profile: String? = nil,
+        allow: [String],
+        deny: [String],
+        byProvider: [String: ToolProviderPolicy],
+        entries: [ToolEntry],
+        summary: String
+    ) {
+        self.engine = engine
+        self.checkedAt = checkedAt
+        self.profile = profile
+        self.allow = allow
+        self.deny = deny
+        self.byProvider = byProvider
+        self.entries = entries
+        self.summary = summary
+    }
 }
 
 public struct ChannelConfigActionResponse: Codable, Sendable {

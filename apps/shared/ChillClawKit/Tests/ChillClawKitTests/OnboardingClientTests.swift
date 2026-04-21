@@ -341,6 +341,47 @@ struct OnboardingClientTests {
     }
 
     @Test
+    func fetchCapabilityAndToolOverviewsUseDaemonCapabilityEndpoints() async throws {
+        let recorder = RequestRecorder()
+        let session = await recorder.session(
+            statusCode: 200,
+            body: """
+            {
+              "engine": "openclaw",
+              "checkedAt": "2026-04-20T00:00:00.000Z",
+              "profile": "default",
+              "allow": [],
+              "deny": [],
+              "byProvider": {},
+              "entries": [],
+              "summary": "No capabilities found."
+            }
+            """
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: {
+                .init(
+                    daemonURL: URL(string: "http://127.0.0.1:4545")!,
+                    fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+                )
+            }
+        )
+
+        let capabilities = try await client.fetchCapabilityOverview()
+        let capabilityRequest = try #require(await recorder.lastRequest())
+        #expect(capabilities.engine == "openclaw")
+        #expect(capabilityRequest.httpMethod == "GET")
+        #expect(capabilityRequest.url?.absoluteString == "http://127.0.0.1:4545/api/capabilities/overview?fresh=1")
+
+        let tools = try await client.fetchToolOverview(fresh: false)
+        let toolRequest = try #require(await recorder.lastRequest())
+        #expect(tools.engine == "openclaw")
+        #expect(toolRequest.httpMethod == "GET")
+        #expect(toolRequest.url?.absoluteString == "http://127.0.0.1:4545/api/tools/overview")
+    }
+
+    @Test
     func fetchOnboardingModelAuthSessionUsesSnapshotEndpoint() async throws {
         let recorder = RequestRecorder()
         let session = await recorder.session(

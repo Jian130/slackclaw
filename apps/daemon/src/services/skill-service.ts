@@ -13,9 +13,9 @@ import type {
 } from "@chillclaw/contracts";
 
 import type { EngineAdapter, SkillRuntimeEntry } from "../engine/adapter.js";
+import type { CapabilityService } from "./capability-service.js";
 import { EventPublisher } from "./event-publisher.js";
 import { fallbackMutationSyncMeta } from "./mutation-sync.js";
-import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore } from "./state-store.js";
 
 function mapInstalledSkill(
@@ -80,7 +80,7 @@ export class SkillService {
     private readonly adapter: EngineAdapter,
     private readonly store: StateStore,
     private readonly eventPublisher?: EventPublisher,
-    private readonly presetSkillService?: PresetSkillService
+    private readonly capabilityService?: Pick<CapabilityService, "getPresetSkillSyncOverview" | "reconcilePresetSkills">
   ) {}
 
   async getConfigOverview(): Promise<SkillCatalogOverview> {
@@ -121,7 +121,7 @@ export class SkillService {
       installedSkills: installed,
       readiness: runtime.readiness,
       marketplacePreview: runtime.marketplaceAvailable ? await this.adapter.config.exploreSkillMarketplace(8) : [],
-      presetSkillSync: this.presetSkillService ? await this.presetSkillService.getOverview() : undefined
+      presetSkillSync: this.capabilityService ? await this.capabilityService.getPresetSkillSyncOverview() : undefined
     };
   }
 
@@ -169,11 +169,11 @@ export class SkillService {
   }
 
   async repairPresetSkillSync(): Promise<SkillCatalogActionResponse> {
-    if (!this.presetSkillService) {
-      throw new Error("Preset skill sync is not available.");
+    if (!this.capabilityService) {
+      throw new Error("Capability preset sync is not available.");
     }
 
-    await this.presetSkillService.reconcilePresetSkills();
+    await this.capabilityService.reconcilePresetSkills();
     const skillConfig = await this.getConfigOverview();
     const sync = this.eventPublisher?.publishSkillCatalogUpdated(skillConfig) ?? fallbackMutationSyncMeta();
 

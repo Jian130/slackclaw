@@ -6,10 +6,10 @@ import { resolve } from "node:path";
 import type { DeleteAIMemberRequest } from "@chillclaw/contracts";
 
 import { MockAdapter } from "../engine/mock-adapter.js";
+import { CapabilityService } from "./capability-service.js";
 import { EventBusService } from "./event-bus-service.js";
 import { EventPublisher } from "./event-publisher.js";
 import { AITeamService } from "./ai-team-service.js";
-import { PresetSkillService } from "./preset-skill-service.js";
 import { StateStore } from "./state-store.js";
 
 function createService(testName: string, adapter = new MockAdapter(), options?: { withEvents?: boolean }) {
@@ -17,13 +17,13 @@ function createService(testName: string, adapter = new MockAdapter(), options?: 
   const store = new StateStore(filePath);
   const bus = options?.withEvents ? new EventBusService() : undefined;
   const eventPublisher = bus ? new EventPublisher(bus) : undefined;
-  const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
+  const capabilityService = new CapabilityService(adapter, undefined, store, eventPublisher);
 
   return {
     adapter,
     store,
-    service: new AITeamService(adapter, store, eventPublisher, presetSkillService),
-    presetSkillService,
+    service: new AITeamService(adapter, store, eventPublisher, capabilityService),
+    capabilityService,
     bus
   };
 }
@@ -391,8 +391,8 @@ test("AI team save resolves preset skill ids through daemon-owned preset verific
     }
   }
 
-  const { service, presetSkillService } = createService("ai-team-preset-skill-request", new PresetSkillReadyAdapter());
-  await presetSkillService.setDesiredPresetSkillIds("test", ["research-brief"]);
+  const { service, capabilityService } = createService("ai-team-preset-skill-request", new PresetSkillReadyAdapter());
+  await capabilityService.setDesiredPresetSkillIds("test", ["research-brief"]);
 
   const created = await service.saveMember(undefined, {
     name: "Jordan Lee",

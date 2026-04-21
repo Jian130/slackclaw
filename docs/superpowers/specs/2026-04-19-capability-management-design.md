@@ -16,12 +16,12 @@ Related cleanup TODO:
 
 ## Problem
 
-ChillClaw already has skill and plugin management, but ownership is split across several services:
+ChillClaw has been moving skill, plugin, tool, and preset ownership into capability management. Before this refactor, ownership was split across several services:
 
 - `SkillService` builds the installed skill catalog and handles custom, bundled, and marketplace skill actions.
-- `PresetSkillService` reconciles onboarding preset skills.
+- preset-skill reconciliation lived in a separate service.
 - `PluginService` manages the curated plugin surface.
-- `FeatureWorkflowService` prepares feature prerequisites such as engine plugins or external installers.
+- feature prerequisite preparation lived in a separate workflow service.
 - Onboarding and AI team flows each know part of the skill readiness story.
 
 This split works for the current small catalog, but it is the wrong long-term control point.
@@ -564,7 +564,7 @@ This lets ChillClaw add Hermes support by implementing a new adapter mapping ins
 - Add adapter-facing tool access methods with OpenClaw implementation first.
 - Add capability catalog definitions for current preset skills and WeCom plugin-backed feature.
 - Store engine-specific runtime mappings under capability definitions instead of encoding OpenClaw ids into product ids.
-- Keep `PresetSkillService` temporarily.
+- Keep preset-skill compatibility responses temporarily.
 - Add tests for capability overview and tool access readiness.
 
 ### Phase 2: Move Onboarding Preset Sync
@@ -574,9 +574,9 @@ This lets ChillClaw add Hermes support by implementing a new adapter mapping ins
 - Make AI member save use `CapabilityService.resolveRuntimeSkillIds`.
 - Keep existing `presetSkillSync` response fields temporarily as derived compatibility data.
 
-### Phase 3: Remove PresetSkillService
+### Phase 3: Remove Preset-Skill Service Split
 
-- Delete `PresetSkillService`.
+- Delete the separate preset-skill reconciliation service.
 - Remove preset-skill-specific stored sync state.
 - Replace `preset-skill-sync.updated` with `capability-status.updated` for new clients.
 - Keep a compatibility adapter only if native clients still require old event names during transition.
@@ -640,6 +640,6 @@ Start with daemon-only structure:
 2. Add `CapabilityService` and a small capability catalog for current preset skills and WeCom plugin dependency.
 3. Keep existing skill and plugin routes stable.
 4. Add engine-specific runtime mapping fields to capability definitions, even if only OpenClaw is implemented first.
-5. Add tests proving onboarding can ask capabilities what is required without `PresetSkillService` owning the domain.
+5. Add tests proving onboarding can ask capabilities what is required without preset-skill sync owning the domain.
 
 This creates the right center of gravity before changing UI or deleting old compatibility fields.

@@ -654,10 +654,18 @@ export interface OnboardingEmployeePresetCapabilityState {
   requirements: CapabilityRequirement[];
 }
 
+export interface OnboardingChannelCapabilityState {
+  channelId: SupportedChannelId;
+  status: CapabilityStatus;
+  summary: string;
+  requirements: CapabilityRequirement[];
+}
+
 export interface OnboardingCapabilityReadiness {
   engine: EngineKind;
   checkedAt: string;
   employeePresets: OnboardingEmployeePresetCapabilityState[];
+  channels: OnboardingChannelCapabilityState[];
   summary: string;
 }
 

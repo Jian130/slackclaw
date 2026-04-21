@@ -17,7 +17,6 @@ import { createLocalModelRuntimeService, type LocalModelRuntimeService } from ".
 import { OnboardingService } from "../services/onboarding-service.js";
 import { OverviewService } from "../services/overview-service.js";
 import { PluginService } from "../services/plugin-service.js";
-import { PresetSkillService } from "../services/preset-skill-service.js";
 import { SetupService } from "../services/setup-service.js";
 import { SkillService } from "../services/skill-service.js";
 import { StateStore } from "../services/state-store.js";
@@ -36,7 +35,6 @@ export interface ServerContext {
   localModelRuntimeService: LocalModelRuntimeService;
   eventBus: EventBusService;
   eventPublisher: EventPublisher;
-  presetSkillService: PresetSkillService;
   channelSetupService: ChannelSetupService;
   pluginService: PluginService;
   toolService: ToolService;
@@ -62,14 +60,13 @@ export function createServerContext(setServerStop: () => void): ServerContext {
   const adapter = createEngineAdapter({ runtimeManager });
   const localModelRuntimeService = createLocalModelRuntimeService(adapter, store, eventPublisher, runtimeManager, downloadManager);
   const overviewService = new OverviewService(adapter, store, appServiceManager, appUpdateService, localModelRuntimeService, runtimeManager);
-  const presetSkillService = new PresetSkillService(adapter, store, eventPublisher);
-  const channelSetupService = new ChannelSetupService(adapter, store, eventPublisher, secrets);
   const pluginService = new PluginService(adapter, eventPublisher);
   const toolService = new ToolService(adapter);
-  const capabilityService = new CapabilityService(adapter, toolService);
-  const aiTeamService = new AITeamService(adapter, store, eventPublisher, presetSkillService);
+  const capabilityService = new CapabilityService(adapter, toolService, store, eventPublisher);
+  const channelSetupService = new ChannelSetupService(adapter, store, eventPublisher, secrets, capabilityService);
+  const aiTeamService = new AITeamService(adapter, store, eventPublisher, capabilityService);
   const chatService = new DaemonChatService(adapter, store, aiTeamService, eventPublisher);
-  const skillService = new SkillService(adapter, store, eventPublisher, presetSkillService);
+  const skillService = new SkillService(adapter, store, eventPublisher, capabilityService);
   const setupService = new SetupService(adapter, store, overviewService, eventPublisher);
   const onboardingService = new OnboardingService(
     adapter,
@@ -77,7 +74,7 @@ export function createServerContext(setServerStop: () => void): ServerContext {
     overviewService,
     channelSetupService,
     aiTeamService,
-    presetSkillService,
+    capabilityService,
     eventPublisher,
     localModelRuntimeService,
     capabilityService
@@ -97,7 +94,6 @@ export function createServerContext(setServerStop: () => void): ServerContext {
     localModelRuntimeService,
     eventBus,
     eventPublisher,
-    presetSkillService,
     channelSetupService,
     pluginService,
     toolService,

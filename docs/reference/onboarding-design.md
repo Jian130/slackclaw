@@ -317,6 +317,7 @@ sequenceDiagram
     participant LocalModel as "LocalModelRuntimeService"
     participant Config as "EngineAdapter.config"
     participant ChannelSetup as "ChannelSetupService"
+    participant Capability as "CapabilityService"
     participant Team as "AITeamService"
     participant Employees as "EngineAdapter.aiEmployees"
     participant Gateway as "EngineAdapter.gateway"
@@ -578,7 +579,7 @@ sequenceDiagram
         Onboarding->>Events: task.progress running
         Events-->>Web: completion warmup message
         Events-->>Native: completion warmup message
-        Onboarding->>Onboarding: presetSkillService.setDesiredPresetSkillIds(waitForReconcile)
+        Onboarding->>Capability: setDesiredPresetSkillIds(waitForReconcile)
         Onboarding->>Team: finalizeOnboardingWarmup()
         Onboarding->>Gateway: finalizeOnboardingSetup()
         Gateway->>OpenClaw: verify gateway readiness for first chat

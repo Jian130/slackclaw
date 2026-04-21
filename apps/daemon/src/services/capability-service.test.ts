@@ -1,11 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 
 import type { PluginConfigOverview } from "@chillclaw/contracts";
 
 import type { SkillRuntimeCatalog } from "../engine/adapter.js";
 import { MockAdapter } from "../engine/mock-adapter.js";
 import { CapabilityService } from "./capability-service.js";
+import { StateStore } from "./state-store.js";
 
 const skillCatalog: SkillRuntimeCatalog = {
   workspaceDir: "/mock/openclaw/workspace",
@@ -135,6 +138,15 @@ class CapabilityFixtureAdapter extends MockAdapter {
   }
 }
 
+class FeaturePreparationAdapter extends MockAdapter {
+  ensureCalls: Array<{ featureId: string; deferGatewayRestart?: boolean }> = [];
+
+  override async ensureFeatureRequirements(featureId: string, options?: { deferGatewayRestart?: boolean }) {
+    this.ensureCalls.push({ featureId, deferGatewayRestart: options?.deferGatewayRestart });
+    return pluginOverview;
+  }
+}
+
 test("capability service aggregates skill plugin and tool readiness", async () => {
   const service = new CapabilityService(new CapabilityFixtureAdapter());
 
@@ -149,4 +161,58 @@ test("capability service aggregates skill plugin and tool readiness", async () =
   assert.equal(overview.entries.find((entry) => entry.id === "broken")?.status, "error");
   assert.equal(overview.entries.find((entry) => entry.id === "openclaw.exec")?.status, "blocked");
   assert.equal(overview.entries.find((entry) => entry.kind === "preset" && entry.id === "research-analyst")?.status, "disabled");
+});
+
+test("capability service prepares managed channel feature requirements", async () => {
+  const adapter = new FeaturePreparationAdapter();
+  const service = new CapabilityService(adapter);
+
+  const result = await service.prepareFeature("channel:wechat-work");
+
+  assert.equal(result.feature.id, "channel:wechat-work");
+  assert.deepEqual(adapter.ensureCalls, [{ featureId: "channel:wechat-work", deferGatewayRestart: true }]);
+  assert.equal(result.pluginConfig, pluginOverview);
+  assert.deepEqual(result.prerequisites, [
+    {
+      type: "openclaw-plugin",
+      status: "ready",
+      pluginId: "wecom",
+      displayName: "WeCom Plugin"
+    }
+  ]);
+});
+
+test("capability service queues external installer prerequisites", async () => {
+  const adapter = new FeaturePreparationAdapter();
+  const service = new CapabilityService(adapter);
+
+  const result = await service.prepareChannel("wechat");
+
+  assert.equal(result?.feature.id, "channel:wechat");
+  assert.deepEqual(adapter.ensureCalls, []);
+  assert.deepEqual(result?.prerequisites, [
+    {
+      type: "external-installer",
+      status: "queued",
+      installerId: "openclaw-weixin",
+      displayName: "Personal WeChat login",
+      command: ["openclaw", "channels", "login", "--channel", "openclaw-weixin"]
+    }
+  ]);
+});
+
+test("capability service syncs selected preset skills as compatibility state", async () => {
+  const adapter = new CapabilityFixtureAdapter();
+  const store = new StateStore(resolve(process.cwd(), `apps/daemon/.data/capability-service-preset-sync-${randomUUID()}.json`));
+  const service = new CapabilityService(adapter, undefined, store);
+
+  const overview = await service.setDesiredPresetSkillIds("onboarding", ["research-brief"], {
+    waitForReconcile: false
+  });
+  const persisted = await store.read();
+
+  assert.equal(overview.entries[0]?.presetSkillId, "research-brief");
+  assert.equal(overview.entries[0]?.status, "pending");
+  assert.equal(persisted.presetSkills?.selections.onboarding?.presetSkillIds[0], "research-brief");
+  assert.equal((await service.getPresetSkillSyncOverview()).entries[0]?.presetSkillId, "research-brief");
 });

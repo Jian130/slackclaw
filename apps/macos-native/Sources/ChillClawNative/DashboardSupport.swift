@@ -53,6 +53,8 @@ func makeDashboardPresentation(
     overview: ProductOverview,
     modelConfig: ModelConfigOverview?,
     aiTeamOverview: AITeamOverview?,
+    capabilityOverview: CapabilityOverview? = nil,
+    toolOverview: ToolOverview? = nil,
     localeIdentifier: String = resolveNativeOnboardingLocaleIdentifier()
 ) -> NativeDashboardPresentation {
     let copy = nativeDashboardCopy(localeIdentifier: localeIdentifier)
@@ -74,13 +76,34 @@ func makeDashboardPresentation(
         return copy.noConfiguredModels
     }()
 
-    let metrics = [
+    var metrics = [
         NativeDashboardMetric(title: copy.engineMetricTitle, value: overview.engine.installed ? copy.engineInstalled : copy.engineMissing, detail: overview.engine.summary),
         NativeDashboardMetric(title: copy.connectedModelsMetricTitle, value: "\(modelConfig?.configuredModelKeys.count ?? 0)", detail: connectedModelsDetail),
         NativeDashboardMetric(title: copy.aiMembersMetricTitle, value: "\(aiTeamOverview?.members.count ?? 0)", detail: copy.readyBusySummary(ready: readyCount, busy: busyCount)),
-        NativeDashboardMetric(title: copy.activeTasksMetricTitle, value: "\(activeTaskCount)", detail: copy.inProgress),
-        NativeDashboardMetric(title: copy.channelsReadyMetricTitle, value: "\(channelReadyCount)", detail: overview.channelSetup.gatewaySummary)
+        NativeDashboardMetric(title: copy.activeTasksMetricTitle, value: "\(activeTaskCount)", detail: copy.inProgress)
     ]
+
+    if let capabilityOverview {
+        metrics.append(
+            NativeDashboardMetric(
+                title: copy.capabilitiesReadyMetricTitle,
+                value: "\(nativeDashboardReadyCapabilityCount(capabilityOverview))",
+                detail: capabilityOverview.summary
+            )
+        )
+    }
+
+    if let toolOverview {
+        metrics.append(
+            NativeDashboardMetric(
+                title: copy.toolsReadyMetricTitle,
+                value: "\(nativeDashboardReadyToolCount(toolOverview))",
+                detail: toolOverview.summary
+            )
+        )
+    }
+
+    metrics.append(NativeDashboardMetric(title: copy.channelsReadyMetricTitle, value: "\(channelReadyCount)", detail: overview.channelSetup.gatewaySummary))
 
     let employeeRows = aiTeamOverview?.members.map { member in
         NativeDashboardEmployeeRow(
@@ -115,6 +138,28 @@ func makeDashboardPresentation(
         NativeDashboardHealthItem(title: copy.aiMemberRosterTitle, status: copy.memberCountLabel(aiTeamOverview?.members.count ?? 0), tone: .info)
     ]
 
+    if let toolOverview {
+        healthItems.insert(
+            NativeDashboardHealthItem(
+                title: copy.toolsHealthTitle,
+                status: nativeDashboardHasToolAttention(toolOverview) ? copy.healthReview : copy.healthClear,
+                tone: nativeDashboardHasToolAttention(toolOverview) ? .warning : .success
+            ),
+            at: min(2, healthItems.count)
+        )
+    }
+
+    if let capabilityOverview {
+        healthItems.insert(
+            NativeDashboardHealthItem(
+                title: copy.capabilitiesHealthTitle,
+                status: nativeDashboardHasCapabilityAttention(capabilityOverview) ? copy.healthReview : copy.healthClear,
+                tone: nativeDashboardHasCapabilityAttention(capabilityOverview) ? .warning : .success
+            ),
+            at: min(2, healthItems.count)
+        )
+    }
+
     if let localRuntime = overview.localRuntime {
         healthItems.insert(
             NativeDashboardHealthItem(
@@ -141,6 +186,26 @@ func makeDashboardPresentation(
         activityRows: activityRows,
         healthItems: healthItems
     )
+}
+
+private func nativeDashboardReadyCapabilityCount(_ overview: CapabilityOverview) -> Int {
+    overview.entries.filter { $0.status == "ready" }.count
+}
+
+private func nativeDashboardReadyToolCount(_ overview: ToolOverview) -> Int {
+    overview.entries.filter { $0.status == "ready" }.count
+}
+
+private func nativeDashboardHasCapabilityAttention(_ overview: CapabilityOverview) -> Bool {
+    overview.entries.contains { nativeDashboardNeedsAttention($0.status) }
+}
+
+private func nativeDashboardHasToolAttention(_ overview: ToolOverview) -> Bool {
+    overview.entries.contains { nativeDashboardNeedsAttention($0.status) }
+}
+
+private func nativeDashboardNeedsAttention(_ status: String) -> Bool {
+    status == "missing" || status == "disabled" || status == "blocked" || status == "error"
 }
 
 private func dashboardTone(for rawTone: String) -> NativeDashboardTone {
