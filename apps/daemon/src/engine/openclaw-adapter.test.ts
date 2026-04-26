@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import type { ModelCatalogEntry } from "@chillclaw/contracts";
+import type { ModelCatalogEntry, RuntimeActionResponse } from "@chillclaw/contracts";
 
 import {
   OpenClawAdapter,
@@ -21,6 +21,7 @@ import {
   resolveCatalogModelKey
 } from "./openclaw-adapter.js";
 import { InMemorySecretsAdapter, modelAuthSecretName } from "../platform/secrets-adapter.js";
+import type { RuntimeManager } from "../runtime-manager/runtime-manager.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -503,6 +504,7 @@ async function withFakeOpenClaw(
     pluginUpdateAvailable?: boolean;
     gatewayServiceLoaded?: boolean;
     minimaxCatalog?: boolean;
+    omitModelStatusConfigPath?: boolean;
     staleManagedMemberAgent?: boolean;
     bindConflictWithStaleOwner?: boolean;
     systemOpenClawVersion?: string;
@@ -562,6 +564,7 @@ async function withFakeOpenClaw(
   const pluginUpdateAvailable = options?.pluginUpdateAvailable === true;
   const gatewayServiceLoaded = options?.gatewayServiceLoaded !== false;
   const minimaxCatalog = options?.minimaxCatalog === true;
+  const omitModelStatusConfigPath = options?.omitModelStatusConfigPath === true;
   const staleManagedMemberAgent = options?.staleManagedMemberAgent === true;
   const bindConflictWithStaleOwner = options?.bindConflictWithStaleOwner === true;
   const systemOpenClawVersion = options?.systemOpenClawVersion;
@@ -737,7 +740,11 @@ elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
     sleep 1
   fi
   if [ "${cleanModelRuntime ? "1" : "0"}" = "1" ]; then
-    echo '{"configPath":${JSON.stringify(configPath)},"agentDir":${JSON.stringify(agentDirPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
+    if [ "${omitModelStatusConfigPath ? "1" : "0"}" = "1" ]; then
+      echo '{"agentDir":${JSON.stringify(agentDirPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
+    else
+      echo '{"configPath":${JSON.stringify(configPath)},"agentDir":${JSON.stringify(agentDirPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
+    fi
   elif [ "${minimaxCatalog ? "1" : "0"}" = "1" ]; then
     echo '{"configPath":${JSON.stringify(configPath)},"agentDir":${JSON.stringify(agentDirPath)},"defaultModel":"minimax/MiniMax-M2.5","resolvedDefault":"minimax/MiniMax-M2.5","fallbacks":["anthropic/claude-sonnet-4-6"],"auth":{"providers":[],"oauth":{"providers":[]}}}'
   else
@@ -779,6 +786,7 @@ elif [ "$1" = "channels" ] && [ "$2" = "login" ] && [ "$3" = "--channel" ] && [ 
   echo "WEIXIN_LOGIN_HOME=$HOME" >> "$OPENCLAW_TEST_LOG"
   echo "WEIXIN_LOGIN_STATE_DIR=$OPENCLAW_STATE_DIR" >> "$OPENCLAW_TEST_LOG"
   echo 'Scan the QR code from WeChat on your phone to continue.'
+  echo 'https://liteapp.weixin.qq.com/q/test-login?qrcode=test-token&bot_type=3'
   if [ -t 1 ]; then
     echo 'Interactive QR ready from TTY.'
   fi
@@ -1694,6 +1702,7 @@ test("personal WeChat installs the pinned plugin and starts a channel session lo
 
     assert.equal(session.channelId, "wechat");
     assert.match(session.message ?? "", /wechat login|qr/i);
+    assert.equal(session.launchUrl, "https://liteapp.weixin.qq.com/q/test-login?qrcode=test-token&bot_type=3");
     assert.equal(session.logs.some((line) => /qr code|scan/i.test(line)), true);
     assert.equal(session.logs.some((line) => line.includes("openclaw plugins install") && line.includes("@tencent-weixin/openclaw-weixin@2.1.8")), true);
     assert.equal(session.logs.some((line) => /channels login --channel openclaw-weixin/.test(line)), true);
@@ -1954,6 +1963,55 @@ test("saveAIMemberRuntime does not require saved credentials for managed local O
     assert.equal(countCommands(commands, "models --agent existing-agent auth paste-token --provider ollama --profile-id ollama:chillclaw-existing-agent"), 0);
   }, {
     cleanModelRuntime: true
+  });
+});
+
+test("saveAIMemberRuntime keeps a managed local Ollama brain when model status cannot resolve config", async () => {
+  await withFakeOpenClaw(async ({ adapter, logPath }) => {
+    await adapter.config.upsertManagedLocalModelEntry({
+      entryId: "managed-ollama-entry",
+      label: "Local AI on this Mac",
+      providerId: "ollama",
+      methodId: "ollama-local",
+      modelKey: "ollama/gemma4:e2b"
+    });
+
+    const result = await adapter.aiEmployees.saveAIMemberRuntime({
+      memberId: "member-ollama",
+      existingAgentId: "existing-agent",
+      name: "AI Ryo",
+      jobTitle: "Research Assistant",
+      avatar: {
+        presetId: "operator",
+        accent: "var(--avatar-1)",
+        emoji: "🧠",
+        theme: "onboarding"
+      },
+      personality: "Calm and methodical",
+      soul: "Helpful and precise",
+      workStyles: ["Methodical"],
+      skillIds: [],
+      selectedSkills: [],
+      capabilitySettings: {
+        memoryEnabled: true,
+        contextWindow: 128000
+      },
+      knowledgePacks: [],
+      brain: {
+        entryId: "managed-ollama-entry",
+        label: "Local AI on this Mac",
+        providerId: "ollama",
+        modelKey: "ollama/gemma4:e2b"
+      }
+    });
+    const commands = await readCommands(logPath);
+
+    assert.equal(result.agentId, "existing-agent");
+    assert.equal(result.requiresGatewayApply, true);
+    assert.equal(countCommands(commands, "models --agent existing-agent auth paste-token --provider ollama --profile-id ollama:chillclaw-existing-agent"), 0);
+  }, {
+    cleanModelRuntime: true,
+    omitModelStatusConfigPath: true
   });
 });
 
@@ -2320,6 +2378,116 @@ test("install accepts OpenClaw --version output with label and build metadata", 
       managedOpenClawVersion: "OpenClaw 2026.4.15 (29dc654)"
     }
   );
+});
+
+test("install trusts the runtime manager after bundled runtime verification succeeds", async () => {
+  const previousLock = fakeOpenClawLock;
+  let releaseLock = () => {};
+  fakeOpenClawLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await previousLock;
+
+  const tempDir = await mkdtemp(resolve(tmpdir(), "chillclaw-openclaw-runtime-manager-install-test-"));
+  const dataDir = join(tempDir, "data");
+  const fakeHome = join(tempDir, "home");
+  const managedBinDir = join(dataDir, "openclaw-runtime", "node_modules", ".bin");
+  const managedBinary = join(managedBinDir, "openclaw");
+  const configPath = join(fakeHome, ".openclaw", "openclaw.json");
+  const firstVersionProbeMarker = join(tempDir, "first-version-probe");
+  const originalDataDir = process.env.CHILLCLAW_DATA_DIR;
+  const originalHome = process.env.HOME;
+
+  await mkdir(managedBinDir, { recursive: true });
+  await mkdir(join(fakeHome, ".openclaw"), { recursive: true });
+  await writeFile(configPath, "{}");
+
+  const runtimeResource = {
+    id: "openclaw-runtime",
+    kind: "engine",
+    label: "OpenClaw runtime",
+    status: "ready",
+    sourcePolicy: ["bundled"],
+    updatePolicy: "stage-silently-apply-safely",
+    installedVersion: "2026.4.15",
+    desiredVersion: "2026.4.15",
+    activePath: managedBinary,
+    updateAvailable: false,
+    blockingResourceIds: [],
+    summary: "OpenClaw runtime is ready.",
+    detail: "The runtime manager verified the bundled OpenClaw CLI."
+  };
+  const runtimeManager = {
+    prepare: async () => {
+      await mkdir(managedBinDir, { recursive: true });
+      await writeFile(
+        managedBinary,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  if [ ! -f ${JSON.stringify(firstVersionProbeMarker)} ]; then
+    touch ${JSON.stringify(firstVersionProbeMarker)}
+    exit 1
+  fi
+  echo "OpenClaw 2026.4.15 (runtime-manager)"
+elif [ "$1" = "models" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"configPath":${JSON.stringify(configPath)},"auth":{"providers":[],"oauth":{"providers":[]}}}'
+elif [ "$1" = "status" ] && [ "$2" = "--json" ]; then
+  echo '{"setup":{"required":false},"gateway":{"reachable":true},"gatewayService":{"installed":true},"providers":{"summary":{"missingProfiles":0}}}'
+elif [ "$1" = "gateway" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then
+  echo '{"rpc":{"ok":true},"service":{"installed":true,"loaded":true}}'
+else
+  echo '{}'
+fi
+`
+      );
+      await chmod(managedBinary, 0o755);
+      return {
+        epoch: "test",
+        revision: 1,
+        settled: true,
+        action: "prepare",
+        status: "completed",
+        message: "OpenClaw runtime is ready.",
+        resource: runtimeResource,
+        runtimeManager: {
+          checkedAt: "2026-04-25T00:00:00.000Z",
+          summary: "Runtime manager is ready.",
+          detail: "All managed resources are ready.",
+          resources: [runtimeResource]
+        }
+      } as RuntimeActionResponse;
+    }
+  } as unknown as RuntimeManager;
+
+  await rm(join(dataDir, "openclaw-runtime"), { recursive: true, force: true });
+
+  process.env.CHILLCLAW_DATA_DIR = dataDir;
+  process.env.HOME = fakeHome;
+
+  const adapter = new OpenClawAdapter(undefined, runtimeManager);
+  adapter.invalidateReadCaches();
+
+  try {
+    const result = await adapter.install(false, { forceLocal: true });
+
+    assert.equal(result.status, "installed");
+    assert.equal(result.actualVersion, "2026.4.15");
+    assert.match(result.message, /OpenClaw 2026\.4\.15/);
+  } finally {
+    adapter.invalidateReadCaches();
+    if (originalDataDir === undefined) {
+      delete process.env.CHILLCLAW_DATA_DIR;
+    } else {
+      process.env.CHILLCLAW_DATA_DIR = originalDataDir;
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    await rm(tempDir, { recursive: true, force: true });
+    releaseLock();
+  }
 });
 
 test("install normalizes managed OpenClaw config with ChillClaw's minimum agent timeout", async () => {

@@ -143,6 +143,247 @@ test("installRuntime defaults onboarding installs to the managed local runtime",
   assert.equal(installOptions?.forceLocal, true);
 });
 
+test("installRuntime advances after a successful install even when follow-up probes are slow", async () => {
+  const { adapter, service } = createService("onboarding-service-install-runtime-success-probe-timeout");
+  const originalStatus = adapter.status.bind(adapter);
+  let postInstallProbeShouldHang = false;
+
+  adapter.status = async () => {
+    if (postInstallProbeShouldHang) {
+      return new Promise(() => {});
+    }
+
+    return {
+      ...(await originalStatus()),
+      installed: false,
+      running: false,
+      version: undefined
+    };
+  };
+  adapter.install = async () => {
+    postInstallProbeShouldHang = true;
+    return {
+      status: "installed",
+      message: "Mock OpenClaw runtime is deployed and ready for onboarding.",
+      disposition: "installed",
+      actualVersion: "2026.4.26",
+      engineStatus: {
+        engine: "openclaw",
+        installed: true,
+        running: true,
+        version: "2026.4.26",
+        summary: "OpenClaw is ready.",
+        lastCheckedAt: new Date().toISOString()
+      }
+    };
+  };
+
+  const result = await Promise.race([
+    service.installRuntime(),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 2_000))
+  ]);
+
+  assert.notEqual(result, "timeout");
+  const setup = result as Awaited<ReturnType<typeof service.installRuntime>>;
+  assert.equal(setup.status, "completed");
+  assert.equal(setup.onboarding?.draft.currentStep, "model");
+  assert.equal(setup.onboarding?.draft.install?.installed, true);
+  assert.equal(setup.onboarding?.draft.install?.version, "2026.4.26");
+  assert.equal(setup.onboarding?.draft.install?.disposition, "installed-managed");
+});
+
+test("install step state stays lightweight and skips capability probes", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-install-lightweight-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let presetSkillSyncCalls = 0;
+  let capabilityReadinessCalls = 0;
+  const capabilityOverview: CapabilityOverview = {
+    engine: "openclaw",
+    checkedAt: "2026-04-25T00:00:00.000Z",
+    entries: [],
+    summary: "Capabilities checked."
+  };
+
+  const service = new OnboardingService(
+    adapter,
+    store,
+    overviewService,
+    channelSetupService,
+    aiTeamService,
+    {
+      async getPresetSkillSyncOverview() {
+        presetSkillSyncCalls += 1;
+        return {
+          targetMode: "managed-local",
+          entries: [],
+          summary: "Preset skills checked.",
+          repairRecommended: false
+        };
+      },
+      async setDesiredPresetSkillIds() {
+        return {
+          targetMode: "managed-local",
+          entries: [],
+          summary: "Preset skills updated.",
+          repairRecommended: false
+        };
+      }
+    },
+    undefined,
+    undefined,
+    {
+      async getOverview() {
+        capabilityReadinessCalls += 1;
+        return capabilityOverview;
+      }
+    } as unknown as CapabilityService
+  );
+
+  await service.updateState({
+    currentStep: "install",
+    install: {
+      installed: false,
+      disposition: "not-installed"
+    }
+  });
+
+  const state = await service.getState();
+
+  assert.equal(state.draft.currentStep, "install");
+  assert.equal(state.presetSkillSync, undefined);
+  assert.equal(state.capabilityReadiness, undefined);
+  assert.equal(presetSkillSyncCalls, 0);
+  assert.equal(capabilityReadinessCalls, 0);
+});
+
+test("runtime detect falls back to the stored install state when live probes hang", async () => {
+  const { adapter, service } = createService("onboarding-service-runtime-detect-timeout");
+
+  await service.updateState({
+    currentStep: "install",
+    install: {
+      installed: false,
+      disposition: "not-installed"
+    }
+  });
+
+  adapter.status = async () => new Promise(() => {});
+  adapter.getDeploymentTargets = async () => new Promise(() => {});
+
+  const detected = await Promise.race([
+    service.detectRuntime(),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 6_500))
+  ]);
+
+  assert.notEqual(detected, "timeout");
+  assert.equal((detected as OnboardingStateResponse).draft.currentStep, "install");
+  assert.equal((detected as OnboardingStateResponse).draft.install?.installed, false);
+  assert.equal((detected as OnboardingStateResponse).draft.install?.disposition, "not-installed");
+});
+
+test("runtime detect skips live probes while install is already running", async () => {
+  const { adapter, service, store } = createService("onboarding-service-runtime-detect-install-running");
+
+  await service.updateState({
+    currentStep: "install",
+    install: {
+      installed: false,
+      disposition: "not-installed"
+    }
+  });
+  const now = new Date().toISOString();
+  await store.update((current) => ({
+    ...current,
+    onboardingOperations: {
+      install: {
+        operationId: "onboarding:install",
+        action: "onboarding-runtime-install",
+        status: "running",
+        phase: "installing",
+        message: "Installing OpenClaw locally.",
+        startedAt: now,
+        updatedAt: now
+      }
+    }
+  }));
+
+  let statusCalls = 0;
+  let targetCalls = 0;
+  adapter.status = async () => {
+    statusCalls += 1;
+    throw new Error("Install detection should not probe engine status while install is running.");
+  };
+  adapter.getDeploymentTargets = async () => {
+    targetCalls += 1;
+    throw new Error("Install detection should not probe deployment targets while install is running.");
+  };
+
+  const detected = await service.detectRuntime();
+
+  assert.equal(detected.draft.currentStep, "install");
+  assert.equal(detected.draft.install?.installed, false);
+  assert.equal(detected.operations?.install?.status, "running");
+  assert.equal(statusCalls, 0);
+  assert.equal(targetCalls, 0);
+});
+
+test("runtime detect repairs stale installed state after an old install timeout", async () => {
+  const { adapter, service, store } = createService("onboarding-service-runtime-detect-repairs-stale-installed");
+  const now = new Date().toISOString();
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "install",
+        install: {
+          installed: true,
+          disposition: "not-installed"
+        }
+      }
+    },
+    onboardingOperations: {
+      install: {
+        operationId: "onboarding:install",
+        action: "onboarding-runtime-install",
+        status: "timed-out",
+        phase: "installing",
+        message: "Installing OpenClaw locally timed out. Try again to restart this step.",
+        startedAt: now,
+        updatedAt: now,
+        deadlineAt: now,
+        retryable: true,
+        errorCode: "ONBOARDING_OPERATION_TIMEOUT"
+      }
+    }
+  }));
+
+  adapter.status = async () => ({
+    engine: "openclaw",
+    installed: true,
+    running: true,
+    summary: "OpenClaw is installed.",
+    lastCheckedAt: new Date().toISOString()
+  });
+  adapter.getDeploymentTargets = async () => ({
+    checkedAt: new Date().toISOString(),
+    targets: []
+  });
+
+  const detected = await service.detectRuntime();
+
+  assert.equal(detected.draft.currentStep, "model");
+  assert.equal(detected.draft.install?.installed, true);
+  assert.equal(detected.draft.install?.disposition, "installed-managed");
+  assert.equal(detected.summary.install?.disposition, "installed-managed");
+  assert.equal(detected.operations?.install?.status, "completed");
+  assert.equal(detected.operations?.install?.errorCode, undefined);
+});
+
 test("updateRuntime advances onboarding to model when the managed runtime is ready", async () => {
   const { service } = createService("onboarding-service-update-runtime-advances");
 
@@ -307,6 +548,52 @@ test("channel-step onboarding state uses the staged draft summary without live r
   assert.equal(channelCalls, 0);
 });
 
+test("onboarding state reports expired channel operations as retryable timeouts", async () => {
+  const { service, store } = createService("onboarding-service-expired-channel-operation");
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "channel",
+        install: {
+          installed: true,
+          version: "2026.4.5",
+          disposition: "installed-managed"
+        },
+        model: {
+          providerId: "ollama",
+          modelKey: "ollama/gemma4:e2b",
+          methodId: "ollama-local",
+          entryId: "runtime:ollama-gemma4-e2b"
+        }
+      }
+    },
+    onboardingOperations: {
+      ...(current.onboardingOperations ?? {}),
+      channel: {
+        operationId: "onboarding:channel",
+        action: "onboarding-channel-save",
+        status: "running",
+        phase: "saving-channel",
+        message: "Saving the first channel.",
+        startedAt: "2020-01-01T00:00:00.000Z",
+        updatedAt: "2020-01-01T00:00:01.000Z",
+        deadlineAt: "2020-01-01T00:20:00.000Z",
+        retryable: true
+      }
+    }
+  }));
+
+  const state = await service.getState();
+
+  assert.equal(state.operations?.channel?.status, "timed-out");
+  assert.equal(state.operations?.channel?.phase, "saving-channel");
+  assert.equal(state.operations?.channel?.errorCode, "ONBOARDING_OPERATION_TIMEOUT");
+  assert.equal(state.operations?.channel?.retryable, true);
+  assert.match(state.operations?.channel?.message ?? "", /timed out/i);
+});
+
 test("onboarding state repairs later steps from an already configured default model entry", async () => {
   const { adapter, service } = createService("onboarding-service-repair-later-model-step");
 
@@ -369,6 +656,95 @@ test("onboarding state sends later drafts back to the model step when the defaul
   assert.equal(repaired.draft.currentStep, "model");
   assert.equal(repaired.draft.model, undefined);
   assert.equal(repaired.summary.model, undefined);
+});
+
+test("onboarding state polling skips capability probes while completion is running", async () => {
+  const now = new Date().toISOString();
+  let presetSkillSyncReads = 0;
+  let capabilityOverviewReads = 0;
+  const capabilityOverviewService = {
+    async getOverview() {
+      capabilityOverviewReads += 1;
+      return {
+        engine: "openclaw",
+        checkedAt: now,
+        entries: [],
+        summary: "Ready."
+      } as CapabilityOverview;
+    }
+  } as Pick<CapabilityService, "getOverview"> as CapabilityService;
+  const { capabilityService, service, store } = createService(
+    "onboarding-state-skips-probes-while-completing",
+    { capabilityService: capabilityOverviewService }
+  );
+
+  capabilityService.getPresetSkillSyncOverview = async () => {
+    presetSkillSyncReads += 1;
+    return {
+      targetMode: "managed-local",
+      entries: [],
+      summary: "Ready.",
+      repairRecommended: false
+    };
+  };
+
+  await store.write({
+    tasks: [],
+    onboarding: {
+      draft: {
+        currentStep: "employee",
+        install: {
+          installed: true,
+          version: "2026.4.11",
+          disposition: "installed-managed"
+        },
+        permissions: {
+          confirmed: true,
+          confirmedAt: now
+        },
+        model: {
+          providerId: "ollama",
+          methodId: "ollama-local",
+          modelKey: "ollama/gemma4:e2b",
+          entryId: "runtime:ollama-gemma4-e2b"
+        },
+        channel: {
+          channelId: "telegram",
+          entryId: "telegram:default"
+        },
+        channelProgress: {
+          status: "staged",
+          requiresGatewayApply: true
+        },
+        employee: {
+          name: "AI Ryo",
+          jobTitle: "Research Analyst",
+          avatarPresetId: "onboarding-analyst"
+        }
+      }
+    },
+    onboardingOperations: {
+      completion: {
+        operationId: "onboarding:completion",
+        action: "onboarding-completion",
+        status: "running",
+        phase: "creating-employee",
+        message: "Creating your AI employee.",
+        startedAt: now,
+        updatedAt: now,
+        deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+        retryable: true
+      }
+    }
+  });
+
+  const state = await service.getState();
+
+  assert.equal(state.operations?.completion?.status, "running");
+  assert.equal(state.presetSkillSync, undefined);
+  assert.equal(state.capabilityReadiness, undefined);
+  assert.equal(presetSkillSyncReads, 0);
+  assert.equal(capabilityOverviewReads, 0);
 });
 
 test("navigating from the local model step to the channel step recovers the managed local model entry", async () => {
@@ -561,6 +937,379 @@ test("onboarding state includes the daemon-owned local runtime for the model ste
   assert.equal(state.localRuntime?.recommendation, "local");
   assert.equal(state.localRuntime?.status, "idle");
   assert.equal(localRuntimeCalls, 1);
+});
+
+test("onboarding state waits for bounded model-step hardware detection", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-model-local-runtime-bounded-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let localRuntimeCalls = 0;
+  const localRuntimeService = {
+    async getOverview() {
+      localRuntimeCalls += 1;
+      await new Promise((resolveProbe) => setTimeout(resolveProbe, 350));
+      return {
+        supported: true,
+        recommendation: "local" as const,
+        supportCode: "supported" as const,
+        status: "idle" as const,
+        runtimeInstalled: true,
+        runtimeReachable: true,
+        modelDownloaded: true,
+        activeInOpenClaw: false,
+        chosenModelKey: "ollama/gemma4:e2b",
+        summary: "Local AI is available on this Mac.",
+        detail: "ChillClaw recommends a starter Ollama tier for this Apple Silicon Mac."
+      };
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview"> as LocalModelRuntimeService;
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, undefined, undefined, localRuntimeService);
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "model",
+        install: {
+          installed: true,
+          version: "2026.4.5",
+          disposition: "installed-managed"
+        },
+        permissions: {
+          confirmed: true,
+          confirmedAt: new Date().toISOString()
+        }
+      }
+    }
+  }));
+
+  const state = await Promise.race([
+    service.getState(),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 650))
+  ]);
+
+  assert.notEqual(state, "timeout");
+  assert.equal((state as OnboardingStateResponse).draft.currentStep, "model");
+  assert.equal((state as OnboardingStateResponse).localRuntime?.recommendation, "local");
+  assert.equal((state as OnboardingStateResponse).localRuntime?.status, "idle");
+  assert.equal(localRuntimeCalls, 1);
+});
+
+test("onboarding state falls back when the model-step local runtime probe is slow", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-model-local-runtime-timeout-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let localRuntimeCalls = 0;
+  const localRuntimeService = {
+    async getOverview() {
+      localRuntimeCalls += 1;
+      return new Promise<LocalModelRuntimeOverview>(() => {});
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview"> as LocalModelRuntimeService;
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, undefined, undefined, localRuntimeService);
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "model",
+        install: {
+          installed: true,
+          version: "2026.4.5",
+          disposition: "installed-managed"
+        },
+        permissions: {
+          confirmed: true,
+          confirmedAt: new Date().toISOString()
+        }
+      }
+    }
+  }));
+
+  const state = await Promise.race([
+    service.getState(),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 1_300))
+  ]);
+
+  assert.notEqual(state, "timeout");
+  assert.equal((state as OnboardingStateResponse).draft.currentStep, "model");
+  assert.equal((state as OnboardingStateResponse).localRuntime?.status, "unchecked");
+  assert.match((state as OnboardingStateResponse).localRuntime?.summary ?? "", /still checking local AI/u);
+  assert.equal(localRuntimeCalls, 1);
+});
+
+test("onboarding state keeps model-step hardware detection independent from capability readiness", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-model-capability-timeout-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let localRuntimeCalls = 0;
+  let capabilityCalls = 0;
+  const localRuntimeService = {
+    async getOverview() {
+      localRuntimeCalls += 1;
+      return {
+        supported: true,
+        recommendation: "local" as const,
+        supportCode: "supported" as const,
+        status: "idle" as const,
+        runtimeInstalled: true,
+        runtimeReachable: true,
+        modelDownloaded: true,
+        activeInOpenClaw: false,
+        chosenModelKey: "ollama/gemma4:e2b",
+        summary: "Local AI is available on this Mac.",
+        detail: "ChillClaw recommends a starter Ollama tier for this Apple Silicon Mac."
+      };
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview"> as LocalModelRuntimeService;
+  const capabilityService = {
+    async getOverview() {
+      capabilityCalls += 1;
+      return new Promise<CapabilityOverview>(() => {});
+    }
+  } as unknown as CapabilityService;
+  const service = new OnboardingService(
+    adapter,
+    store,
+    overviewService,
+    channelSetupService,
+    aiTeamService,
+    undefined,
+    undefined,
+    localRuntimeService,
+    capabilityService
+  );
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "model",
+        install: {
+          installed: true,
+          version: "2026.4.5",
+          disposition: "installed-managed"
+        },
+        permissions: {
+          confirmed: true,
+          confirmedAt: new Date().toISOString()
+        }
+      }
+    }
+  }));
+
+  const state = await Promise.race([
+    service.getState(),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 300))
+  ]);
+
+  assert.notEqual(state, "timeout");
+  assert.equal((state as OnboardingStateResponse).localRuntime?.recommendation, "local");
+  assert.equal((state as OnboardingStateResponse).capabilityReadiness, undefined);
+  assert.equal(localRuntimeCalls, 1);
+  assert.equal(capabilityCalls, 0);
+});
+
+test("onboarding state skips install-step preset skill sync reads", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-install-preset-sync-timeout-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let presetSkillSyncCalls = 0;
+  const presetSkillSyncService = {
+    async getPresetSkillSyncOverview() {
+      presetSkillSyncCalls += 1;
+      return {
+        targetMode: "managed-local" as const,
+        entries: [],
+        summary: "Preset skills checked.",
+        repairRecommended: false
+      };
+    },
+    async setDesiredPresetSkillIds() {
+      return {
+        targetMode: "managed-local" as const,
+        entries: [],
+        summary: "No preset skills selected.",
+        repairRecommended: false
+      };
+    }
+  };
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, presetSkillSyncService);
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "install",
+        install: {
+          installed: false,
+          disposition: "not-installed"
+        }
+      }
+    }
+  }));
+
+  const state = await Promise.race([
+    service.getState(),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 300))
+  ]);
+
+  assert.notEqual(state, "timeout");
+  assert.equal((state as OnboardingStateResponse).presetSkillSync, undefined);
+  assert.equal(presetSkillSyncCalls, 0);
+});
+
+test("onboarding state reuses a slow local runtime probe once it resolves", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-model-local-runtime-late-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let localRuntimeCalls = 0;
+  let resolveProbe: ((overview: LocalModelRuntimeOverview) => void) | undefined;
+  const readyOverview: LocalModelRuntimeOverview = {
+    supported: true,
+    recommendation: "local",
+    supportCode: "supported",
+    status: "idle",
+    runtimeInstalled: true,
+    runtimeReachable: true,
+    modelDownloaded: true,
+    activeInOpenClaw: false,
+    chosenModelKey: "ollama/gemma4:e2b",
+    summary: "Local AI is available on this Mac.",
+    detail: "ChillClaw recommends a starter Ollama tier for this Apple Silicon Mac."
+  };
+  const localRuntimeService = {
+    async getOverview() {
+      localRuntimeCalls += 1;
+      return new Promise<LocalModelRuntimeOverview>((resolveProbeCallback) => {
+        resolveProbe = resolveProbeCallback;
+      });
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview"> as LocalModelRuntimeService;
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, undefined, undefined, localRuntimeService);
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "model",
+        install: {
+          installed: true,
+          version: "2026.4.5",
+          disposition: "installed-managed"
+        },
+        permissions: {
+          confirmed: true,
+          confirmedAt: new Date().toISOString()
+        }
+      }
+    }
+  }));
+
+  const firstState = await service.getState();
+  assert.equal(firstState.localRuntime?.status, "unchecked");
+
+  assert.ok(resolveProbe);
+  resolveProbe(readyOverview);
+  await waitForCondition(async () => localRuntimeCalls === 1);
+
+  const secondState = await service.getState();
+
+  assert.equal(secondState.localRuntime?.recommendation, "local");
+  assert.equal(secondState.localRuntime?.status, "idle");
+  assert.equal(secondState.localRuntime?.chosenModelKey, "ollama/gemma4:e2b");
+
+  const thirdState = await service.getState();
+  assert.equal(thirdState.localRuntime?.recommendation, "local");
+  assert.equal(thirdState.localRuntime?.status, "idle");
+  assert.equal(thirdState.localRuntime?.chosenModelKey, "ollama/gemma4:e2b");
+  assert.equal(localRuntimeCalls, 1);
+});
+
+test("onboarding state refreshes stale model-step local runtime snapshots", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-model-local-runtime-refresh-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  let localRuntimeCalls = 0;
+  let currentOverview: LocalModelRuntimeOverview = {
+    supported: true,
+    recommendation: "local",
+    supportCode: "supported",
+    status: "idle",
+    runtimeInstalled: true,
+    runtimeReachable: true,
+    modelDownloaded: true,
+    activeInOpenClaw: false,
+    chosenModelKey: "ollama/gemma4:e2b",
+    summary: "Local AI is available on this Mac.",
+    detail: "ChillClaw recommends a starter Ollama tier for this Apple Silicon Mac."
+  };
+  const localRuntimeService = {
+    async getOverview() {
+      localRuntimeCalls += 1;
+      return currentOverview;
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview"> as LocalModelRuntimeService;
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService, undefined, undefined, localRuntimeService);
+
+  await store.update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "model",
+        install: {
+          installed: true,
+          version: "2026.4.5",
+          disposition: "installed-managed"
+        },
+        permissions: {
+          confirmed: true,
+          confirmedAt: new Date().toISOString()
+        }
+      }
+    }
+  }));
+
+  const firstState = await service.getState();
+  assert.equal(firstState.localRuntime?.activeInOpenClaw, false);
+  assert.equal(localRuntimeCalls, 1);
+
+  currentOverview = {
+    ...currentOverview,
+    status: "ready",
+    activeInOpenClaw: true,
+    managedEntryId: "managed-ollama-entry",
+    summary: "Local AI is ready on this Mac."
+  };
+
+  const cachedState = await service.getState();
+  assert.equal(cachedState.localRuntime?.activeInOpenClaw, false);
+  assert.equal(localRuntimeCalls, 1);
+
+  await new Promise((resolveRefreshDelay) => setTimeout(resolveRefreshDelay, 1_100));
+
+  const refreshedState = await service.getState();
+  assert.equal(refreshedState.localRuntime?.status, "ready");
+  assert.equal(refreshedState.localRuntime?.activeInOpenClaw, true);
+  assert.equal(localRuntimeCalls, 2);
 });
 
 test("onboarding state skips local runtime probing outside the model step", async () => {
@@ -1251,6 +2000,65 @@ test("skipping onboarding to the dashboard bypasses AI employee creation and gat
   assert.equal(state.onboarding, undefined);
 });
 
+test("skipping onboarding to the dashboard falls back to draft summary when live reads hang", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/onboarding-service-skip-dashboard-live-timeout-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = new OverviewService(adapter, store);
+  const channelSetupService = new ChannelSetupService(adapter, store);
+  const aiTeamService = new AITeamService(adapter, store);
+  adapter.config.getModelConfig = async () => new Promise<Awaited<ReturnType<typeof adapter.config.getModelConfig>>>(() => undefined);
+  adapter.config.getChannelState = async () => new Promise<Awaited<ReturnType<typeof adapter.config.getChannelState>>>(() => undefined);
+  adapter.config.getConfiguredChannelEntries = async () => new Promise<Awaited<ReturnType<typeof adapter.config.getConfiguredChannelEntries>>>(() => undefined);
+  adapter.gateway.getActiveChannelSession = async () => new Promise<Awaited<ReturnType<typeof adapter.gateway.getActiveChannelSession>>>(() => undefined);
+  Object.assign(aiTeamService, {
+    async getOverview() {
+      return new Promise<Awaited<ReturnType<AITeamService["getOverview"]>>>(() => undefined);
+    }
+  });
+  const service = new OnboardingService(adapter, store, overviewService, channelSetupService, aiTeamService);
+
+  await service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.3.13",
+      disposition: "reused-existing"
+    },
+    permissions: {
+      confirmed: true,
+      confirmedAt: "2026-03-24T00:01:00.000Z"
+    },
+    model: {
+      providerId: "openai",
+      modelKey: "openai/gpt-4o-mini",
+      entryId: "mock-openai-gpt-4o-mini"
+    },
+    channel: {
+      channelId: "wechat",
+      entryId: "wechat:default"
+    },
+    channelProgress: {
+      status: "staged",
+      message: "WeChat is staged."
+    },
+    employee: {
+      memberId: "member-alex",
+      name: "Alex Morgan",
+      jobTitle: "Research Analyst",
+      avatarPresetId: "onboarding-analyst"
+    }
+  });
+
+  const startedAt = Date.now();
+  const result = await service.complete({ destination: "dashboard" });
+
+  assert.ok(Date.now() - startedAt < 1_800);
+  assert.equal(result.summary.model?.entryId, "mock-openai-gpt-4o-mini");
+  assert.equal(result.summary.channel?.entryId, "wechat:default");
+  assert.equal(result.summary.employee?.name, "Alex Morgan");
+});
+
 test("onboarding completion rejects unreusable cloud model entries before creating the AI employee", async () => {
   const { adapter, service, aiTeamService } = createService("onboarding-service-complete-requires-reusable-model-auth");
   let memberCreateCalls = 0;
@@ -1366,6 +2174,172 @@ test("onboarding completion resolves stale local runtime model draft IDs before 
   assert.equal(member?.brain?.entryId, "runtime:ollama-gemma4-e2b");
 });
 
+test("onboarding completion restores a ready local Ollama model entry before creating the AI employee", async () => {
+  const readyRuntime = {
+    ...createDefaultLocalModelRuntimeOverview(),
+    supported: true,
+    recommendation: "local",
+    supportCode: "supported",
+    status: "ready",
+    runtimeInstalled: true,
+    runtimeReachable: true,
+    modelDownloaded: true,
+    activeInOpenClaw: true,
+    chosenModelKey: "ollama/gemma4:e2b",
+    managedEntryId: "runtime:ollama-gemma4-e2b",
+    summary: "Local AI is ready on this Mac.",
+    detail: "Ollama is running and the starter model is available."
+  } satisfies LocalModelRuntimeOverview;
+  const localModelRuntimeService = {
+    async getOverview() {
+      return readyRuntime;
+    },
+    async repair() {
+      throw new Error("Ready local runtime should not be repaired.");
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview" | "repair"> as LocalModelRuntimeService;
+  const { adapter, service, aiTeamService } = createService(
+    "onboarding-service-complete-restores-ready-local-runtime-entry",
+    { localModelRuntimeService }
+  );
+  const upsertManagedLocalModelEntry = adapter.config.upsertManagedLocalModelEntry.bind(adapter.config);
+  let upsertCalls = 0;
+
+  adapter.config.upsertManagedLocalModelEntry = async (request) => {
+    upsertCalls += 1;
+    assert.equal(request.entryId, "runtime:ollama-gemma4-e2b");
+    assert.equal(request.modelKey, "ollama/gemma4:e2b");
+    return upsertManagedLocalModelEntry(request);
+  };
+
+  await service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.4.11",
+      disposition: "installed-managed"
+    },
+    permissions: {
+      confirmed: true,
+      confirmedAt: "2026-04-11T00:00:00.000Z"
+    },
+    model: {
+      providerId: "ollama",
+      methodId: "ollama-local",
+      modelKey: "ollama/gemma4:e2b",
+      entryId: "runtime:ollama-gemma4-e2b"
+    },
+    channel: {
+      channelId: "telegram",
+      entryId: "telegram:default"
+    },
+    channelProgress: {
+      status: "staged",
+      requiresGatewayApply: true
+    },
+    employee: {
+      name: "AI Ryo",
+      jobTitle: "Research Analyst",
+      avatarPresetId: "onboarding-analyst",
+      presetId: "research-analyst",
+      presetSkillIds: [],
+      knowledgePackIds: [],
+      workStyles: ["Analytical"],
+      memoryEnabled: true
+    }
+  });
+
+  const result = await service.complete({ destination: "chat" });
+  const team = await aiTeamService.getOverview();
+  const member = team.members.find((entry) => entry.name === "AI Ryo");
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.summary.model?.entryId, "runtime:ollama-gemma4-e2b");
+  assert.equal(upsertCalls, 1);
+  assert.equal(member?.brain?.entryId, "runtime:ollama-gemma4-e2b");
+});
+
+test("onboarding completion uses the persisted ready local runtime instead of re-detecting hardware", async () => {
+  let getOverviewCalls = 0;
+  const localModelRuntimeService = {
+    async getOverview() {
+      getOverviewCalls += 1;
+      throw new Error("hardware detection should not run when the persisted local runtime is ready");
+    },
+    async repair() {
+      throw new Error("Ready local runtime should not be repaired.");
+    }
+  } as Pick<LocalModelRuntimeService, "getOverview" | "repair"> as LocalModelRuntimeService;
+  const { adapter, service, aiTeamService, store } = createService(
+    "onboarding-service-complete-uses-persisted-local-runtime",
+    { localModelRuntimeService }
+  );
+  const upsertManagedLocalModelEntry = adapter.config.upsertManagedLocalModelEntry.bind(adapter.config);
+  let upsertCalls = 0;
+
+  adapter.config.upsertManagedLocalModelEntry = async (request) => {
+    upsertCalls += 1;
+    assert.equal(request.entryId, "runtime:ollama-gemma4-e2b");
+    assert.equal(request.modelKey, "ollama/gemma4:e2b");
+    return upsertManagedLocalModelEntry(request);
+  };
+
+  await service.updateState({
+    currentStep: "employee",
+    install: {
+      installed: true,
+      version: "2026.4.11",
+      disposition: "installed-managed"
+    },
+    permissions: {
+      confirmed: true,
+      confirmedAt: "2026-04-11T00:00:00.000Z"
+    },
+    model: {
+      providerId: "ollama",
+      methodId: "ollama-local",
+      modelKey: "ollama/gemma4:e2b",
+      entryId: "runtime:ollama-gemma4-e2b"
+    },
+    channel: {
+      channelId: "telegram",
+      entryId: "telegram:default"
+    },
+    channelProgress: {
+      status: "staged",
+      requiresGatewayApply: true
+    },
+    employee: {
+      name: "AI Ryo",
+      jobTitle: "Research Analyst",
+      avatarPresetId: "onboarding-analyst",
+      presetId: "research-analyst",
+      presetSkillIds: [],
+      knowledgePackIds: [],
+      workStyles: ["Analytical"],
+      memoryEnabled: true
+    }
+  });
+  await store.update((current) => ({
+    ...current,
+    localModelRuntime: {
+      status: "ready",
+      selectedModelKey: "ollama/gemma4:e2b",
+      managedEntryId: "runtime:ollama-gemma4-e2b"
+    }
+  }));
+
+  const result = await service.complete({ destination: "chat" });
+  const team = await aiTeamService.getOverview();
+  const member = team.members.find((entry) => entry.name === "AI Ryo");
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.summary.model?.entryId, "runtime:ollama-gemma4-e2b");
+  assert.equal(member?.brain?.entryId, "runtime:ollama-gemma4-e2b");
+  assert.equal(getOverviewCalls, 0);
+  assert.equal(upsertCalls, 1);
+});
+
 test("onboarding completion repairs a degraded local Ollama runtime before creating the AI employee", async () => {
   const degradedRuntime = {
     ...createDefaultLocalModelRuntimeOverview(),
@@ -1474,8 +2448,8 @@ test("onboarding completion repairs a degraded local Ollama runtime before creat
   assert.equal(memberCreateCalls, 1);
 });
 
-test("onboarding completion binds the selected channel to the created AI employee", async () => {
-  const { service, aiTeamService } = createService("onboarding-service-complete-binds-channel");
+test("onboarding warmup binds the selected channel to the created AI employee", async () => {
+  const { service, aiTeamService, store } = createService("onboarding-service-complete-binds-channel");
 
   await service.updateState({
     currentStep: "employee",
@@ -1509,7 +2483,19 @@ test("onboarding completion binds the selected channel to the created AI employe
     }
   });
 
-  await service.complete({ destination: "chat" });
+  const result = await service.complete({ destination: "chat" });
+  assert.equal(result.status, "completed");
+  assert.ok(result.warmupTaskId);
+
+  const afterCompletion = await store.read();
+  assert.equal(afterCompletion.onboardingWarmups?.[result.warmupTaskId]?.channelBinding, "telegram:default");
+
+  await waitForCondition(async () => {
+    const team = await aiTeamService.getOverview();
+    const member = team.members.find((entry) => entry.id === "member-bind");
+    return member?.bindings.some((binding) => binding.target === "telegram:default") === true;
+  });
+
   const team = await aiTeamService.getOverview();
   const member = team.members.find((entry) => entry.id === "member-bind");
 
@@ -2133,7 +3119,7 @@ test("missing onboarding model auth sessions clear the stale session id and pres
   assert.equal(persisted.onboarding?.draft.currentStep, "channel");
 });
 
-test("onboarding completion runs the dedicated runtime finalization step before marking setup complete", async () => {
+test("onboarding completion defers runtime finalization until after setup is marked complete", async () => {
   class FinalizingAdapter extends MockAdapter {
     gatewayFinalizeCalls = 0;
     setupCompletedAtByFinalizeCall: Array<string | undefined> = [];
@@ -2191,17 +3177,17 @@ test("onboarding completion runs the dedicated runtime finalization step before 
   });
 
   const result = await service.complete({ destination: "chat" });
+  await waitForCondition(async () => adapter.gatewayFinalizeCalls >= 1);
 
   assert.ok(adapter.gatewayFinalizeCalls >= 1);
-  assert.equal(adapter.setupCompletedAtByFinalizeCall[0], undefined);
-  assert.equal(adapter.completionPhaseByFinalizeCall[0], "applying-gateway");
+  assert.ok(adapter.setupCompletedAtByFinalizeCall[0]);
+  assert.notEqual(adapter.completionPhaseByFinalizeCall[0], "applying-gateway");
   assert.equal(result.operation?.operationId, "onboarding:completion");
   assert.equal(result.operation?.status, "completed");
-  assert.equal(result.overview.engine.pendingGatewayApply, false);
   assert.equal(result.overview.engine.running, true);
 });
 
-test("onboarding completion leaves the draft intact and records retryable operation state when runtime finalization fails", async () => {
+test("onboarding completion records failed runtime finalization as warmup state", async () => {
   class FailingFinalizationAdapter extends MockAdapter {
     override async finalizeOnboardingSetup() {
       return Promise.reject(new Error("Gateway finalization failed."));
@@ -2246,14 +3232,22 @@ test("onboarding completion leaves the draft intact and records retryable operat
     }
   });
 
-  await assert.rejects(() => service.complete({ destination: "chat" }), /Gateway finalization failed/i);
+  const result = await service.complete({ destination: "chat" });
+  assert.equal(result.status, "completed");
+  assert.ok(result.warmupTaskId);
+
+  await waitForCondition(async () => {
+    const warmup = (await store.read()).onboardingWarmups?.[result.warmupTaskId!];
+    return warmup?.status === "failed";
+  });
 
   const state = await store.read();
-  assert.equal(state.setupCompletedAt, undefined);
-  assert.equal(state.onboarding?.draft.currentStep, "employee");
-  assert.equal(state.onboardingOperations?.completion?.status, "failed");
-  assert.equal(state.onboardingOperations?.completion?.phase, "finalizing");
-  assert.equal(state.onboardingOperations?.completion?.retryable, true);
+  const failedWarmup = state.onboardingWarmups?.[result.warmupTaskId];
+  assert.ok(state.setupCompletedAt);
+  assert.equal(state.onboarding, undefined);
+  assert.equal(state.onboardingOperations?.completion?.status, "completed");
+  assert.equal(failedWarmup?.status, "failed");
+  assert.match(failedWarmup?.lastError ?? "", /Gateway finalization failed/i);
 });
 
 test("onboarding completion creates the staged AI employee before clearing onboarding", async () => {
@@ -2307,18 +3301,13 @@ test("onboarding completion creates the staged AI employee before clearing onboa
   assert.equal(persisted.onboarding, undefined);
 });
 
-test("onboarding completion persists the created AI employee id before channel binding", async () => {
+test("onboarding completion preserves the created AI employee when deferred channel binding fails", async () => {
   const { service, store, adapter } = createService("onboarding-service-finalize-bind-retry");
-  const originalBindMemberChannel = adapter.bindAIMemberChannel.bind(adapter);
   let bindAttempts = 0;
 
-  adapter.bindAIMemberChannel = async (...args: Parameters<MockAdapter["bindAIMemberChannel"]>) => {
+  adapter.bindAIMemberChannel = async () => {
     bindAttempts += 1;
-    if (bindAttempts === 1) {
-      throw new Error("Binding is still owned by an old AI employee.");
-    }
-
-    return originalBindMemberChannel(...args);
+    throw new Error("Binding is still owned by an old AI employee.");
   };
 
   await service.updateState({
@@ -2356,24 +3345,25 @@ test("onboarding completion persists the created AI employee id before channel b
     }
   });
 
-  await assert.rejects(
-    service.complete({ destination: "team" }),
-    /old AI employee/
-  );
+  const result = await service.complete({ destination: "team" });
+  assert.equal(result.status, "completed");
+  assert.ok(result.warmupTaskId);
+
+  await waitForCondition(async () => {
+    const warmup = (await store.read()).onboardingWarmups?.[result.warmupTaskId!];
+    return warmup?.status === "failed";
+  });
 
   const afterFailure = await store.read();
   const createdMember = Object.values(afterFailure.aiTeam?.members ?? {}).find((member) => member.name === "Retry Ryo");
+  const failedWarmup = afterFailure.onboardingWarmups?.[result.warmupTaskId];
 
   assert.ok(createdMember);
-  assert.equal(afterFailure.onboarding?.draft.employee?.memberId, createdMember.id);
-
-  const retry = await service.complete({ destination: "team" });
-  const afterRetry = await store.read();
-  const retryMembers = Object.values(afterRetry.aiTeam?.members ?? {}).filter((member) => member.name === "Retry Ryo");
-
-  assert.equal(retry.status, "completed");
-  assert.equal(retryMembers.length, 1);
-  assert.equal(bindAttempts, 2);
+  assert.equal(afterFailure.onboarding, undefined);
+  assert.equal(afterFailure.onboardingOperations?.completion?.status, "completed");
+  assert.equal(failedWarmup?.status, "failed");
+  assert.match(failedWarmup?.lastError ?? "", /old AI employee/i);
+  assert.equal(bindAttempts, 1);
 });
 
 test("onboarding completion repairs legacy employee-step drafts that lost earlier prerequisite fields", async () => {
@@ -2599,7 +3589,7 @@ test("onboarding completion avoids rebuilding expensive live summaries during fi
   await service.complete({ destination: "chat" });
 
   assert.equal(modelConfigCalls, 1);
-  assert.equal(skillCatalogCalls, 1);
+  assert.equal(skillCatalogCalls, 0);
   assert.equal(runtimeCandidateCalls, 0);
 });
 
@@ -2852,7 +3842,10 @@ test("onboarding state includes read-only capability readiness for employee pres
   } as unknown as CapabilityService;
   const { service } = createService("onboarding-service-capability-readiness", { capabilityService });
 
-  const state = await service.getState();
+  const welcomeState = await service.getState();
+  assert.equal(welcomeState.capabilityReadiness, undefined);
+
+  const state = await service.updateState({ currentStep: "employee" }, { responseSummaryMode: "draft" });
   const byPreset = new Map(state.capabilityReadiness?.employeePresets.map((preset) => [preset.presetId, preset]));
   const byChannel = new Map(state.capabilityReadiness?.channels.map((channel) => [channel.channelId, channel]));
 
@@ -2863,11 +3856,6 @@ test("onboarding state includes read-only capability readiness for employee pres
   assert.equal(byChannel.get("wechat")?.status, "ready");
   assert.equal(byChannel.get("wechat")?.requirements[0]?.id, "openclaw-weixin");
   assert.equal(state.capabilityReadiness?.summary, "1 ready · 1 needs attention.");
-
-  const updated = await service.updateState({ currentStep: "employee" }, { responseSummaryMode: "draft" });
-  assert.equal(updated.capabilityReadiness?.employeePresets.length, 1);
-  assert.equal(updated.capabilityReadiness?.channels.length, 1);
-  assert.equal(updated.capabilityReadiness?.summary, "1 ready · 1 needs attention.");
 });
 
 test("onboarding service fails fast when onboarding config references a missing employee preset id", async () => {

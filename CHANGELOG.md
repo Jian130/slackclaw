@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.2.9 - 2026-04-27
+
+### 2026-04-27 00:43 CST
+
+- fixed personal WeChat onboarding QR login by promoting the WeChat QR URL from raw OpenClaw terminal logs into the daemon-owned channel session contract, letting the native macOS onboarding screen render a scannable QR code instead of staying stuck at "Waiting for QR Code"
+- hardened onboarding against client request timeouts by keeping install, model setup, channel login, and completion flows on daemon-owned async operation state with snapshot/event recovery across React and native macOS clients
+- repaired local model and AI employee onboarding handoffs so managed Ollama runtime entries, capability readiness, channel setup, and final completion recover from slow or stale daemon reads without surfacing false setup errors
+- bumped ChillClaw package metadata and internal workspace package versions to 0.2.9 for the onboarding recovery release tag
+
+### 2026-04-24 18:08 CST
+
+- fixed native macOS onboarding actions so setup buttons show immediate working feedback and lock sibling actions during async step transitions, preventing duplicate clicks on the Step 2 OpenClaw install/continue flow and later onboarding steps
+
+### 2026-04-24 15:17 CST
+
+- fixed onboarding and dashboard read timeouts after managed OpenClaw install by returning daemon-owned draft snapshots when local runtime probes are slow, and by bounding read-only OpenClaw CLI probes so setup recovery no longer waits on stuck upstream status commands
+
+### 2026-04-24 14:06 CST
+
+- fixed `npm run install:mac-local` on branches that already carry checked-in runtime artifacts but do not include the runtime preparation helper, so local installer builds no longer abort with a missing `scripts/prepare-runtime-artifacts.mjs` module before packaging starts
+
+### 2026-04-24 13:58 CST
+
+- added daemon-owned onboarding, operation, download, and local-runtime event snapshots with revision metadata across TypeScript and Swift contracts so clients can recover live setup state without blocking on long requests
+- improved web and native macOS onboarding recovery for managed runtime install, model setup, personal WeChat login, and AI employee handoff, with expanded daemon, React, and Swift regression coverage
+- moved native macOS global error presentation off SwiftUI/AppKit alert sheets and into a shared ChillClaw overlay dialog to avoid the macOS alert-dismissal crash path
+- added a local unsigned macOS install script and npm entry point for same-machine app bundle installation, LaunchAgent refresh, and local smoke testing
+
 ## 0.2.8 - 2026-04-22
 
 ### 2026-04-22 14:46 CST

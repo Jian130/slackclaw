@@ -15,6 +15,8 @@ private let onboardingQRCodeGlyphs = CharacterSet(charactersIn: "█▀▄▌▐
 private let onboardingURLPattern = try! NSRegularExpression(pattern: #"https?://[^\s]+"#)
 private let onboardingInstallTimeoutRecoveryMaxAttempts = 3_600
 private let onboardingInstallTimeoutRecoverySleepNanoseconds: UInt64 = 1_000_000_000
+private let onboardingModelDetectionRefreshMaxAttempts = 40
+private let onboardingModelDetectionRefreshSleepNanoseconds: UInt64 = 250_000_000
 
 private func sanitizeOnboardingChannelSessionLogLines(_ lines: [String]) -> [String] {
     lines.compactMap { line in
@@ -174,6 +176,7 @@ final class NativeOnboardingViewModel {
     private var modelStepBootstrapCompleted = false
     private var autoLocalRuntimeActionKey = ""
     private var shouldAutoAdvanceAfterLocalSetup = false
+    private var activeOnboardingActionID: String?
 
     var selectedLocaleIdentifier = resolveNativeOnboardingLocaleIdentifier()
 
@@ -228,6 +231,26 @@ final class NativeOnboardingViewModel {
     var completionWarmupBlocksChat: Bool {
         guard completionWarmupTaskID != nil else { return false }
         return completionWarmupStatus != .completed
+    }
+
+    var onboardingActionLocked: Bool {
+        activeOnboardingActionID != nil
+    }
+
+    func isOnboardingActionBusy(_ actionID: String) -> Bool {
+        activeOnboardingActionID == actionID
+    }
+
+    func performOnboardingAction(_ actionID: String, action: @escaping @MainActor () async -> Void) async {
+        guard activeOnboardingActionID == nil else { return }
+        activeOnboardingActionID = actionID
+        defer {
+            if activeOnboardingActionID == actionID {
+                activeOnboardingActionID = nil
+            }
+        }
+
+        await action()
     }
 
     func isCompletionDestinationDisabled(_ destination: OnboardingDestination) -> Bool {
@@ -387,7 +410,7 @@ final class NativeOnboardingViewModel {
     }
 
     var localSetupProgress: NativeOnboardingLocalSetupProgress {
-        resolveNativeOnboardingLocalSetupProgress(mode: modelStepMode, status: localRuntime?.status)
+        resolveNativeOnboardingLocalSetupProgress(mode: modelStepMode, localRuntime: localRuntime)
     }
 
     var localSetupStepLabels: [String] {
@@ -557,7 +580,31 @@ final class NativeOnboardingViewModel {
         clearCompletionWarmupState()
         onboardingState = state
         applyDraft(state.draft)
+        synchronizeChannelOperationState(state.operations?.channel, currentStep: state.draft.currentStep)
         synchronizeModelStepFlow()
+    }
+
+    private func synchronizeChannelOperationState(
+        _ operation: LongRunningOperationSummary?,
+        currentStep: OnboardingStep
+    ) {
+        guard let operation else { return }
+
+        let wasChannelBusy = channelBusy
+        switch operation.status {
+        case "completed":
+            channelBusy = false
+            if wasChannelBusy {
+                pageError = nil
+            }
+        case "failed", "timed-out":
+            channelBusy = false
+            if wasChannelBusy || currentStep == .channel {
+                pageError = operation.message
+            }
+        default:
+            break
+        }
     }
 
     private func stageExistingInstall() async throws {
@@ -825,10 +872,17 @@ final class NativeOnboardingViewModel {
     func markWelcomeStarted() async {
         pageError = nil
         await goToStep(.install)
-        do {
-            applyOnboardingState(try await appState.client.detectOnboardingRuntime())
-        } catch {
-            presentErrorUnlessCancelled(error)
+        guard currentStep == .install else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let detectedState = try await self.appState.client.detectOnboardingRuntime()
+                guard self.currentStep == .install else { return }
+                self.applyOnboardingState(detectedState)
+            } catch {
+                self.presentErrorUnlessCancelled(error)
+            }
         }
     }
 
@@ -1862,6 +1916,7 @@ final class NativeOnboardingViewModel {
                         return
                     }
                     self.applyOnboardingState(nextState)
+                    await self.refreshUncheckedModelDetectionUntilResolved()
                     self.pageError = nil
                 } catch {
                     if error is CancellationError {
@@ -1922,9 +1977,27 @@ final class NativeOnboardingViewModel {
         }
     }
 
+    private func refreshUncheckedModelDetectionUntilResolved() async {
+        for _ in 0..<onboardingModelDetectionRefreshMaxAttempts {
+            guard currentStep == .model, localRuntime?.status == "unchecked" else { return }
+            try? await Task.sleep(nanoseconds: onboardingModelDetectionRefreshSleepNanoseconds)
+            guard !Task.isCancelled else { return }
+            guard currentStep == .model, localRuntime?.status == "unchecked" else { return }
+
+            do {
+                let nextState = try await appState.client.fetchOnboardingState()
+                guard onboardingIsCurrentOrLater(nextState.draft.currentStep, target: .model) else { return }
+                applyOnboardingState(nextState)
+            } catch {
+                return
+            }
+        }
+    }
+
     private func handleLocalRuntimeAction(_ action: String) async {
         pageError = nil
         localRuntimeBusy = action
+        var operationStillRunning = false
         localRuntimeMessage = localRuntime?.detail ?? (action == "repair" ? copy.localModelPrepareStepLabel : copy.localModelSetupBody)
 
         do {
@@ -1932,6 +2005,10 @@ final class NativeOnboardingViewModel {
                 action == "repair"
                 ? try await appState.client.repairLocalModelRuntime()
                 : try await appState.client.installLocalModelRuntime()
+            operationStillRunning =
+                result.operation?.status == "pending" ||
+                result.operation?.status == "running" ||
+                result.operation?.status == "timed-out"
             appState.applyOverviewSnapshot(result.overview)
             appState.modelConfig = result.modelConfig
             localRuntimeSnapshot = result.localRuntime
@@ -1958,7 +2035,9 @@ final class NativeOnboardingViewModel {
             presentErrorUnlessCancelled(error)
         }
 
-        localRuntimeBusy = ""
+        if !operationStillRunning {
+            localRuntimeBusy = ""
+        }
         synchronizeModelStepFlow()
     }
 
@@ -2243,7 +2322,7 @@ final class NativeOnboardingViewModel {
                 }
             case let .operationUpdated(snapshot),
                 let .operationCompleted(snapshot):
-                guard snapshot.data.operationId == "onboarding:install" else { break }
+                guard snapshot.data.operationId == "onboarding:install" || snapshot.data.operationId == "onboarding:runtime-detect" else { break }
                 applyInstallOperationProgress(snapshot.data)
                 if snapshot.data.status == "completed" {
                     endInstallProgress()
@@ -2296,8 +2375,12 @@ final class NativeOnboardingViewModel {
                 completionWarmupStatus = status
                 completionWarmupMessage = message
             }
-        case let .localRuntimeProgress(_, _, _, message, localRuntime),
-            let .localRuntimeCompleted(_, _, message, localRuntime):
+        case let .localRuntimeProgress(action, _, _, message, localRuntime):
+            localRuntimeBusy = action
+            syncLocalRuntimeState(localRuntime, message: message)
+            shouldClearPageError = true
+        case let .localRuntimeCompleted(_, _, message, localRuntime):
+            localRuntimeBusy = ""
             syncLocalRuntimeState(localRuntime, message: message)
             shouldClearPageError = true
         case let .runtimeProgress(_, _, _, _, _, runtimeManager),
@@ -2306,7 +2389,7 @@ final class NativeOnboardingViewModel {
             appState.applyRuntimeManagerOverview(runtimeManager)
         case let .operationUpdated(snapshot),
             let .operationCompleted(snapshot):
-            if snapshot.data.operationId == "onboarding:install" {
+            if snapshot.data.operationId == "onboarding:install" || snapshot.data.operationId == "onboarding:runtime-detect" {
                 applyInstallOperationProgress(snapshot.data)
             } else if snapshot.data.operationId == "onboarding:completion" {
                 applyCompletionOperationProgress(snapshot.data)

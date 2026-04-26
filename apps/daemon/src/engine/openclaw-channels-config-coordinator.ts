@@ -130,6 +130,21 @@ function isWechatQrSignalLine(line: string): boolean {
   );
 }
 
+const WECHAT_QR_URL_PATTERN = /https?:\/\/[^\s]+/gi;
+
+function extractWechatLaunchUrl(text: string): string | undefined {
+  for (const match of text.matchAll(WECHAT_QR_URL_PATTERN)) {
+    const url = match[0].replace(/[),.;]+$/u, "");
+    const normalized = url.toLowerCase();
+
+    if (normalized.includes("qrcode=") || normalized.includes("liteapp.weixin.qq.com")) {
+      return url;
+    }
+  }
+
+  return undefined;
+}
+
 export class ChannelsConfigCoordinator {
   private activeLoginSession?: LoginSessionState;
   private pendingWechatLoginStart?: Promise<{ message: string; channel: ChannelSetupState }>;
@@ -769,6 +784,7 @@ export class ChannelsConfigCoordinator {
         if (lines.length === 0) {
           return;
         }
+        sessionState.launchUrl ??= extractWechatLaunchUrl(lines.join("\n"));
         loginQrGlyphLines += lines.filter(isWechatQrGlyphLine).length;
         if (loginQrGlyphLines >= 4 || lines.some(isWechatQrSignalLine)) {
           loginHasQrSignal = true;

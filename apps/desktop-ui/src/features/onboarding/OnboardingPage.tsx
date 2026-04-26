@@ -889,7 +889,8 @@ export default function OnboardingPage() {
         void refreshOnboardingState().catch(() => undefined);
       } else if (
         (event.type === "operation.updated" || event.type === "operation.completed") &&
-        event.operation.data.operationId === "onboarding:install"
+        (event.operation.data.operationId === "onboarding:install" ||
+          event.operation.data.operationId === "onboarding:runtime-detect")
       ) {
         applyInstallOperationProgress(event.operation.data);
 
@@ -1434,6 +1435,7 @@ export default function OnboardingPage() {
   async function handleLocalRuntimeAction(action: "install" | "repair") {
     setPageError(undefined);
     setLocalRuntimeBusy(action);
+    let operationStillRunning = false;
     setLocalRuntimeMessage(
       action === "repair"
         ? localRuntime?.detail ?? copy.localAiRepairCta
@@ -1441,6 +1443,10 @@ export default function OnboardingPage() {
     );
     try {
       const result = action === "repair" ? await repairLocalModelRuntime() : await installLocalModelRuntime();
+      operationStillRunning =
+        result.operation?.status === "pending" ||
+        result.operation?.status === "running" ||
+        result.operation?.status === "timed-out";
       setOverview(result.overview);
       setModelConfig(result.modelConfig);
       setLocalRuntimeSnapshot(result.localRuntime);
@@ -1460,7 +1466,9 @@ export default function OnboardingPage() {
       }
       setPageError(actionError instanceof Error ? actionError.message : "ChillClaw could not prepare local AI on this Mac.");
     } finally {
-      setLocalRuntimeBusy("");
+      if (!operationStillRunning) {
+        setLocalRuntimeBusy("");
+      }
     }
   }
 

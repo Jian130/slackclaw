@@ -87,10 +87,6 @@ const API_BASE = resolveApiBase();
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 const responseGetCache = new Map<string, { expiresAt: number; value: unknown }>();
 const DEFAULT_GET_CACHE_MS = 2000;
-const REQUEST_TIMEOUT_MS = {
-  longRunning: 1_200_000,
-  runtimeInstall: 86_400_000
-};
 
 const COMMUNICATION_LOG_PREFIX = "[ChillClaw communication]";
 
@@ -617,15 +613,13 @@ export function setDefaultModel(request: SetDefaultModelRequest): Promise<ModelC
 
 export function installLocalModelRuntime(): Promise<LocalModelRuntimeActionResponse> {
   return readJson<LocalModelRuntimeActionResponse>("/models/local-runtime/install", {
-    method: "POST",
-    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
+    method: "POST"
   });
 }
 
 export function repairLocalModelRuntime(): Promise<LocalModelRuntimeActionResponse> {
   return readJson<LocalModelRuntimeActionResponse>("/models/local-runtime/repair", {
-    method: "POST",
-    timeoutMs: REQUEST_TIMEOUT_MS.longRunning
+    method: "POST"
   });
 }
 

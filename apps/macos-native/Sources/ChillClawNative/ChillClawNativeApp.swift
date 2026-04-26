@@ -114,14 +114,15 @@ struct RootView: View {
                 }
             }
         }
-        .alert("ChillClaw", isPresented: Binding(
-            get: { appState.errorMessage != nil },
-            set: { if !$0 { appState.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(appState.errorMessage ?? "")
+        .overlay {
+            if let errorMessage = appState.errorMessage {
+                NativeErrorDialog(message: errorMessage) {
+                    appState.errorMessage = nil
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
         }
+        .animation(.easeInOut(duration: 0.16), value: appState.errorMessage != nil)
     }
 
     @ViewBuilder

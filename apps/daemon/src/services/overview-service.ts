@@ -21,6 +21,73 @@ export type OverviewReadOptions = {
   includeLocalRuntime?: boolean;
 };
 
+const OVERVIEW_APP_UPDATE_TIMEOUT_MS = 500;
+const OVERVIEW_ENGINE_STATUS_TIMEOUT_MS = 500;
+const OVERVIEW_HEALTH_CHECK_TIMEOUT_MS = 500;
+const OVERVIEW_APP_SERVICE_TIMEOUT_MS = 500;
+const OVERVIEW_INSTALL_CHECK_TIMEOUT_MS = 500;
+const OVERVIEW_RUNTIME_MANAGER_TIMEOUT_MS = 500;
+const OVERVIEW_CHANNEL_STATE_TIMEOUT_MS = 500;
+const OVERVIEW_LOCAL_RUNTIME_TIMEOUT_MS = 500;
+
+async function withTimeoutFallback<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T
+): Promise<T> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(fallback);
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(fallback);
+      }
+    );
+  });
+}
+
+function createCheckingEngineStatus(base: ProductOverview): ProductOverview["engine"] {
+  return {
+    ...base.engine,
+    summary: "ChillClaw is still checking OpenClaw status.",
+    lastCheckedAt: new Date().toISOString()
+  };
+}
+
+function createCheckingHealthChecks(base: ProductOverview): ProductOverview["healthChecks"] {
+  return base.healthChecks.map((check) =>
+    check.id === "engine-service"
+      ? {
+          ...check,
+          severity: "info",
+          summary: "ChillClaw is still checking runtime health.",
+          detail: "The dashboard is using a quick fallback while the daemon finishes slower runtime checks.",
+          remediationActionIds: []
+        }
+      : check
+  );
+}
+
 export class OverviewService {
   constructor(
     private readonly adapter: EngineAdapter,
@@ -32,23 +99,59 @@ export class OverviewService {
   ) {}
 
   async getOverview(options?: OverviewReadOptions): Promise<ProductOverview> {
-    const appUpdate = await this.appUpdateService.getStatus();
+    const appVersion = getProductVersion();
+    const fallbackBase = createDefaultProductOverview({
+      appVersion
+    });
+    const appUpdate = await withTimeoutFallback(
+      this.appUpdateService.getStatus(),
+      OVERVIEW_APP_UPDATE_TIMEOUT_MS,
+      fallbackBase.appUpdate
+    );
     const base = createDefaultProductOverview({
-      appVersion: getProductVersion(),
+      appVersion,
       appUpdate
     });
     const state = await this.store.read();
-    const engine = await this.adapter.instances.status();
-    const healthChecks = await this.adapter.gateway.healthCheck(state.selectedProfileId);
-    const appService = await this.appServiceManager.getStatus();
-    const installChecks = await this.getInstallChecks(base.installSpec.prerequisites);
-    const runtimeManager = this.runtimeManager ? await this.runtimeManager.getOverview() : base.runtimeManager;
-    const liveWhatsapp = await this.adapter.config.getChannelState("whatsapp");
     const storedChannels = state.channelOnboarding?.channels ?? {};
     const baseChannels = Object.fromEntries(base.channelSetup.channels.map((channel) => [channel.id, channel])) as Record<
       "telegram" | "whatsapp" | "feishu" | "wechat",
       (typeof base.channelSetup.channels)[number]
     >;
+    const includeLocalRuntime = options?.includeLocalRuntime ?? Boolean(state.setupCompletedAt);
+    const [
+      engine,
+      healthChecks,
+      appService,
+      installChecks,
+      runtimeManager,
+      liveWhatsapp,
+      localRuntime
+    ] = await Promise.all([
+      withTimeoutFallback(this.adapter.instances.status(), OVERVIEW_ENGINE_STATUS_TIMEOUT_MS, createCheckingEngineStatus(base)),
+      withTimeoutFallback(
+        this.adapter.gateway.healthCheck(state.selectedProfileId),
+        OVERVIEW_HEALTH_CHECK_TIMEOUT_MS,
+        createCheckingHealthChecks(base)
+      ),
+      withTimeoutFallback(this.appServiceManager.getStatus(), OVERVIEW_APP_SERVICE_TIMEOUT_MS, base.appService),
+      withTimeoutFallback(this.getInstallChecks(base.installSpec.prerequisites), OVERVIEW_INSTALL_CHECK_TIMEOUT_MS, base.installChecks),
+      this.runtimeManager
+        ? withTimeoutFallback(this.runtimeManager.getOverview(), OVERVIEW_RUNTIME_MANAGER_TIMEOUT_MS, base.runtimeManager)
+        : Promise.resolve(base.runtimeManager),
+      withTimeoutFallback(
+        this.adapter.config.getChannelState("whatsapp"),
+        OVERVIEW_CHANNEL_STATE_TIMEOUT_MS,
+        storedChannels.whatsapp ?? baseChannels.whatsapp
+      ),
+      includeLocalRuntime && this.localModelRuntimeService
+        ? withTimeoutFallback(
+            this.localModelRuntimeService.getOverview(),
+            OVERVIEW_LOCAL_RUNTIME_TIMEOUT_MS,
+            base.localRuntime
+          )
+        : Promise.resolve(base.localRuntime)
+    ]);
     const mergedChannels = {
       telegram: storedChannels.telegram ?? baseChannels.telegram,
       whatsapp:
@@ -60,10 +163,6 @@ export class OverviewService {
     };
     const onboardingCompleted = true;
     const nextChannelId = (["telegram", "whatsapp", "feishu", "wechat"] as const).find((channelId) => mergedChannels[channelId].status !== "completed");
-    const includeLocalRuntime = options?.includeLocalRuntime ?? Boolean(state.setupCompletedAt);
-    const localRuntime = includeLocalRuntime && this.localModelRuntimeService
-      ? await this.localModelRuntimeService.getOverview()
-      : base.localRuntime;
     const recoveryActions = [...base.recoveryActions];
     const mergedHealthChecks = [...healthChecks];
 

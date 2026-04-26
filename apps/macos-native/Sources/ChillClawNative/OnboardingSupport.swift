@@ -1297,6 +1297,21 @@ func resolveNativeOnboardingLocalSetupProgress(
     mode: NativeOnboardingModelStepMode,
     status: String?
 ) -> NativeOnboardingLocalSetupProgress {
+    resolveNativeOnboardingLocalSetupProgress(mode: mode, status: status, localRuntime: nil)
+}
+
+func resolveNativeOnboardingLocalSetupProgress(
+    mode: NativeOnboardingModelStepMode,
+    localRuntime: LocalModelRuntimeOverview?
+) -> NativeOnboardingLocalSetupProgress {
+    resolveNativeOnboardingLocalSetupProgress(mode: mode, status: localRuntime?.status, localRuntime: localRuntime)
+}
+
+private func resolveNativeOnboardingLocalSetupProgress(
+    mode: NativeOnboardingModelStepMode,
+    status: String?,
+    localRuntime: LocalModelRuntimeOverview?
+) -> NativeOnboardingLocalSetupProgress {
     if mode == .connected || status == "ready" {
         return .init(currentStep: 4)
     }
@@ -1308,11 +1323,29 @@ func resolveNativeOnboardingLocalSetupProgress(
         return .init(currentStep: 3)
     case "starting-runtime", "configuring-openclaw":
         return .init(currentStep: 4)
-    case "idle", "degraded", "failed", "cloud-recommended", "unchecked", nil:
+    case "idle", "degraded", "failed":
+        return .init(currentStep: nativeOnboardingPendingLocalSetupStep(localRuntime))
+    case "cloud-recommended", "unchecked", nil:
         return .init(currentStep: 1)
     default:
         return .init(currentStep: 1)
     }
+}
+
+private func nativeOnboardingPendingLocalSetupStep(_ localRuntime: LocalModelRuntimeOverview?) -> Int {
+    guard let localRuntime else {
+        return 1
+    }
+
+    if localRuntime.runtimeInstalled, localRuntime.runtimeReachable, localRuntime.modelDownloaded {
+        return 4
+    }
+
+    if localRuntime.runtimeInstalled, localRuntime.runtimeReachable {
+        return 3
+    }
+
+    return 2
 }
 
 struct NativeOnboardingLocalModelDownloadInfo: Sendable, Equatable {

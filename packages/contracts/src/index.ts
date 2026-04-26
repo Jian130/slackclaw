@@ -1624,7 +1624,7 @@ export interface RecoveryRunResponse {
 
 export interface LocalModelRuntimeActionResponse extends MutationSyncMeta {
   action: LocalModelRuntimeAction;
-  status: "completed" | "failed";
+  status: LongRunningOperationStatus;
   message: string;
   localRuntime: LocalModelRuntimeOverview;
   modelConfig: ModelConfigOverview;

@@ -4,7 +4,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { resolveCommandFromPath, runCommand } from "./cli-runner.js";
+import { probeCommand, resolveCommandFromPath, runCommand } from "./cli-runner.js";
 
 test("runCommand captures stdout and stderr and allows non-zero exits when requested", async () => {
   const tempDir = await mkdtemp(resolve(tmpdir(), "chillclaw-cli-runner-test-"));
@@ -106,6 +106,29 @@ setTimeout(() => {}, 60_000);
         return true;
       }
     );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("probeCommand returns false when the probe exceeds its timeout", async () => {
+  const tempDir = await mkdtemp(resolve(tmpdir(), "chillclaw-cli-runner-probe-timeout-test-"));
+  const scriptPath = join(tempDir, "probe-timeout.mjs");
+
+  await writeFile(
+    scriptPath,
+    `setTimeout(() => {}, 60_000);
+`
+  );
+
+  try {
+    const result = await probeCommand(process.execPath, [scriptPath], {
+      env: process.env,
+      timeoutMs: 100,
+      killTimeoutMs: 20
+    });
+
+    assert.equal(result, false);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

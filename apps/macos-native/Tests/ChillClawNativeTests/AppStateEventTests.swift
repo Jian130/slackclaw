@@ -261,6 +261,66 @@ struct AppStateEventTests {
     }
 
     @Test
+    func refreshAllRestartsDaemonAndRetriesDashboardDataAfterConnectionLoss() async {
+        let launchAgent = RecoveringEventLaunchAgentController()
+        let overviewRecorder = NativeEventLoadRecorder()
+        let modelProbe = NativeSectionRefreshProbe()
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: ChillClawAPIClient(configurationProvider: { configuration }),
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: {
+                await launchAgent.restartCount() > 0
+            }),
+            processManager: DaemonProcessManager(
+                launchAgent: launchAgent,
+                ping: { await launchAgent.restartCount() > 0 }
+            ),
+            chatViewModel: ChillClawChatViewModel(transport: FakeEventChatTransport()),
+            loader: .init(
+                fetchOverview: {
+                    await overviewRecorder.record("overview")
+                    return makeNativeOverview(setupCompleted: true)
+                },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: {
+                    if await modelProbe.beginModelLoad() {
+                        await modelProbe.finishModelLoad()
+                        throw URLError(.cannotConnectToHost)
+                    }
+                    await modelProbe.finishModelLoad()
+                    return emptyNativeModelConfig()
+                },
+                fetchChannelConfig: { emptyNativeChannelConfig() },
+                fetchPluginConfig: { emptyNativePluginConfig() },
+                fetchSkillsConfig: { emptyNativeSkillConfig() },
+                fetchAITeamOverview: { emptyNativeAITeamOverview() }
+            ),
+            daemonEventStreamFactory: {
+                AsyncStream { continuation in
+                    continuation.finish()
+                }
+            }
+        )
+        appState.selectedSection = .dashboard
+        appState.overview = makeNativeOverview(setupCompleted: true)
+        appState.hasBootstrapped = true
+
+        await appState.refreshAll()
+
+        #expect(await launchAgent.restartCount() == 1)
+        #expect(await modelProbe.modelLoadCallCount() == 2)
+        #expect(appState.errorMessage == nil)
+        guard case .ready = await appState.endpointStore.state else {
+            Issue.record("Expected endpoint to recover after daemon restart")
+            return
+        }
+    }
+
+    @Test
     func applyDaemonEventCancellationDoesNotSurfaceAlert() async {
         let appState = makeEventDrivenAppState(
             setupCompleted: true,
@@ -515,6 +575,28 @@ private actor FakeEventLaunchAgentController: LaunchAgentControlling {
 
     func status() async -> LaunchAgentStatus {
         .init(installed: true, running: true, detail: "fake")
+    }
+}
+
+private actor RecoveringEventLaunchAgentController: LaunchAgentControlling {
+    private var restarts = 0
+
+    func installAndStart() async throws {
+        restarts += 1
+    }
+
+    func stopAndRemove() async throws {}
+
+    func restart() async throws {
+        restarts += 1
+    }
+
+    func status() async -> LaunchAgentStatus {
+        .init(installed: true, running: restarts > 0, detail: "fake")
+    }
+
+    func restartCount() -> Int {
+        restarts
     }
 }
 

@@ -95,17 +95,20 @@ private struct OnboardingSelectCard<Content: View>: View {
 private struct NativeOnboardingActionButton<Label: View>: View {
     let variant: NativeOnboardingActionButtonVariant
     let disabled: Bool
+    let isWorking: Bool
     let action: () -> Void
     @ViewBuilder let label: Label
 
     init(
         variant: NativeOnboardingActionButtonVariant,
         disabled: Bool = false,
+        isWorking: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Label
     ) {
         self.variant = variant
         self.disabled = disabled
+        self.isWorking = isWorking
         self.action = action
         self.label = label()
     }
@@ -116,14 +119,24 @@ private struct NativeOnboardingActionButton<Label: View>: View {
 
     var body: some View {
         Button(action: action) {
-            label
+            HStack(spacing: 8) {
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.78)
+                        .transition(.opacity.combined(with: .scale(scale: 0.86)))
+                }
+
+                label
+            }
                 .frame(maxWidth: layout.expandsToContainer ? .infinity : nil)
                 .frame(minHeight: layout.minHeight)
                 .contentShape(RoundedRectangle(cornerRadius: layout.cornerRadius, style: .continuous))
         }
         .buttonStyle(NativeActionButtonStyle(variant: nativeOnboardingActionButtonVariant(variant)))
-        .disabled(disabled)
-        .opacity(disabled ? 0.55 : 1)
+        .disabled(disabled || isWorking)
+        .opacity(disabled && !isWorking ? 0.55 : 1)
+        .animation(.easeInOut(duration: 0.16), value: isWorking)
     }
 }
 
@@ -256,14 +269,15 @@ struct NativeOnboardingView: View {
                 }
             }
         }
-        .alert("ChillClaw", isPresented: Binding(
-            get: { viewModel.pageError != nil },
-            set: { if !$0 { viewModel.pageError = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(viewModel.pageError ?? "")
+        .overlay {
+            if let pageError = viewModel.pageError {
+                NativeErrorDialog(message: pageError) {
+                    viewModel.pageError = nil
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
         }
+        .animation(.easeInOut(duration: 0.16), value: viewModel.pageError != nil)
         .sheet(isPresented: $viewModel.isModelTutorialPresented) {
             NativeOnboardingTutorialSheet(
                 title: viewModel.copy.minimaxTutorialModalTitle,
@@ -288,6 +302,10 @@ struct NativeOnboardingView: View {
         }
     }
 
+    private func onboardingActionDisabled(_ disabled: Bool = false) -> Bool {
+        disabled || viewModel.onboardingActionLocked
+    }
+
     private func header(headerWidth: CGFloat) -> some View {
         VStack(spacing: 16) {
             HStack(spacing: 14) {
@@ -307,13 +325,27 @@ struct NativeOnboardingView: View {
 
             if !viewModel.showingCompletion {
                 VStack(spacing: 6) {
-                    Button(viewModel.copy.skip) {
-                        Task { await viewModel.skipToDashboard() }
+                    Button {
+                        Task {
+                            await viewModel.performOnboardingAction("header.skip") {
+                                await viewModel.skipToDashboard()
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if viewModel.isOnboardingActionBusy("header.skip") {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .scaleEffect(0.7)
+                            }
+                            Text(viewModel.copy.skip)
+                        }
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(nativeOnboardingTextSecondary)
                     .underline()
+                    .disabled(onboardingActionDisabled())
 
                     Text(viewModel.copy.skipDetail)
                         .font(.system(size: 12, weight: .medium))
@@ -437,8 +469,16 @@ struct NativeOnboardingView: View {
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
 
-            NativeOnboardingActionButton(variant: .accent) {
-                Task { await viewModel.markWelcomeStarted() }
+            NativeOnboardingActionButton(
+                variant: .accent,
+                disabled: onboardingActionDisabled(),
+                isWorking: viewModel.isOnboardingActionBusy("welcome.begin")
+            ) {
+                Task {
+                    await viewModel.performOnboardingAction("welcome.begin") {
+                        await viewModel.markWelcomeStarted()
+                    }
+                }
             } label: {
                 Text(viewModel.copy.begin)
                     .font(.system(size: 15, weight: .semibold))
@@ -597,8 +637,16 @@ struct NativeOnboardingView: View {
                     )
 
                     if installViewState.kind == .missing {
-                        NativeOnboardingActionButton(variant: .accent) {
-                            Task { await viewModel.runInstall() }
+                        NativeOnboardingActionButton(
+                            variant: .accent,
+                            disabled: onboardingActionDisabled(),
+                            isWorking: viewModel.isOnboardingActionBusy("install.run")
+                        ) {
+                            Task {
+                                await viewModel.performOnboardingAction("install.run") {
+                                    await viewModel.runInstall()
+                                }
+                            }
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "arrow.down.circle")
@@ -623,8 +671,16 @@ struct NativeOnboardingView: View {
                                     .foregroundStyle(nativeOnboardingTextPrimary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                                    NativeOnboardingActionButton(variant: .secondary) {
-                                        Task { await viewModel.updateExistingInstall() }
+                                    NativeOnboardingActionButton(
+                                        variant: .secondary,
+                                        disabled: onboardingActionDisabled(),
+                                        isWorking: viewModel.isOnboardingActionBusy("install.update")
+                                    ) {
+                                        Task {
+                                            await viewModel.performOnboardingAction("install.update") {
+                                                await viewModel.updateExistingInstall()
+                                            }
+                                        }
                                     } label: {
                                         HStack(spacing: 10) {
                                             Image(systemName: "arrow.triangle.2.circlepath.circle")
@@ -646,12 +702,18 @@ struct NativeOnboardingView: View {
                                 )
                             }
 
-                            NativeOnboardingActionButton(variant: nativeOnboardingForwardActionVariant()) {
+                            NativeOnboardingActionButton(
+                                variant: nativeOnboardingForwardActionVariant(),
+                                disabled: onboardingActionDisabled(),
+                                isWorking: viewModel.isOnboardingActionBusy("install.continue")
+                            ) {
                                 Task {
-                                    if installViewState.kind == .found {
-                                        await viewModel.useExistingInstall()
-                                    } else {
-                                        await viewModel.advancePastInstall()
+                                    await viewModel.performOnboardingAction("install.continue") {
+                                        if installViewState.kind == .found {
+                                            await viewModel.useExistingInstall()
+                                        } else {
+                                            await viewModel.advancePastInstall()
+                                        }
                                     }
                                 }
                             } label: {
@@ -659,8 +721,16 @@ struct NativeOnboardingView: View {
                                     .font(.system(size: 15, weight: .semibold))
                             }
 
-                            NativeOnboardingActionButton(variant: .secondary) {
-                                Task { await viewModel.goToStep(.welcome) }
+                            NativeOnboardingActionButton(
+                                variant: .secondary,
+                                disabled: onboardingActionDisabled(),
+                                isWorking: viewModel.isOnboardingActionBusy("install.back")
+                            ) {
+                                Task {
+                                    await viewModel.performOnboardingAction("install.back") {
+                                        await viewModel.goToStep(.welcome)
+                                    }
+                                }
                             } label: {
                                 Text(viewModel.copy.back)
                                     .font(.system(size: 15, weight: .semibold))
@@ -962,8 +1032,16 @@ struct NativeOnboardingView: View {
                     )
             )
 
-            NativeOnboardingActionButton(variant: nativeOnboardingForwardActionVariant(), disabled: viewModel.modelAdvanceBusy) {
-                Task { await viewModel.advancePastModel() }
+            NativeOnboardingActionButton(
+                variant: nativeOnboardingForwardActionVariant(),
+                disabled: onboardingActionDisabled(viewModel.modelAdvanceBusy),
+                isWorking: viewModel.modelAdvanceBusy || viewModel.isOnboardingActionBusy("model.advance.local")
+            ) {
+                Task {
+                    await viewModel.performOnboardingAction("model.advance.local") {
+                        await viewModel.advancePastModel()
+                    }
+                }
             } label: {
                 modelAdvanceButtonLabel
             }
@@ -971,17 +1049,9 @@ struct NativeOnboardingView: View {
     }
 
     private var modelAdvanceButtonLabel: some View {
-        Group {
-            if viewModel.modelAdvanceBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                    .accessibilityLabel(viewModel.copy.next)
-            } else {
-                Text(viewModel.copy.next)
-                    .font(.system(size: 15, weight: .semibold))
-            }
-        }
+        Text(viewModel.copy.next)
+            .font(.system(size: 15, weight: .semibold))
+            .accessibilityLabel(viewModel.copy.next)
     }
 
     private var modelPickerState: some View {
@@ -1022,8 +1092,16 @@ struct NativeOnboardingView: View {
                 }
             }
 
-            NativeOnboardingActionButton(variant: .secondary) {
-                Task { await viewModel.goToStep(.install) }
+            NativeOnboardingActionButton(
+                variant: .secondary,
+                disabled: onboardingActionDisabled(),
+                isWorking: viewModel.isOnboardingActionBusy("model.back.install")
+            ) {
+                Task {
+                    await viewModel.performOnboardingAction("model.back.install") {
+                        await viewModel.goToStep(.install)
+                    }
+                }
             } label: {
                 Text(viewModel.copy.back)
                     .font(.system(size: 15, weight: .semibold))
@@ -1148,15 +1226,20 @@ struct NativeOnboardingView: View {
                                     }
 
                                     Button {
-                                        Task { await viewModel.submitModelSessionInput() }
+                                        Task {
+                                            await viewModel.performOnboardingAction("model.auth.input") {
+                                                await viewModel.submitModelSessionInput()
+                                            }
+                                        }
                                     } label: {
-                                        if viewModel.modelBusy == "input" {
+                                        if viewModel.modelBusy == "input" || viewModel.isOnboardingActionBusy("model.auth.input") {
                                             ProgressView().controlSize(.small)
                                         } else {
                                             Text(viewModel.copy.submitAuthInput)
                                         }
                                     }
                                     .buttonStyle(.borderedProminent)
+                                    .disabled(onboardingActionDisabled(viewModel.modelBusy == "input"))
                                     .controlSize(.large)
                                     .disabled(viewModel.modelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                 }
@@ -1190,7 +1273,10 @@ struct NativeOnboardingView: View {
                                     body: viewModel.copy.minimaxGetKeyBody,
                                     trailing: { EmptyView() }
                                 ) {
-                                    NativeOnboardingActionButton(variant: .accent) {
+                                    NativeOnboardingActionButton(
+                                        variant: .accent,
+                                        disabled: onboardingActionDisabled()
+                                    ) {
                                         viewModel.openModelDocs()
                                     } label: {
                                         HStack(spacing: 10) {
@@ -1289,7 +1375,10 @@ struct NativeOnboardingView: View {
                                     .foregroundStyle(nativeOnboardingTextSecondary)
 
                                 if !curatedProvider.platformUrl.isEmpty {
-                                    NativeOnboardingActionButton(variant: .secondary) {
+                                    NativeOnboardingActionButton(
+                                        variant: .secondary,
+                                        disabled: onboardingActionDisabled()
+                                    ) {
                                         viewModel.openModelDocs()
                                     } label: {
                                         Label(viewModel.copy.modelGetApiKey, systemImage: "arrow.up.right.square")
@@ -1300,8 +1389,16 @@ struct NativeOnboardingView: View {
                         }
 
                         HStack(spacing: 16) {
-                            NativeOnboardingActionButton(variant: .secondary) {
-                                Task { await viewModel.returnToModelPicker() }
+                            NativeOnboardingActionButton(
+                                variant: .secondary,
+                                disabled: onboardingActionDisabled(),
+                                isWorking: viewModel.isOnboardingActionBusy("model.back.picker")
+                            ) {
+                                Task {
+                                    await viewModel.performOnboardingAction("model.back.picker") {
+                                        await viewModel.returnToModelPicker()
+                                    }
+                                }
                             } label: {
                                 Text(viewModel.copy.back)
                                     .font(.system(size: 15, weight: .semibold))
@@ -1310,18 +1407,19 @@ struct NativeOnboardingView: View {
 
                             NativeOnboardingActionButton(
                                 variant: nativeOnboardingForwardActionVariant(),
-                                disabled: viewModel.modelBusy == "save" || requiredModelFieldsMissing(viewModel.selectedMethod, values: viewModel.modelValues)
+                                disabled: onboardingActionDisabled(
+                                    viewModel.modelBusy == "save" || requiredModelFieldsMissing(viewModel.selectedMethod, values: viewModel.modelValues)
+                                ),
+                                isWorking: viewModel.modelBusy == "save" || viewModel.isOnboardingActionBusy("model.save")
                             ) {
-                                Task { await viewModel.saveModel() }
-                            } label: {
-                                if viewModel.modelBusy == "save" {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .tint(.white)
-                                } else {
-                                    Text(viewModel.copy.modelSave)
-                                        .font(.system(size: 15, weight: .semibold))
+                                Task {
+                                    await viewModel.performOnboardingAction("model.save") {
+                                        await viewModel.saveModel()
+                                    }
                                 }
+                            } label: {
+                                Text(viewModel.copy.modelSave)
+                                    .font(.system(size: 15, weight: .semibold))
                             }
                         }
                     } else {
@@ -1359,8 +1457,16 @@ struct NativeOnboardingView: View {
                                     )
                             )
 
-                            NativeOnboardingActionButton(variant: nativeOnboardingForwardActionVariant(), disabled: viewModel.modelAdvanceBusy) {
-                                Task { await viewModel.advancePastModel() }
+                            NativeOnboardingActionButton(
+                                variant: nativeOnboardingForwardActionVariant(),
+                                disabled: onboardingActionDisabled(viewModel.modelAdvanceBusy),
+                                isWorking: viewModel.modelAdvanceBusy || viewModel.isOnboardingActionBusy("model.advance.connected")
+                            ) {
+                                Task {
+                                    await viewModel.performOnboardingAction("model.advance.connected") {
+                                        await viewModel.advancePastModel()
+                                    }
+                                }
                             } label: {
                                 modelAdvanceButtonLabel
                             }
@@ -1566,7 +1672,10 @@ struct NativeOnboardingView: View {
                                     body: viewModel.copy.channelFeishuPlatformBody,
                                     trailing: { EmptyView() }
                                 ) {
-                                    NativeOnboardingActionButton(variant: .accent) {
+                                    NativeOnboardingActionButton(
+                                        variant: .accent,
+                                        disabled: onboardingActionDisabled()
+                                    ) {
                                         viewModel.openChannelPlatform()
                                     } label: {
                                         HStack(spacing: 10) {
@@ -1620,8 +1729,16 @@ struct NativeOnboardingView: View {
                         }
 
                         HStack(spacing: 16) {
-                            NativeOnboardingActionButton(variant: .secondary) {
-                                Task { await viewModel.returnToChannelPicker() }
+                            NativeOnboardingActionButton(
+                                variant: .secondary,
+                                disabled: onboardingActionDisabled(),
+                                isWorking: viewModel.isOnboardingActionBusy("channel.back.picker")
+                            ) {
+                                Task {
+                                    await viewModel.performOnboardingAction("channel.back.picker") {
+                                        await viewModel.returnToChannelPicker()
+                                    }
+                                }
                             } label: {
                                 Text(viewModel.copy.back)
                                     .font(.system(size: 15, weight: .semibold))
@@ -1629,28 +1746,25 @@ struct NativeOnboardingView: View {
 
                             NativeOnboardingActionButton(
                                 variant: nativeOnboardingForwardActionVariant(),
-                                disabled: viewModel.channelPrimaryActionBusy || (viewModel.activeChannelSession?.inputPrompt != nil
-                                    ? viewModel.channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    : viewModel.isSelectedChannelMissingRequiredValues())
+                                disabled: onboardingActionDisabled(
+                                    viewModel.channelPrimaryActionBusy || (viewModel.activeChannelSession?.inputPrompt != nil
+                                        ? viewModel.channelSessionInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        : viewModel.isSelectedChannelMissingRequiredValues())
+                                ),
+                                isWorking: viewModel.channelPrimaryActionBusy || viewModel.isOnboardingActionBusy("channel.save")
                             ) {
                                 Task {
-                                    if viewModel.activeChannelSession?.inputPrompt != nil {
-                                        await viewModel.submitChannelSessionInput()
-                                    } else {
-                                        await viewModel.saveAndContinueChannel()
+                                    await viewModel.performOnboardingAction("channel.save") {
+                                        if viewModel.activeChannelSession?.inputPrompt != nil {
+                                            await viewModel.submitChannelSessionInput()
+                                        } else {
+                                            await viewModel.saveAndContinueChannel()
+                                        }
                                     }
                                 }
                             } label: {
-                                HStack(spacing: 10) {
-                                    if viewModel.channelPrimaryActionBusy {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .tint(.white)
-                                    }
-
-                                    Text(viewModel.channelPrimaryActionLabel)
-                                        .font(.system(size: 15, weight: .semibold))
-                                }
+                                Text(viewModel.channelPrimaryActionLabel)
+                                    .font(.system(size: 15, weight: .semibold))
                             }
                         }
                     }
@@ -1710,8 +1824,16 @@ struct NativeOnboardingView: View {
                             }
                         }
 
-                        NativeOnboardingActionButton(variant: .secondary) {
-                            Task { await viewModel.goBackFromChannelPicker() }
+                        NativeOnboardingActionButton(
+                            variant: .secondary,
+                            disabled: onboardingActionDisabled(),
+                            isWorking: viewModel.isOnboardingActionBusy("channel.back.model")
+                        ) {
+                            Task {
+                                await viewModel.performOnboardingAction("channel.back.model") {
+                                    await viewModel.goBackFromChannelPicker()
+                                }
+                            }
                         } label: {
                             Text(viewModel.copy.back)
                                 .font(.system(size: 15, weight: .semibold))
@@ -1918,8 +2040,16 @@ struct NativeOnboardingView: View {
     }
 
     private var backButtonToChannel: some View {
-        NativeOnboardingActionButton(variant: .secondary) {
-            Task { await viewModel.goToStep(.channel) }
+        NativeOnboardingActionButton(
+            variant: .secondary,
+            disabled: onboardingActionDisabled(),
+            isWorking: viewModel.isOnboardingActionBusy("employee.back.channel")
+        ) {
+            Task {
+                await viewModel.performOnboardingAction("employee.back.channel") {
+                    await viewModel.goToStep(.channel)
+                }
+            }
         } label: {
             Text(viewModel.copy.back)
                 .font(.system(size: 15, weight: .semibold))
@@ -1929,23 +2059,24 @@ struct NativeOnboardingView: View {
     private var createEmployeeButton: some View {
         NativeOnboardingActionButton(
             variant: nativeOnboardingForwardActionVariant(),
-            disabled: viewModel.employeeBusy
-                || viewModel.selectedEmployeePreset == nil
-                || viewModel.selectedBrainEntryId == nil
-                || viewModel.employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || viewModel.employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || (viewModel.selectedEmployeePresetReadiness?.blocking ?? false)
+            disabled: onboardingActionDisabled(
+                viewModel.employeeBusy
+                    || viewModel.selectedEmployeePreset == nil
+                    || viewModel.selectedBrainEntryId == nil
+                    || viewModel.employeeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || viewModel.employeeJobTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || (viewModel.selectedEmployeePresetReadiness?.blocking ?? false)
+            ),
+            isWorking: viewModel.employeeBusy || viewModel.isOnboardingActionBusy("employee.create")
         ) {
-            Task { await viewModel.createEmployee() }
-        } label: {
-            if viewModel.employeeBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-            } else {
-                Text(viewModel.copy.createEmployee)
-                    .font(.system(size: 15, weight: .semibold))
+            Task {
+                await viewModel.performOnboardingAction("employee.create") {
+                    await viewModel.createEmployee()
+                }
             }
+        } label: {
+            Text(viewModel.copy.createEmployee)
+                .font(.system(size: 15, weight: .semibold))
         }
     }
 
@@ -2014,12 +2145,18 @@ struct NativeOnboardingView: View {
                     title,
                     systemImage: "arrow.right",
                     variant: .outline,
-                    isBusy: viewModel.completionBusy == destination,
+                    isBusy: viewModel.completionBusy == destination ||
+                        viewModel.isOnboardingActionBusy("complete.\(destination.rawValue)"),
                     isDisabled: viewModel.isCompletionDestinationDisabled(destination) ||
-                        (viewModel.completionBusy != nil && viewModel.completionBusy != destination),
+                        (viewModel.completionBusy != nil && viewModel.completionBusy != destination) ||
+                        viewModel.onboardingActionLocked,
                     fullWidth: true
                 ) {
-                    Task { await viewModel.complete(destination: destination) }
+                    Task {
+                        await viewModel.performOnboardingAction("complete.\(destination.rawValue)") {
+                            await viewModel.complete(destination: destination)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)

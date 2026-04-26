@@ -154,7 +154,9 @@ struct OnboardingTests {
             encoding: .utf8
         )
 
-        #expect(source.contains("disabled: viewModel.modelBusy == \"save\" || requiredModelFieldsMissing"))
+        #expect(source.contains("disabled: onboardingActionDisabled("))
+        #expect(source.contains("viewModel.modelBusy == \"save\" || requiredModelFieldsMissing"))
+        #expect(source.contains("isWorking: viewModel.modelBusy == \"save\" || viewModel.isOnboardingActionBusy(\"model.save\")"))
     }
 
     @Test
@@ -169,8 +171,8 @@ struct OnboardingTests {
         )
 
         #expect(source.contains("private var modelAdvanceButtonLabel: some View"))
-        #expect(source.contains("disabled: viewModel.modelAdvanceBusy"))
-        #expect(source.contains("if viewModel.modelAdvanceBusy"))
+        #expect(source.contains("disabled: onboardingActionDisabled(viewModel.modelAdvanceBusy)"))
+        #expect(source.contains("isWorking: viewModel.modelAdvanceBusy || viewModel.isOnboardingActionBusy(\"model.advance"))
         #expect(source.contains("ProgressView()"))
     }
 
@@ -185,7 +187,9 @@ struct OnboardingTests {
             encoding: .utf8
         )
 
-        #expect(source.contains("disabled: viewModel.employeeBusy"))
+        #expect(source.contains("disabled: onboardingActionDisabled("))
+        #expect(source.contains("viewModel.employeeBusy"))
+        #expect(source.contains("isWorking: viewModel.employeeBusy || viewModel.isOnboardingActionBusy(\"employee.create\")"))
     }
 
     @Test
@@ -214,7 +218,9 @@ struct OnboardingTests {
             encoding: .utf8
         )
 
-        #expect(source.contains("disabled: viewModel.channelPrimaryActionBusy ||"))
+        #expect(source.contains("disabled: onboardingActionDisabled("))
+        #expect(source.contains("viewModel.channelPrimaryActionBusy ||"))
+        #expect(source.contains("isWorking: viewModel.channelPrimaryActionBusy || viewModel.isOnboardingActionBusy(\"channel.save\")"))
     }
 
     @Test
@@ -232,7 +238,7 @@ struct OnboardingTests {
         #expect(source.contains("viewModel.displayedChannelSessionQRCodePayload"))
         #expect(source.contains("nativeOnboardingQRCodeImage(payload: qrPayload)"))
         #expect(source.contains("Text(verbatim: sessionLogText)"))
-        #expect(source.contains("if viewModel.channelPrimaryActionBusy"))
+        #expect(source.contains("isWorking: viewModel.channelPrimaryActionBusy || viewModel.isOnboardingActionBusy(\"channel.save\")"))
         #expect(source.contains(".frame(minHeight: 180, maxHeight: 360)"))
     }
 
@@ -870,6 +876,89 @@ struct OnboardingTests {
         #expect(viewModel.pageError == nil)
         #expect(viewModel.modelStepMode == .localSetup)
         #expect(viewModel.localRuntime?.status == "installing-runtime")
+    }
+
+    @Test
+    func modelBootstrapRetriesWhenHardwareDetectionStateIsStillUnchecked() async throws {
+        let recorder = NativeRequestRecorder()
+        let onboardingStateReads = AsyncCounter()
+        let unresolvedRuntime = makeLocalRuntime(recommendation: "local", status: "unchecked")
+        let detectedRuntime = makeLocalRuntime(recommendation: "local", status: "idle")
+        let installingRuntime = makeLocalRuntime(recommendation: "local", status: "installing-runtime")
+
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("GET", "/api/onboarding/state"):
+                let readCount = await onboardingStateReads.increment()
+                let runtime = readCount < 8 ? unresolvedRuntime : detectedRuntime
+                let body = try JSONEncoder.chillClaw.encode(
+                    makeOnboardingStateResponse(step: .model, localRuntime: runtime)
+                )
+                return (jsonResponse(url: url), body)
+            case ("POST", "/api/models/local-runtime/install"):
+                let body = try JSONEncoder.chillClaw.encode(
+                    LocalModelRuntimeActionResponse(
+                        epoch: "epoch-1",
+                        revision: 1,
+                        settled: false,
+                        action: "install",
+                        status: "running",
+                        message: "Preparing local AI.",
+                        localRuntime: installingRuntime,
+                        modelConfig: emptyModelConfig(localRuntime: installingRuntime),
+                        overview: makeOverview(setupCompleted: false, localRuntime: installingRuntime)
+                    )
+                )
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let endpointStore = DaemonEndpointStore(configuration: configuration, ping: { true })
+        let processManager = DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true })
+        let chatViewModel = ChillClawChatViewModel(transport: FakeChatTransport())
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: endpointStore,
+            processManager: processManager,
+            chatViewModel: chatViewModel,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false, installed: true, running: true, version: "2026.3.13") },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+
+        await viewModel.bootstrap()
+
+        for _ in 0..<300 {
+            if viewModel.modelStepMode == .localSetup {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(await onboardingStateReads.value() >= 8)
+        #expect(viewModel.pageError == nil)
+        #expect(viewModel.modelStepMode == .localSetup)
+        #expect(viewModel.localRuntime?.status != "unchecked")
     }
 
     @Test
@@ -1985,6 +2074,39 @@ struct OnboardingTests {
         #expect(resolveNativeOnboardingLocalSetupProgress(mode: .localSetup, status: "starting-runtime").currentStep == 4)
         #expect(resolveNativeOnboardingLocalSetupProgress(mode: .localSetup, status: "configuring-openclaw").currentStep == 4)
         #expect(resolveNativeOnboardingLocalSetupProgress(mode: .connected, status: "ready").currentStep == 4)
+    }
+
+    @MainActor
+    @Test
+    func localFirstSetupProgressTreatsIdleAsDetectedAndAdvancesToNextPendingLocalWork() {
+        let appState = makeAppState(
+            setupCompleted: false,
+            selectedSection: .dashboard,
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+        let viewModel = NativeOnboardingViewModel(appState: appState)
+
+        let runtimeMissing = makeLocalRuntime(status: "idle")
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model, localRuntime: runtimeMissing)
+        #expect(viewModel.modelStepMode == NativeOnboardingModelStepMode.localSetup)
+        #expect(viewModel.localSetupProgress.currentStep == 2)
+
+        var modelReadyButUnapplied = makeLocalRuntime(status: "idle")
+        modelReadyButUnapplied.runtimeInstalled = true
+        modelReadyButUnapplied.runtimeReachable = true
+        modelReadyButUnapplied.modelDownloaded = true
+        modelReadyButUnapplied.activeInOpenClaw = false
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .model, localRuntime: modelReadyButUnapplied)
+        #expect(viewModel.modelStepMode == NativeOnboardingModelStepMode.localSetup)
+        #expect(viewModel.localSetupProgress.currentStep == 4)
     }
 
     @Test
@@ -4306,6 +4428,128 @@ struct OnboardingTests {
     }
 
     @Test
+    func onboardingActionLockPreventsDuplicateInstallContinueRequests() async throws {
+        let recorder = NativeRequestRecorder()
+        let navigateCalls = AsyncCounter()
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/navigate"):
+                _ = await navigateCalls.increment()
+                try? await Task.sleep(nanoseconds: 75_000_000)
+                let body = try JSONEncoder.chillClaw.encode(makeOnboardingStateResponse(step: .model))
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: { true }),
+            processManager: DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true }),
+            chatViewModel: ChillClawChatViewModel(transport: FakeChatTransport()),
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false, installed: true, running: true, version: "2026.3.14") },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+        appState.overview = makeOverview(setupCompleted: false, installed: true, running: true, version: "2026.3.14")
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .install)
+
+        async let first: Void = viewModel.performOnboardingAction("install.continue") {
+            await viewModel.advancePastInstall()
+        }
+        async let second: Void = viewModel.performOnboardingAction("install.continue") {
+            await viewModel.advancePastInstall()
+        }
+        _ = await (first, second)
+
+        #expect(await navigateCalls.value() == 1)
+        #expect(viewModel.currentStep == .model)
+        #expect(viewModel.onboardingActionLocked == false)
+        #expect(viewModel.isOnboardingActionBusy("install.continue") == false)
+    }
+
+    @Test
+    func welcomeActionReleasesLockAfterNavigatingToInstallWhileDetectionContinues() async throws {
+        let recorder = NativeRequestRecorder()
+        let detectGate = AsyncGate()
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/onboarding/navigate"):
+                let body = try JSONEncoder.chillClaw.encode(makeOnboardingStateResponse(step: .install))
+                return (jsonResponse(url: url), body)
+            case ("POST", "/api/onboarding/runtime/detect"):
+                await detectGate.wait()
+                let body = try JSONEncoder.chillClaw.encode(makeOnboardingStateResponse(step: .install))
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(session: session, configurationProvider: { configuration })
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: { true }),
+            processManager: DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true }),
+            chatViewModel: ChillClawChatViewModel(transport: FakeChatTransport()),
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false, installed: false, running: false, version: nil) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.onboardingState = makeOnboardingStateResponse(step: .welcome)
+
+        let task = Task {
+            await viewModel.performOnboardingAction("welcome.begin") {
+                await viewModel.markWelcomeStarted()
+            }
+        }
+        await waitForRecordedURLCount(recorder, expectedCount: 2)
+
+        #expect(viewModel.currentStep == .install)
+        #expect(viewModel.onboardingActionLocked == false)
+        #expect(viewModel.isOnboardingActionBusy("welcome.begin") == false)
+
+        await detectGate.open()
+        await task.value
+    }
+
+    @Test
     func onboardingRefreshResourceMapsDaemonEventsByStep() {
         let installEvent = ChillClawEvent.deployCompleted(
             correlationId: "deploy-1",
@@ -4516,6 +4760,77 @@ struct OnboardingTests {
         #expect(urls.filter { $0.contains("/api/channels/config") }.count == 1)
         #expect(urls.filter { $0.contains("/api/models/config") }.isEmpty)
         #expect(urls.filter { $0.contains("/api/ai-team/overview") }.isEmpty)
+    }
+
+    @Test
+    func onboardingBootstrapClearsTimedOutChannelBusyState() async throws {
+        let recorder = NativeRequestRecorder()
+        let session = await recorder.session { request in
+            let url = try #require(request.url)
+            switch url.path {
+            case "/api/onboarding/state":
+                var state = makeOnboardingStateResponse(step: .channel)
+                state.operations = OnboardingOperationsState(
+                    channel: LongRunningOperationSummary(
+                        operationId: "onboarding:channel",
+                        action: "onboarding-channel-save",
+                        status: "timed-out",
+                        phase: "saving-channel",
+                        message: "Saving the first channel timed out. Try again to restart this step.",
+                        startedAt: "2020-01-01T00:00:00.000Z",
+                        updatedAt: "2020-01-01T00:20:00.000Z",
+                        deadlineAt: "2020-01-01T00:20:00.000Z",
+                        errorCode: "ONBOARDING_OPERATION_TIMEOUT",
+                        retryable: true
+                    )
+                )
+                let body = try JSONEncoder.chillClaw.encode(state)
+                return (jsonResponse(url: url), body)
+            case "/api/channels/config":
+                let body = try JSONEncoder.chillClaw.encode(emptyChannelConfig())
+                return (jsonResponse(url: url), body)
+            default:
+                throw URLError(.badServerResponse)
+            }
+        }
+
+        let configuration = ChillClawClientConfiguration(
+            daemonURL: URL(string: "http://127.0.0.1:4545")!,
+            fallbackWebURL: URL(string: "http://127.0.0.1:4545/")!
+        )
+        let client = ChillClawAPIClient(
+            session: session,
+            configurationProvider: { configuration }
+        )
+        let appState = ChillClawAppState(
+            configuration: configuration,
+            client: client,
+            endpointStore: DaemonEndpointStore(configuration: configuration, ping: { true }),
+            processManager: DaemonProcessManager(launchAgent: FakeLaunchAgentController(), ping: { true }),
+            chatViewModel: ChillClawChatViewModel(transport: FakeChatTransport()),
+            loader: .init(
+                fetchOverview: { makeOverview(setupCompleted: false) },
+                fetchDeploymentTargets: { .init(checkedAt: "2026-03-20T00:00:00.000Z", targets: []) },
+                fetchModelConfig: { emptyModelConfig() },
+                fetchChannelConfig: { emptyChannelConfig() },
+                fetchPluginConfig: { emptyPluginConfig() },
+                fetchSkillsConfig: { emptySkillConfig() },
+                fetchAITeamOverview: { emptyAITeamOverview() }
+            )
+        )
+        appState.overview = makeOverview(setupCompleted: false)
+
+        let viewModel = NativeOnboardingViewModel(
+            appState: appState,
+            daemonEventStreamFactory: { AsyncStream { continuation in continuation.finish() } }
+        )
+        viewModel.channelBusy = true
+
+        await viewModel.bootstrap()
+
+        #expect(viewModel.channelBusy == false)
+        #expect(viewModel.pageError?.contains("timed out") == true)
+        #expect(viewModel.onboardingState?.operations?.channel?.status == "timed-out")
     }
 
     @Test

@@ -162,7 +162,41 @@ export const onboardingRoutes: RouteDefinition[] = [
     method: "POST",
     match: createPathMatcher("/api/onboarding/runtime/detect"),
     async handle({ context }) {
-      return jsonResponse(await traceOnboardingRoute("POST /api/onboarding/runtime/detect", {}, () => context.onboardingService.detectRuntime()));
+      const result = await traceOnboardingRoute(
+        "POST /api/onboarding/runtime/detect",
+        {},
+        () => context.operationRunner.startOrResume(
+          {
+            operationId: "onboarding:runtime-detect",
+            scope: "onboarding",
+            resourceId: "managed-local",
+            action: "onboarding-runtime-detect",
+            phase: "detecting",
+            percent: 8,
+            message: "Checking OpenClaw install status."
+          },
+          async ({ update }) => {
+            await update({
+              phase: "detecting",
+              percent: 40,
+              message: "Checking OpenClaw install status."
+            });
+            const onboarding = await context.onboardingService.detectRuntime();
+            const installed = onboarding.draft.install?.installed === true || onboarding.summary.install?.installed === true;
+
+            return {
+              phase: "completed",
+              percent: 100,
+              message: installed ? "OpenClaw is installed and ready." : "OpenClaw is not installed yet.",
+              result: {
+                kind: "resource",
+                resource: "onboarding"
+              }
+            };
+          }
+        )
+      );
+      return jsonResponse(withInstallOperation(await context.onboardingService.getState(), result.operation));
     }
   },
   {

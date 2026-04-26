@@ -210,6 +210,98 @@ test("channel config overview prunes stale stored entries that are no longer liv
   assert.equal(state.channelOnboarding?.channels.whatsapp.status, "not-started");
 });
 
+test("channel config overview falls back to stored entries when live reads hang", async () => {
+  class HangingChannelAdapter extends MockAdapter {
+    override async status() {
+      return new Promise<Awaited<ReturnType<MockAdapter["status"]>>>(() => undefined);
+    }
+
+    override async getChannelState() {
+      return new Promise<Awaited<ReturnType<MockAdapter["getChannelState"]>>>(() => undefined);
+    }
+
+    override async getConfiguredChannelEntries() {
+      return new Promise<Awaited<ReturnType<MockAdapter["getConfiguredChannelEntries"]>>>(() => undefined);
+    }
+
+    override async getActiveChannelSession() {
+      return new Promise<Awaited<ReturnType<MockAdapter["getActiveChannelSession"]>>>(() => undefined);
+    }
+  }
+
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/channel-setup-live-timeout-${randomUUID()}.json`);
+  const store = new StateStore(filePath);
+  await store.update((current) => ({
+    ...current,
+    channelOnboarding: {
+      baseOnboardingCompletedAt: new Date().toISOString(),
+      gatewayStartedAt: undefined,
+      channels: {
+        telegram: {
+          id: "telegram",
+          title: "Telegram",
+          officialSupport: true,
+          status: "not-started",
+          summary: "Not started",
+          detail: "Not started"
+        },
+        whatsapp: {
+          id: "whatsapp",
+          title: "WhatsApp",
+          officialSupport: true,
+          status: "not-started",
+          summary: "Not started",
+          detail: "Not started"
+        },
+        feishu: {
+          id: "feishu",
+          title: "Feishu (飞书)",
+          officialSupport: true,
+          status: "not-started",
+          summary: "Not started",
+          detail: "Not started"
+        },
+        "wechat-work": {
+          id: "wechat-work",
+          title: "WeChat Work",
+          officialSupport: true,
+          status: "not-started",
+          summary: "Not started",
+          detail: "Not started"
+        },
+        wechat: {
+          id: "wechat",
+          title: "WeChat",
+          officialSupport: false,
+          status: "completed",
+          summary: "WeChat login finished.",
+          detail: "Saved through onboarding."
+        }
+      },
+      entries: {
+        "wechat:default": {
+          id: "wechat:default",
+          channelId: "wechat",
+          label: "WeChat",
+          editableValues: {},
+          maskedConfigSummary: [],
+          lastUpdatedAt: "2026-04-26T00:00:00.000Z"
+        }
+      }
+    }
+  }));
+
+  const service = new ChannelSetupService(new HangingChannelAdapter(), store);
+  const startedAt = Date.now();
+  const overview = await service.getConfigOverview();
+  const state = await store.read();
+
+  assert.ok(Date.now() - startedAt < 1_800);
+  assert.deepEqual(overview.entries.map((entry) => entry.id), ["wechat:default"]);
+  assert.ok(state.channelOnboarding?.entries?.["wechat:default"]);
+  assert.equal(state.channelOnboarding?.channels.wechat.status, "completed");
+});
+
 test("channel config overview keeps active sessions separate from configured entries", async () => {
   const adapter = new MockAdapter();
   const mock = adapter as unknown as {

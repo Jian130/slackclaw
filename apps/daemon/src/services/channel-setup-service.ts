@@ -13,6 +13,7 @@ import type {
   SaveChannelEntryRequest,
   SupportedChannelId
 } from "@chillclaw/contracts";
+import type { EngineStatus } from "@chillclaw/contracts";
 
 import { defaultChannelSetupStateMap } from "../config/channel-setup-state.js";
 import type { EngineAdapter } from "../engine/adapter.js";
@@ -31,6 +32,7 @@ const CHANNEL_ENTRY_IDS: Record<SupportedChannelId, string> = {
   "wechat-work": "wechat-work:default",
   wechat: "wechat:default"
 };
+const CHANNEL_CONFIG_LIVE_READ_TIMEOUT_MS = 1_200;
 
 const CHANNEL_CAPABILITIES: ChannelCapability[] = [
   {
@@ -259,6 +261,72 @@ function buildEntry(
   };
 }
 
+async function withChannelReadFallback<T>(promise: Promise<T>, fallback: T): Promise<{ value: T; usedFallback: boolean }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve({ value: fallback, usedFallback: true });
+    }, CHANNEL_CONFIG_LIVE_READ_TIMEOUT_MS);
+
+    promise.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve({ value, usedFallback: false });
+      },
+      () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve({ value: fallback, usedFallback: true });
+      }
+    );
+  });
+}
+
+function fallbackEngineStatus(): Pick<EngineStatus, "pendingGatewayApply" | "pendingGatewayApplySummary" | "running"> {
+  return {
+    running: false,
+    pendingGatewayApply: false,
+    pendingGatewayApplySummary: undefined
+  };
+}
+
+function entriesFromStoredChannelState(
+  channels: Record<SupportedChannelId, ChannelSetupState>,
+  storedEntries: Record<string, StoredChannelEntryState>
+): ConfiguredChannelEntry[] {
+  const entriesById = new Map<string, ConfiguredChannelEntry>();
+
+  for (const channelId of CHANNEL_ORDER) {
+    const record = storedEntries[entryIdFor(channelId)] ?? legacyEntryFromState(channels[channelId]);
+    const fallbackEntry = record ? buildEntry(record, channels[channelId]) : undefined;
+    if (!fallbackEntry) {
+      continue;
+    }
+
+    entriesById.set(fallbackEntry.id, fallbackEntry);
+  }
+
+  return [...entriesById.values()].sort((left, right) => {
+    const channelDelta = CHANNEL_ORDER.indexOf(left.channelId) - CHANNEL_ORDER.indexOf(right.channelId);
+    if (channelDelta !== 0) {
+      return channelDelta;
+    }
+
+    return left.label.localeCompare(right.label);
+  });
+}
+
 function storedEntryFromConfiguredEntry(entry: ConfiguredChannelEntry): StoredChannelEntryState {
   return {
     id: entry.id,
@@ -451,57 +519,69 @@ export class ChannelSetupService {
 
   async getOverviewFromState(state?: AppState): Promise<ChannelSetupOverview> {
     const current = state ?? (await this.store.read());
-    const liveChannels = await this.readLiveChannelStates();
-    const engine = await this.adapter.instances.status();
+    const [liveChannels, engine] = await Promise.all([
+      withChannelReadFallback(this.readLiveChannelStates(), {}),
+      withChannelReadFallback(this.adapter.instances.status(), fallbackEngineStatus() as EngineStatus)
+    ]);
     const onboardingCompleted = true;
-    const channels = mergeChannelStates(current.channelOnboarding?.channels, liveChannels);
+    const channels = mergeChannelStates(current.channelOnboarding?.channels, liveChannels.value);
     const nextId = nextChannelId(channels);
-    const gatewayStarted = engine.running;
+    const gatewayStarted = engine.value.running;
 
     return {
       baseOnboardingCompleted: onboardingCompleted,
       channels: CHANNEL_ORDER.map((id) => channels[id]),
       nextChannelId: nextId,
       gatewayStarted,
-      gatewaySummary: gatewaySummary(engine.pendingGatewayApply === true, engine.pendingGatewayApplySummary, channels)
+      gatewaySummary: gatewaySummary(engine.value.pendingGatewayApply === true, engine.value.pendingGatewayApplySummary, channels)
     };
   }
 
   async getConfigOverview(state?: AppState): Promise<ChannelConfigOverview> {
     const current = state ?? (await this.store.read());
-    const liveChannels = await this.readLiveChannelStates();
-    const liveEntries = await this.adapter.config.getConfiguredChannelEntries();
-    const activeSession = await this.adapter.gateway.getActiveChannelSession();
-    const engine = await this.adapter.instances.status();
-    let effectiveState = pruneHistoricalChannelState(current, liveChannels, liveEntries, activeSession);
-    if (JSON.stringify(effectiveState) !== JSON.stringify(current)) {
+    const [liveChannels, liveEntries, activeSession, engine] = await Promise.all([
+      withChannelReadFallback(this.readLiveChannelStates(), {}),
+      withChannelReadFallback(this.adapter.config.getConfiguredChannelEntries(), []),
+      withChannelReadFallback(this.adapter.gateway.getActiveChannelSession(), undefined),
+      withChannelReadFallback(this.adapter.instances.status(), fallbackEngineStatus() as EngineStatus)
+    ]);
+    const liveConfigAvailable = !liveChannels.usedFallback && !liveEntries.usedFallback;
+    let effectiveState = liveConfigAvailable
+      ? pruneHistoricalChannelState(current, liveChannels.value, liveEntries.value, activeSession.value)
+      : current;
+    if (liveConfigAvailable && JSON.stringify(effectiveState) !== JSON.stringify(current)) {
       effectiveState = await this.store.update(() => effectiveState);
     }
 
-    const channels = liveOnlyChannelStates(liveChannels, activeSession);
+    const channels = liveConfigAvailable
+      ? liveOnlyChannelStates(liveChannels.value, activeSession.value)
+      : mergeChannelStates(effectiveState.channelOnboarding?.channels, liveChannels.value);
     const onboardingCompleted = true;
     const storedEntries = effectiveState.channelOnboarding?.entries ?? {};
     const entriesById = new Map<string, ConfiguredChannelEntry>();
 
-    for (const liveEntry of liveEntries) {
+    for (const liveEntry of liveEntries.value) {
       entriesById.set(liveEntry.id, mergeLiveAndStoredEntry(liveEntry, storedEntries[liveEntry.id]));
     }
 
-    const entries = [...entriesById.values()].sort((left, right) => {
-      const channelDelta = CHANNEL_ORDER.indexOf(left.channelId) - CHANNEL_ORDER.indexOf(right.channelId);
-      if (channelDelta !== 0) {
-        return channelDelta;
-      }
+    const entries =
+      entriesById.size > 0 || liveConfigAvailable
+        ? [...entriesById.values()].sort((left, right) => {
+            const channelDelta = CHANNEL_ORDER.indexOf(left.channelId) - CHANNEL_ORDER.indexOf(right.channelId);
+            if (channelDelta !== 0) {
+              return channelDelta;
+            }
 
-      return left.label.localeCompare(right.label);
-    });
+            return left.label.localeCompare(right.label);
+          })
+        : entriesFromStoredChannelState(channels, storedEntries);
 
     return {
       baseOnboardingCompleted: onboardingCompleted,
       capabilities: USER_VISIBLE_CHANNEL_CAPABILITIES,
       entries,
-      activeSession,
-      gatewaySummary: gatewaySummary(engine.pendingGatewayApply === true, engine.pendingGatewayApplySummary, channels)
+      activeSession: activeSession.value,
+      gatewaySummary: gatewaySummary(engine.value.pendingGatewayApply === true, engine.value.pendingGatewayApplySummary, channels)
     };
   }
 
@@ -513,26 +593,7 @@ export class ChannelSetupService {
       channels[activeSession.channelId] = channelStateFromSession(activeSession, channels[activeSession.channelId]);
     }
     const storedEntries = current.channelOnboarding?.entries ?? {};
-    const entriesById = new Map<string, ConfiguredChannelEntry>();
-
-    for (const channelId of CHANNEL_ORDER) {
-      const record = storedEntries[entryIdFor(channelId)] ?? legacyEntryFromState(channels[channelId]);
-      const fallbackEntry = record ? buildEntry(record, channels[channelId]) : undefined;
-      if (!fallbackEntry) {
-        continue;
-      }
-
-      entriesById.set(fallbackEntry.id, fallbackEntry);
-    }
-
-    const entries = [...entriesById.values()].sort((left, right) => {
-      const channelDelta = CHANNEL_ORDER.indexOf(left.channelId) - CHANNEL_ORDER.indexOf(right.channelId);
-      if (channelDelta !== 0) {
-        return channelDelta;
-      }
-
-      return left.label.localeCompare(right.label);
-    });
+    const entries = entriesFromStoredChannelState(channels, storedEntries);
 
     return {
       baseOnboardingCompleted: true,

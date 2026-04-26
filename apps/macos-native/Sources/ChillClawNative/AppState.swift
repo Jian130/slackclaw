@@ -504,8 +504,54 @@ final class ChillClawAppState {
         return false
     }
 
+    private func isDaemonConnectionError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorCannotConnectToHost,
+                 NSURLErrorCannotFindHost,
+                 NSURLErrorDNSLookupFailed,
+                 NSURLErrorNetworkConnectionLost,
+                 NSURLErrorNotConnectedToInternet,
+                 NSURLErrorTimedOut:
+                return true
+            default:
+                break
+            }
+        }
+
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return isDaemonConnectionError(underlying)
+        }
+
+        return false
+    }
+
+    private func recoverDaemonConnection(after error: Error) async -> Bool {
+        guard isDaemonConnectionError(error) else { return false }
+        await processManager.restart()
+        await refreshDaemonState()
+        if case .ready = endpointStatus {
+            return true
+        }
+        return false
+    }
+
+    private func withDaemonConnectionRecovery<T>(_ operation: () async throws -> T) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            guard await recoverDaemonConnection(after: error) else {
+                throw error
+            }
+            return try await operation()
+        }
+    }
+
     private func refreshOverview(allowSetupCompletedRegression: Bool = false) async throws {
-        let snapshot = try await loader.fetchOverview()
+        let snapshot = try await withDaemonConnectionRecovery {
+            try await loader.fetchOverview()
+        }
         applyOverviewSnapshot(snapshot, allowSetupCompletedRegression: allowSetupCompletedRegression)
         self.errorMessage = nil
     }
@@ -572,7 +618,9 @@ final class ChillClawAppState {
             sectionRefreshPending = false
 
             do {
-                try await refreshCurrentSectionData()
+                try await withDaemonConnectionRecovery {
+                    try await refreshCurrentSectionData()
+                }
                 errorMessage = nil
             } catch {
                 presentErrorUnlessCancelled(error)

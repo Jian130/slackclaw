@@ -114,6 +114,50 @@ test("operation runner reuses an active operation for duplicate commands", async
   assert.equal(runCount, 1);
 });
 
+test("operation runner restarts an active operation abandoned by a previous daemon process", async () => {
+  const { operationStore, runner } = createRunner("operation-runner-stale-active");
+  await operationStore.create({
+    operationId: "onboarding:channel",
+    scope: "onboarding",
+    resourceId: "wechat",
+    action: "onboarding-channel-save",
+    status: "running",
+    phase: "saving-channel",
+    percent: 10,
+    message: "Saving the first channel.",
+    startedAt: "2026-04-20T00:00:00.000Z",
+    updatedAt: "2026-04-20T00:00:01.000Z"
+  });
+  let runCount = 0;
+
+  const response = await runner.startOrResume({
+    operationId: "onboarding:channel",
+    scope: "onboarding",
+    resourceId: "wechat",
+    action: "onboarding-channel-save",
+    phase: "saving-channel",
+    percent: 10,
+    message: "Saving the first channel."
+  }, async () => {
+    runCount += 1;
+    return {
+      phase: "completed",
+      percent: 100,
+      message: "WeChat channel saved."
+    };
+  });
+
+  assert.equal(response.accepted, true);
+  assert.equal(response.alreadyRunning, false);
+
+  await runner.waitForIdle();
+
+  const operation = await operationStore.read("onboarding:channel");
+  assert.equal(runCount, 1);
+  assert.equal(operation?.status, "completed");
+  assert.equal(operation?.message, "WeChat channel saved.");
+});
+
 test("operation runner persists and publishes progress updates", async () => {
   const { eventBus, operationStore, runner } = createRunner("operation-runner-progress");
   const events: string[] = [];

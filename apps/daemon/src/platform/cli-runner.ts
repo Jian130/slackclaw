@@ -2,6 +2,9 @@ import { spawn } from "node:child_process";
 
 import { DaemonTimeoutError } from "./timeout-errors.js";
 
+const DEFAULT_PROBE_COMMAND_TIMEOUT_MS = 5_000;
+const DEFAULT_PROBE_COMMAND_KILL_TIMEOUT_MS = 1_000;
+
 export interface CommandResult {
   code: number;
   signal?: NodeJS.Signals;
@@ -174,12 +177,16 @@ export async function probeCommand(
   args: string[] = ["--version"],
   options?: {
     env?: NodeJS.ProcessEnv;
+    timeoutMs?: number;
+    killTimeoutMs?: number;
   }
 ): Promise<boolean> {
   try {
     const result = await runCommand(command, args, {
       allowFailure: true,
-      env: options?.env
+      env: options?.env,
+      timeoutMs: options?.timeoutMs ?? DEFAULT_PROBE_COMMAND_TIMEOUT_MS,
+      killTimeoutMs: options?.killTimeoutMs ?? DEFAULT_PROBE_COMMAND_KILL_TIMEOUT_MS
     });
     return result.code === 0;
   } catch {

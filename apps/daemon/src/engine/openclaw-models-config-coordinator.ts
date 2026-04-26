@@ -203,6 +203,37 @@ function resolveDefaultModelFromConfigSnapshot(snapshot: OpenClawConfigSnapshotL
   return resolveConfigModelAlias(primaryModel, snapshot.status?.aliases ?? {});
 }
 
+function hasIterableValue(values: Iterable<unknown> | undefined): boolean {
+  for (const _value of values ?? []) {
+    return true;
+  }
+  return false;
+}
+
+function modelSnapshotReadUnavailable(snapshot: ModelSnapshotLike): boolean {
+  return (
+    !snapshot.status &&
+    !snapshot.activeConfig &&
+    snapshot.allModels.length === 0 &&
+    snapshot.configuredModels.length === 0 &&
+    snapshot.configuredAuthProviders.size === 0 &&
+    !snapshot.supplemental.defaultModel &&
+    !hasIterableValue(snapshot.supplemental.refs)
+  );
+}
+
+function isLocalSavedModelEntry(entry: SavedModelEntryLike): boolean {
+  const provider = providerDefinitionById(entry.providerId);
+  const method = entry.authMethodId
+    ? provider?.authMethods.find((item) => item.id === entry.authMethodId)
+    : undefined;
+  return method?.kind === "local";
+}
+
+function cleanRuntimeShouldKeepSavedState(state: AdapterModelState): boolean {
+  return (state.modelEntries ?? []).some(isLocalSavedModelEntry);
+}
+
 type ModelsConfigAccess = {
   readModelSnapshot: (options?: { fresh?: boolean }) => Promise<ModelSnapshotLike>;
   resolveCatalogModelKey: (
@@ -539,8 +570,35 @@ export class ModelsConfigCoordinator {
   async getModelConfig(options?: { fresh?: boolean }): Promise<ModelConfigOverview> {
     const snapshot = await this.access.readModelSnapshot(options);
 
+    if (modelSnapshotReadUnavailable(snapshot)) {
+      const adapterState = this.access.normalizeStateFlags(await this.access.readAdapterState());
+      const defaultEntry = adapterState.modelEntries?.find((entry) => entry.id === adapterState.defaultModelEntryId);
+      return this.access.buildModelConfigOverview(
+        snapshot.allModels,
+        snapshot.configuredModels,
+        snapshot.configuredAuthProviders,
+        adapterState.modelEntries ?? [],
+        adapterState.defaultModelEntryId,
+        adapterState.fallbackModelEntryIds ?? [],
+        defaultEntry?.modelKey
+      );
+    }
+
     if (this.access.isCleanModelRuntime(snapshot)) {
       const adapterState = this.access.normalizeStateFlags(await this.access.readAdapterState());
+      if (cleanRuntimeShouldKeepSavedState(adapterState)) {
+        const defaultEntry = adapterState.modelEntries?.find((entry) => entry.id === adapterState.defaultModelEntryId);
+        return this.access.buildModelConfigOverview(
+          snapshot.allModels,
+          snapshot.configuredModels,
+          snapshot.configuredAuthProviders,
+          adapterState.modelEntries ?? [],
+          adapterState.defaultModelEntryId,
+          adapterState.fallbackModelEntryIds ?? [],
+          defaultEntry?.modelKey
+        );
+      }
+
       if ((adapterState.modelEntries?.length ?? 0) > 0 || adapterState.defaultModelEntryId || (adapterState.fallbackModelEntryIds?.length ?? 0) > 0) {
         await this.access.writeAdapterState({
           ...adapterState,
@@ -779,7 +837,7 @@ export class ModelsConfigCoordinator {
       throw new Error(`Unknown auth method for provider ${request.providerId}: ${request.methodId}`);
     }
 
-    const state = await this.access.ensureSavedModelState();
+    const state = this.access.normalizeStateFlags(await this.access.readAdapterState());
     const existingEntry =
       (request.entryId ? state.modelEntries?.find((entry) => entry.id === request.entryId) : undefined) ??
       state.modelEntries?.find((entry) => entry.providerId === request.providerId && entry.authMethodId === request.methodId);
@@ -799,14 +857,24 @@ export class ModelsConfigCoordinator {
       method
     );
 
-    await this.syncRuntimeModelChain(this.applySavedModelEntryState(state, nextEntry, saveRequest));
+    const nextState = await this.syncRuntimeModelChain(this.applySavedModelEntryState(state, nextEntry, saveRequest));
     await this.access.markGatewayApplyPending();
+    const normalizedState = this.access.normalizeStateFlags(nextState);
+    const defaultEntry = normalizedState.modelEntries?.find((entry) => entry.id === normalizedState.defaultModelEntryId);
 
     return {
       ...this.access.mutationSyncMeta(),
       status: "completed",
       message: appendGatewayApplyMessage(`${nextEntry.label} is ready.`),
-      modelConfig: await this.getModelConfig({ fresh: true }),
+      modelConfig: this.access.buildModelConfigOverview(
+        [],
+        [],
+        new Set<string>(),
+        normalizedState.modelEntries ?? [],
+        normalizedState.defaultModelEntryId,
+        normalizedState.fallbackModelEntryIds ?? [],
+        defaultEntry?.modelKey
+      ),
       requiresGatewayApply: true
     };
   }

@@ -105,6 +105,86 @@ test("onboarding runtime install route accepts work and returns without running 
   assert.equal(installCalled, true);
 });
 
+test("onboarding runtime detect route accepts work and returns without probing inline", async () => {
+  const route = onboardingRoutes.find((candidate) => candidate.method === "POST" && candidate.match("/api/onboarding/runtime/detect"));
+  assert.ok(route);
+
+  let capturedWorker: OperationWorker | undefined;
+  let detectCalled = false;
+  const accepted: OperationCommandResponse = {
+    accepted: true,
+    operation: {
+      operationId: "onboarding:runtime-detect",
+      scope: "onboarding",
+      resourceId: "managed-local",
+      action: "onboarding-runtime-detect",
+      status: "running",
+      phase: "detecting",
+      message: "Checking OpenClaw install status.",
+      startedAt: "2026-04-21T00:00:00.000Z",
+      updatedAt: "2026-04-21T00:00:00.000Z",
+      retryable: true
+    }
+  };
+  const context = {
+    operationRunner: {
+      startOrResume: async (
+        request: { action: string; scope: string; resourceId?: string },
+        worker: OperationWorker
+      ) => {
+        capturedWorker = worker;
+        assert.equal(request.scope, "onboarding");
+        assert.equal(request.resourceId, "managed-local");
+        assert.equal(request.action, "onboarding-runtime-detect");
+        return accepted;
+      }
+    },
+    onboardingService: {
+      getState: async () => onboardingState(),
+      detectRuntime: async () => {
+        detectCalled = true;
+        return {
+          ...onboardingState(),
+          draft: {
+            currentStep: "model" as const,
+            install: {
+              installed: true,
+              disposition: "installed-managed" as const
+            }
+          },
+          summary: {
+            install: {
+              installed: true,
+              disposition: "installed-managed" as const
+            }
+          }
+        };
+      }
+    }
+  } as unknown as ServerContext;
+
+  const response = await route.handle({
+    context,
+    request: Readable.from(["{}"]) as never,
+    requestUrl: new URL("http://127.0.0.1/api/onboarding/runtime/detect"),
+    pathname: "/api/onboarding/runtime/detect",
+    params: {}
+  });
+  const body = response.body as OnboardingStateResponse;
+
+  assert.equal(body.operations?.install?.operationId, "onboarding:runtime-detect");
+  assert.equal(body.operations?.install?.action, "onboarding-runtime-detect");
+  assert.equal(detectCalled, false);
+  assert.ok(capturedWorker);
+
+  const workerResult = await capturedWorker({
+    operation: accepted.operation,
+    update: async () => accepted.operation
+  } satisfies OperationWorkerContext);
+  assert.equal(detectCalled, true);
+  assert.equal(workerResult?.message, "OpenClaw is installed and ready.");
+});
+
 test("onboarding runtime update route accepts work and returns without running update inline", async () => {
   const route = onboardingRoutes.find((candidate) => candidate.method === "POST" && candidate.match("/api/onboarding/runtime/update"));
   assert.ok(route);

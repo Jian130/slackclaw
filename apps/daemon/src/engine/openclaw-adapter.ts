@@ -501,6 +501,10 @@ const READ_CACHE_TTL_MS = {
   agents: 1000,
   bindings: 1000
 } as const;
+const OPENCLAW_READ_COMMAND_TIMEOUT_MS = 5_000;
+const OPENCLAW_READ_COMMAND_KILL_TIMEOUT_MS = 1_000;
+const OPENCLAW_MUTATION_COMMAND_TIMEOUT_MS = 30_000;
+const OPENCLAW_MUTATION_COMMAND_KILL_TIMEOUT_MS = 2_000;
 
 type ReadCacheEntry = {
   expiresAt: number;
@@ -862,6 +866,8 @@ async function runOpenClaw(
     envOverrides?: Record<string, string | undefined>;
     input?: string;
     freshCommandResolution?: boolean;
+    timeoutMs?: number;
+    killTimeoutMs?: number;
   }
 ): Promise<CommandResult> {
   const command = await resolveOpenClawCommand({ fresh: options?.freshCommandResolution });
@@ -884,6 +890,22 @@ async function runOpenClaw(
   }
 
   return runCommand(command, args, options);
+}
+
+function failedReadCommandResult(): CommandResult {
+  return {
+    code: 1,
+    stdout: "",
+    stderr: ""
+  };
+}
+
+async function runOpenClawRead(args: string[]): Promise<CommandResult> {
+  return runOpenClaw(args, {
+    allowFailure: true,
+    timeoutMs: OPENCLAW_READ_COMMAND_TIMEOUT_MS,
+    killTimeoutMs: OPENCLAW_READ_COMMAND_KILL_TIMEOUT_MS
+  }).catch(() => failedReadCommandResult());
 }
 
 function isLegacyWecomChannelConfigFailure(result: CommandResult): boolean {
@@ -972,12 +994,20 @@ async function repairLegacyWecomChannelConfigFromFailure(result: CommandResult):
 async function runCommand(
   command: string,
   args: string[],
-  options?: { allowFailure?: boolean; envOverrides?: Record<string, string | undefined>; input?: string }
+  options?: {
+    allowFailure?: boolean;
+    envOverrides?: Record<string, string | undefined>;
+    input?: string;
+    timeoutMs?: number;
+    killTimeoutMs?: number;
+  }
 ): Promise<CommandResult> {
   return runExternalCommand(command, args, {
     allowFailure: options?.allowFailure,
     env: buildCommandEnv(command, options?.envOverrides),
     input: options?.input,
+    timeoutMs: options?.timeoutMs,
+    killTimeoutMs: options?.killTimeoutMs,
     beforeSpawn: (nextCommand, nextArgs) => {
       logExternalCommand(nextCommand, nextArgs);
     },
@@ -1053,7 +1083,9 @@ async function resolveCommand(command: string, extraCandidates: string[] = []): 
 
 async function probeCommand(command: string, args: string[] = ["--version"]): Promise<boolean> {
   return probeExternalCommand(command, args, {
-    env: buildCommandEnv(command)
+    env: buildCommandEnv(command),
+    timeoutMs: OPENCLAW_READ_COMMAND_TIMEOUT_MS,
+    killTimeoutMs: OPENCLAW_READ_COMMAND_KILL_TIMEOUT_MS
   });
 }
 
@@ -1321,11 +1353,11 @@ async function readVersionFromCommand(command: string | undefined, options?: { f
     `command:version:${command}`,
     READ_CACHE_TTL_MS.engine,
     async () => {
-      const result = await runCommand(command, ["--version"], { allowFailure: true }).catch(() => ({
-        code: 1,
-        stdout: "",
-        stderr: ""
-      }));
+      const result = await runCommand(command, ["--version"], {
+        allowFailure: true,
+        timeoutMs: OPENCLAW_READ_COMMAND_TIMEOUT_MS,
+        killTimeoutMs: OPENCLAW_READ_COMMAND_KILL_TIMEOUT_MS
+      }).catch(() => failedReadCommandResult());
 
       if (result.code !== 0 || !result.stdout) {
         return undefined;
@@ -1870,7 +1902,7 @@ async function readModelCatalog(all = false, options?: { fresh?: boolean }): Pro
         args.splice(2, 0, "--all");
       }
 
-      const result = await runOpenClaw(args, { allowFailure: true });
+      const result = await runOpenClawRead(args);
       const payload =
         safeJsonPayloadParse<OpenClawModelListJson>(result.stdout) ??
         safeJsonPayloadParse<OpenClawModelListJson>(result.stderr);
@@ -1885,7 +1917,7 @@ async function readModelStatus(options?: { fresh?: boolean }): Promise<OpenClawM
     "models:status",
     READ_CACHE_TTL_MS.models,
     async () => {
-      const result = await runOpenClaw(["models", "status", "--json"], { allowFailure: true });
+      const result = await runOpenClawRead(["models", "status", "--json"]);
       return (
         safeJsonPayloadParse<OpenClawModelStatusJson>(result.stdout) ??
         safeJsonPayloadParse<OpenClawModelStatusJson>(result.stderr)
@@ -1976,12 +2008,16 @@ async function readEngineSnapshot(options?: { fresh?: boolean }): Promise<Engine
 
       const [cliVersion, statusResult, gatewayResult] = await Promise.all([
         readVersionFromCommand(command, options),
-        runCommand(command, ["status", "--json"], { allowFailure: true }).catch(() => ({ code: 1, stdout: "", stderr: "" })),
-        runCommand(command, ["gateway", "status", "--json"], { allowFailure: true }).catch(() => ({
-          code: 1,
-          stdout: "",
-          stderr: ""
-        }))
+        runCommand(command, ["status", "--json"], {
+          allowFailure: true,
+          timeoutMs: OPENCLAW_READ_COMMAND_TIMEOUT_MS,
+          killTimeoutMs: OPENCLAW_READ_COMMAND_KILL_TIMEOUT_MS
+        }).catch(() => failedReadCommandResult()),
+        runCommand(command, ["gateway", "status", "--json"], {
+          allowFailure: true,
+          timeoutMs: OPENCLAW_READ_COMMAND_TIMEOUT_MS,
+          killTimeoutMs: OPENCLAW_READ_COMMAND_KILL_TIMEOUT_MS
+        }).catch(() => failedReadCommandResult())
       ]);
 
       return {
@@ -2073,7 +2109,7 @@ async function readAgentListSnapshot(options?: { fresh?: boolean }): Promise<Ope
     "agents:list",
     READ_CACHE_TTL_MS.agents,
     async () => {
-      const result = await runOpenClaw(["agents", "list", "--json", "--bindings"], { allowFailure: true });
+      const result = await runOpenClawRead(["agents", "list", "--json", "--bindings"]);
       return safeJsonPayloadParse<OpenClawAgentListEntry[]>(result.stdout) ?? safeJsonPayloadParse<OpenClawAgentListEntry[]>(result.stderr) ?? [];
     },
     options
@@ -2748,7 +2784,7 @@ async function readPluginInventory(): Promise<OpenClawPluginListJson | undefined
     "plugins:list",
     READ_CACHE_TTL_MS.channels,
     async () => {
-      const result = await runOpenClaw(["plugins", "list", "--json"], { allowFailure: true });
+      const result = await runOpenClawRead(["plugins", "list", "--json"]);
       return (
         safeJsonPayloadParse<OpenClawPluginListJson>(result.stdout) ??
         safeJsonPayloadParse<OpenClawPluginListJson>(result.stderr)
@@ -2762,7 +2798,7 @@ async function readChannelsList(options?: { fresh?: boolean }): Promise<OpenClaw
     "channels:list",
     READ_CACHE_TTL_MS.channels,
     async () => {
-      const result = await runOpenClaw(["channels", "list", "--json"], { allowFailure: true });
+      const result = await runOpenClawRead(["channels", "list", "--json"]);
       return (
         safeJsonPayloadParse<OpenClawChannelsListJson>(result.stdout) ??
         safeJsonPayloadParse<OpenClawChannelsListJson>(result.stderr)
@@ -2777,7 +2813,7 @@ async function readChannelsStatus(options?: { fresh?: boolean }): Promise<OpenCl
     "channels:status",
     READ_CACHE_TTL_MS.channels,
     async () => {
-      const result = await runOpenClaw(["channels", "status", "--json", "--probe"], { allowFailure: true });
+      const result = await runOpenClawRead(["channels", "status", "--json", "--probe"]);
       return (
         safeJsonPayloadParse<OpenClawChannelsStatusJson>(result.stdout) ??
         safeJsonPayloadParse<OpenClawChannelsStatusJson>(result.stderr)
@@ -2792,7 +2828,7 @@ async function readOpenClawSkillsList(options?: { fresh?: boolean }): Promise<Op
     "skills:list",
     READ_CACHE_TTL_MS.skills,
     async () => {
-      const result = await runOpenClaw(["skills", "list", "--json"], { allowFailure: true });
+      const result = await runOpenClawRead(["skills", "list", "--json"]);
       return (
         safeJsonPayloadParse<OpenClawSkillsListJson>(result.stdout) ??
         safeJsonPayloadParse<OpenClawSkillsListJson>(result.stderr)
@@ -2807,7 +2843,7 @@ async function readOpenClawSkillCheckWarnings(options?: { fresh?: boolean }): Pr
     "skills:check",
     READ_CACHE_TTL_MS.skills,
     async () => {
-      const result = await runOpenClaw(["skills", "check"], { allowFailure: true });
+      const result = await runOpenClawRead(["skills", "check"]);
 
       return (result.stdout || result.stderr)
         .split("\n")
@@ -3103,6 +3139,18 @@ function isCleanModelRuntime(snapshot: ModelReadSnapshot): boolean {
   );
 }
 
+function isLocalSavedModelEntryState(entry: SavedModelEntryState): boolean {
+  const provider = providerDefinitionById(entry.providerId);
+  const method = entry.authMethodId
+    ? provider?.authMethods.find((item) => item.id === entry.authMethodId)
+    : undefined;
+  return method?.kind === "local";
+}
+
+function cleanModelRuntimeShouldKeepSavedState(state: OpenClawAdapterState): boolean {
+  return (state.modelEntries ?? []).some(isLocalSavedModelEntryState);
+}
+
 export class OpenClawAdapter implements EngineAdapter {
   readonly installSpec: EngineInstallSpec = {
     engine: "openclaw",
@@ -3359,7 +3407,7 @@ export class OpenClawAdapter implements EngineAdapter {
       readAllModels: async () => (await readModelSnapshot()).allModels,
       resolveCatalogModelKey,
       listOpenClawAgents: () => this.listOpenClawAgents(),
-      ensureMemberAgent: (memberId, agentId, brain) => this.ensureMemberAgent(memberId, agentId, brain),
+      ensureMemberAgent: (memberId, agentId, brain, options) => this.ensureMemberAgent(memberId, agentId, brain, options),
       setMemberIdentity: (agentId, request) => this.setMemberIdentity(agentId, request),
       writeMemberWorkspaceFiles,
       runOpenClaw,
@@ -3625,8 +3673,17 @@ export class OpenClawAdapter implements EngineAdapter {
     configPath: string;
     config: OpenClawConfigFileJson;
   }> {
+    const defaultConfigPath = defaultOpenClawConfigPath();
+    const defaultConfig = await readOpenClawConfigFile(defaultConfigPath);
+    if (defaultConfig) {
+      return {
+        configPath: defaultConfigPath,
+        config: defaultConfig
+      };
+    }
+
     const status = await readModelStatus();
-    const configPath = status?.configPath ?? defaultOpenClawConfigPath();
+    const configPath = status?.configPath ?? defaultConfigPath;
     const config = (await readOpenClawConfigFile(configPath)) ?? {};
 
     return {
@@ -3646,11 +3703,11 @@ export class OpenClawAdapter implements EngineAdapter {
       return defaultOpenClawConfigPath();
     }
 
-    const result = await runCommand(command, ["models", "status", "--json"], { allowFailure: true }).catch(() => ({
-      code: 1,
-      stdout: "",
-      stderr: ""
-    }));
+    const result = await runCommand(command, ["models", "status", "--json"], {
+      allowFailure: true,
+      timeoutMs: OPENCLAW_READ_COMMAND_TIMEOUT_MS,
+      killTimeoutMs: OPENCLAW_READ_COMMAND_KILL_TIMEOUT_MS
+    }).catch(() => failedReadCommandResult());
     const status =
       safeJsonPayloadParse<OpenClawModelStatusJson>(result.stdout) ??
       safeJsonPayloadParse<OpenClawModelStatusJson>(result.stderr);
@@ -3929,9 +3986,14 @@ export class OpenClawAdapter implements EngineAdapter {
       available: true,
       defaultModel: snapshot.supplemental.defaultModel
     });
+    const state = await this.ensureSavedModelState(snapshot);
+
+    if (isCleanModelRuntime(snapshot) && cleanModelRuntimeShouldKeepSavedState(state)) {
+      return state;
+    }
 
     return this.reconcileSavedModelState(
-      await this.ensureSavedModelState(),
+      state,
       completeConfiguredModels,
       snapshot.supplemental.defaultModel
     );
@@ -4103,9 +4165,20 @@ export class OpenClawAdapter implements EngineAdapter {
   private async ensureMemberAgent(
     memberId: string,
     agentId: string,
-    brain: BrainAssignment
+    brain: BrainAssignment,
+    options?: { stageConfigOnly?: boolean }
   ): Promise<{ agentDir: string; workspaceDir: string; created: boolean }> {
     const paths = getManagedMemberAgentPaths(memberId);
+    if (options?.stageConfigOnly) {
+      const snapshot = await this.readOpenClawConfigSnapshot();
+      const existingAgent = snapshot.config.agents?.list?.find((agent) => agent.id === agentId);
+      return {
+        agentDir: typeof existingAgent?.agentDir === "string" && existingAgent.agentDir.trim() ? existingAgent.agentDir : paths.agentDir,
+        workspaceDir: typeof existingAgent?.workspace === "string" && existingAgent.workspace.trim() ? existingAgent.workspace : paths.workspaceDir,
+        created: !existingAgent
+      };
+    }
+
     const agents = await this.listOpenClawAgents();
     const existingAgent = agents.find((agent) => agent.id === agentId);
     let created = false;
@@ -4125,7 +4198,11 @@ export class OpenClawAdapter implements EngineAdapter {
           "--non-interactive",
           "--json"
         ],
-        { allowFailure: true }
+        {
+          allowFailure: true,
+          timeoutMs: OPENCLAW_MUTATION_COMMAND_TIMEOUT_MS,
+          killTimeoutMs: OPENCLAW_MUTATION_COMMAND_KILL_TIMEOUT_MS
+        }
       );
 
       if (add.code !== 0) {
@@ -4157,7 +4234,11 @@ export class OpenClawAdapter implements EngineAdapter {
         ...(request.avatar.presetId ? ["--avatar", request.avatar.presetId] : []),
         "--json"
       ],
-      { allowFailure: true }
+      {
+        allowFailure: true,
+        timeoutMs: OPENCLAW_MUTATION_COMMAND_TIMEOUT_MS,
+        killTimeoutMs: OPENCLAW_MUTATION_COMMAND_KILL_TIMEOUT_MS
+      }
     );
   }
 
@@ -4327,17 +4408,29 @@ export class OpenClawAdapter implements EngineAdapter {
       await this.ensureChillClawGatewayConfigBaseline(command);
     }
 
-    const restart = await runOpenClaw(["gateway", "restart"], { allowFailure: true });
+    const restart = await runOpenClaw(["gateway", "restart"], {
+      allowFailure: true,
+      timeoutMs: OPENCLAW_MUTATION_COMMAND_TIMEOUT_MS,
+      killTimeoutMs: OPENCLAW_MUTATION_COMMAND_KILL_TIMEOUT_MS
+    });
 
     if (this.gatewayServiceNotLoaded(restart.stdout, restart.stderr)) {
-      const install = await runOpenClaw(["gateway", "install", "--json"], { allowFailure: true });
+      const install = await runOpenClaw(["gateway", "install", "--json"], {
+        allowFailure: true,
+        timeoutMs: OPENCLAW_MUTATION_COMMAND_TIMEOUT_MS,
+        killTimeoutMs: OPENCLAW_MUTATION_COMMAND_KILL_TIMEOUT_MS
+      });
       if (install.code !== 0 && !hasOnlyIgnorableOpenClawWarnings(install)) {
         throw new Error(
           install.stderr || install.stdout || `ChillClaw could not install the OpenClaw gateway service after ${reason}.`
         );
       }
 
-      const start = await runOpenClaw(["gateway", "start"], { allowFailure: true });
+      const start = await runOpenClaw(["gateway", "start"], {
+        allowFailure: true,
+        timeoutMs: OPENCLAW_MUTATION_COMMAND_TIMEOUT_MS,
+        killTimeoutMs: OPENCLAW_MUTATION_COMMAND_KILL_TIMEOUT_MS
+      });
       if (start.code !== 0 && !hasOnlyIgnorableOpenClawWarnings(start)) {
         throw new Error(
           start.stderr || start.stdout || `ChillClaw could not start the OpenClaw gateway service after ${reason}.`
@@ -4490,7 +4583,9 @@ export class OpenClawAdapter implements EngineAdapter {
     if (runtimeResult.status !== "completed") {
       throw new Error(runtimeResult.message);
     }
-    const nextVersion = await readManagedOpenClawVersion({ fresh: true });
+    const preparedVersion =
+      runtimeResult.resource.status === "ready" ? runtimeResult.resource.installedVersion : undefined;
+    const nextVersion = preparedVersion ?? (await readManagedOpenClawVersion({ fresh: true }));
 
     if (!nextVersion || nextVersion !== OPENCLAW_INSTALL_TARGET) {
       throw new Error(`ChillClaw prepared ${runtimeResult.resource.label}, but could not verify the managed OpenClaw CLI.`);

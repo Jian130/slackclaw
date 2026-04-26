@@ -44,6 +44,8 @@ const DEFAULT_OPENCLAW_VERSION = process.env.CHILLCLAW_MANAGED_OPENCLAW_VERSION?
 const DEFAULT_OLLAMA_VERSION = process.env.CHILLCLAW_MANAGED_OLLAMA_VERSION?.trim() || "0.20.6";
 const DEFAULT_OLLAMA_CLI_ARCHIVE_NAME = "ollama-darwin.tgz";
 const PACKAGED_NODE_MODULES_PRUNE_DIRS = new Set([".github", ".husky", ".nyc_output", "__tests__", "coverage", "test", "tests"]);
+const RUNTIME_PROBE_TIMEOUT_MS = 5_000;
+const RUNTIME_PROBE_KILL_TIMEOUT_MS = 1_000;
 
 export function createRuntimeManager(eventPublisher?: EventPublisher, downloadManager?: DownloadManager): RuntimeManager {
   return new RuntimeManager({
@@ -491,7 +493,9 @@ function createOpenClawRuntimeProvider(): RuntimeResourceProvider {
     id: "openclaw-runtime",
     async inspect() {
       const ready = await probeCommand(getManagedOpenClawBinPath(), ["--version"], {
-        env: managedNodeEnv(getManagedOpenClawBinPath())
+        env: managedNodeEnv(getManagedOpenClawBinPath()),
+        timeoutMs: RUNTIME_PROBE_TIMEOUT_MS,
+        killTimeoutMs: RUNTIME_PROBE_KILL_TIMEOUT_MS
       });
       return {
         installed: ready,
@@ -914,7 +918,9 @@ async function probeVersion(command: string, args: string[], env?: NodeJS.Proces
   try {
     const result = await runCommand(command, args, {
       allowFailure: true,
-      env
+      env,
+      timeoutMs: RUNTIME_PROBE_TIMEOUT_MS,
+      killTimeoutMs: RUNTIME_PROBE_KILL_TIMEOUT_MS
     });
     if (result.code !== 0) {
       return undefined;

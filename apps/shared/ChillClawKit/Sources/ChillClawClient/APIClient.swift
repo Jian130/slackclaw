@@ -189,11 +189,11 @@ public final class ChillClawAPIClient: @unchecked Sendable {
     }
 
     public func installLocalModelRuntime() async throws -> LocalModelRuntimeActionResponse {
-        try await post("/api/models/local-runtime/install", body: EmptyBody(), timeout: RequestTimeout.longRunning)
+        try await post("/api/models/local-runtime/install", body: EmptyBody())
     }
 
     public func repairLocalModelRuntime() async throws -> LocalModelRuntimeActionResponse {
-        try await post("/api/models/local-runtime/repair", body: EmptyBody(), timeout: RequestTimeout.longRunning)
+        try await post("/api/models/local-runtime/repair", body: EmptyBody())
     }
 
     public func pauseDownload(jobId: String) async throws -> DownloadActionResponse {

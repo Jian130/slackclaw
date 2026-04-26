@@ -43,6 +43,11 @@ function failureMessage(operation: OperationSummary): string {
   return `${base || "Operation"} failed.`;
 }
 
+function interruptedMessage(operation: OperationSummary): string {
+  const base = operation.message.trim().replace(/[.。]+$/, "");
+  return `${base || "Operation"} was interrupted before it finished. Starting again.`;
+}
+
 export class OperationRunner {
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly now: () => string;
@@ -60,13 +65,31 @@ export class OperationRunner {
   async startOrResume(request: StartOperationRequest, worker: OperationWorker): Promise<OperationCommandResponse> {
     const existing = await this.operations.read(request.operationId);
 
-    if (existing && (ACTIVE_OPERATION_STATUSES.has(existing.status) || this.inFlight.has(request.operationId))) {
+    if (existing && this.inFlight.has(request.operationId)) {
       this.logOperation("resume", existing);
       return {
         operation: existing,
         accepted: true,
         alreadyRunning: true
       };
+    }
+
+    if (existing && ACTIVE_OPERATION_STATUSES.has(existing.status)) {
+      const interrupted = await this.operations.fail(
+        existing.operationId,
+        Object.assign(new Error("Operation was interrupted before it finished."), {
+          code: "OPERATION_INTERRUPTED"
+        }),
+        {
+          phase: existing.phase,
+          message: interruptedMessage(existing),
+          retryable: true,
+          updatedAt: this.now()
+        }
+      );
+      if (interrupted) {
+        this.publisher.publishOperationCompleted(interrupted);
+      }
     }
 
     const timestamp = this.now();

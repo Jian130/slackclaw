@@ -644,6 +644,32 @@ test("capability, tool, and onboarding overview routes expose one read-only read
   const root = await mkdtemp(resolve(tmpdir(), "chillclaw-capability-route-smoke-"));
   process.env.CHILLCLAW_ENGINE = "mock";
   process.env.CHILLCLAW_DATA_DIR = root;
+  await new StateStore(resolve(root, "state.json")).update((current) => ({
+    ...current,
+    onboarding: {
+      draft: {
+        currentStep: "employee",
+        install: {
+          installed: true,
+          version: "2026.4.15",
+          disposition: "installed-managed"
+        },
+        permissions: {
+          confirmed: true,
+          confirmedAt: "2026-04-25T00:00:00.000Z"
+        },
+        model: {
+          providerId: "openai",
+          modelKey: "openai/gpt-4o-mini",
+          entryId: "mock-openai-gpt-4o-mini"
+        },
+        channel: {
+          channelId: "wechat",
+          entryId: "wechat:default"
+        }
+      }
+    }
+  }));
 
   const server = startServer(0);
   await once(server, "listening");

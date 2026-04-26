@@ -391,6 +391,63 @@ struct ErrorState: View {
     }
 }
 
+struct NativeErrorDialog: View {
+    let title: String
+    let message: String
+    let dismissTitle: String
+    let onDismiss: () -> Void
+
+    init(
+        title: String = "ChillClaw",
+        message: String,
+        dismissTitle: String = "OK",
+        onDismiss: @escaping () -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.dismissTitle = dismissTitle
+        self.onDismiss = onDismiss
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.18)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onDismiss)
+
+            SurfaceCard(tone: .danger, padding: 24, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.red)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(title)
+                                .font(.headline)
+                            Text(message)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .lineSpacing(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        ActionButton(dismissTitle, variant: .primary, action: onDismiss)
+                    }
+                }
+            }
+            .frame(width: 420)
+            .shadow(color: Color.black.opacity(0.14), radius: 28, x: 0, y: 16)
+            .padding(24)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
 struct SettingRow<Trailing: View>: View {
     let title: String
     let subtitle: String?

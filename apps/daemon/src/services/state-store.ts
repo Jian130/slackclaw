@@ -95,6 +95,7 @@ export interface OnboardingWarmupState {
   memberId: string;
   agentId: string;
   presetSkillIds: string[];
+  channelBinding?: string;
   targetMode: PresetSkillTargetMode;
   status: "pending" | "running" | "completed" | "failed";
   lastMessage: string;

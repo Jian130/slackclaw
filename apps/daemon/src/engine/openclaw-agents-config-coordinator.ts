@@ -27,6 +27,8 @@ import type {
 const PERSONAL_WECHAT_RUNTIME_CHANNEL_KEY = "openclaw-weixin";
 const CANONICAL_WECOM_CHANNEL_KEY = "wecom";
 const LEGACY_WECOM_CHANNEL_KEY = "wecom-openclaw-plugin";
+const AGENT_MUTATION_TIMEOUT_MS = 30_000;
+const AGENT_MUTATION_KILL_TIMEOUT_MS = 2_000;
 
 type SavedModelEntryLike = {
   id: string;
@@ -107,7 +109,8 @@ type AgentsConfigAccess = {
   ensureMemberAgent: (
     memberId: string,
     agentId: string,
-    brain: AIMemberRuntimeRequest["brain"]
+    brain: AIMemberRuntimeRequest["brain"],
+    options?: { stageConfigOnly?: boolean }
   ) => Promise<{ agentDir: string; workspaceDir: string; created: boolean }>;
   setMemberIdentity: (agentId: string, request: AIMemberRuntimeRequest) => Promise<void>;
   writeMemberWorkspaceFiles: (
@@ -117,7 +120,13 @@ type AgentsConfigAccess = {
   ) => Promise<void>;
   runOpenClaw: (
     args: string[],
-    options?: { allowFailure?: boolean; envOverrides?: Record<string, string | undefined>; input?: string }
+    options?: {
+      allowFailure?: boolean;
+      envOverrides?: Record<string, string | undefined>;
+      input?: string;
+      timeoutMs?: number;
+      killTimeoutMs?: number;
+    }
   ) => Promise<{ code: number; stdout: string; stderr: string }>;
   markGatewayApplyPending: () => Promise<void>;
   invalidateReadCaches: (resources: Array<"skills" | "ai-members">, agentId?: string) => void;
@@ -138,6 +147,8 @@ type AgentsConfigAccess = {
   readBindingsCache: (agentId: string, loader: () => Promise<MemberBindingSummary[]>) => Promise<MemberBindingSummary[]>;
   invalidateMemberBindingCaches: (agentIds: string[]) => void;
 };
+
+type RunOpenClawOptions = NonNullable<Parameters<AgentsConfigAccess["runOpenClaw"]>[1]>;
 
 function normalizeModelLookupKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -379,6 +390,16 @@ function commandFailureMessage(result: { stdout: string; stderr: string }, fallb
     fallback;
 }
 
+function mutationCommandOptions(
+  options?: RunOpenClawOptions
+): RunOpenClawOptions {
+  return {
+    ...options,
+    timeoutMs: options?.timeoutMs ?? AGENT_MUTATION_TIMEOUT_MS,
+    killTimeoutMs: options?.killTimeoutMs ?? AGENT_MUTATION_KILL_TIMEOUT_MS
+  };
+}
+
 function isAgentNotFoundFailure(result: { stdout: string; stderr: string }): boolean {
   return /agent\s+"?[^"\n]*"?\s+not found/i.test(`${result.stderr}\n${result.stdout}`);
 }
@@ -479,29 +500,44 @@ export class AgentsConfigCoordinator {
           ...request.brain,
           modelKey: resolvedModelKey
         };
+    const stageConfigOnly = options?.stageConfigOnly === true;
     const agentId =
       request.existingAgentId ??
       resolveReadableMemberAgentId(
         request.name,
-        (await this.access.listOpenClawAgents()).map((agent) => agent.id).filter((candidate): candidate is string => Boolean(candidate))
+        stageConfigOnly
+          ? []
+          : (await this.access.listOpenClawAgents()).map((agent) => agent.id).filter((candidate): candidate is string => Boolean(candidate))
       );
-    const { agentDir, workspaceDir, created } = await this.access.ensureMemberAgent(request.memberId, agentId, resolvedBrain);
+    const { agentDir, workspaceDir, created } = await this.access.ensureMemberAgent(
+      request.memberId,
+      agentId,
+      resolvedBrain,
+      { stageConfigOnly }
+    );
 
-    await this.access.setMemberIdentity(agentId, request);
+    if (!stageConfigOnly) {
+      await this.access.setMemberIdentity(agentId, request);
+    }
     await rm(`${workspaceDir}/knowledge`, { recursive: true, force: true }).catch(() => undefined);
     await this.access.writeMemberWorkspaceFiles(request, workspaceDir, { createBootstrap: created });
-    await this.syncMemberBrain({ ...request, brain: resolvedBrain }, agentId, agentDir, workspaceDir);
+    await this.syncMemberBrain({ ...request, brain: resolvedBrain }, agentId, agentDir, workspaceDir, sourceEntry);
     if (options?.performMemoryIndex !== false) {
-      await this.access.runOpenClaw(["memory", "index", "--agent", agentId, "--force"], { allowFailure: true });
+      await this.access.runOpenClaw(
+        ["memory", "index", "--agent", agentId, "--force"],
+        mutationCommandOptions({ allowFailure: true })
+      );
     }
     if (options?.markGatewayApplyPending !== false) {
       await this.access.markGatewayApplyPending();
     }
     this.access.invalidateReadCaches(["skills", "ai-members"], agentId);
 
-    const agents = await this.access.listOpenClawAgents();
-    if (!agents.some((agent) => agent.id === agentId)) {
-      throw new Error(`ChillClaw could not verify the AI member agent ${agentId}.`);
+    if (!stageConfigOnly) {
+      const agents = await this.access.listOpenClawAgents();
+      if (!agents.some((agent) => agent.id === agentId)) {
+        throw new Error(`ChillClaw could not verify the AI member agent ${agentId}.`);
+      }
     }
 
     if (options?.ensurePrimaryAgent !== false && !(await this.access.getPrimaryAIMemberAgentId())) {
@@ -512,7 +548,7 @@ export class AgentsConfigCoordinator {
       agentId,
       agentDir,
       workspaceDir,
-      bindings: await this.readMemberBindings(agentId),
+      bindings: options?.skipBindingRead || stageConfigOnly ? [] : await this.readMemberBindings(agentId),
       requiresGatewayApply: options?.markGatewayApplyPending !== false
     };
   }
@@ -546,7 +582,7 @@ export class AgentsConfigCoordinator {
 
     const runtimeBinding = this.access.toRuntimeBindingTarget(request.binding);
     const result = await this.access.runOpenClaw(["agents", "unbind", "--agent", agentId, "--bind", runtimeBinding, "--json"], {
-      allowFailure: true
+      ...mutationCommandOptions({ allowFailure: true })
     });
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout || `ChillClaw could not unbind ${request.binding} from ${agentId}.`);
@@ -577,7 +613,10 @@ export class AgentsConfigCoordinator {
       return { requiresGatewayApply: false, wasPrimary };
     }
 
-    const result = await this.access.runOpenClaw(["agents", "delete", agentId, "--force", "--json"], { allowFailure: true });
+    const result = await this.access.runOpenClaw(
+      ["agents", "delete", agentId, "--force", "--json"],
+      mutationCommandOptions({ allowFailure: true })
+    );
 
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout || `ChillClaw could not delete the AI member agent ${agentId}.`);
@@ -653,7 +692,9 @@ export class AgentsConfigCoordinator {
       ),
       {
         allowFailure: true,
-        input: `${token.trim()}\n`
+        input: `${token.trim()}\n`,
+        timeoutMs: AGENT_MUTATION_TIMEOUT_MS,
+        killTimeoutMs: AGENT_MUTATION_KILL_TIMEOUT_MS
       }
     );
 
@@ -701,12 +742,14 @@ export class AgentsConfigCoordinator {
     request: AIMemberRuntimeRequest,
     agentId: string,
     agentDir: string,
-    workspaceDir: string
+    workspaceDir: string,
+    resolvedSourceEntry?: SavedModelEntryLike
   ): Promise<void> {
-    const modelState = await this.access.readResolvedSavedModelState();
+    const modelState = resolvedSourceEntry ? undefined : await this.access.readResolvedSavedModelState();
     const sourceEntry =
-      modelState.modelEntries?.find((entry) => entry.id === request.brain.entryId) ??
-      modelState.modelEntries?.find(
+      resolvedSourceEntry ??
+      modelState?.modelEntries?.find((entry) => entry.id === request.brain.entryId) ??
+      modelState?.modelEntries?.find(
         (entry) => entry.providerId === request.brain.providerId && modelKeysMatch(entry.modelKey, request.brain.modelKey)
       );
 
@@ -828,7 +871,7 @@ export class AgentsConfigCoordinator {
   private async readMemberBindings(agentId: string): Promise<MemberBindingSummary[]> {
     return this.access.readBindingsCache(agentId, async () => {
       const result = await this.access.runOpenClaw(["agents", "bindings", "--agent", agentId, "--json"], {
-        allowFailure: true
+        ...mutationCommandOptions({ allowFailure: true })
       });
       const payload =
         safeJsonPayloadParse<Array<string | OpenClawAgentBindingJsonEntry>>(result.stdout) ??
@@ -893,7 +936,7 @@ export class AgentsConfigCoordinator {
     for (const ownerAgentId of ownerAgentIds) {
       const result = await this.access.runOpenClaw(
         ["agents", "unbind", "--agent", ownerAgentId, "--bind", runtimeBinding, "--json"],
-        { allowFailure: true }
+        mutationCommandOptions({ allowFailure: true })
       );
       if (result.code !== 0) {
         throw new Error(commandFailureMessage(result, `ChillClaw could not unbind ${binding} from ${ownerAgentId}.`));
@@ -902,7 +945,7 @@ export class AgentsConfigCoordinator {
 
     let result = await this.access.runOpenClaw(
       ["agents", "bind", "--agent", agentId, "--bind", runtimeBinding, "--json"],
-      { allowFailure: true }
+      mutationCommandOptions({ allowFailure: true })
     );
     if (result.code !== 0) {
       const conflictOwnerAgentIds = bindConflictOwnerAgentIds(result)
@@ -912,7 +955,7 @@ export class AgentsConfigCoordinator {
       for (const ownerAgentId of conflictOwnerAgentIds) {
         const unbind = await this.access.runOpenClaw(
           ["agents", "unbind", "--agent", ownerAgentId, "--bind", runtimeBinding, "--json"],
-          { allowFailure: true }
+          mutationCommandOptions({ allowFailure: true })
         );
         if (unbind.code !== 0) {
           if (isAgentNotFoundFailure(unbind)) {
@@ -932,7 +975,7 @@ export class AgentsConfigCoordinator {
       if (conflictOwnerAgentIds.length > 0) {
         result = await this.access.runOpenClaw(
           ["agents", "bind", "--agent", agentId, "--bind", runtimeBinding, "--json"],
-          { allowFailure: true }
+          mutationCommandOptions({ allowFailure: true })
         );
       }
     }

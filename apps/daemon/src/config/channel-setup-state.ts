@@ -6,6 +6,7 @@ export interface ChannelLoginSessionSnapshot {
   entryId: string;
   status: "in-progress" | "awaiting-pairing" | "completed" | "failed";
   logs: string[];
+  launchUrl?: string;
   inputPrompt?: string;
 }
 
@@ -97,6 +98,7 @@ export function toChannelSession(
             ? sessionAwaitingMessage(sessionState)
             : sessionRunningMessage(sessionState.channelId),
     logs: sessionState.logs.slice(-40),
+    launchUrl: sessionState.launchUrl,
     inputPrompt: sessionState.status === "awaiting-pairing" ? sessionState.inputPrompt : undefined
   };
 }

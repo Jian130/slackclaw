@@ -113,6 +113,9 @@ function retainedEventKey(event: ChillClawEvent): string | undefined {
     case "preset-skill-sync.updated":
     case "downloads.updated":
       return event.type;
+    case "local-runtime.progress":
+    case "local-runtime.completed":
+      return `local-runtime:${event.action}`;
     case "operation.updated":
     case "operation.completed":
       return `operation:${event.operation.data.operationId}`;

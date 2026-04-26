@@ -169,23 +169,21 @@ handleAdvanceToInstall()
 -> detectOnboardingRuntime()
 -> readJson("/onboarding/runtime/detect", POST)
 -> POST /api/onboarding/runtime/detect
--> context.onboardingService.detectRuntime()
--> OnboardingService.detectRuntime()
--> assertOnboardingMutable()
--> detectInstallState(existingDraftInstall)
--> Promise.all([
-     adapter.instances.status(),
-     adapter.instances.getDeploymentTargets()
-   ])
--> choose active or installed deployment target
--> build OnboardingInstallState
--> updateState({ currentStep: "install", install })
--> applyOnboardingState(...)
+-> operationRunner.startOrResume({
+     operationId = onboarding:runtime-detect
+     action = onboarding-runtime-detect
+     status = running
+   })
+-> daemon returns quickly with current onboarding state plus operations.install
+-> background worker calls context.onboardingService.detectRuntime()
+-> worker runs bounded OpenClaw install probes and repairs stale install state
+-> worker completes operation and publishes operation/onboarding events
+-> client refreshes GET /api/onboarding/state from /api/events or normal recovery reads
 ```
 
-### Missing Runtime Install Path
+### Runtime Install Async Path
 
-The current implementation waits for `POST /api/onboarding/runtime/install` to return the final install result. The target async-operation architecture changes this to command acceptance plus daemon-owned progress:
+`POST /api/onboarding/runtime/install` follows the async-operation architecture: command acceptance plus daemon-owned progress.
 
 ```text
 User clicks "Install OpenClaw"
@@ -209,53 +207,6 @@ User clicks "Install OpenClaw"
 ```
 
 The target path must not require the original HTTP request to survive the full OpenClaw install, Node/npm copy, gateway baseline normalization, or post-install status checks. If the app sleeps, the WebSocket reconnects, or the command request times out, clients recover by reading `GET /api/onboarding/state` and active operation state.
-
-Until that migration is implemented, this is the current blocking call path:
-
-```text
-User clicks "Install OpenClaw"
--> handleInstall()
--> setPageError(undefined)
--> setInstallBusy(true)
--> setInstallProgress({ phase: "detecting", percent: 16, ... })
--> installOnboardingRuntime()
--> readJson("/onboarding/runtime/install", POST, runtimeInstall timeout)
--> POST /api/onboarding/runtime/install
--> context.onboardingService.installRuntime({ forceLocal: true })
--> OnboardingService.installRuntime()
--> assertOnboardingMutable()
--> startOperation("install", "onboarding-runtime-install", ...)
--> new SetupService(...)
--> setupService.runFirstRunSetup({ forceLocal: true })
--> store.update(introCompletedAt)
--> adapter.instances.status()
--> eventPublisher.publishDeployProgress("detecting")
--> eventPublisher.publishDeployProgress("installing" or "reusing")
--> adapter.instances.install(false, { forceLocal: true })
--> OpenClawInstanceManager.install(...)
--> OpenClawRuntimeLifecycleService.install(...)
--> access.ensurePinnedOpenClaw("managed-local")
--> readAdapterState()
--> writeAdapterState({ installedAt, lastInstallMode })
--> invalidateReadCaches()
--> status()
--> return InstallResponse
--> eventPublisher.publishDeployProgress("verifying")
--> eventPublisher.publishDeployCompleted(...)
--> overviewService.getOverview(...)
--> return SetupRunResponse
--> detectInstallStateFromRuntime(...)
--> detectInstallState(...)
--> completeOperation("install", ...)
--> updateState({
-     currentStep: install.installed ? "model" : "install",
-     install
-   })
--> return result with onboarding
--> setOverview(result.overview)
--> applyOnboardingState(result.onboarding)
--> setInstallBusy(false)
-```
 
 The actual OpenClaw runtime preparation is intentionally behind the daemon boundary:
 
@@ -403,14 +354,18 @@ sequenceDiagram
         Native->>API: POST /onboarding/runtime/detect
     end
     API->>Routes: POST /api/onboarding/runtime/detect
-    Routes->>Onboarding: detectRuntime()
-    Onboarding->>Runtime: status() + getDeploymentTargets()
+    Routes->>Events: operation.updated onboarding:runtime-detect detecting
+    Routes-->>API: current onboarding state + install operation
+    API-->>Web: render checking state
+    API-->>Native: render checking state
+    Routes->>Onboarding: detectRuntime() in background operation
+    Onboarding->>Runtime: bounded status() + getDeploymentTargets()
     Runtime->>OpenClaw: inspect managed/runtime state
     Runtime-->>Onboarding: installed/version/update metadata
     Onboarding->>Store: update install draft
-    Onboarding-->>API: install missing/found/complete
-    API-->>Web: resolveOnboardingInstallViewState()
-    API-->>Native: resolveNativeOnboardingInstallViewState()
+    Routes->>Events: operation.completed onboarding:runtime-detect
+    Events-->>Web: refresh GET /onboarding/state
+    Events-->>Native: refresh GET /onboarding/state
 
     alt runtime missing: install managed runtime
         User->>Web: Install OpenClaw
@@ -421,8 +376,10 @@ sequenceDiagram
             Native->>API: POST /onboarding/runtime/install { forceLocal: true }
         end
         API->>Routes: POST /api/onboarding/runtime/install
-        Routes->>Onboarding: installRuntime(forceLocal)
-        Onboarding->>Store: start install operation
+        Routes->>Events: operation.updated onboarding:install installing
+        Routes-->>Web: OnboardingRuntimeOperationResponse accepted
+        Routes-->>Native: OnboardingRuntimeOperationResponse accepted
+        Routes->>Onboarding: installRuntime(forceLocal) in background operation
         Onboarding->>Setup: runFirstRunSetup(forceLocal)
         Setup->>Events: deploy.progress detecting
         Events-->>Web: install progress bar update
@@ -436,11 +393,10 @@ sequenceDiagram
         Setup->>Events: deploy.completed
         Setup-->>Onboarding: SetupRunResponse + overview
         Onboarding->>Runtime: reconcile install state
-        Onboarding->>Store: complete install operation
         Onboarding->>Store: currentStep = model when installed
-        Onboarding-->>API: overview + onboarding state
-        API-->>Web: show model step
-        API-->>Native: show model step
+        Routes->>Events: operation.completed onboarding:install
+        Events-->>Web: refresh GET /onboarding/state
+        Events-->>Native: refresh GET /onboarding/state
     else compatible runtime found: reuse
         User->>Web: Next
         User->>Native: Next
@@ -458,12 +414,14 @@ sequenceDiagram
         User->>Native: Update runtime
         Native->>API: POST /onboarding/runtime/update
         API->>Routes: POST /api/onboarding/runtime/update
-        Routes->>Onboarding: updateRuntime()
+        Routes->>Events: operation.updated onboarding:install updating
+        Routes-->>Native: OnboardingRuntimeOperationResponse accepted
+        Routes->>Onboarding: updateRuntime() in background operation
         Onboarding->>Runtime: update active deployment target
         Runtime->>OpenClaw: update managed/runtime install
         Onboarding->>Runtime: reconcile install state
         Onboarding->>Store: currentStep = model when installed
-        Onboarding-->>API: SetupRunResponse + overview + onboarding state
+        Routes->>Events: operation.completed onboarding:install
     end
 
     Note over Web,Native: Step 3 in the visible clients is model setup. The daemon route POST /api/onboarding/permissions/confirm still exists, but the current visible flow does not show a separate permissions screen.
@@ -478,7 +436,11 @@ sequenceDiagram
         opt idle/degraded local runtime
             Web->>API: POST /models/local-runtime/install or repair
             Native->>API: POST /models/local-runtime/install or repair
-            API->>LocalModel: install() or repair()
+            API->>Routes: POST /api/models/local-runtime/install or repair
+            Routes->>Events: operation.updated onboarding:localRuntime
+            Routes-->>Web: LocalModelRuntimeActionResponse accepted
+            Routes-->>Native: LocalModelRuntimeActionResponse accepted
+            Routes->>LocalModel: install() or repair() in background operation
             LocalModel->>Events: local-runtime.progress
             Events-->>Web: local model setup progress
             Events-->>Native: local model setup progress
@@ -486,9 +448,7 @@ sequenceDiagram
             LocalModel->>Events: local-runtime.completed
             Events-->>Web: refresh onboarding state
             Events-->>Native: refresh onboarding state
-            LocalModel-->>API: modelConfig + localRuntime + optional onboarding
-            API-->>Web: currentStep may advance to channel
-            API-->>Native: currentStep may advance to channel
+            Routes->>Events: operation.completed onboarding:localRuntime
         end
     else cloud provider path
         User->>Web: Save first model

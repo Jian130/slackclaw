@@ -155,6 +155,8 @@ export interface SaveAIMemberRuntimeOptions {
   performMemoryIndex?: boolean;
   markGatewayApplyPending?: boolean;
   ensurePrimaryAgent?: boolean;
+  stageConfigOnly?: boolean;
+  skipBindingRead?: boolean;
 }
 
 export interface AIMemberRuntimeState {

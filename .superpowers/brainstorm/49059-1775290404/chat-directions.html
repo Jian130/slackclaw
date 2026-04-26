@@ -1,0 +1,150 @@
+<h2>Choose The Chat Direction</h2>
+<p class="subtitle">All three options use a minimal edge-to-edge chat screen. The main difference is how closely we follow the reference app and how much custom UI work we take on for both React and macOS.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Reference-close</div>
+        <div class="mockup-body" style="padding: 0; background: #f6f6f8;">
+          <div style="display:grid;grid-template-columns:220px 1fr;height:360px;">
+            <div style="border-right:1px solid #e2e4ea;background:#fbfbfc;display:flex;flex-direction:column;">
+              <div style="padding:14px 12px;border-bottom:1px solid #eceef3;font-weight:700;">Chats</div>
+              <div style="padding:10px 12px;">
+                <div class="mock-input" style="margin-bottom:10px;">Search chats...</div>
+                <div class="mock-button" style="width:100%;justify-content:flex-start;">+ New Chat</div>
+              </div>
+              <div style="padding:0 8px 8px;display:grid;gap:4px;">
+                <div style="padding:10px 12px;background:#ececef;border-radius:10px;font-size:13px;">Hello Greeting</div>
+                <div style="padding:10px 12px;font-size:13px;color:#666;">Unnamed Chat</div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;background:white;">
+              <div style="padding:14px 18px;border-bottom:1px solid #eceef3;display:flex;justify-content:space-between;align-items:center;">
+                <strong>Hello Greeting</strong>
+                <div style="height:24px;width:220px;border-radius:999px;background:linear-gradient(90deg,#4f46e5,#7c3aed);"></div>
+              </div>
+              <div style="flex:1;padding:28px 28px 0;display:flex;flex-direction:column;justify-content:space-between;">
+                <div style="max-width:520px;align-self:center;color:#333;font-size:13px;line-height:1.6;">
+                  <div style="margin-bottom:18px;display:flex;justify-content:flex-end;">
+                    <div style="background:#ececec;border-radius:14px;padding:8px 12px;">Hi</div>
+                  </div>
+                  <div style="font-weight:700;margin-bottom:6px;">Hello! How are you doing today?</div>
+                  <div style="color:#666;">There is anything specific I can help you with?</div>
+                </div>
+                <div style="padding:20px 0 24px;">
+                  <div style="border:1px solid #e2e4ea;border-radius:14px;padding:12px 14px;color:#aaa;">Send a message to the model...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Reference-close</h3>
+      <p>Matches the second screenshot most closely: slim left chat rail, very light chrome, wide transcript canvas, bottom docked composer.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Strongest fidelity to the reference app</li>
+            <li>Simple mental model across web and macOS</li>
+            <li>Best use of screen height and width</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Requires stripping back more existing card chrome</li>
+            <li>Needs careful native split-view tuning</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Reference-plus utility rail</div>
+        <div class="mockup-body" style="padding: 0; background: #f6f6f8;">
+          <div style="display:grid;grid-template-columns:72px 240px 1fr;height:360px;">
+            <div style="border-right:1px solid #eceef3;background:#fbfbfc;display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 0;">
+              <div style="width:32px;height:32px;border-radius:10px;background:#5b5ce2;"></div>
+              <div style="width:32px;height:32px;border-radius:10px;background:#ececef;"></div>
+              <div style="width:32px;height:32px;border-radius:10px;background:#ececef;"></div>
+            </div>
+            <div style="border-right:1px solid #e2e4ea;background:#fbfbfc;"></div>
+            <div style="background:white;display:flex;flex-direction:column;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Reference-plus Utility Rail</h3>
+      <p>Adds a permanent ultra-thin icon strip beside the conversation list, so collapse still leaves a visible navigation handle.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Collapse state stays visually anchored</li>
+            <li>Good if we want future quick filters or folders</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Less faithful to the provided reference</li>
+            <li>Extra complexity for native parity</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Floating list overlay</div>
+        <div class="mockup-body" style="padding: 0; background: #f6f6f8;">
+          <div style="position:relative;height:360px;background:white;">
+            <div style="position:absolute;left:18px;top:18px;width:260px;height:300px;border:1px solid #e2e4ea;border-radius:18px;background:#fbfbfc;box-shadow:0 10px 30px rgba(20,25,40,.08);"></div>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;">
+              <div style="padding:14px 18px;border-bottom:1px solid #eceef3;"></div>
+              <div style="flex:1;"></div>
+              <div style="padding:16px 24px;">
+                <div style="border:1px solid #e2e4ea;border-radius:14px;padding:12px 14px;color:#aaa;">Send a message...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Floating List Overlay</h3>
+      <p>The conversation list becomes an overlay panel that can slide over the transcript instead of consuming fixed width all the time.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Maximum room for the transcript</li>
+            <li>Feels modern on smaller windows</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Most behavior work across both clients</li>
+            <li>Weakest match to your reference screenshot</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="label">Recommendation</p>
+  <p><strong>A. Reference-close</strong> is the best fit. It gives us the cleanest match to your second screenshot, keeps the interaction model simple, and is the easiest design to keep aligned between React and the macOS app.</p>
+</div>

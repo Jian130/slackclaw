@@ -6,6 +6,7 @@ import type {
   AIMemberDetail,
   AITeamOverview,
   AIMemberPreset,
+  ModelConfigOverview,
   BindAIMemberChannelRequest,
   BrainAssignment,
   DeleteAIMemberRequest,
@@ -30,6 +31,7 @@ import { StateStore, type AITeamState } from "./state-store.js";
 
 const DEFAULT_TEAM_VISION =
   "Build a small, reliable AI team that helps ordinary users get useful work done quickly.";
+const LIVE_OVERVIEW_TIMEOUT_MS = 1_200;
 
 const DEFAULT_KNOWLEDGE_PACKS: KnowledgePack[] = [
   {
@@ -167,6 +169,10 @@ function preferredPrimaryMemberAgentId(members: AITeamOverview["members"]): stri
     })[0]?.agentId;
 }
 
+function shouldPreserveStoredManagedMember(member: AIMemberDetail): boolean {
+  return member.source !== "detected" && member.hasManagedMetadata !== false && member.agentId.trim().length > 0;
+}
+
 function rehomeStoredBinding(
   members: AITeamState["members"],
   targetMemberId: string,
@@ -269,6 +275,49 @@ function mergeSkillOptions(runtimeSkillOptions: SkillOption[]): SkillOption[] {
   return Array.from(byId.values()).sort((left, right) => left.label.localeCompare(right.label));
 }
 
+function emptyModelConfig(): ModelConfigOverview {
+  return {
+    providers: [],
+    models: [],
+    configuredModelKeys: [],
+    savedEntries: [],
+    fallbackEntryIds: []
+  };
+}
+
+function emptySkillRuntimeCatalog(): SkillRuntimeCatalog {
+  return {
+    readiness: {
+      total: 0,
+      eligible: 0,
+      disabled: 0,
+      blocked: 0,
+      missing: 0,
+      warnings: [],
+      summary: "Skill readiness is temporarily unavailable."
+    },
+    marketplaceAvailable: false,
+    marketplaceSummary: "Skill marketplace status is temporarily unavailable.",
+    skills: []
+  };
+}
+
+async function withLiveOverviewTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.catch(() => fallback),
+      new Promise<T>((resolve) => {
+        timeout = setTimeout(() => resolve(fallback), LIVE_OVERVIEW_TIMEOUT_MS);
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 function buildRuntimeSkillOptions(runtimeSkills: SkillRuntimeCatalog): SkillOption[] {
   return runtimeSkills.skills
     .filter((skill) => skill.eligible && !skill.disabled && !skill.blockedByAllowlist)
@@ -284,6 +333,7 @@ function buildRuntimeSkillOptions(runtimeSkills: SkillRuntimeCatalog): SkillOpti
 
 interface PersistMemberOptions {
   deferPresetSkillResolution?: boolean;
+  resolvedBrain?: BrainAssignment;
   runtimeSave?: SaveAIMemberRuntimeOptions;
   currentStatus?: string;
   activityDescription?: string;
@@ -300,8 +350,15 @@ export class AITeamService {
   async getOverview(): Promise<AITeamOverview> {
     const state = await this.store.read();
     const aiTeam = state.aiTeam ?? defaultAITeamState();
-    const modelConfig = await this.adapter.config.getModelConfig();
-    const runtimeSkills = await this.adapter.config.getSkillRuntimeCatalog();
+    if (!state.setupCompletedAt) {
+      return this.buildFirstRunOverview(aiTeam);
+    }
+
+    const [modelConfig, runtimeSkills, runtimeMembers] = await Promise.all([
+      withLiveOverviewTimeout(this.adapter.config.getModelConfig(), emptyModelConfig()),
+      withLiveOverviewTimeout(this.adapter.config.getSkillRuntimeCatalog(), emptySkillRuntimeCatalog()),
+      withLiveOverviewTimeout(this.adapter.aiEmployees.listAIMemberRuntimeCandidates(), [])
+    ]);
     const teams = Object.values(aiTeam.teams).sort((left, right) => (left.displayOrder ?? 0) - (right.displayOrder ?? 0) || left.name.localeCompare(right.name));
     const runtimeSkillOptions = buildRuntimeSkillOptions(runtimeSkills);
     const baseOverview = {
@@ -315,11 +372,10 @@ export class AITeamService {
       skillOptions: mergeSkillOptions(runtimeSkillOptions)
     } satisfies AITeamOverview;
     const memberPresets = resolveMemberPresets(baseOverview.knowledgePacks, baseOverview.skillOptions);
-    const runtimeMembers = await this.adapter.aiEmployees.listAIMemberRuntimeCandidates();
     const storedByAgentId = new Map(Object.values(aiTeam.members).map((member) => [member.agentId, member]));
-    const availableBrainIds = new Set(modelConfig.savedEntries.map((entry) => entry.id));
+    const runtimeAgentIds = new Set(runtimeMembers.map((candidate) => candidate.agentId));
 
-    const members = runtimeMembers
+    const runtimeBackedMembers = runtimeMembers
       .filter((candidate) => !isChillClawManagedMemberAgentId(candidate.agentId) || storedByAgentId.has(candidate.agentId))
       .map((candidate) => {
         const stored = storedByAgentId.get(candidate.agentId);
@@ -335,12 +391,23 @@ export class AITeamService {
           teamIds: withTeamIds((stored ?? inferred).id, teams),
           bindingCount: candidate.bindingCount || stored?.bindingCount || stored?.bindings.length || 0,
           bindings: stored?.bindings ?? inferred.bindings,
-          brain: stored?.brain?.entryId && availableBrainIds.has(stored.brain.entryId) ? stored.brain : inferred.brain,
+          brain: stored?.brain ?? inferred.brain,
           agentDir: candidate.agentDir ?? stored?.agentDir,
           workspaceDir: candidate.workspaceDir ?? stored?.workspaceDir
         };
-      })
-      .sort((left, right) => left.name.localeCompare(right.name));
+      });
+    const storedManagedMembersMissingFromRuntime = Object.values(aiTeam.members)
+      .filter((member) => shouldPreserveStoredManagedMember(member))
+      .filter((member) => !runtimeAgentIds.has(member.agentId))
+      .map((member) => ({
+        ...member,
+        teamIds: withTeamIds(member.id, teams),
+        bindingCount: member.bindingCount || member.bindings.length,
+        bindings: member.bindings
+      }));
+    const members = [...runtimeBackedMembers, ...storedManagedMembersMissingFromRuntime].sort((left, right) =>
+      left.name.localeCompare(right.name)
+    );
 
     const nextMembers = Object.fromEntries(members.map((member) => [member.id, member]));
     if (JSON.stringify(aiTeam.members) !== JSON.stringify(nextMembers)) {
@@ -369,6 +436,30 @@ export class AITeamService {
     };
   }
 
+  private async buildFirstRunOverview(aiTeam: AITeamState): Promise<AITeamOverview> {
+    const teams = Object.values(aiTeam.teams).sort((left, right) => (left.displayOrder ?? 0) - (right.displayOrder ?? 0) || left.name.localeCompare(right.name));
+    const skillOptions = mergeSkillOptions([]);
+    const memberPresets = resolveMemberPresets(DEFAULT_KNOWLEDGE_PACKS, skillOptions);
+    const members = Object.values(aiTeam.members)
+      .map((member) => ({
+        ...member,
+        teamIds: withTeamIds(member.id, teams)
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    return {
+      teamVision: aiTeam.teamVision,
+      members,
+      teams,
+      activity: aiTeam.activity,
+      availableBrains: [],
+      memberPresets,
+      knowledgePacks: DEFAULT_KNOWLEDGE_PACKS,
+      skillOptions,
+      presetSkillSync: this.capabilityService ? await this.capabilityService.getPresetSkillSyncOverview() : undefined
+    };
+  }
+
   async saveMember(memberId: string | undefined, request: SaveAIMemberRequest): Promise<AITeamActionResponse> {
     const { current, requiresGatewayApply } = await this.persistMember(memberId, request);
     const nextOverview = await this.getOverview();
@@ -386,10 +477,11 @@ export class AITeamService {
   async saveMemberForOnboarding(
     memberId: string | undefined,
     request: SaveAIMemberRequest,
-    options?: { deferWarmup?: boolean }
+    options?: { deferWarmup?: boolean; resolvedBrain?: BrainAssignment }
   ): Promise<{ member: AIMemberDetail; requiresGatewayApply?: boolean }> {
     const { member, requiresGatewayApply } = await this.persistMember(memberId, request, {
       deferPresetSkillResolution: options?.deferWarmup,
+      resolvedBrain: options?.resolvedBrain,
       currentStatus: options?.deferWarmup ? "Finishing workspace setup in the background." : "Ready for new assignments.",
       activityDescription: options?.deferWarmup
         ? `${request.name.trim()} is ready to open and will finish workspace setup in the background.`
@@ -397,7 +489,9 @@ export class AITeamService {
       runtimeSave: options?.deferWarmup
         ? {
             performMemoryIndex: false,
-            ensurePrimaryAgent: false
+            ensurePrimaryAgent: false,
+            stageConfigOnly: true,
+            skipBindingRead: true
           }
         : undefined
     });
@@ -424,10 +518,10 @@ export class AITeamService {
     const aiTeam = state.aiTeam ?? defaultAITeamState();
     const id = memberId ?? randomUUID();
     const current = aiTeam.members[id];
-    const modelConfig = await this.adapter.config.getModelConfig();
-    const runtimeSkills = await this.adapter.config.getSkillRuntimeCatalog();
+    const modelConfig = options?.resolvedBrain ? undefined : await this.adapter.config.getModelConfig();
+    const runtimeSkills = options?.deferPresetSkillResolution ? undefined : await this.adapter.config.getSkillRuntimeCatalog();
     const normalizedPresetSkillIds = normalizePresetSkillIds(request.presetSkillIds);
-    const brain = buildBrainAssignment(modelConfig.savedEntries, request.brainEntryId);
+    const brain = options?.resolvedBrain ?? buildBrainAssignment(modelConfig?.savedEntries ?? [], request.brainEntryId);
     const knowledgePacks = DEFAULT_KNOWLEDGE_PACKS.filter((pack) => request.knowledgePackIds.includes(pack.id));
     const requestedSkillIds =
       options?.deferPresetSkillResolution && normalizedPresetSkillIds.length > 0
@@ -435,7 +529,9 @@ export class AITeamService {
         : normalizedPresetSkillIds.length
           ? await this.resolvePresetSkillRequest(normalizedPresetSkillIds)
           : [...new Set(request.skillIds)];
-    const selectedSkills = mergeSkillOptions(buildRuntimeSkillOptions(runtimeSkills)).filter((skill) => requestedSkillIds.includes(skill.id));
+    const selectedSkills = runtimeSkills
+      ? mergeSkillOptions(buildRuntimeSkillOptions(runtimeSkills)).filter((skill) => requestedSkillIds.includes(skill.id))
+      : [];
     const selectedSkillIds = options?.deferPresetSkillResolution ? requestedSkillIds : selectedSkills.map((skill) => skill.id);
     const missingSkillIds = options?.deferPresetSkillResolution
       ? []

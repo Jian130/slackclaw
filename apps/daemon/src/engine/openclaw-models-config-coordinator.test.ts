@@ -293,6 +293,12 @@ test("upsertManagedLocalModelEntry configures an Ollama default without starting
   let gatewayApplyMarks = 0;
   const configWrites: Array<Record<string, unknown>> = [];
   const { coordinator, interactiveCalls, runCalls, getAdapterState } = createCoordinatorTestHarness({
+    readModelSnapshot: async () => {
+      throw new Error("managed local upsert should not probe live model status");
+    },
+    ensureSavedModelState: async () => {
+      throw new Error("managed local upsert should not seed saved models from live model status");
+    },
     markGatewayApplyPending: async () => {
       gatewayApplyMarks += 1;
     },
@@ -387,6 +393,107 @@ test("upsertManagedLocalModelEntry configures an Ollama default without starting
       }
     ]
   });
+});
+
+test("getModelConfig preserves saved model entries when OpenClaw model reads are unavailable", async () => {
+  const { coordinator, getAdapterState, setAdapterState } = createCoordinatorTestHarness({
+    readModelSnapshot: async () => ({
+      allModels: [],
+      configuredModels: [],
+      configuredAuthProviders: new Set<string>(),
+      supplemental: {}
+    }),
+    isCleanModelRuntime: () => true,
+    buildModelConfigOverview: (_allModels, _configuredModels, _configuredAuthProviders, modelEntries, defaultEntryId, fallbackEntryIds, defaultModel) => ({
+      ...createEmptyModelConfig(),
+      models: [],
+      savedEntries: modelEntries,
+      defaultEntryId,
+      fallbackEntryIds,
+      defaultModel: defaultModel ?? undefined
+    })
+  });
+
+  setAdapterState({
+    modelEntries: [
+      {
+        id: "managed-ollama-entry",
+        label: "Local AI on this Mac",
+        providerId: "ollama",
+        modelKey: "ollama/gemma4:e2b",
+        agentId: "",
+        agentDir: "",
+        workspaceDir: "",
+        authMethodId: "ollama-local",
+        profileIds: [],
+        isDefault: true,
+        isFallback: false,
+        createdAt: "2026-04-25T17:07:28.000Z",
+        updatedAt: "2026-04-25T17:07:28.000Z"
+      }
+    ],
+    defaultModelEntryId: "managed-ollama-entry",
+    fallbackModelEntryIds: []
+  });
+
+  const config = await coordinator.getModelConfig({ fresh: true });
+
+  assert.equal(config.savedEntries.length, 1);
+  assert.equal(config.savedEntries[0]?.id, "managed-ollama-entry");
+  assert.equal(config.defaultEntryId, "managed-ollama-entry");
+  assert.equal(config.defaultModel, "ollama/gemma4:e2b");
+  assert.equal(getAdapterState().modelEntries?.length, 1);
+});
+
+test("getModelConfig preserves managed local Ollama entries when OpenClaw model reads look clean", async () => {
+  const { coordinator, getAdapterState, setAdapterState } = createCoordinatorTestHarness({
+    readModelSnapshot: async () => ({
+      allModels: [],
+      configuredModels: [],
+      configuredAuthProviders: new Set<string>(),
+      supplemental: {}
+    }),
+    isCleanModelRuntime: () => true,
+    buildModelConfigOverview: (_allModels, _configuredModels, _configuredAuthProviders, modelEntries, defaultEntryId, fallbackEntryIds, defaultModel) => ({
+      ...createEmptyModelConfig(),
+      models: [],
+      savedEntries: modelEntries,
+      defaultEntryId,
+      fallbackEntryIds,
+      defaultModel: defaultModel ?? undefined
+    })
+  });
+
+  setAdapterState({
+    modelEntries: [
+      {
+        id: "managed-ollama-entry",
+        label: "Local AI on this Mac",
+        providerId: "ollama",
+        modelKey: "ollama/gemma4:e2b",
+        agentId: "",
+        agentDir: "",
+        workspaceDir: "",
+        authMethodId: "ollama-local",
+        profileIds: [],
+        isDefault: true,
+        isFallback: false,
+        createdAt: "2026-04-26T00:00:00.000Z",
+        updatedAt: "2026-04-26T00:00:00.000Z"
+      }
+    ],
+    defaultModelEntryId: "managed-ollama-entry",
+    fallbackModelEntryIds: []
+  });
+
+  const config = await coordinator.getModelConfig({ fresh: true });
+
+  assert.equal(config.savedEntries.length, 1);
+  assert.equal(config.savedEntries[0]?.providerId, "ollama");
+  assert.equal(config.savedEntries[0]?.authMethodId, "ollama-local");
+  assert.equal(config.defaultEntryId, "managed-ollama-entry");
+  assert.equal(config.defaultModel, "ollama/gemma4:e2b");
+  assert.equal(getAdapterState().modelEntries?.length, 1);
 });
 
 test("getModelSelection resolves the default model from config aliases without loading the full catalog", async () => {

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { MutationSyncMeta, RevisionedSnapshot } from "@chillclaw/contracts";
 
 export type RevisionedResource =
+  | "onboarding"
   | "overview"
   | "ai-team"
   | "model-config"

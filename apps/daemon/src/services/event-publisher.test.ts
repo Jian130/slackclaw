@@ -254,6 +254,54 @@ test("event publisher emits local runtime progress and completion events", () =>
   assert.deepEqual(events, ["local-runtime.progress", "local-runtime.completed"]);
 });
 
+test("event bus retains the latest local runtime event for reconnecting clients", () => {
+  const bus = new EventBusService();
+  const publisher = new EventPublisher(bus);
+  const localRuntime = {
+    ...createDefaultLocalModelRuntimeOverview(),
+    supported: true,
+    recommendation: "local" as const,
+    supportCode: "supported" as const,
+    status: "downloading-model" as const,
+    runtimeInstalled: true,
+    runtimeReachable: true,
+    modelDownloaded: false,
+    activeInOpenClaw: false,
+    recommendedTier: "medium" as const,
+    requiredDiskGb: 16,
+    totalMemoryGb: 36,
+    freeDiskGb: 128,
+    chosenModelKey: "ollama/gemma4:e4b",
+    summary: "Local AI is downloading.",
+    detail: "ChillClaw is downloading the starter local model."
+  };
+
+  publisher.publishLocalRuntimeProgress({
+    action: "install",
+    phase: "downloading-model",
+    message: "Downloading model",
+    localRuntime
+  });
+  publisher.publishLocalRuntimeCompleted({
+    action: "install",
+    status: "completed",
+    message: "Local AI is ready.",
+    localRuntime: {
+      ...localRuntime,
+      status: "ready",
+      modelDownloaded: true,
+      activeInOpenClaw: true
+    }
+  });
+
+  const retained = bus.getRetainedEvents().filter((event) => event.type.startsWith("local-runtime."));
+
+  assert.equal(retained.length, 1);
+  assert.equal(retained[0]?.type, "local-runtime.completed");
+  assert.equal(retained[0]?.message, "Local AI is ready.");
+  assert.equal(retained[0]?.localRuntime.status, "ready");
+});
+
 test("event publisher emits generic runtime progress, completion, and staged update events", () => {
   const bus = new EventBusService();
   const publisher = new EventPublisher(bus);
