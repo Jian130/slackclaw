@@ -127,7 +127,7 @@ async function downloadArchive(url: string, destination: string): Promise<void> 
 }
 
 async function extractArchive(archivePath: string, destinationDir: string): Promise<void> {
-  const result = await runCommand("/usr/bin/tar", ["-xzf", archivePath, "-C", destinationDir], {
+  const result = await runCommand("/usr/bin/tar", ["-xf", archivePath, "-C", destinationDir], {
     allowFailure: true,
     env: managedNodeEnv()
   });
@@ -143,7 +143,7 @@ async function probeManagedNpm(command: string): Promise<boolean> {
 
 async function installManagedNodeRuntime(options?: ManagedNodeInstallOptions): Promise<void> {
   const workspace = await mkdtemp(resolve(tmpdir(), "chillclaw-node-runtime-"));
-  const archivePath = resolve(workspace, `${getManagedNodeDistName()}.tar.gz`);
+  const archivePath = resolve(workspace, `${getManagedNodeDistName()}.tar.xz`);
   const extractedPath = resolve(workspace, getManagedNodeDistName());
   const installPath = getManagedNodeInstallDir();
 

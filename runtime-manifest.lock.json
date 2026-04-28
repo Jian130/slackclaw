@@ -6,7 +6,7 @@
       "id": "node-npm-runtime",
       "kind": "node-npm",
       "label": "Node.js and npm runtime",
-      "version": "22.22.2",
+      "version": "24.15.0",
       "platforms": [
         {
           "os": "darwin",
@@ -16,12 +16,12 @@
       "sourcePolicy": ["bundled", "download"],
       "updatePolicy": "stage-silently-apply-safely",
       "installDir": "node-runtime",
-      "activePath": "node-runtime/node-v22.22.2-darwin-arm64/bin/npm",
+      "activePath": "node-runtime/node-v24.15.0-darwin-arm64/bin/npm",
       "artifacts": [
         {
           "source": "bundled",
           "format": "directory",
-          "path": "node/node-v22.22.2-darwin-arm64"
+          "path": "node/node-v24.15.0-darwin-arm64"
         }
       ],
       "dependencies": []

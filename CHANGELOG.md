@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.2.10 - 2026-04-28
+
+### 2026-04-28 17:30 CST
+
+- fixed Step 2 onboarding install recovery by completing the guided install once the ChillClaw-managed OpenClaw runtime is prepared instead of waiting on slow follow-up gateway/status probes
+- bounded first-run post-install status and overview refreshes with logged soft fallbacks, so setup can advance while ChillClaw continues health checks in the background
+- kept React onboarding install progress tied to daemon-owned operation state after reconnects or app sleeps, preventing stale "OpenClaw Not Found" fallback screens during an active or recently completed install
+- bumped ChillClaw package metadata and internal workspace package versions to 0.2.10 for the onboarding install recovery release tag
+
+### 2026-04-28 15:12 CST
+
+- switched the managed Node/npm runtime baseline to the current ChillClaw-pinned Node LTS release and prepared it from the official `.tar.xz` archive, pruning, stripping, ad-hoc signing, and size-checking `bin/node` so macOS release artifacts stay below GitHub's 100 MB single-file limit
+- added packaging guards and regression coverage so both runtime preparation and macOS installer staging fail before shipping an oversized packaged Node.js binary
+
 ## 0.2.9 - 2026-04-27
 
 ### 2026-04-27 00:43 CST

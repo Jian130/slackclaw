@@ -338,7 +338,8 @@ export default function OnboardingPage() {
       overview,
       install: currentDraft.install,
       busy: installBusy,
-      progress: installProgress
+      progress: installProgress,
+      operation: onboardingState?.operations?.install
     },
     copy
   );

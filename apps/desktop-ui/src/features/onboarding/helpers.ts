@@ -406,6 +406,7 @@ interface ResolveOnboardingInstallViewStateArgs {
   install?: OnboardingInstallState;
   busy: boolean;
   progress?: OnboardingInstallProgressSnapshot;
+  operation?: NonNullable<OnboardingStateResponse["operations"]>["install"];
 }
 
 export function buildExistingInstallAdvanceDraft(
@@ -838,6 +839,21 @@ function installProgressStageLabel(
   }
 }
 
+function installProgressPhaseFromOperation(phase: string | undefined): ChillClawDeployPhase {
+  switch (phase) {
+    case "detecting":
+    case "reusing":
+    case "installing":
+    case "updating":
+    case "uninstalling":
+    case "verifying":
+    case "restarting-gateway":
+      return phase;
+    default:
+      return "installing";
+  }
+}
+
 export function resolveOnboardingInstallViewState(
   args: ResolveOnboardingInstallViewStateArgs,
   copy: Pick<
@@ -849,12 +865,20 @@ export function resolveOnboardingInstallViewState(
     | "installStageVerifying"
   >
 ): OnboardingInstallViewState {
-  if (args.busy) {
-    const fallbackPercent = args.progress?.phase ? INSTALL_PROGRESS_FALLBACKS[args.progress.phase] : INSTALL_PROGRESS_FALLBACKS.detecting;
+  const activeOperation = args.operation?.status === "pending" || args.operation?.status === "running" ? args.operation : undefined;
+  const progress = args.progress ?? (activeOperation
+    ? {
+        phase: installProgressPhaseFromOperation(activeOperation.phase),
+        message: activeOperation.message
+      }
+    : undefined);
+
+  if (args.busy || activeOperation) {
+    const fallbackPercent = progress?.phase ? INSTALL_PROGRESS_FALLBACKS[progress.phase] : INSTALL_PROGRESS_FALLBACKS.detecting;
     return {
       kind: "installing",
-      progressPercent: Math.min(Math.max(args.progress?.percent ?? fallbackPercent, 8), 96),
-      stageLabel: installProgressStageLabel(args.progress, copy)
+      progressPercent: Math.min(Math.max(progress?.percent ?? fallbackPercent, 8), 96),
+      stageLabel: installProgressStageLabel(progress, copy)
     };
   }
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { createDefaultProductOverview } from "@chillclaw/contracts";
 import type {
   InstallResponse,
   SetupRunResponse,
@@ -8,8 +9,51 @@ import type {
 
 import type { EngineAdapter } from "../engine/adapter.js";
 import { EventPublisher } from "./event-publisher.js";
+import { writeInfoLog } from "./logger.js";
 import { OverviewService } from "./overview-service.js";
 import { StateStore } from "./state-store.js";
+
+const SETUP_OVERVIEW_TIMEOUT_MS = 1_000;
+
+async function withTimeoutFallback<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+  onTimeout?: () => void,
+  onError?: (error: unknown) => void
+): Promise<T> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      onTimeout?.();
+      resolve(fallback);
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        onError?.(error);
+        resolve(fallback);
+      }
+    );
+  });
+}
 
 export class SetupService {
   constructor(
@@ -88,7 +132,35 @@ export class SetupService {
       detail: installResult.message
     });
 
-    const overview = await this.overviewService.getOverview({ includeLocalRuntime: false });
+    const defaultOverview = createDefaultProductOverview();
+    const fallbackOverview = {
+      ...defaultOverview,
+      firstRun: {
+        ...defaultOverview.firstRun,
+        introCompleted: true,
+        setupCompleted: false
+      },
+      engine: installResult.engineStatus
+    };
+    const overview = await withTimeoutFallback(
+      this.overviewService.getOverview({ includeLocalRuntime: false }),
+      SETUP_OVERVIEW_TIMEOUT_MS,
+      fallbackOverview,
+      () => {
+        void writeInfoLog("ChillClaw skipped a slow first-run setup overview refresh.", {
+          timeoutMs: SETUP_OVERVIEW_TIMEOUT_MS
+        }, {
+          scope: "setupService.runFirstRunSetup"
+        });
+      },
+      (error) => {
+        void writeInfoLog("ChillClaw could not refresh first-run setup overview.", {
+          error: error instanceof Error ? error.message : String(error)
+        }, {
+          scope: "setupService.runFirstRunSetup"
+        });
+      }
+    );
     const failedStep = steps.find((step) => step.status === "failed");
 
     return {

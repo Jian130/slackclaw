@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { constants, createReadStream } from "node:fs";
-import { access, chmod, copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { delimiter, dirname, relative, resolve } from "node:path";
 
 import { writeScriptLogLine } from "./logging.mjs";
@@ -47,6 +47,7 @@ const LAUNCH_AGENT_LABEL = "ai.chillclaw.daemon";
 const SCRIPT_LABEL = "ChillClaw installer";
 const PACKAGED_APP_BUILD_WORKSPACES = ["@chillclaw/contracts", "@chillclaw/daemon", "@chillclaw/desktop-ui"];
 const DEFAULT_RUNTIME_UPDATE_FEED_URL = shellDoubleQuotedValue(process.env.CHILLCLAW_RUNTIME_UPDATE_FEED_URL?.trim() ?? "");
+const MAX_NODE_BINARY_BYTES = 100_000_000;
 
 function shellDoubleQuotedValue(value) {
   return value.replace(/["\\$`]/g, "\\$&");
@@ -438,7 +439,9 @@ async function assertPackagedCliRuntimeArtifacts() {
   const openclawBin = resolve(APP_RUNTIME_ARTIFACTS, openclawArtifact.path, "node_modules", ".bin", "openclaw");
   const ollamaPath = resolve(APP_RUNTIME_ARTIFACTS, ollamaArtifact.path);
 
-  await requireExecutablePath(resolve(nodeDir, "bin/node"), "Packaged Node.js runtime node is not executable.");
+  const nodeBin = resolve(nodeDir, "bin/node");
+  await requireExecutablePath(nodeBin, "Packaged Node.js runtime node is not executable.");
+  await assertPackagedNodeRuntimeSize(nodeBin);
   await requireExecutablePath(resolve(nodeDir, "bin/npm"), "Packaged Node.js runtime npm is not executable.");
   await runPackagedRuntimeCommand(
     resolve(nodeDir, "bin", "node"),
@@ -472,6 +475,15 @@ async function assertPackagedCliRuntimeArtifacts() {
     "Packaged Ollama runtime CLI cannot run.",
     packagedRuntimeEnv(nodeDir)
   );
+}
+
+async function assertPackagedNodeRuntimeSize(nodeBin) {
+  const { size } = await stat(nodeBin);
+  if (size >= MAX_NODE_BINARY_BYTES) {
+    throw new Error(
+      `Packaged Node.js runtime node is too large (${size} bytes). Run npm run prepare:runtime-artifacts to rebuild the slim runtime.`
+    );
+  }
 }
 
 async function assertPackagedLocalModelCatalogArtifact() {

@@ -8,7 +8,12 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { createRuntimeManager, resolvePackagedRuntimeManifestForCurrentPlatform } from "./default-runtime-manager.js";
+import {
+  createRuntimeManager,
+  openClawDirectoryNativeCopyCommandForTest,
+  openClawDirectoryCopyOptionsForTest,
+  resolvePackagedRuntimeManifestForCurrentPlatform
+} from "./default-runtime-manager.js";
 import { getManagedNodeDistName } from "../runtime-paths.js";
 import type { RuntimeManifestDocument } from "./types.js";
 
@@ -19,17 +24,17 @@ test("packaged Node runtime manifest resolves to the current Mac architecture", 
         id: "node-npm-runtime",
         kind: "node-npm",
         label: "Node.js and npm runtime",
-        version: "22.22.2",
+        version: "24.15.0",
         platforms: [{ os: "darwin", arch: "*" }],
         sourcePolicy: ["bundled", "download"],
         updatePolicy: "stage-silently-apply-safely",
         installDir: "node-runtime",
-        activePath: "node-runtime/node-v22.22.2-darwin-arm64/bin/npm",
+        activePath: "node-runtime/node-v24.15.0-darwin-arm64/bin/npm",
         artifacts: [
           {
             source: "bundled",
             format: "directory",
-            path: "node/node-v22.22.2-darwin-arm64"
+            path: "node/node-v24.15.0-darwin-arm64"
           }
         ],
         dependencies: []
@@ -43,9 +48,24 @@ test("packaged Node runtime manifest resolves to the current Mac architecture", 
   });
   const node = resolved.resources[0];
 
-  assert.equal(node?.activePath, "node-runtime/node-v22.22.2-darwin-x64/bin/npm");
-  assert.equal(node?.artifacts[0]?.path, "/bundle/node/node-v22.22.2-darwin-x64");
+  assert.equal(node?.activePath, "node-runtime/node-v24.15.0-darwin-x64/bin/npm");
+  assert.equal(node?.artifacts[0]?.path, "/bundle/node/node-v24.15.0-darwin-x64");
   assert.deepEqual(node?.platforms, [{ os: "darwin", arch: "x64" }]);
+});
+
+test("bundled OpenClaw runtime directory copy uses clone-friendly symlink-preserving options", () => {
+  assert.equal(openClawDirectoryCopyOptionsForTest.recursive, true);
+  assert.equal(openClawDirectoryCopyOptionsForTest.force, true);
+  assert.equal(openClawDirectoryCopyOptionsForTest.verbatimSymlinks, true);
+  assert.equal(openClawDirectoryCopyOptionsForTest.mode, constants.COPYFILE_FICLONE);
+});
+
+test("bundled OpenClaw runtime directory copy prefers the macOS native clone command", () => {
+  assert.deepEqual(openClawDirectoryNativeCopyCommandForTest("darwin", "/source/openclaw-runtime", "/target/openclaw-runtime"), {
+    command: "/bin/cp",
+    args: ["-cR", "/source/openclaw-runtime", "/target/openclaw-runtime"]
+  });
+  assert.equal(openClawDirectoryNativeCopyCommandForTest("linux", "/source/openclaw-runtime", "/target/openclaw-runtime"), undefined);
 });
 
 test("managed OpenClaw runtime installs from a bundled directory artifact", async () => {
@@ -286,7 +306,7 @@ test("managed OpenClaw runtime update installs a concrete npm package without wr
     );
     assert.match(
       await readFile(join(dataDir, "openclaw-runtime", "node_modules", "openclaw", "npm-args.txt"), "utf8"),
-      /install\n--prefix\n.+openclaw-runtime\/node_modules\/openclaw\n--omit=dev\n--package-lock=false\n--legacy-peer-deps/u
+      /install\n--prefix\n.+openclaw-runtime\/node_modules\/openclaw\n--omit=dev\n--omit=optional\n--package-lock=false\n--legacy-peer-deps/u
     );
     assert.equal(resolve(dataDir, "openclaw-runtime").startsWith(dataDir), true);
   } finally {

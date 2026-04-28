@@ -80,6 +80,29 @@ test("first-run setup returns a lightweight overview without model-runtime probi
   assert.equal(result.overview.localRuntime?.status, "unchecked");
 });
 
+test("first-run setup returns after install when the follow-up overview hangs", async () => {
+  const filePath = resolve(process.cwd(), `apps/daemon/.data/setup-service-overview-hangs-${randomUUID()}.json`);
+  const adapter = new MockAdapter();
+  const store = new StateStore(filePath);
+  const overviewService = {
+    async getOverview() {
+      return new Promise<ReturnType<typeof createDefaultProductOverview>>(() => undefined);
+    }
+  } as OverviewService;
+  const service = new SetupService(adapter, store, overviewService);
+
+  const result = await Promise.race([
+    service.runFirstRunSetup(),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 1_500))
+  ]);
+
+  assert.notEqual(result, "timeout");
+  const setup = result as Awaited<ReturnType<typeof service.runFirstRunSetup>>;
+  assert.equal(setup.status, "completed");
+  assert.equal(setup.overview.firstRun.setupCompleted, false);
+  assert.equal(setup.overview.engine.installed, true);
+});
+
 test("first-run setup publishes deploy progress and completion events", async () => {
   const filePath = resolve(process.cwd(), `apps/daemon/.data/setup-service-events-${randomUUID()}.json`);
   const adapter = new MockAdapter();

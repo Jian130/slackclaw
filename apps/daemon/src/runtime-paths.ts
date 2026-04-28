@@ -26,7 +26,7 @@ export function getManagedWechatInstallerDir(): string {
 }
 
 export function getManagedNodeVersion(): string {
-  return process.env.CHILLCLAW_MANAGED_NODE_VERSION?.trim() || "22.22.2";
+  return process.env.CHILLCLAW_MANAGED_NODE_VERSION?.trim() || "24.15.0";
 }
 
 export function getManagedNodeDistName(): string {

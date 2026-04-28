@@ -118,6 +118,37 @@ function createService(overrides: Partial<ConstructorParameters<typeof OpenClawR
   });
 }
 
+test("install returns after preparing OpenClaw when post-install status hangs", async () => {
+  const softFailures: string[] = [];
+  const service = createService({
+    ensurePinnedOpenClaw: async () => ({
+      status: "installed",
+      changed: true,
+      hadExisting: false,
+      version: "2026.4.15",
+      message: "OpenClaw runtime was installed."
+    }),
+    collectStatusData: async () => new Promise(() => undefined),
+    logSoftFailure: async (message) => {
+      softFailures.push(message);
+    }
+  });
+
+  const result = await Promise.race([
+    service.install(false, { forceLocal: true }),
+    new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 1_500))
+  ]);
+
+  assert.notEqual(result, "timeout");
+  const install = result as Awaited<ReturnType<typeof service.install>>;
+  assert.equal(install.status, "installed");
+  assert.equal(install.engineStatus.installed, true);
+  assert.equal(install.engineStatus.running, false);
+  assert.equal(install.engineStatus.version, "2026.4.15");
+  assert.equal(softFailures.length, 1);
+  assert.match(softFailures[0], /post-install status/i);
+});
+
 test("finalizeOnboardingSetup returns existing healthy status without restarting", async () => {
   let restarted = false;
   const status = engineStatus();

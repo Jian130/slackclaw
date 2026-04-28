@@ -9,7 +9,7 @@ import type {
 } from "@chillclaw/contracts";
 
 export type RuntimeManifestKind = RuntimeResourceKind | "other";
-export type RuntimeArtifactFormat = "file" | "directory" | "tgz" | "zip" | "json" | "npm-package";
+export type RuntimeArtifactFormat = "file" | "directory" | "tgz" | "txz" | "zip" | "json" | "npm-package";
 
 export interface RuntimePlatformConstraint {
   os?: NodeJS.Platform | "*" | "macos";

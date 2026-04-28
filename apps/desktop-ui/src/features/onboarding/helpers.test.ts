@@ -1630,6 +1630,33 @@ describe("onboarding helpers", () => {
     });
   });
 
+  it("keeps the install step in progress when daemon state has a running install operation", () => {
+    const copy = onboardingCopy("en");
+
+    expect(
+      resolveOnboardingInstallViewState(
+        {
+          busy: false,
+          operation: {
+            operationId: "onboarding:install",
+            action: "onboarding-runtime-install",
+            status: "running",
+            phase: "installing",
+            message: "Installing OpenClaw locally.",
+            startedAt: "2026-04-28T08:22:01.736Z",
+            updatedAt: "2026-04-28T08:22:02.301Z",
+            retryable: true
+          }
+        },
+        copy
+      )
+    ).toMatchObject({
+      kind: "installing",
+      progressPercent: 58,
+      stageLabel: "Installing OpenClaw locally."
+    });
+  });
+
   it("maps managed runtime progress into onboarding install progress", () => {
     const runtimeManager = createDefaultRuntimeManagerOverview({
       checkedAt: "2026-04-13T00:00:00.000Z",

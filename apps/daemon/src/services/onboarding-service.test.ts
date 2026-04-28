@@ -124,6 +124,37 @@ test("installRuntime advances onboarding to model and records resumable operatio
   assert.equal(persisted.onboardingOperations?.install?.status, "completed");
 });
 
+test("installRuntime restarts stale active onboarding operation timing", async () => {
+  const { service, store } = createService("onboarding-service-install-runtime-restarts-active-operation");
+  const oldStartedAt = new Date(Date.now() - 60_000).toISOString();
+  const oldDeadlineAt = new Date(Date.now() + 19 * 60_000).toISOString();
+
+  await store.update((current) => ({
+    ...current,
+    onboardingOperations: {
+      ...(current.onboardingOperations ?? {}),
+      install: {
+        operationId: "onboarding:install",
+        action: "onboarding-runtime-install",
+        status: "running",
+        phase: "installing",
+        message: "Installing OpenClaw locally.",
+        startedAt: oldStartedAt,
+        updatedAt: oldStartedAt,
+        deadlineAt: oldDeadlineAt,
+        retryable: true
+      }
+    }
+  }));
+
+  await service.installRuntime();
+
+  const persisted = await store.read();
+  assert.equal(persisted.onboardingOperations?.install?.status, "completed");
+  assert.notEqual(persisted.onboardingOperations?.install?.startedAt, oldStartedAt);
+  assert.notEqual(persisted.onboardingOperations?.install?.deadlineAt, oldDeadlineAt);
+});
+
 test("installRuntime defaults onboarding installs to the managed local runtime", async () => {
   const { adapter, service } = createService("onboarding-service-install-runtime-managed-local");
   let installOptions: { forceLocal?: boolean } | undefined;

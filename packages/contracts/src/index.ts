@@ -1948,7 +1948,7 @@ function defaultRuntimeResources(checkedAt: string): RuntimeResourceOverview[] {
       status: "missing",
       sourcePolicy: ["bundled", "download"],
       updatePolicy: "stage-silently-apply-safely",
-      desiredVersion: "22.22.2",
+      desiredVersion: "24.15.0",
       updateAvailable: false,
       summary: "Node.js and npm have not been prepared yet.",
       detail: "ChillClaw uses its managed Node.js and npm runtime instead of relying on whatever is on PATH.",

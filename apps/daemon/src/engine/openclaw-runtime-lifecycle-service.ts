@@ -26,6 +26,8 @@ type BootstrapResult = {
   message: string;
 };
 
+const INSTALL_STATUS_TIMEOUT_MS = 1_000;
+
 type AdapterRuntimeState = {
   configuredProfileId?: string;
   installedAt?: string;
@@ -33,6 +35,46 @@ type AdapterRuntimeState = {
   pendingGatewayApply?: boolean;
   pendingGatewayApplySummary?: string;
 };
+
+async function withTimeoutFallback<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+  onTimeout?: () => void,
+  onError?: (error: unknown) => void
+): Promise<T> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      onTimeout?.();
+      resolve(fallback);
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        onError?.(error);
+        resolve(fallback);
+      }
+    );
+  });
+}
 
 type SecurityFinding = {
   checkId?: string;
@@ -173,7 +215,7 @@ export class OpenClawRuntimeLifecycleService {
     });
 
     this.access.invalidateReadCaches();
-    const engineStatus = await this.status();
+    const engineStatus = await this.postInstallStatus(bootstrap, state);
 
     return {
       status: "installed",
@@ -186,6 +228,48 @@ export class OpenClawRuntimeLifecycleService {
       existingVersion: bootstrap.existingVersion,
       actualVersion: bootstrap.version ?? undefined
     };
+  }
+
+  private fallbackPostInstallStatus(bootstrap: BootstrapResult, state: AdapterRuntimeState): EngineStatus {
+    const normalizedState = this.access.normalizeStateFlags(state);
+    const version = bootstrap.version ?? bootstrap.existingVersion ?? undefined;
+    return {
+      engine: "openclaw",
+      installed: bootstrap.status !== "failed",
+      running: false,
+      version,
+      summary: version
+        ? `OpenClaw ${version} is installed. ChillClaw is still checking gateway reachability.`
+        : "OpenClaw is installed. ChillClaw is still checking gateway reachability.",
+      pendingGatewayApply: normalizedState.pendingGatewayApply === true,
+      pendingGatewayApplySummary: normalizedState.pendingGatewayApply
+        ? normalizedState.pendingGatewayApplySummary ?? this.access.summarizePendingGatewayApply()
+        : undefined,
+      lastCheckedAt: new Date().toISOString()
+    };
+  }
+
+  private async postInstallStatus(bootstrap: BootstrapResult, state: AdapterRuntimeState): Promise<EngineStatus> {
+    const fallback = this.fallbackPostInstallStatus(bootstrap, state);
+    return withTimeoutFallback(
+      this.status(),
+      INSTALL_STATUS_TIMEOUT_MS,
+      fallback,
+      () => {
+        void this.access.logSoftFailure("ChillClaw skipped a slow post-install status refresh.", {
+          timeoutMs: INSTALL_STATUS_TIMEOUT_MS,
+          bootstrapStatus: bootstrap.status,
+          version: bootstrap.version ?? bootstrap.existingVersion
+        });
+      },
+      (error) => {
+        void this.access.logSoftFailure("ChillClaw could not refresh post-install status.", {
+          error: error instanceof Error ? error.message : String(error),
+          bootstrapStatus: bootstrap.status,
+          version: bootstrap.version ?? bootstrap.existingVersion
+        });
+      }
+    );
   }
 
   async uninstall(): Promise<EngineActionResponse> {

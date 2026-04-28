@@ -266,6 +266,11 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(workflow, /find "\$APP_PATH\/Contents\/Resources\/app\/runtime-artifacts" -type f -print0/);
   assert.doesNotMatch(workflow, /runtime-artifacts" -type f -perm -111 -print0/);
   assert.match(prepareScript, /Downloaded Node\.js archive npm is not executable/);
+  assert.match(prepareScript, /nodeArchiveExtension/);
+  assert.match(prepareScript, /slimNodeRuntime/);
+  assert.match(prepareScript, /MAX_NODE_BINARY_BYTES/);
+  assert.match(prepareScript, /strip.*-x/s);
+  assert.match(prepareScript, /codesign.*--force.*--sign.*-/s);
   assert.match(prepareScript, /nodejs\.org\/dist/);
   assert.match(prepareScript, /currentNodeDistName/);
   assert.match(prepareScript, /prepareOpenClawRuntime/);
@@ -273,7 +278,7 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(prepareScript, /prepareOpenClawRuntime\(resourceFor\(manifest, "openclaw-runtime"\), nodeRuntime\)/);
   assert.match(prepareScript, /installPackedOpenClawRuntime\(targetDir, packageSpec, nodeRuntime\)/);
   assert.match(prepareScript, /const packageRoot = resolve\(runtimeDir, "node_modules", "openclaw"\)/);
-  assert.match(prepareScript, /run\(nodeRuntime\.npmBin,\s*\[\s*"install",\s*"--omit=dev",\s*"--package-lock=false",\s*"--legacy-peer-deps"\s*\]/);
+  assert.match(prepareScript, /run\(nodeRuntime\.npmBin,\s*\[\s*"install",\s*"--omit=dev",\s*"--omit=optional",\s*"--package-lock=false",\s*"--legacy-peer-deps"\s*\]/);
   assert.match(prepareScript, /cwd: packageRoot/);
   assert.match(prepareScript, /prunePackagedNodeModules\(packageRoot\)/);
   assert.match(prepareScript, /PACKAGED_NODE_MODULES_PRUNE_DIRS/);
@@ -291,12 +296,16 @@ test("macOS installer builder stages runtime artifacts and LaunchAgent runtime e
   assert.match(prepareScript, /Prepared local model catalog/);
   assert.match(prepareScript, /process\.arch === "x64" \? "x64" : "arm64"/);
   assert.match(buildScript, /currentNodeDistName/);
+  assert.match(buildScript, /MAX_NODE_BINARY_BYTES/);
+  assert.match(buildScript, /Packaged Node\.js runtime node is too large/);
   assert.match(buildScript, /resolve\(nodeDir, "bin", "npm"\),\s*\["--version"\]/);
   assert.match(buildScript, /packagedRuntimeEnv\(nodeDir\)/);
   assert.match(buildScript, /npm-cli\.js/);
   assert.match(buildScript, /runPackagedRuntimeCommand\(\s*ollamaPath,\s*\["--version"\]/);
   assert.match(prepareScript, /ollama CLI binary/);
   assert.match(runtimeManifest, /node-npm-runtime/);
+  assert.match(runtimeManifest, /"id": "node-npm-runtime"[\s\S]*?"version": "24\.15\.0"/);
+  assert.match(runtimeManifest, /node-v24\.15\.0-darwin-arm64/);
   assert.match(runtimeManifest, /openclaw-runtime/);
   assert.match(runtimeManifest, /wechat-plugin-openclaw-weixin/);
   assert.match(runtimeManifest, /ollama-runtime/);

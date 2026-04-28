@@ -691,6 +691,7 @@ export class OnboardingService {
       message: string;
       errorCode?: string;
       retryable?: boolean;
+      reuseActiveStart?: boolean;
     }
   ): Promise<LongRunningOperationSummary> {
     const now = new Date().toISOString();
@@ -698,7 +699,8 @@ export class OnboardingService {
     let nextOperation: LongRunningOperationSummary | undefined;
     await this.store.update((current) => {
       const existing = current.onboardingOperations?.[slot];
-      const startedAt = shouldReuseOperationStart(existing, patch.status, nowMs) ? existing!.startedAt : now;
+      const reuseActiveStart = patch.reuseActiveStart ?? true;
+      const startedAt = reuseActiveStart && shouldReuseOperationStart(existing, patch.status, nowMs) ? existing!.startedAt : now;
       nextOperation = {
         operationId: onboardingOperationId(slot),
         action: patch.action,
@@ -729,6 +731,7 @@ export class OnboardingService {
       status: "running",
       phase,
       message,
+      reuseActiveStart: false,
       retryable: true
     });
   }

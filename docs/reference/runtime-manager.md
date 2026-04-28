@@ -85,9 +85,9 @@ Release packaging prepares those payloads with:
 
 `npm run prepare:runtime-artifacts`
 
-That script fills `runtime-artifacts/node/...` with the runnable Node.js distribution, `runtime-artifacts/openclaw/openclaw-runtime` with the pinned installed OpenClaw prefix, and `runtime-artifacts/ollama/ollama` with the runnable Ollama CLI. It rejects installer/UI payloads such as `.app`, `.dmg`, and `.pkg` files.
+That script fills `runtime-artifacts/node/...` with a slim runnable Node.js/npm distribution, `runtime-artifacts/openclaw/openclaw-runtime` with the pinned installed OpenClaw prefix, and `runtime-artifacts/ollama/ollama` with the runnable Ollama CLI. Node is downloaded from the official `.tar.xz` release archive, pruned to the files ChillClaw needs (`bin/node`, `bin/npm`, and npm's CLI tree), stripped on macOS, ad-hoc signed for local smoke checks, and size-checked so `bin/node` stays below GitHub's 100 MB file limit. The script rejects installer/UI payloads such as `.app`, `.dmg`, and `.pkg` files.
 
-On macOS, release signing has one special case: `runtime-artifacts/node/node-v*/bin/node` must be signed with `scripts/macos-node-runtime-entitlements.plist`, which grants V8 JIT/executable-memory entitlements. Signing packaged Node.js with hardened-runtime defaults only can pass local staging but fail first-run onboarding on clean Apple Silicon Macs after the daemon copies the runtime into app data.
+On macOS, release signing has one special case: `runtime-artifacts/node/node-v*/bin/node` must be signed with `scripts/macos-node-runtime-entitlements.plist`, which grants V8 JIT/executable-memory entitlements. The preparation script may ad-hoc sign the stripped binary so local unsigned smoke checks can execute it, but release signing must replace that signature with the hardened runtime entitlements. Signing packaged Node.js with hardened-runtime defaults only can pass local staging but fail first-run onboarding on clean Apple Silicon Macs after the daemon copies the runtime into app data.
 
 ## Lifecycle
 

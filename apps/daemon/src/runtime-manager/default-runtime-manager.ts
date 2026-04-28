@@ -27,7 +27,7 @@ import {
   getRuntimeManifestPath,
   getRuntimeUpdateFeedUrl
 } from "../runtime-paths.js";
-import { logDevelopmentCommand, writeInfoLog } from "../services/logger.js";
+import { errorToLogDetails, logDevelopmentCommand, writeInfoLog } from "../services/logger.js";
 import type { EventPublisher } from "../services/event-publisher.js";
 import type { DownloadManager } from "../download-manager/download-manager.js";
 import { getProductVersion } from "../product-version.js";
@@ -46,6 +46,35 @@ const DEFAULT_OLLAMA_CLI_ARCHIVE_NAME = "ollama-darwin.tgz";
 const PACKAGED_NODE_MODULES_PRUNE_DIRS = new Set([".github", ".husky", ".nyc_output", "__tests__", "coverage", "test", "tests"]);
 const RUNTIME_PROBE_TIMEOUT_MS = 5_000;
 const RUNTIME_PROBE_KILL_TIMEOUT_MS = 1_000;
+const OPENCLAW_DIRECTORY_COPY_OPTIONS = {
+  recursive: true,
+  force: true,
+  verbatimSymlinks: true,
+  mode: constants.COPYFILE_FICLONE
+} as const;
+
+interface OpenClawDirectoryNativeCopyCommand {
+  command: string;
+  args: string[];
+}
+
+export const openClawDirectoryCopyOptionsForTest = OPENCLAW_DIRECTORY_COPY_OPTIONS;
+export const openClawDirectoryNativeCopyCommandForTest = openClawDirectoryNativeCopyCommand;
+
+function openClawDirectoryNativeCopyCommand(
+  platform: NodeJS.Platform,
+  sourceDir: string,
+  nextDir: string
+): OpenClawDirectoryNativeCopyCommand | undefined {
+  if (platform !== "darwin") {
+    return undefined;
+  }
+
+  return {
+    command: "/bin/cp",
+    args: ["-cR", sourceDir, nextDir]
+  };
+}
 
 export function createRuntimeManager(eventPublisher?: EventPublisher, downloadManager?: DownloadManager): RuntimeManager {
   return new RuntimeManager({
@@ -281,7 +310,7 @@ async function writeRuntimeManagerState(state: RuntimeManagerState): Promise<voi
 
 function defaultRuntimeManifest(): RuntimeManifestDocument {
   const bundleDir = getRuntimeBundleDir();
-  const nodeArchiveName = `${getManagedNodeDistName()}.tar.gz`;
+  const nodeArchiveName = `${getManagedNodeDistName()}.tar.xz`;
   const now = new Date().toISOString();
 
   return {
@@ -315,7 +344,7 @@ function defaultRuntimeManifest(): RuntimeManifestDocument {
             : []),
           {
             source: "download",
-            format: "tgz",
+            format: "txz",
             url: `https://nodejs.org/dist/v${getManagedNodeVersion()}/${nodeArchiveName}`
           }
         ],
@@ -586,7 +615,7 @@ async function installOpenClawFromDirectory(manifest: RuntimeResourceManifest, s
     }, {
       scope: "runtimeManager.openclaw.installBundle"
     });
-    await cp(sourceDir, nextDir, { recursive: true, force: true, verbatimSymlinks: true });
+    await copyOpenClawRuntimeDirectory(sourceDir, nextDir);
     if (await pathExists(getManagedOpenClawDir())) {
       await rename(getManagedOpenClawDir(), backupDir);
       backedUpCurrentRuntime = true;
@@ -610,6 +639,37 @@ async function installOpenClawFromDirectory(manifest: RuntimeResourceManifest, s
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
+}
+
+async function copyOpenClawRuntimeDirectory(sourceDir: string, nextDir: string): Promise<void> {
+  const nativeCommand = openClawDirectoryNativeCopyCommand(process.platform, sourceDir, nextDir);
+  if (nativeCommand) {
+    try {
+      const result = await runCommand(nativeCommand.command, nativeCommand.args, {
+        allowFailure: true,
+        env: managedNodeEnv(),
+        beforeSpawn: (command, args) => logDevelopmentCommand("runtimeManager.openclaw.copyBundle", command, args)
+      });
+
+      if (result.code === 0) {
+        return;
+      }
+
+      await writeInfoLog("Native OpenClaw runtime clone copy failed; falling back to Node.js copy.", {
+        code: result.code,
+        stderr: result.stderr,
+        stdout: result.stdout
+      }, {
+        scope: "runtimeManager.openclaw.copyBundle"
+      });
+    } catch (error) {
+      await writeInfoLog("Native OpenClaw runtime clone copy errored; falling back to Node.js copy.", errorToLogDetails(error), {
+        scope: "runtimeManager.openclaw.copyBundle"
+      });
+    }
+  }
+
+  await cp(sourceDir, nextDir, OPENCLAW_DIRECTORY_COPY_OPTIONS);
 }
 
 function openClawNpmPackageSpec(
@@ -733,6 +793,7 @@ async function installPackedOpenClawRuntime(
     "--prefix",
     packageRoot,
     "--omit=dev",
+    "--omit=optional",
     "--package-lock=false",
     "--legacy-peer-deps"
   ];

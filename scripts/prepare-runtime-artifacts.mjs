@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
-import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, readdir, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -19,6 +19,18 @@ const CACHE_DIR = resolve(ROOT, "dist/runtime-artifact-downloads");
 const SCRIPT_LABEL = "ChillClaw runtime artifacts";
 const WECHAT_PLUGIN_PACKAGE = "@tencent-weixin/openclaw-weixin";
 const PACKAGED_NODE_MODULES_PRUNE_DIRS = new Set([".github", ".husky", ".nyc_output", "__tests__", "coverage", "test", "tests"]);
+const MAX_NODE_BINARY_BYTES = 100_000_000;
+const SLIM_NODE_RUNTIME_PRUNE_PATHS = [
+  "CHANGELOG.md",
+  "README.md",
+  "bin/corepack",
+  "bin/npx",
+  "include",
+  "share",
+  "lib/node_modules/corepack",
+  "lib/node_modules/npm/docs",
+  "lib/node_modules/npm/man"
+];
 
 async function main() {
   const manifest = JSON.parse(await readFile(MANIFEST_PATH, "utf8"));
@@ -65,11 +77,14 @@ async function prepareNodeRuntime(resource) {
   bundledArtifact(resource, "directory");
   const runtime = nodeRuntimePaths(resource);
   if (await executable(runtime.nodeBin) && await executable(runtime.npmBin)) {
-    log(`Node.js runtime already prepared at ${runtime.targetDir}.`);
-    return runtime;
+    if (await nodeRuntimeWithinSizeLimit(runtime.nodeBin)) {
+      log(`Node.js runtime already prepared at ${runtime.targetDir}.`);
+      return runtime;
+    }
+    log(`Existing Node.js runtime at ${runtime.targetDir} is too large; rebuilding slim runtime.`);
   }
 
-  const archiveName = `${runtime.distName}.tar.gz`;
+  const archiveName = `${runtime.distName}.${nodeArchiveExtension()}`;
   const baseUrl = `https://nodejs.org/dist/v${resource.version}`;
   const archiveUrl = `${baseUrl}/${archiveName}`;
   const shasumsUrl = `${baseUrl}/SHASUMS256.txt`;
@@ -82,10 +97,14 @@ async function prepareNodeRuntime(resource) {
 
   const tempDir = await mkdtemp(join(tmpdir(), "chillclaw-node-runtime-"));
   try {
-    await run("tar", ["-xzf", archivePath, "-C", tempDir]);
+    await run("tar", ["-xf", archivePath, "-C", tempDir]);
     const extractedDir = join(tempDir, runtime.distName);
     await requireExecutablePath(join(extractedDir, "bin", "node"), "Downloaded Node.js archive node is not executable.");
     await requireExecutablePath(join(extractedDir, "bin", "npm"), "Downloaded Node.js archive npm is not executable.");
+    await slimNodeRuntime(extractedDir);
+    await requireExecutablePath(join(extractedDir, "bin", "node"), "Slimmed Node.js runtime node is not executable.");
+    await requireExecutablePath(join(extractedDir, "bin", "npm"), "Slimmed Node.js runtime npm is not executable.");
+    await assertNodeRuntimeSize(join(extractedDir, "bin", "node"));
     await rm(runtime.targetDir, { recursive: true, force: true });
     await mkdir(dirname(runtime.targetDir), { recursive: true });
     await rename(extractedDir, runtime.targetDir);
@@ -95,6 +114,52 @@ async function prepareNodeRuntime(resource) {
   }
 
   return runtime;
+}
+
+function nodeArchiveExtension() {
+  return "tar.xz";
+}
+
+async function slimNodeRuntime(runtimeDir) {
+  for (const relativePath of SLIM_NODE_RUNTIME_PRUNE_PATHS) {
+    await rm(resolve(runtimeDir, relativePath), { recursive: true, force: true });
+  }
+
+  const nodeBin = resolve(runtimeDir, "bin", "node");
+  await stripNodeRuntimeBinary(nodeBin);
+  await signNodeRuntimeBinaryForLocalUse(nodeBin);
+}
+
+async function stripNodeRuntimeBinary(nodeBin) {
+  if (process.platform !== "darwin") {
+    return;
+  }
+  await run("strip", ["-x", nodeBin]);
+}
+
+async function signNodeRuntimeBinaryForLocalUse(nodeBin) {
+  if (process.platform !== "darwin") {
+    return;
+  }
+  await run("codesign", ["--force", "--sign", "-", nodeBin]);
+}
+
+async function nodeRuntimeWithinSizeLimit(nodeBin) {
+  try {
+    const { size } = await stat(nodeBin);
+    return size < MAX_NODE_BINARY_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+async function assertNodeRuntimeSize(nodeBin) {
+  const { size } = await stat(nodeBin);
+  if (size >= MAX_NODE_BINARY_BYTES) {
+    throw new Error(
+      `Node.js runtime node binary is too large (${size} bytes). ChillClaw requires it below ${MAX_NODE_BINARY_BYTES} bytes.`
+    );
+  }
 }
 
 function nodeRuntimePaths(resource) {
@@ -138,7 +203,7 @@ async function installPackedOpenClawRuntime(targetDir, packageSpec, nodeRuntime)
     await run("tar", ["-xzf", resolve(tempDir, archiveName), "-C", tempDir]);
     await mkdir(dirname(packageRoot), { recursive: true });
     await rename(resolve(tempDir, "package"), packageRoot);
-    await run(nodeRuntime.npmBin, ["install", "--omit=dev", "--package-lock=false", "--legacy-peer-deps"], {
+    await run(nodeRuntime.npmBin, ["install", "--omit=dev", "--omit=optional", "--package-lock=false", "--legacy-peer-deps"], {
       cwd: packageRoot,
       pathPrefix: nodeRuntime.binDir
     });
